@@ -13,7 +13,10 @@ pub(super) struct SwfDictionaryCompiler<'a> {
     pub(super) bitmap_quad_ids: BTreeMap<(String, u32, u32, bool), u16>,
     pub(super) sound_ids: BTreeMap<String, u16>,
     pub(super) sound_durations_44: BTreeMap<String, u64>,
+    pub(super) stream_sounds: BTreeMap<String, PreparedSwfStreamSound>,
     pub(super) font_ids: BTreeMap<(String, bool, bool), u16>,
+    pub(super) font_tables: BTreeMap<(String, bool, bool), SwfFont3Table>,
+    pub(super) font_usage: ProjectFont3Usage,
     pub(super) outline_fonts: SwfOutlineFonts,
     pub(super) shape_characters: HashMap<[u8; 32], u16>,
     pub(super) anonymous_sprites: HashMap<(u16, [u8; 32]), u16>,
@@ -33,9 +36,15 @@ pub(super) fn element_character_key(
     fill: Option<&neoflash_core::AuthoredBitmapFill>,
 ) -> Option<[u8; 32]> {
     let paint = fill.map(|f| (&f.resource_id, f.matrix, f.repeat, f.smoothing));
-    serde_json::to_vec(&(&element.kind, &element.transform.primitive, paint))
-        .ok()
-        .map(|bytes| crate::sha256_bytes(&bytes))
+    let has_inst_name = !element.name.trim().is_empty();
+    serde_json::to_vec(&(
+        &element.kind,
+        &element.transform.primitive,
+        has_inst_name,
+        paint,
+    ))
+    .ok()
+    .map(|bytes| crate::sha256_bytes(&bytes))
 }
 
 pub(super) fn button_scripts_variant_key(scripts: &[ObjectScript]) -> String {
@@ -95,7 +104,10 @@ impl<'a> SwfDictionaryCompiler<'a> {
             bitmap_quad_ids: BTreeMap::new(),
             sound_ids: BTreeMap::new(),
             sound_durations_44: BTreeMap::new(),
+            stream_sounds: BTreeMap::new(),
             font_ids: BTreeMap::new(),
+            font_tables: BTreeMap::new(),
+            font_usage: collect_project_font3_usage(project),
             outline_fonts: SwfOutlineFonts::default(),
             shape_characters: HashMap::new(),
             anonymous_sprites: HashMap::new(),
@@ -161,41 +173,117 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 );
             }
             if used_sounds.contains(&res.id) {
+                let mut needs_event_def = false;
+                let mut needs_stream_def = false;
+                for sym in &self.project.symbols {
+                    for layer in &sym.timeline.layers {
+                        for kf in &layer.keyframes {
+                            if let Some(snd) = &kf.sound
+                                && snd.resource == res.id
+                            {
+                                if snd.sync == SoundSync::Stream {
+                                    needs_stream_def = true;
+                                } else {
+                                    needs_event_def = true;
+                                }
+                            }
+                        }
+                    }
+                }
                 let info = analyze_swf_sound_resource(&res.media_type, &raw).map_err(|issue| {
                     ExportError::Options(format!(
-                        "Frame sound '{}' cannot be encoded as DefineSound: {issue}",
+                        "Frame sound '{}' cannot be encoded as SWF audio: {issue}",
                         res.path
                     ))
                 })?;
-                let duration_44 = u64::from(info.sample_count).saturating_mul(44_100)
-                    / u64::from(info.sample_rate.max(1));
-                let sid = self.alloc_char_id();
-                let payload =
-                    build_define_sound_payload(sid, &res.media_type, &raw).map_err(|issue| {
-                        ExportError::Options(format!(
-                            "Frame sound '{}' cannot be encoded as DefineSound: {issue}",
-                            res.path
-                        ))
-                    })?;
-                self.root_tags.write_tag(14, &payload);
-                self.sound_ids.insert(res.id.clone(), sid);
-                self.sound_durations_44
-                    .insert(res.id.clone(), duration_44.max(1));
+                if needs_stream_def {
+                    let prepared =
+                        prepare_swf_stream_sound(&res.media_type, &raw).map_err(|issue| {
+                            ExportError::Options(format!(
+                                "Stream sound '{}' cannot be encoded as SoundStreamBlock: {issue}",
+                                res.path
+                            ))
+                        })?;
+                    self.stream_sounds.insert(res.id.clone(), prepared);
+                }
+                if needs_event_def || !needs_stream_def {
+                    let duration_44 = u64::from(info.sample_count).saturating_mul(44_100)
+                        / u64::from(info.sample_rate.max(1));
+                    let sid = self.alloc_char_id();
+                    let payload = build_define_sound_payload(sid, &res.media_type, &raw).map_err(
+                        |issue| {
+                            ExportError::Options(format!(
+                                "Frame sound '{}' cannot be encoded as DefineSound: {issue}",
+                                res.path
+                            ))
+                        },
+                    )?;
+                    self.root_tags.write_tag(14, &payload);
+                    self.sound_ids.insert(res.id.clone(), sid);
+                    self.sound_durations_44
+                        .insert(res.id.clone(), duration_44.max(1));
+                }
             }
         }
         Ok(())
     }
 
-    pub(super) fn ensure_font(&mut self, name: &str, bold: bool, italic: bool) -> u16 {
+    pub(super) fn ensure_font_table(
+        &mut self,
+        name: &str,
+        bold: bool,
+        italic: bool,
+    ) -> Result<SwfFont3Table, ExportError> {
         let key = (name.to_owned(), bold, italic);
-        if let Some(&fid) = self.font_ids.get(&key) {
-            return fid;
+        if let Some(tbl) = self.font_tables.get(&key) {
+            return Ok(tbl.clone());
         }
         let fid = self.alloc_char_id();
+        let used_codes = self
+            .font_usage
+            .required_chars
+            .get(&key)
+            .cloned()
+            .unwrap_or_else(|| BTreeSet::from([0x0020]));
+        let req_chars: Vec<char> = used_codes
+            .iter()
+            .filter_map(|&c| char::from_u32(u32::from(c)))
+            .collect();
+        let is_dynamic = self.font_usage.dynamic_faces.contains(&key);
+        if let Ok(sfnt) = resolve_swf_font3_sfnt_bytes(
+            self.project,
+            name,
+            bold,
+            italic,
+            &req_chars,
+            &mut self.outline_fonts,
+        ) && let Ok((table, payload)) = build_define_font3_with_glyphs_payload(
+            fid,
+            name,
+            bold,
+            italic,
+            &sfnt,
+            &used_codes,
+            is_dynamic,
+        ) {
+            self.root_tags.write_tag(75, &payload);
+            self.font_ids.insert(key.clone(), fid);
+            self.font_tables.insert(key, table.clone());
+            return Ok(table);
+        }
         let payload = build_define_font3_payload(fid, name, bold, italic);
         self.root_tags.write_tag(75, &payload);
-        self.font_ids.insert(key, fid);
-        fid
+        let stub = SwfFont3Table {
+            font_id: fid,
+            code_to_glyph: BTreeMap::new(),
+            advances_20480: Vec::new(),
+            ascent_20480: 16384,
+            descent_20480: 4096,
+            leading_20480: 0,
+        };
+        self.font_ids.insert(key.clone(), fid);
+        self.font_tables.insert(key, stub.clone());
+        Ok(stub)
     }
 
     pub(super) fn ensure_timeline_element_character(
@@ -307,12 +395,41 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 word_wrap,
                 multiline,
             } if !self.options.outline_text => {
-                let fid = self.ensure_font(&format.font, format.bold, format.italic);
+                let table = self.ensure_font_table(&format.font, format.bold, format.italic)?;
                 let tid = self.alloc_char_id();
-                let payload = build_define_edit_text_payload(
-                    tid, fid, text, *width, *height, format, *word_wrap, *multiline, 1.0,
-                );
-                self.root_tags.write_tag(37, &payload);
+                let is_dynamic =
+                    !element.name.trim().is_empty() || format.field_options().is_some();
+                if !is_dynamic && table.has_glyphs() && !word_wrap {
+                    let r = ((format.color >> 16) & 0xff) as u8;
+                    let g = ((format.color >> 8) & 0xff) as u8;
+                    let b = (format.color & 0xff) as u8;
+                    let payload = build_define_text2_payload(
+                        tid,
+                        &table,
+                        text,
+                        *width,
+                        *height,
+                        format.size,
+                        [r, g, b, 255],
+                        format.align,
+                        format.leading,
+                    );
+                    self.root_tags.write_tag(33, &payload);
+                } else {
+                    let payload = build_define_edit_text_payload(
+                        tid,
+                        table.font_id,
+                        table.has_glyphs(),
+                        text,
+                        *width,
+                        *height,
+                        format,
+                        *word_wrap,
+                        *multiline,
+                        1.0,
+                    );
+                    self.root_tags.write_tag(37, &payload);
+                }
                 Ok(Some(tid))
             }
             ElementKind::Text {
@@ -321,30 +438,46 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 font_size,
                 color,
             } if !self.options.outline_text => {
-                let fid = self.ensure_font(font_family, false, false);
+                let table = self.ensure_font_table(font_family, false, false)?;
                 let tid = self.alloc_char_id();
-                let fmt = neoflash_core::TextFormat {
-                    font: font_family.clone(),
-                    size: *font_size,
-                    color: (u32::from(color[0]) << 16)
-                        | (u32::from(color[1]) << 8)
-                        | u32::from(color[2]),
-                    ..Default::default()
-                };
                 let w = ((text.chars().count().max(1) as f64) * (*font_size) * 0.65).max(40.0);
                 let h = ((*font_size) * 1.4).max(20.0);
-                let payload = build_define_edit_text_payload(
-                    tid,
-                    fid,
-                    text,
-                    w,
-                    h,
-                    &fmt,
-                    false,
-                    text.contains('\n'),
-                    f64::from(color[3]) / 255.0,
-                );
-                self.root_tags.write_tag(37, &payload);
+                if table.has_glyphs() {
+                    let payload = build_define_text2_payload(
+                        tid,
+                        &table,
+                        text,
+                        w,
+                        h,
+                        *font_size,
+                        *color,
+                        TextAlign::Left,
+                        0.0,
+                    );
+                    self.root_tags.write_tag(33, &payload);
+                } else {
+                    let fmt = neoflash_core::TextFormat {
+                        font: font_family.clone(),
+                        size: *font_size,
+                        color: (u32::from(color[0]) << 16)
+                            | (u32::from(color[1]) << 8)
+                            | u32::from(color[2]),
+                        ..Default::default()
+                    };
+                    let payload = build_define_edit_text_payload(
+                        tid,
+                        table.font_id,
+                        false,
+                        text,
+                        w,
+                        h,
+                        &fmt,
+                        false,
+                        text.contains('\n'),
+                        f64::from(color[3]) / 255.0,
+                    );
+                    self.root_tags.write_tag(37, &payload);
+                }
                 Ok(Some(tid))
             }
             _ => {
@@ -649,13 +782,52 @@ impl<'a> SwfDictionaryCompiler<'a> {
             }
         }
 
+        let stream_plan = plan_timeline_stream_sounds(
+            timeline,
+            total_frames,
+            self.project.fps.clamp(1, 255),
+            &self.stream_sounds,
+        );
+        // Ensure fallback DefineSound entries exist if overlapping Stream sounds fell back to StartSound.
+        for &(l_idx, f_idx) in &stream_plan.fallback_event_frames {
+            if let Some(snd) = timeline
+                .layers
+                .get(l_idx)
+                .and_then(|l| l.keyframes.iter().find(|k| k.frame == f_idx))
+                .and_then(|k| k.sound.as_ref())
+                && !self.sound_ids.contains_key(&snd.resource)
+                && let Some(res) = self.project.resources.iter().find(|r| r.id == snd.resource)
+                && let Ok(raw) = res.decoded_bytes()
+                && let Ok(info) = analyze_swf_sound_resource(&res.media_type, &raw)
+                && let Ok(payload) =
+                    build_define_sound_payload(self.next_char_id as u16, &res.media_type, &raw)
+            {
+                let sid = self.alloc_char_id();
+                let fixed_payload =
+                    build_define_sound_payload(sid, &res.media_type, &raw).unwrap_or(payload);
+                self.root_tags.write_tag(14, &fixed_payload);
+                let duration_44 = u64::from(info.sample_count).saturating_mul(44_100)
+                    / u64::from(info.sample_rate.max(1));
+                self.sound_ids.insert(res.id.clone(), sid);
+                self.sound_durations_44
+                    .insert(res.id.clone(), duration_44.max(1));
+            }
+        }
+
         let mut stream_tags = SwfBitWriter::new();
         let mut active_slots: BTreeMap<u16, SlotPlacement> = BTreeMap::new();
+        let layer_idx_by_id: HashMap<&str, usize> = timeline
+            .layers
+            .iter()
+            .enumerate()
+            .map(|(idx, layer)| (layer.id.as_str(), idx))
+            .collect();
 
         for frame in 0..total_frames {
             let mut next_slots: BTreeMap<u16, SlotPlacement> = BTreeMap::new();
             let mut frame_labels: Vec<(&str, bool)> = Vec::new();
             let mut frame_sounds: Vec<&FrameSound> = Vec::new();
+            let mut max_placed_layer_idx: Option<usize> = None;
 
             for (l_idx, layer) in timeline.layers.iter().enumerate() {
                 let effective_end = layer
@@ -672,7 +844,10 @@ impl<'a> SwfDictionaryCompiler<'a> {
                                     kf.label_type == FrameLabelType::Anchor,
                                 ));
                             }
-                            if let Some(snd) = &kf.sound {
+                            if let Some(snd) = &kf.sound
+                                && (snd.sync != SoundSync::Stream
+                                    || stream_plan.fallback_event_frames.contains(&(l_idx, frame)))
+                            {
                                 frame_sounds.push(snd);
                             }
                         }
@@ -709,6 +884,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
                         .unwrap_or(start_el);
                     let interp_alpha = start_el.transform.alpha
                         + (end_el.transform.alpha - start_el.transform.alpha) * eased_t;
+                    max_placed_layer_idx =
+                        Some(max_placed_layer_idx.map_or(l_idx, |prev| prev.max(l_idx)));
                     next_slots.insert(
                         base_depth,
                         SlotPlacement {
@@ -760,6 +937,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     } else {
                         None
                     };
+                    max_placed_layer_idx =
+                        Some(max_placed_layer_idx.map_or(l_idx, |prev| prev.max(l_idx)));
                     next_slots.insert(
                         depth,
                         SlotPlacement {
@@ -791,6 +970,58 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 stream_tags.write_tag(28, &d.to_le_bytes());
             }
 
+            for &(lbl, is_anchor) in &frame_labels {
+                let mut lw = SwfBitWriter::new();
+                lw.c_string(lbl);
+                if is_anchor && self.options.profile.swf_version() >= 6 {
+                    lw.u8(1);
+                }
+                stream_tags.write_tag(43, &lw.buf);
+            }
+
+            // Pre-placement DoAction: scripts owned by a top Actions layer above all placed art
+            // on this frame (such as SWF frames where DoAction preceded PlaceObject2).
+            if !self.options.profile.is_avm2() && !self.options.scriptless_mode {
+                for fs in &timeline.scripts {
+                    let is_pre_place = fs
+                        .layer
+                        .as_deref()
+                        .and_then(|lid| layer_idx_by_id.get(lid).copied())
+                        .is_some_and(|fs_idx| {
+                            max_placed_layer_idx.is_some_and(|max_placed| fs_idx > max_placed)
+                        });
+                    if is_pre_place
+                        && fs.frame == frame
+                        && matches!(
+                            fs.script.language,
+                            ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+                        )
+                    {
+                        let expanded = expand_swf_includes(
+                            self.project,
+                            fs.script.language,
+                            "",
+                            &fs.script.source,
+                        )
+                        .map_err(|err| {
+                            ExportError::Options(format!(
+                                "Frame {} AVM1 include failed: {err}",
+                                frame + 1
+                            ))
+                        })?;
+                        let actions = compile_avm1_actions(&expanded).map_err(|err| {
+                            ExportError::Options(format!(
+                                "Frame {} AVM1 script failed to compile: {err}",
+                                frame + 1
+                            ))
+                        })?;
+                        if actions.len() > 1 {
+                            stream_tags.write_tag(12, &actions);
+                        }
+                    }
+                }
+            }
+
             // Emit PlaceObject2 / PlaceObject3 for new or changed slots
             for (&depth, slot) in &next_slots {
                 match active_slots.get(&depth) {
@@ -815,15 +1046,11 @@ impl<'a> SwfDictionaryCompiler<'a> {
             }
             active_slots = next_slots;
 
-            // Emit FrameLabel (tag 43), StartSound (tag 15), and DoAction (tag 12) in stream order
-            // AFTER display-list updates for the frame and BEFORE ShowFrame (tag 1).
-            for &(lbl, is_anchor) in &frame_labels {
-                let mut lw = SwfBitWriter::new();
-                lw.c_string(lbl);
-                if is_anchor && self.options.profile.swf_version() >= 6 {
-                    lw.u8(1);
-                }
-                stream_tags.write_tag(43, &lw.buf);
+            if let Some(head_payload) = stream_plan.head_by_frame.get(&frame) {
+                stream_tags.write_tag(45, head_payload); // SoundStreamHead2
+            }
+            if let Some(block_payload) = stream_plan.block_by_frame.get(&frame) {
+                stream_tags.write_tag(19, block_payload); // SoundStreamBlock
             }
 
             for snd in frame_sounds {
@@ -840,7 +1067,15 @@ impl<'a> SwfDictionaryCompiler<'a> {
 
             if !self.options.profile.is_avm2() && !self.options.scriptless_mode {
                 for fs in &timeline.scripts {
-                    if fs.frame == frame
+                    let is_pre_place = fs
+                        .layer
+                        .as_deref()
+                        .and_then(|lid| layer_idx_by_id.get(lid).copied())
+                        .is_some_and(|fs_idx| {
+                            max_placed_layer_idx.is_some_and(|max_placed| fs_idx > max_placed)
+                        });
+                    if !is_pre_place
+                        && fs.frame == frame
                         && matches!(
                             fs.script.language,
                             ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2

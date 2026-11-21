@@ -760,13 +760,21 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
         let mut method_bodies_text: HashMap<String, Vec<String>> = HashMap::new();
         let mut member_blocks: Vec<String> = Vec::new();
 
-        // Static slots/constants
-        for tr in &cls.traits {
-            if let Some(line) = format_slot_trait(abc, tr, true, &mut imports) {
-                member_blocks.push(line);
-            }
-        }
-        // Static initializer (`cinit`) if non-trivial
+        // Static initializer (`cinit`): fold `<slot> = <expr>;` into static slot declarations,
+        // and wrap any remaining side-effecting statements into a valid AS3 static IIFE field.
+        let static_slot_names: BTreeSet<String> = cls
+            .traits
+            .iter()
+            .filter_map(|tr| match tr.data {
+                AbcTraitData::Slot { .. } => {
+                    let (_, n) = abc.split_qname(tr.name);
+                    (!n.is_empty()).then_some(n)
+                }
+                _ => None,
+            })
+            .collect();
+        let mut static_slot_inits: HashMap<String, String> = HashMap::new();
+        let mut remaining_cinit_lines: Vec<String> = Vec::new();
         if let Some(body) = abc.bodies_by_method.get(&cls.cinit) {
             visited_methods.insert(cls.cinit);
             let mut cinit_calls = Vec::new();
@@ -783,21 +791,49 @@ fn reconstruct_classes(abc: &AbcFile) -> DecompiledAbcBundle {
                 &mut visited_methods,
                 0,
             );
-            if !cinit_lines.is_empty() {
-                let mut block = String::from("        {\n");
-                for l in cinit_lines {
-                    block.push_str("            ");
-                    block.push_str(&l);
-                    block.push('\n');
+            for line in cinit_lines {
+                let trimmed = line.trim();
+                if let Some(without_semi) = trimmed.strip_suffix(';')
+                    && let Some((lhs_raw, rhs_raw)) = without_semi.split_once(" = ")
+                {
+                    let lhs = lhs_raw
+                        .trim()
+                        .strip_prefix("this.")
+                        .or_else(|| lhs_raw.trim().strip_prefix(&format!("{class_name}.")))
+                        .unwrap_or_else(|| lhs_raw.trim());
+                    if static_slot_names.contains(lhs) && !static_slot_inits.contains_key(lhs) {
+                        static_slot_inits.insert(lhs.to_owned(), rhs_raw.trim().to_owned());
+                        continue;
+                    }
                 }
-                block.push_str("        }");
-                member_blocks.push(block);
+                remaining_cinit_lines.push(line);
             }
+        }
+
+        // Static slots/constants
+        for tr in &cls.traits {
+            let (_, tname) = abc.split_qname(tr.name);
+            let cinit_init = static_slot_inits.get(&tname).map(String::as_str);
+            if let Some(line) = format_slot_trait(abc, tr, true, cinit_init, &mut imports) {
+                member_blocks.push(line);
+            }
+        }
+        if !remaining_cinit_lines.is_empty() {
+            let mut block = String::from(
+                "        private static var __nf_cinit:Boolean = (function():Boolean {\n",
+            );
+            for l in remaining_cinit_lines {
+                block.push_str("            ");
+                block.push_str(&l);
+                block.push('\n');
+            }
+            block.push_str("            return true;\n        })();");
+            member_blocks.push(block);
         }
 
         // Instance slots/constants
         for tr in &inst.traits {
-            if let Some(line) = format_slot_trait(abc, tr, false, &mut imports) {
+            if let Some(line) = format_slot_trait(abc, tr, false, None, &mut imports) {
                 member_blocks.push(line);
             }
         }
@@ -1041,6 +1077,7 @@ fn format_slot_trait(
     abc: &AbcFile,
     tr: &AbcTrait,
     is_static: bool,
+    cinit_init: Option<&str>,
     imports: &mut BTreeSet<String>,
 ) -> Option<String> {
     let AbcTraitData::Slot {
@@ -1061,7 +1098,9 @@ fn format_slot_trait(
     let static_kw = if is_static { "static " } else { "" };
     let decl_kw = if is_const { "const" } else { "var" };
     let ty = abc.short_type_name(type_name, imports);
-    let init = if vindex != 0 {
+    let init = if let Some(expr) = cinit_init {
+        format!(" = {expr}")
+    } else if vindex != 0 || vkind != 0 {
         format!(" = {}", abc.constant_value(vindex, vkind))
     } else {
         String::new()

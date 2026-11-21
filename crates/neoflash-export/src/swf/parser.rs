@@ -987,7 +987,19 @@ impl SwfParser {
                     let mut events = Vec::new();
                     loop {
                         let ev = self.expect_ident()?;
-                        events.push(ev);
+                        if ev == "keyPress" {
+                            if let Some(SwfToken::Str(k)) = self.peek().cloned() {
+                                self.pos += 1;
+                                events.push(format!("keyPress \"{k}\""));
+                            } else {
+                                return Err(
+                                    "expected string literal after 'keyPress' in event handler"
+                                        .to_owned(),
+                                );
+                            }
+                        } else {
+                            events.push(ev);
+                        }
                         if !self.eat(&SwfToken::Comma) {
                             break;
                         }

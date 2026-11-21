@@ -2,21 +2,22 @@
 //! for `Loader.load` / `Loader.loadBytes` in HTML5/WASM.
 
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FilterSpec, FrameScript,
-    GradientKind, GradientPaint, GradientSpread, GradientStop, Keyframe, Layer, LayerProperties,
-    PathCommand, Project, ResourceUnit, Script, ScriptLanguage, Symbol, SymbolKind, Timeline,
-    Transform,
+    BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FrameScript, GradientKind,
+    GradientPaint, GradientSpread, GradientStop, Keyframe, Layer, LayerProperties, PathCommand,
+    Project, ResourceUnit, Script, ScriptLanguage, Symbol, SymbolKind, Timeline, Transform,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use wasm_bindgen::prelude::*;
 
+mod tags_extra;
 #[cfg(test)]
 mod tests;
 mod timeline;
 mod vm;
 
+use self::tags_extra::{SwfMorphRecord, decode_button_tag, decode_morph_shape_tag};
 use self::timeline::{
     build_timeline_from_tags, decode_edit_text_tag, decode_export_assets_tag, decode_font_name_tag,
     decode_font_tag, decode_sprite_tag, decode_static_text_tag, decode_symbol_class_tag,
@@ -275,7 +276,7 @@ struct SwfLineStyle {
 }
 
 #[derive(Clone, Copy)]
-enum DirectedSeg {
+pub(super) enum DirectedSeg {
     Line {
         x0: i32,
         y0: i32,
@@ -333,22 +334,11 @@ impl DirectedSeg {
 }
 
 #[derive(Clone)]
-struct SwfFontRecord {
-    name: String,
-    codes: Vec<u16>,
-}
-
-#[derive(Clone)]
-struct ActivePlacement {
-    char_id: u16,
-    matrix: [f64; 6],
-    cxform: ColorTransform,
-    name: String,
-    clip_depth: u16,
-    visible: bool,
-    cache_as_bitmap: bool,
-    blend_mode: BlendMode,
-    filters: Vec<FilterSpec>,
+pub(super) struct SwfFontRecord {
+    pub(super) name: String,
+    pub(super) codes: Vec<u16>,
+    pub(super) glyph_shapes: Vec<Vec<DirectedSeg>>,
+    pub(super) em_units: f64,
 }
 
 pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
@@ -408,6 +398,7 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
     let mount_seq = SWF_MOUNT_COUNTER.fetch_add(1, Ordering::Relaxed);
     let mut ctx = SwfDecodeCtx {
         mount_seq,
+        swf_version: bytes[3],
         action_script_version: if swf_version >= 9 { 3 } else { 2 },
         saw_file_attributes: false,
         saw_do_action: false,
@@ -418,6 +409,11 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         char_symbols: HashMap::new(),
         char_edit_texts: HashMap::new(),
         char_bitmaps: HashMap::new(),
+        char_morphs: HashMap::new(),
+        morph_ratio_symbols: HashMap::new(),
+        char_button_scripts: HashMap::new(),
+        char_button_records: HashMap::new(),
+        char_sprite_frame0_children: HashMap::new(),
         fonts: HashMap::new(),
         symbol_classes: HashMap::new(),
         export_assets: HashMap::new(),
@@ -452,6 +448,12 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
                     _ => 4,
                 };
                 let _ = decode_shape_tag(&mut ctx, tag_bytes, shape_ver);
+            }
+            46 | 84 => {
+                let _ = decode_morph_shape_tag(&mut ctx, tag_bytes, tag_code == 84);
+            }
+            7 | 34 => {
+                let _ = decode_button_tag(&mut ctx, tag_bytes, tag_code == 34);
             }
             20 | 36 => {
                 let _ = decode_lossless_bitmap_tag(&mut ctx, tag_bytes, tag_code == 36);
@@ -523,9 +525,11 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         }
     }
 
-    if !ctx.abc_blocks.is_empty() || !ctx.symbol_classes.is_empty() {
-        apply_abc_scripts(&mut ctx, &mut root_timeline);
-    }
+    let root_doc_class = if !ctx.abc_blocks.is_empty() || !ctx.symbol_classes.is_empty() {
+        apply_abc_scripts(&mut ctx, &mut root_timeline)
+    } else {
+        None
+    };
 
     let root_id = format!("swf-{mount_seq}-root");
     let frame_count = root_timeline.frame_count.max(1);
@@ -537,7 +541,7 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
             folder: String::new(),
             kind: SymbolKind::MovieClip,
             timeline: root_timeline,
-            class_name: None,
+            class_name: root_doc_class,
             linkage_id: None,
         },
     );
@@ -582,42 +586,34 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
     })
 }
 
-impl PartialEq for ActivePlacement {
-    fn eq(&self, other: &Self) -> bool {
-        self.char_id == other.char_id
-            && self.matrix == other.matrix
-            && self.cxform == other.cxform
-            && self.name == other.name
-            && self.clip_depth == other.clip_depth
-            && self.visible == other.visible
-            && self.cache_as_bitmap == other.cache_as_bitmap
-            && self.blend_mode == other.blend_mode
-            && self.filters == other.filters
-    }
-}
-
-struct SwfDecodeCtx {
-    mount_seq: u64,
-    action_script_version: u32,
-    saw_file_attributes: bool,
-    saw_do_action: bool,
-    saw_do_abc: bool,
-    bg_color: Option<u32>,
-    resources: Vec<ResourceUnit>,
-    symbols: Vec<Symbol>,
-    char_symbols: HashMap<u16, String>,
-    char_edit_texts: HashMap<u16, (ElementKind, f64, f64)>,
-    char_bitmaps: HashMap<u16, (String, u32, u32)>,
-    fonts: HashMap<u16, SwfFontRecord>,
-    symbol_classes: HashMap<u16, String>,
-    export_assets: HashMap<u16, String>,
-    scripts: Vec<CompiledSwfScriptUnit>,
-    abc_blocks: Vec<AbcFile>,
-    init_actions: Vec<String>,
-    total_keyframes: usize,
-    total_placements: usize,
-    warnings: Vec<String>,
-    warning_set: HashSet<String>,
+pub(super) struct SwfDecodeCtx {
+    pub(super) mount_seq: u64,
+    pub(super) swf_version: u8,
+    pub(super) action_script_version: u32,
+    pub(super) saw_file_attributes: bool,
+    pub(super) saw_do_action: bool,
+    pub(super) saw_do_abc: bool,
+    pub(super) bg_color: Option<u32>,
+    pub(super) resources: Vec<ResourceUnit>,
+    pub(super) symbols: Vec<Symbol>,
+    pub(super) char_symbols: HashMap<u16, String>,
+    pub(super) char_edit_texts: HashMap<u16, (ElementKind, f64, f64, f64)>,
+    pub(super) char_bitmaps: HashMap<u16, (String, u32, u32)>,
+    pub(super) char_morphs: HashMap<u16, SwfMorphRecord>,
+    pub(super) morph_ratio_symbols: HashMap<(u16, u16), String>,
+    pub(super) char_button_scripts: HashMap<u16, String>,
+    pub(super) char_button_records: HashMap<u16, Vec<(u8, u16)>>,
+    pub(super) char_sprite_frame0_children: HashMap<u16, Vec<(u16, String)>>,
+    pub(super) fonts: HashMap<u16, SwfFontRecord>,
+    pub(super) symbol_classes: HashMap<u16, String>,
+    pub(super) export_assets: HashMap<u16, String>,
+    pub(super) scripts: Vec<CompiledSwfScriptUnit>,
+    pub(super) abc_blocks: Vec<AbcFile>,
+    pub(super) init_actions: Vec<String>,
+    pub(super) total_keyframes: usize,
+    pub(super) total_placements: usize,
+    pub(super) warnings: Vec<String>,
+    pub(super) warning_set: HashSet<String>,
 }
 
 impl SwfDecodeCtx {

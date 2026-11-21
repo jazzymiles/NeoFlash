@@ -5,6 +5,17 @@ impl SwfBytecodePlayer {
         match val {
             Avm1Value::MovieClipIdentity(id) => id.clone(),
             Avm1Value::MovieClip(mc) => self.canonical_movie_target(mc),
+            Avm1Value::Object(oid) => {
+                if let Some(Avm1Value::MovieClipIdentity(id)) = self
+                    .avm1_objects
+                    .get(*oid)
+                    .and_then(|o| o.props.get("__display_target__"))
+                {
+                    return id.clone();
+                }
+                let s = val.to_trace_string(self.swf_version, &self.avm1_objects);
+                self.canonical_movie_target(&s)
+            }
             _ => {
                 let s = val.to_trace_string(self.swf_version, &self.avm1_objects);
                 self.canonical_movie_target(&s)
@@ -125,6 +136,8 @@ impl SwfBytecodePlayer {
             props: HashMap::new(),
             clip_handlers: Vec::new(),
             graphics: RuntimeGraphicsState::default(),
+            placed_this_step: false,
+            avm2_object_id: None,
         };
         let seg = format!("depth{swf_depth}");
         let mut unload_work = None;
@@ -202,6 +215,8 @@ impl SwfBytecodePlayer {
             props: HashMap::new(),
             clip_handlers: Vec::new(),
             graphics: RuntimeGraphicsState::default(),
+            placed_this_step: false,
+            avm2_object_id: None,
         };
         let seg = format!("depth{swf_depth}");
         let new_id = if parent_target == "_root" || parent_target.is_empty() {
@@ -337,6 +352,8 @@ impl SwfBytecodePlayer {
             props: HashMap::new(),
             clip_handlers: src_slot.clip_handlers.clone(),
             graphics: src_slot.graphics.clone(),
+            placed_this_step: false,
+            avm2_object_id: None,
         };
         let seg = format!("depth{swf_depth}");
         let new_id = if parent_target == "_root" {
@@ -1354,6 +1371,24 @@ impl SwfBytecodePlayer {
                 }
                 Avm1Value::Undefined
             }
+            "beginFill"
+            | "endFill"
+            | "lineStyle"
+            | "moveTo"
+            | "lineTo"
+            | "curveTo"
+            | "clear"
+            | "drawRect"
+            | "drawCircle"
+            | "drawEllipse"
+            | "getNextHighestDepth" => self.call_avm1_method(
+                &Avm1Value::MovieClipIdentity(target),
+                fn_name,
+                args,
+                caller_locals,
+                steps,
+                depth,
+            ),
             _ => Avm1Value::Undefined,
         }
     }
@@ -1595,6 +1630,112 @@ impl SwfBytecodePlayer {
                                 return Avm1Value::Object(out_id);
                             }
                         }
+                        "splice" => {
+                            if let Some(elems) = self
+                                .avm1_objects
+                                .get_mut(*id)
+                                .and_then(|o| o.array_elements.as_mut())
+                            {
+                                let len = elems.len() as i32;
+                                let mut s = args.first().map_or(0, Avm1Value::to_i32);
+                                if s < 0 {
+                                    s = (len + s).max(0);
+                                }
+                                let su = (s.clamp(0, len)) as usize;
+                                let del_count =
+                                    args.get(1)
+                                        .map_or(len - su as i32, Avm1Value::to_i32)
+                                        .max(0) as usize;
+                                let eu = (su.saturating_add(del_count)).min(elems.len());
+                                let insert_items: Vec<Avm1Value> = args
+                                    .into_iter()
+                                    .skip(2)
+                                    .take(
+                                        4096usize
+                                            .saturating_sub(elems.len().saturating_sub(eu - su)),
+                                    )
+                                    .collect();
+                                let removed: Vec<Avm1Value> =
+                                    elems.splice(su..eu, insert_items).collect();
+                                let out_id = self.avm1_objects.len();
+                                self.avm1_objects.push(Avm1Object {
+                                    array_elements: Some(removed),
+                                    ..Default::default()
+                                });
+                                return Avm1Value::Object(out_id);
+                            }
+                        }
+                        "concat" => {
+                            if let Some(mut out) = self
+                                .avm1_objects
+                                .get(*id)
+                                .and_then(|o| o.array_elements.clone())
+                            {
+                                for arg in args {
+                                    if let Avm1Value::Object(aid) = &arg
+                                        && let Some(sub) = self
+                                            .avm1_objects
+                                            .get(*aid)
+                                            .and_then(|o| o.array_elements.clone())
+                                    {
+                                        for item in sub {
+                                            if out.len() < 4096 {
+                                                out.push(item);
+                                            }
+                                        }
+                                    } else if out.len() < 4096 {
+                                        out.push(arg);
+                                    }
+                                }
+                                let out_id = self.avm1_objects.len();
+                                self.avm1_objects.push(Avm1Object {
+                                    array_elements: Some(out),
+                                    ..Default::default()
+                                });
+                                return Avm1Value::Object(out_id);
+                            }
+                        }
+                        "indexOf" | "lastIndexOf" => {
+                            if let Some((elems, deleted)) =
+                                self.avm1_objects.get(*id).and_then(|o| {
+                                    Some((o.array_elements.clone()?, o.deleted_indices.clone()))
+                                })
+                            {
+                                let needle = args.first().cloned().unwrap_or(Avm1Value::Undefined);
+                                let len = elems.len() as i32;
+                                if method_name == "indexOf" {
+                                    let mut from = args.get(1).map_or(0, Avm1Value::to_i32);
+                                    if from < 0 {
+                                        from = (len + from).max(0);
+                                    }
+                                    for (idx, elem) in
+                                        elems.iter().enumerate().skip(from.max(0) as usize)
+                                    {
+                                        if !deleted.contains(&idx)
+                                            && self.avm2_strict_equals(elem, &needle)
+                                        {
+                                            return Avm1Value::Number(idx as f64);
+                                        }
+                                    }
+                                } else {
+                                    let mut from = args.get(1).map_or(len - 1, Avm1Value::to_i32);
+                                    if from < 0 {
+                                        from += len;
+                                    }
+                                    from = from.min(len - 1);
+                                    if from >= 0 {
+                                        for idx in (0..=(from as usize)).rev() {
+                                            if !deleted.contains(&idx)
+                                                && self.avm2_strict_equals(&elems[idx], &needle)
+                                            {
+                                                return Avm1Value::Number(idx as f64);
+                                            }
+                                        }
+                                    }
+                                }
+                                return Avm1Value::Number(-1.0);
+                            }
+                        }
                         "join" | "toString" => {
                             let sep = if method_name == "join" {
                                 args.first().map_or_else(
@@ -1663,7 +1804,7 @@ impl SwfBytecodePlayer {
                         _ => return Avm1Value::Bool(false),
                     }
                 }
-                if mc == "Math" {
+                if mc == "Math" || mc == "__avm2_type:Math" {
                     let a = args.first().map_or(f64::NAN, Avm1Value::to_number);
                     let b = args.get(1).map_or(f64::NAN, Avm1Value::to_number);
                     return match method_name {
@@ -1685,16 +1826,36 @@ impl SwfBytecodePlayer {
                         "atan" => Avm1Value::Number(a.atan()),
                         "exp" => Avm1Value::Number(a.exp()),
                         "log" => Avm1Value::Number(a.ln()),
-                        "min" => Avm1Value::Number(if a.is_nan() || b.is_nan() {
-                            f64::NAN
-                        } else {
-                            a.min(b)
-                        }),
-                        "max" => Avm1Value::Number(if a.is_nan() || b.is_nan() {
-                            f64::NAN
-                        } else {
-                            a.max(b)
-                        }),
+                        "min" => {
+                            if args.is_empty() {
+                                Avm1Value::Number(f64::INFINITY)
+                            } else {
+                                let mut acc = f64::INFINITY;
+                                for v in &args {
+                                    let n = v.to_number();
+                                    if n.is_nan() {
+                                        return Avm1Value::Number(f64::NAN);
+                                    }
+                                    acc = acc.min(n);
+                                }
+                                Avm1Value::Number(acc)
+                            }
+                        }
+                        "max" => {
+                            if args.is_empty() {
+                                Avm1Value::Number(f64::NEG_INFINITY)
+                            } else {
+                                let mut acc = f64::NEG_INFINITY;
+                                for v in &args {
+                                    let n = v.to_number();
+                                    if n.is_nan() {
+                                        return Avm1Value::Number(f64::NAN);
+                                    }
+                                    acc = acc.max(n);
+                                }
+                                Avm1Value::Number(acc)
+                            }
+                        }
                         "pow" => Avm1Value::Number(a.powf(b)),
                         "random" => {
                             self.rng_state = self
@@ -1706,7 +1867,9 @@ impl SwfBytecodePlayer {
                         _ => Avm1Value::Undefined,
                     };
                 }
-                if mc == "__builtin_String" && method_name == "fromCharCode" {
+                if (mc == "__builtin_String" || mc == "__avm2_type:String" || mc == "String")
+                    && method_name == "fromCharCode"
+                {
                     let s: String = args
                         .iter()
                         .filter_map(|v| char::from_u32(v.to_u32() & 0xFFFF))
@@ -1767,6 +1930,47 @@ impl SwfBytecodePlayer {
                     };
                     Avm1Value::Number(found.map_or(-1.0, |i| i as f64))
                 }
+                "lastIndexOf" => {
+                    let needle = args.first().map_or_else(String::new, |v| {
+                        v.to_trace_string(self.swf_version, &self.avm1_objects)
+                    });
+                    let chars: Vec<char> = s.chars().collect();
+                    let nchars: Vec<char> = needle.chars().collect();
+                    let max_start = if nchars.is_empty() {
+                        chars.len() as i32
+                    } else {
+                        chars.len() as i32 - nchars.len() as i32
+                    };
+                    if max_start < 0 {
+                        Avm1Value::Number(-1.0)
+                    } else {
+                        let pos = args
+                            .get(1)
+                            .map_or(max_start, |v| {
+                                let n = v.to_number();
+                                if n.is_nan() { max_start } else { v.to_i32() }
+                            })
+                            .min(max_start);
+                        if pos < 0 {
+                            Avm1Value::Number(-1.0)
+                        } else if nchars.is_empty() {
+                            Avm1Value::Number(f64::from(pos))
+                        } else {
+                            let found = (0..=(pos as usize))
+                                .rev()
+                                .find(|&i| chars[i..i + nchars.len()] == nchars[..]);
+                            Avm1Value::Number(found.map_or(-1.0, |i| i as f64))
+                        }
+                    }
+                }
+                "concat" => {
+                    let mut out = s.clone();
+                    for a in args {
+                        out.push_str(&a.to_trace_string(self.swf_version, &self.avm1_objects));
+                    }
+                    Avm1Value::String(out)
+                }
+                "toString" | "valueOf" => Avm1Value::String(s.clone()),
                 "substr" => {
                     let chars: Vec<char> = s.chars().collect();
                     let len = chars.len() as i32;
@@ -1915,7 +2119,16 @@ impl SwfBytecodePlayer {
 
         if matches!(
             method_name,
-            "beginFill" | "endFill" | "lineStyle" | "moveTo" | "lineTo" | "curveTo" | "clear"
+            "beginFill"
+                | "endFill"
+                | "lineStyle"
+                | "moveTo"
+                | "lineTo"
+                | "curveTo"
+                | "clear"
+                | "drawRect"
+                | "drawCircle"
+                | "drawEllipse"
         ) {
             let rgb = args.first().map_or(0, Avm1Value::to_u32) & 0x00FF_FFFF;
             let a1 = args.get(1).map_or(100.0, Avm1Value::to_number);
@@ -1941,6 +2154,12 @@ impl SwfBytecodePlayer {
                     "moveTo" => gfx.move_to(x0, y0),
                     "lineTo" => gfx.line_to(x0, y0),
                     "curveTo" => gfx.curve_to(x0, y0, x1, y1),
+                    "drawRect" => gfx.draw_rect(x0, y0, x1, y1),
+                    "drawCircle" => {
+                        let r = x1.abs();
+                        gfx.draw_ellipse(x0 - r, y0 - r, r * 2.0, r * 2.0);
+                    }
+                    "drawEllipse" => gfx.draw_ellipse(x0, y0, x1, y1),
                     "clear" => gfx.clear(),
                     _ => {}
                 }

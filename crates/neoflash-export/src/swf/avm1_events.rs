@@ -6,6 +6,23 @@ pub(super) fn button_mouse_cond_mask(events: &[String]) -> Result<(u8, u8), Stri
     let mut b0 = 0u8;
     let mut b1 = 0u8;
     for ev in events {
+        if let Some(rest) = ev.strip_prefix("keyPress") {
+            let quoted = rest
+                .trim()
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .ok_or_else(|| format!("Invalid button keyPress handler 'on({ev})'"))?;
+            let kc = parse_clip_event_key_code(quoted)
+                .ok_or_else(|| format!("Unsupported button keyPress key '{quoted}'"))?;
+            if (b1 & 0xFE) != 0 {
+                return Err(
+                    "DefineButton2 BUTTONCONDACTION supports at most one keyPress key per handler"
+                        .to_owned(),
+                );
+            }
+            b1 |= (kc & 0x7F) << 1;
+            continue;
+        }
         match ev.as_str() {
             "release" => b0 |= 0x08,        // OverDownToOverUp
             "press" => b0 |= 0x04,          // OverUpToOverDown
@@ -24,7 +41,6 @@ pub(super) fn button_mouse_cond_mask(events: &[String]) -> Result<(u8, u8), Stri
     if b0 == 0 && b1 == 0 {
         b0 = 0x08;
     }
-    let _ = &mut b1;
     Ok((b0, b1))
 }
 
@@ -85,33 +101,39 @@ pub(super) fn encode_button2_cond_actions(
         }
         let expanded = expand_swf_includes(project, os.script.language, "", &os.script.source)?;
         let stmts = parse_swf_statements_strict(&expanded, false)?;
-        let mut handler_mask: Option<(u8, u8)> = None;
-        for stmt in &stmts {
+        let mut top_stmts: Vec<SwfStmt> = Vec::new();
+        for stmt in stmts {
             if let SwfStmt::EventHandler {
                 is_clip_event,
                 events,
-                ..
+                body,
             } = stmt
             {
-                if *is_clip_event {
+                if is_clip_event {
                     return Err(
-                        "Button instances only support 'on(...)' mouse handlers, not 'onClipEvent(...)'"
+                        "Button instances only support 'on(...)' mouse/key handlers, not 'onClipEvent(...)'"
                             .to_owned(),
                     );
                 }
-                let mask = button_mouse_cond_mask(events)?;
-                handler_mask = Some(match handler_mask {
-                    Some((mb0, mb1)) => (mb0 | mask.0, mb1 | mask.1),
-                    None => mask,
-                });
+                let (b0, b1) = button_mouse_cond_mask(&events)?;
+                let mut h_bytes = Vec::new();
+                avm1_compile_stmt_list(&mut h_bytes, &body, false, &HashMap::new())?;
+                h_bytes.push(0x00);
+                if h_bytes.len() > 1 {
+                    valid.push((b0, b1, h_bytes));
+                }
+            } else {
+                top_stmts.push(stmt);
             }
         }
-        let actions = compile_avm1_actions_mode(&expanded, true)?;
-        if actions.len() <= 1 {
-            continue;
+        if !top_stmts.is_empty() {
+            let mut t_bytes = Vec::new();
+            avm1_compile_stmt_list(&mut t_bytes, &top_stmts, false, &HashMap::new())?;
+            t_bytes.push(0x00);
+            if t_bytes.len() > 1 {
+                valid.push((0x08, 0x00, t_bytes));
+            }
         }
-        let (b0, b1) = handler_mask.unwrap_or((0x08, 0x00));
-        valid.push((b0, b1, actions));
     }
     let mut out = Vec::new();
     let count = valid.len();
@@ -242,6 +264,71 @@ pub(super) fn parse_clip_event_header_override(source: &str) -> Option<(u32, Opt
     (flags != 0).then_some((flags, key_code))
 }
 
+fn clip_event_handler_flags(
+    is_clip_event: bool,
+    events: &[String],
+) -> Result<(u32, Option<u8>), String> {
+    let mut flags = 0u32;
+    let mut key_code = None;
+    for ev in events {
+        if let Some(rest) = ev.strip_prefix("keyPress") {
+            if key_code.is_some() {
+                return Err(
+                    "CLIPACTIONRECORD supports at most one keyPress key per handler".to_owned(),
+                );
+            }
+            let quoted = rest
+                .trim()
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .ok_or_else(|| format!("Invalid keyPress event '{ev}'"))?;
+            let kc = parse_clip_event_key_code(quoted)
+                .ok_or_else(|| format!("Unsupported keyPress key '{quoted}'"))?;
+            flags |= 0x0002_0000;
+            key_code = Some(kc);
+            continue;
+        }
+        let bit = if is_clip_event {
+            match ev.as_str() {
+                "load" | "LOAD" => 0x0000_0001,
+                "enterFrame" | "ENTERFRAME" => 0x0000_0002,
+                "unload" | "UNLOAD" => 0x0000_0004,
+                "mouseMove" | "MOUSEMOVE" => 0x0000_0008,
+                "mouseDown" | "MOUSEDOWN" => 0x0000_0010,
+                "mouseUp" | "MOUSEUP" => 0x0000_0020,
+                "keyDown" | "KEYDOWN" => 0x0000_0040,
+                "keyUp" | "KEYUP" => 0x0000_0080,
+                "data" | "DATA" => 0x0000_0100,
+                "initialize" | "INITIALIZE" => 0x0000_0200,
+                "construct" | "CONSTRUCT" => 0x0004_0000,
+                other => {
+                    return Err(format!(
+                        "Unsupported MovieClip event 'onClipEvent({other})'"
+                    ));
+                }
+            }
+        } else {
+            match ev.as_str() {
+                "press" => 0x0000_0400,
+                "release" => 0x0000_0800,
+                "releaseOutside" => 0x0000_1000,
+                "rollOver" => 0x0000_2000,
+                "rollOut" => 0x0000_4000,
+                "dragOver" => 0x0000_8000,
+                "dragOut" => 0x0001_0000,
+                other => {
+                    return Err(format!("Unsupported MovieClip button event 'on({other})'"));
+                }
+            }
+        };
+        flags |= bit;
+    }
+    if flags == 0 {
+        return Err("Empty MovieClip event handler list".to_owned());
+    }
+    Ok((flags, key_code))
+}
+
 pub(super) fn encode_clip_actions(
     project: &Project,
     scripts: &[ObjectScript],
@@ -256,22 +343,49 @@ pub(super) fn encode_clip_actions(
             continue;
         }
         let expanded = expand_swf_includes(project, os.script.language, "", &os.script.source)?;
-        let actions = compile_avm1_actions_mode(&expanded, true)?;
-        if actions.len() <= 1 {
+        if let Some((flag, key)) = parse_clip_event_header_override(&os.script.source) {
+            let actions = compile_avm1_actions_mode(&expanded, true)?;
+            if actions.len() > 1 {
+                all_flags |= flag;
+                records.push((flag, key, actions));
+            }
             continue;
         }
-        let (flag, key): (u32, Option<u8>) =
-            if let Some(parsed) = parse_clip_event_header_override(&os.script.source) {
-                parsed
-            } else {
-                match os.event {
-                    ObjectEvent::Load => (0x0000_0001, None), // ClipEventLoad
-                    ObjectEvent::EnterFrame => (0x0000_0002, None), // ClipEventEnterFrame
-                    ObjectEvent::Click => (0x0000_0800, None), // ClipEventRelease
+        let stmts = parse_swf_statements_strict(&expanded, false)?;
+        let mut top_stmts: Vec<SwfStmt> = Vec::new();
+        for stmt in stmts {
+            if let SwfStmt::EventHandler {
+                is_clip_event,
+                events,
+                body,
+            } = stmt
+            {
+                let (flag, key) = clip_event_handler_flags(is_clip_event, &events)?;
+                let mut h_bytes = Vec::new();
+                avm1_compile_stmt_list(&mut h_bytes, &body, false, &HashMap::new())?;
+                h_bytes.push(0x00);
+                if h_bytes.len() > 1 {
+                    all_flags |= flag;
+                    records.push((flag, key, h_bytes));
                 }
-            };
-        all_flags |= flag;
-        records.push((flag, key, actions));
+            } else {
+                top_stmts.push(stmt);
+            }
+        }
+        if !top_stmts.is_empty() {
+            let mut t_bytes = Vec::new();
+            avm1_compile_stmt_list(&mut t_bytes, &top_stmts, false, &HashMap::new())?;
+            t_bytes.push(0x00);
+            if t_bytes.len() > 1 {
+                let flag = match os.event {
+                    ObjectEvent::Load => 0x0000_0001,       // ClipEventLoad
+                    ObjectEvent::EnterFrame => 0x0000_0002, // ClipEventEnterFrame
+                    ObjectEvent::Click => 0x0000_0800,      // ClipEventRelease
+                };
+                all_flags |= flag;
+                records.push((flag, None, t_bytes));
+            }
+        }
     }
     if records.is_empty() {
         return Ok(None);

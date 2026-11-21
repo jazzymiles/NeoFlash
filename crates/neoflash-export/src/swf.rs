@@ -1093,9 +1093,11 @@ mod dictionary;
 #[cfg(test)]
 #[path = "swf/tests.rs"]
 mod dictionary_capacity_tests;
+mod font_table;
 mod parser;
 mod preflight;
 mod shapes;
+mod stream_sound;
 mod tags;
 #[cfg(test)]
 #[path = "swf/tests_t414.rs"]
@@ -1105,8 +1107,8 @@ pub(crate) use avm1::compile_avm1_actions;
 pub use preflight::preflight_swf_publish;
 pub(crate) use tags::SwfBitWriter;
 use {
-    abc::*, avm1::*, avm1_events::*, avm2::*, avm2_emit::*, dictionary::*, parser::*, shapes::*,
-    tags::*,
+    abc::*, avm1::*, avm1_events::*, avm2::*, avm2_emit::*, dictionary::*, font_table::*,
+    parser::*, shapes::*, stream_sound::*, tags::*,
 };
 
 /// Compile `project` into SWF movie bytes (`FWS`, `CWS`, or `ZWS`) along with a compatibility preflight report.

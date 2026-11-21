@@ -494,6 +494,7 @@ pub fn preflight_swf_publish(
     }
 
     // 3. Inspect symbols, timelines, elements, tweens, and scripts
+    let mut font_probe = SwfOutlineFonts::default();
     for sym in &project.symbols {
         let sym_loc = format!("symbol:{}", sym.name);
         if sym.timeline.frame_count > u32::from(u16::MAX) {
@@ -813,6 +814,8 @@ pub fn preflight_swf_publish(
             }
         }
 
+        let mut timeline_stream_occupied: HashSet<u32> = HashSet::new();
+        let sym_total_frames = sym.timeline.frame_count.max(1);
         for layer in &sym.timeline.layers {
             let bake_video = crate::video_frames::bakeable(project, layer);
             let layer_loc = format!("{sym_loc}:layer:{}", layer.name);
@@ -960,14 +963,39 @@ pub fn preflight_swf_publish(
                         );
                     }
                     if snd.sync == SoundSync::Stream {
-                        report.push(
-                            "swf_stream_sound_published_as_event",
-                            FlaCompatibilityCategory::MediaAndSound,
-                            FlaCompatibilityStatus::Approximated,
-                            kf_loc.clone(),
-                            "Stream sync sound is published via StartSound (tag 15) as Event playback rather than timeline SoundStreamHead/Block."
-                                .to_owned(),
-                        );
+                        let eff_end = layer
+                            .properties
+                            .end_frame
+                            .unwrap_or(sym_total_frames)
+                            .min(sym_total_frames);
+                        let span_end = layer.keyframes[k_idx + 1..]
+                            .iter()
+                            .find(|nk| nk.sound.is_some())
+                            .map_or(eff_end, |nk| nk.frame.min(eff_end));
+                        let overlaps =
+                            (kf.frame..span_end).any(|f| timeline_stream_occupied.contains(&f));
+                        if overlaps {
+                            report.push(
+                                "swf_overlapping_stream_sounds_approximated",
+                                FlaCompatibilityCategory::MediaAndSound,
+                                FlaCompatibilityStatus::Approximated,
+                                kf_loc.clone(),
+                                "Overlapping timeline Stream sound on the same timeline falls back to StartSound (tag 15) because SWF provides one SoundStreamHead2 channel per timeline."
+                                    .to_owned(),
+                            );
+                        } else {
+                            for f in kf.frame..span_end {
+                                timeline_stream_occupied.insert(f);
+                            }
+                            report.push(
+                                "swf_stream_sound",
+                                FlaCompatibilityCategory::MediaAndSound,
+                                FlaCompatibilityStatus::Exact,
+                                kf_loc.clone(),
+                                "Timeline Stream sound encoded as SoundStreamHead2 and per-frame SoundStreamBlock tags."
+                                    .to_owned(),
+                            );
+                        }
                     }
                 }
                 if let Some(easing) = &kf.tween {
@@ -1172,6 +1200,22 @@ pub fn preflight_swf_publish(
                             ),
                         );
                     }
+                    if !options.profile.is_avm2()
+                        && !options.scriptless_mode
+                        && !is_button_host
+                        && !el.scripts.is_empty()
+                        && let Err(issue) = encode_clip_actions(project, &el.scripts)
+                    {
+                        report.push(
+                            "swf_avm1_clip_action_invalid",
+                            FlaCompatibilityCategory::Scripts,
+                            FlaCompatibilityStatus::Blocking,
+                            format!("{el_loc}:script"),
+                            format!(
+                                "MovieClip clip actions use an invalid event or exceed SWF limits: {issue}."
+                            ),
+                        );
+                    }
 
                     let active_filters: Vec<&FilterSpec> =
                         el.filters.iter().filter(|f| f.is_enabled()).collect();
@@ -1302,14 +1346,40 @@ pub fn preflight_swf_publish(
                         }
                         ElementKind::TextBox { .. } | ElementKind::Text { .. } => {
                             if !options.outline_text {
-                                report.push(
-                                    "swf_text_requires_outlines",
-                                    FlaCompatibilityCategory::TextAndFonts,
-                                    FlaCompatibilityStatus::Blocking,
-                                    el_loc,
-                                    "The current DefineFont3 writer contains no glyph table and cannot prove that DefineEditText will render or preserve editable/rich TextField semantics. Enable outline_text for supported visual text, or embed text with a future full SWF font/TextField writer."
-                                        .to_owned(),
-                                );
+                                if let Err(issue) =
+                                    check_element_font3_support(project, el, &mut font_probe)
+                                {
+                                    report.push(
+                                        "swf_text_requires_outlines",
+                                        FlaCompatibilityCategory::TextAndFonts,
+                                        FlaCompatibilityStatus::Blocking,
+                                        el_loc,
+                                        format!(
+                                            "Text cannot be embedded as DefineFont3: {issue}. Enable outline_text for supplementary-plane or unmapped glyphs."
+                                        ),
+                                    );
+                                } else if let ElementKind::TextBox { format, .. } = &el.kind
+                                    && let Some(fopts) = format.field_options()
+                                    && (fopts.html || !fopts.format_runs.is_empty())
+                                {
+                                    report.push(
+                                        "swf_textfield_rich_text_approximated",
+                                        FlaCompatibilityCategory::TextAndFonts,
+                                        FlaCompatibilityStatus::Approximated,
+                                        el_loc,
+                                        "DefineEditText embeds DefineFont3 vector glyph outlines and field metrics; HTML or per-run rich-text formatting is flattened."
+                                            .to_owned(),
+                                    );
+                                } else {
+                                    report.push(
+                                        "swf_font3_embedded",
+                                        FlaCompatibilityCategory::TextAndFonts,
+                                        FlaCompatibilityStatus::Exact,
+                                        el_loc,
+                                        "Text published with embedded DefineFont3 vector glyph outlines, CodeTable, and FontAdvanceTable."
+                                            .to_owned(),
+                                    );
+                                }
                             } else if let Some(issue) = swf_text_outline_issue(el) {
                                 report.push(
                                     "swf_text_outline_unsupported",

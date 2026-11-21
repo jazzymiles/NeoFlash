@@ -941,6 +941,7 @@ pub(super) fn build_define_font3_payload(
 pub(super) fn build_define_edit_text_payload(
     text_id: u16,
     font_id: u16,
+    use_outlines: bool,
     text: &str,
     width: f64,
     height: f64,
@@ -955,7 +956,27 @@ pub(super) fn build_define_edit_text_payload(
     let h_twips = (height.max(4.0) * 20.0).round() as i32;
     w.rect_twips([0, w_twips, 0, h_twips]);
 
-    // flags0: has_text(0x80) | word_wrap(0x40) | multiline(0x20) | read_only(0x08) | has_text_color(0x04) | has_font(0x01)
+    let field_opts = format.field_options();
+    let read_only = field_opts
+        .as_ref()
+        .is_none_or(|o| o.field_type != neoflash_core::TextFieldType::Input);
+    let password = field_opts.as_ref().is_some_and(|o| o.display_as_password);
+    let max_len = field_opts
+        .as_ref()
+        .and_then(|o| (o.max_chars > 0).then_some(o.max_chars.min(65535) as u16));
+    let selectable = field_opts.as_ref().is_none_or(|o| o.selectable);
+    let border = field_opts
+        .as_ref()
+        .is_some_and(|o| o.border || o.background);
+    let auto_size = field_opts
+        .as_ref()
+        .is_some_and(|o| !o.auto_size.is_empty() && o.auto_size != "none");
+    let var_name = field_opts
+        .as_ref()
+        .and_then(|o| o.variable.as_deref())
+        .unwrap_or("");
+
+    // flags0: has_text(0x80) | word_wrap(0x40) | multiline(0x20) | password(0x10) | read_only(0x08) | has_text_color(0x04) | has_max_length(0x02) | has_font(0x01)
     let flags0: u8 = 0x80
         | (if word_wrap { 0x40 } else { 0 })
         | (if multiline || text.contains('\n') {
@@ -963,11 +984,17 @@ pub(super) fn build_define_edit_text_payload(
         } else {
             0
         })
-        | 0x08
+        | (if password { 0x10 } else { 0 })
+        | (if read_only { 0x08 } else { 0 })
         | 0x04
+        | (if max_len.is_some() { 0x02 } else { 0 })
         | 0x01;
-    // flags1: has_layout(0x20) | was_static(0x04)
-    let flags1: u8 = 0x20 | 0x04;
+    // flags1: auto_size(0x40) | has_layout(0x20) | no_select(0x10) | border(0x08) | use_outlines(0x01)
+    let flags1: u8 = (if auto_size { 0x40 } else { 0 })
+        | 0x20
+        | (if !selectable { 0x10 } else { 0 })
+        | (if border { 0x08 } else { 0 })
+        | (if use_outlines { 0x01 } else { 0 });
     w.u8(flags0);
     w.u8(flags1);
 
@@ -981,10 +1008,18 @@ pub(super) fn build_define_edit_text_payload(
     let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
     w.rgba([r, g, b, a]);
 
-    let align_byte: u8 = match format.align {
-        TextAlign::Left => 0,
-        TextAlign::Right => 1,
-        TextAlign::Center => 2,
+    if let Some(ml) = max_len {
+        w.u16(ml);
+    }
+
+    let align_byte: u8 = if format.align_mode() == Some("justify") {
+        3
+    } else {
+        match format.align {
+            TextAlign::Left => 0,
+            TextAlign::Right => 1,
+            TextAlign::Center => 2,
+        }
     };
     w.u8(align_byte);
     let to_u16_twips = |px: f64| -> u16 { (px.max(0.0) * 20.0).round().clamp(0.0, 65535.0) as u16 };
@@ -998,7 +1033,7 @@ pub(super) fn build_define_edit_text_payload(
     w.i16(to_i16_twips(format.indent));
     w.i16(to_i16_twips(format.leading));
 
-    w.c_string(""); // variable_name
+    w.c_string(var_name); // variable_name
     w.c_string(text); // initial_text
     w.buf
 }

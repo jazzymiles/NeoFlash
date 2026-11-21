@@ -1,9 +1,11 @@
-/* Image Loader family, original implementation.
+/* Image & SWF Loader family, original implementation.
  * Primary contracts: https://airsdk.dev/reference/actionscript/3.0/flash/display/Loader.html
  * https://airsdk.dev/reference/actionscript/3.0/flash/display/LoaderInfo.html
  * https://open-flash.github.io/mirrors/as2-language-reference/MovieClipLoader.html
  * Image files decode in Rust; shared net transport owns resource/HTTP limits.
- * Raw SWF loads expose header-derived placeholders, not movie execution.
+ * SWF loads (`FWS`/`CWS`/`ZWS`) decode timelines, symbols, filters/blends, and
+ * bounded AVM1/AVM2 bytecode via the WASM `swf_loader` bundle pipeline when
+ * mounted in the web host, falling back to header placeholders only in bare tests.
  * LoaderContext, security-domain and streaming emulation remain bounded.
  * A pending load leaves committed content visible until successful replacement.
  * AS3 unload detaches content: retained Bitmap/BitmapData remain alive. Pixel
@@ -281,6 +283,7 @@
       if(bytes.length>=12&&bytes[0]===0x52&&bytes[1]===0x49&&bytes[2]===0x46&&bytes[3]===0x46&&bytes[8]===0x57&&bytes[9]===0x45&&bytes[10]===0x42&&bytes[11]===0x50)return 'image/webp';
       if(bytes.length>=14&&bytes[0]===0x42&&bytes[1]===0x4d)return 'image/bmp';
       if(bytes.length>=8&&((bytes[0]===0x49&&bytes[1]===0x49&&bytes[2]===0x2a&&bytes[3]===0x00)||(bytes[0]===0x4d&&bytes[1]===0x4d&&bytes[2]===0x00&&bytes[3]===0x2a)))return 'image/tiff';
+      if(bytes.length>=4&&bytes[0]===0x49&&bytes[1]===0x49&&bytes[2]===0xbc&&bytes[3]===0x01)return 'image/vnd.ms-photo';
       if(bytes.length>=8&&(bytes[0]===0x46||bytes[0]===0x43||bytes[0]===0x5a)&&bytes[1]===0x57&&bytes[2]===0x53)return 'application/x-shockwave-flash';
       if(bytes.length>=5&&bytes.length<=32*1024*1024){
         const head=utf8Decoder.decode(bytes.subarray(0,Math.min(bytes.length,65536))).replace(/^\uFEFF/,'').trimStart();
@@ -377,8 +380,17 @@
       if(op.swfInfo){record.swfVersion=op.swfInfo.swfVersion;record.actionScriptVersion=op.swfInfo.actionScriptVersion;}
       record.contentType='application/x-shockwave-flash';
       if(record.content&&!record.as2)contentInfos.set(record.content,record.info);
-      guarded(()=>options.onMutation?.(mounted.events||[]));if(!current(op))return;
-      guarded(()=>options.onAfterMountPublished?.());if(!current(op))return;
+      const swfEnv=record.publishedCleanup?.swfEnv;
+      if(swfEnv&&typeof swfEnv.bootAvm2Mount==='function'){
+        if(typeof player.display_events_json==='function'){try{player.display_events_json();}catch(_){}}
+        if(typeof player.scripts_json==='function'){try{player.scripts_json();}catch(_){}}
+        guarded(()=>options.onMutation?.(mounted.events||[]));if(!current(op))return;
+        guarded(()=>swfEnv.bootAvm2Mount(record.content));if(!current(op))return;
+        guarded(()=>options.onAfterMountPublished?.());if(!current(op))return;
+      }else{
+        guarded(()=>options.onMutation?.(mounted.events||[]));if(!current(op))return;
+        guarded(()=>options.onAfterMountPublished?.());if(!current(op))return;
+      }
       if(record.as2)legacyNotify(op,'onLoadInit',[record.target]);
       else if(notify(op,new events.Event('init')))notify(op,new events.Event('complete'));
       if(current(op))record.operation=null;

@@ -2215,3 +2215,878 @@ fn labelled_frame_navigation_roundtrips_and_restarts_in_each_vm() {
         }
     }
 }
+
+fn collect_swf_tags_raw(swf_bytes: &[u8]) -> Vec<(u16, Vec<u8>)> {
+    assert!(swf_bytes.len() >= 8);
+    let body: Vec<u8> = match &swf_bytes[..3] {
+        b"FWS" => swf_bytes[8..].to_vec(),
+        b"CWS" => {
+            use std::io::Read;
+            let mut dec = flate2::read::ZlibDecoder::new(&swf_bytes[8..]);
+            let mut out = Vec::new();
+            dec.read_to_end(&mut out).expect("decompress CWS");
+            out
+        }
+        other => panic!("unexpected SWF signature in tag collector: {other:?}"),
+    };
+    let nbits = usize::from(body[0] >> 3);
+    let rect_bytes = (5 + nbits * 4).div_ceil(8);
+    let mut pos = rect_bytes + 4; // frame_rate(2) + frame_count(2)
+    let mut out = Vec::new();
+    while pos + 2 <= body.len() {
+        let hdr = u16::from_le_bytes([body[pos], body[pos + 1]]);
+        pos += 2;
+        let code = hdr >> 6;
+        let short_len = usize::from(hdr & 0x3f);
+        let len = if short_len == 0x3f {
+            let l = u32::from_le_bytes(body[pos..pos + 4].try_into().unwrap()) as usize;
+            pos += 4;
+            l
+        } else {
+            short_len
+        };
+        let end = (pos + len).min(body.len());
+        out.push((code, body[pos..end].to_vec()));
+        pos = end;
+        if code == 0 {
+            break;
+        }
+    }
+    out
+}
+
+fn make_wav_pcm_bytes(sample_rate: u32, samples: usize) -> Vec<u8> {
+    let channels = 1u16;
+    let bits_per_sample = 16u16;
+    let byte_rate = sample_rate * u32::from(channels) * u32::from(bits_per_sample / 8);
+    let block_align = channels * (bits_per_sample / 8);
+    let data_len = (samples * 2) as u32;
+    let riff_len = 36 + data_len;
+    let mut out = Vec::with_capacity(44 + samples * 2);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&riff_len.to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&bits_per_sample.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for i in 0..samples {
+        let val = ((i as f64 * 0.15).sin() * 12000.0) as i16;
+        out.extend_from_slice(&val.to_le_bytes());
+    }
+    out
+}
+
+fn make_mp3_44k_frames(frame_count: usize) -> Vec<u8> {
+    // MPEG-1 Layer III, 128 kbps, 44100 Hz, no padding -> 417 bytes/frame, 1152 samples/frame
+    let frame_len = 417usize;
+    let mut out = Vec::with_capacity(frame_count * frame_len);
+    for _ in 0..frame_count {
+        let mut f = vec![0u8; frame_len];
+        f[0] = 0xFF;
+        f[1] = 0xFB; // MPEG-1, Layer III, no CRC
+        f[2] = 0x90; // 128 kbps (9), 44100 Hz (0), padding=0
+        f[3] = 0xC0; // Mono
+        out.extend_from_slice(&f);
+    }
+    out
+}
+
+#[test]
+fn t451_define_font3_multilingual_glyphs_define_text2_and_edit_text_outlines_roundtrip() {
+    use neoflash_core::{
+        AuthoredTextFieldOptions, Player as CorePlayer, TextFieldType, TextFormat,
+    };
+
+    let mut proj = Project::blank();
+    proj.width = 480;
+    proj.height = 200;
+
+    let mut dyn_fmt = TextFormat {
+        font: "Arial".to_owned(),
+        size: 18.0,
+        color: 0x104090,
+        ..TextFormat::default()
+    };
+    dyn_fmt.set_field_options(Some(AuthoredTextFieldOptions {
+        field_type: TextFieldType::Dynamic,
+        variable: Some("hudLabel".to_owned()),
+        embed_fonts: true,
+        ..AuthoredTextFieldOptions::default()
+    }));
+
+    let static_el = Element {
+        id: "txt_static_multi".to_owned(),
+        name: String::new(),
+        transform: Transform {
+            x: 16.0,
+            y: 16.0,
+            alpha: 0.75,
+            ..Transform::default()
+        },
+        kind: ElementKind::TextBox {
+            text: "Hello SWF 123 - Привет - Ωμέγα".to_owned(),
+            width: 420.0,
+            height: 44.0,
+            format: TextFormat {
+                font: "Arial".to_owned(),
+                size: 20.0,
+                color: 0xCC2244,
+                ..TextFormat::default()
+            },
+            word_wrap: false,
+            multiline: false,
+        },
+        ..Element::default()
+    };
+
+    let dyn_el = Element {
+        id: "txt_dyn_multi".to_owned(),
+        name: "dynField".to_owned(),
+        transform: Transform {
+            x: 16.0,
+            y: 80.0,
+            alpha: 0.8,
+            ..Transform::default()
+        },
+        kind: ElementKind::TextBox {
+            text: "Dynamic Text 42".to_owned(),
+            width: 320.0,
+            height: 36.0,
+            format: dyn_fmt,
+            word_wrap: false,
+            multiline: false,
+        },
+        ..Element::default()
+    };
+
+    let root_id = proj.root.clone();
+    proj.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].elements =
+        vec![static_el, dyn_el];
+    proj.upgrade_format_for_features();
+    proj.validate()
+        .expect("multilingual text project validates");
+
+    // 1. outline_text: false -> real DefineFont3 (tag 75) with non-zero glyphs + DefineText2 (tag 33) + DefineEditText (tag 37, UseOutlines=1)
+    let glyph_opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer8Avm1,
+        compression: SwfCompression::UncompressedFws,
+        outline_text: false,
+        ..SwfPublishOptions::default()
+    };
+    let preflight = preflight_swf_publish(&proj, &glyph_opts);
+    assert!(
+        preflight.can_proceed(),
+        "DefineFont3 preflight blocked: {:?}",
+        preflight.items
+    );
+    let (swf_glyphs, rep_glyphs) =
+        publish_swf_bytes(&proj, &glyph_opts).expect("publish DefineFont3 SWF");
+    assert!(rep_glyphs.can_proceed());
+
+    let tags = collect_swf_tags_raw(&swf_glyphs);
+    let font3_payloads: Vec<&Vec<u8>> = tags
+        .iter()
+        .filter_map(|(code, p)| (*code == 75).then_some(p))
+        .collect();
+    assert!(
+        !font3_payloads.is_empty(),
+        "outline_text=false must emit DefineFont3 (tag 75)"
+    );
+    // Check DefineFont3 header: FontID(2), Flags(1: HasLayout=0x80 | WideOffsets=0x08 | WideCodes=0x04), Lang(1), NameLen(1), Name(N), NumGlyphs(2)
+    let fp = font3_payloads[0];
+    let flags = fp[2];
+    assert_eq!(
+        flags & 0x8C,
+        0x8C,
+        "DefineFont3 must set FontFlagsHasLayout | WideOffsets | WideCodes (got 0x{flags:02x})"
+    );
+    let name_len = usize::from(fp[4]);
+    let num_glyphs = u16::from_le_bytes([fp[5 + name_len], fp[6 + name_len]]);
+    assert!(
+        num_glyphs >= 15,
+        "DefineFont3 must embed real subdivided vector glyphs for Latin/Cyrillic/Greek chars (got {num_glyphs})"
+    );
+    assert!(
+        tags.iter().any(|(code, _)| *code == 33),
+        "static TextBox with outline_text=false must emit DefineText2 (tag 33)"
+    );
+    let edit_tag = tags
+        .iter()
+        .find(|(code, _)| *code == 37)
+        .expect("dynamic TextBox must emit DefineEditText (tag 37)");
+    // DefineEditText payload: CharID(2), Bounds(RECT), flags0(1), flags1(1) where UseOutlines is bit 0x01 of flags1
+    let nbits = usize::from(edit_tag.1[2] >> 3);
+    let rect_bytes = (5 + nbits * 4).div_ceil(8);
+    let edit_flags1 = edit_tag.1[2 + rect_bytes + 1];
+    assert_ne!(
+        edit_flags1 & 0x01,
+        0,
+        "DefineEditText paired with DefineFont3 must set UseOutlines=1 (flags1=0x{edit_flags1:02x})"
+    );
+
+    let reimported = import_swf_bytes(&swf_glyphs).expect("reimport DefineFont3 SWF");
+    reimported
+        .validate()
+        .expect("reimported DefineFont3 project validates");
+    let re_els = &reimported.symbol(&reimported.root).unwrap().timeline.layers;
+    assert!(re_els.len() >= 2);
+    // Verify non-opaque TextColor alpha preserved across export -> import!
+    let re_static = &re_els[0].keyframes[0].elements[0];
+    assert!(
+        (re_static.transform.alpha - 0.75).abs() < 0.02,
+        "reimported DefineText2 alpha expected ~0.75, got {}",
+        re_static.transform.alpha
+    );
+
+    // 2. outline_text: true -> static shape outlines also succeed and render visible RGBA pixels
+    let outline_opts = SwfPublishOptions {
+        outline_text: true,
+        ..glyph_opts
+    };
+    let (swf_outlined, _) = publish_swf_bytes(&proj, &outline_opts).expect("publish outlined SWF");
+    let re_outlined = import_swf_bytes(&swf_outlined).expect("reimport outlined SWF");
+    re_outlined.validate().unwrap();
+    let cp = CorePlayer::new(&re_outlined);
+    let rgba = cp
+        .render_snapshot_rgba(&re_outlined, re_outlined.width, re_outlined.height)
+        .expect("render outlined text RGBA");
+    assert!(
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
+            .any(|&px| px != [255, 255, 255, 255]),
+        "outlined multilingual text must render visible pixels"
+    );
+}
+
+#[test]
+fn t451_stream_sound_head2_and_per_frame_wav_pcm_and_mp3_blocks_and_strict_preflight() {
+    use neoflash_core::{FrameSound, SoundSync};
+
+    let make_stream_project =
+        |media_type: &str, filename: &str, raw_bytes: Vec<u8>, frames: u32| -> Project {
+            let mut proj = Project::blank();
+            proj.fps = 24;
+            let snd_res = ResourceUnit::from_bytes("res_stream", filename, media_type, &raw_bytes)
+                .expect("audio resource");
+            proj.resources.push(snd_res);
+            let root_id = proj.root.clone();
+            let tl = &mut proj.symbol_mut(&root_id).unwrap().timeline;
+            tl.frame_count = frames;
+            tl.layers[0].keyframes[0].sound = Some(FrameSound {
+                resource: "res_stream".to_owned(),
+                sync: SoundSync::Stream,
+                loops: 1,
+                loop_forever: false,
+                effect: Default::default(),
+                in_point: None,
+                out_point: None,
+                envelope: None,
+            });
+            proj.upgrade_format_for_features();
+            proj.validate().expect("stream sound project validates");
+            proj
+        };
+
+    let opts = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer8Avm1,
+        compression: SwfCompression::UncompressedFws,
+        ..SwfPublishOptions::default()
+    };
+
+    // 1. WAV PCM 22050 Hz across 5 frames (~919 samples/frame -> 4600 samples)
+    let wav_proj = make_stream_project(
+        "audio/wav",
+        "stream.wav",
+        make_wav_pcm_bytes(22_050, 4600),
+        5,
+    );
+    let (wav_swf, wav_rep) = publish_swf_bytes(&wav_proj, &opts).expect("publish WAV stream SWF");
+    assert!(wav_rep.can_proceed(), "{:?}", wav_rep.items);
+    let wav_tags = collect_swf_tags_raw(&wav_swf);
+    assert_eq!(
+        wav_tags.iter().filter(|(c, _)| *c == 45).count(),
+        1,
+        "must emit SoundStreamHead2 (tag 45)"
+    );
+    let wav_blocks = wav_tags.iter().filter(|(c, _)| *c == 19).count();
+    assert!(
+        wav_blocks >= 4,
+        "must emit per-frame SoundStreamBlock (tag 19) tags across stream frames, got {wav_blocks}"
+    );
+    let wav_play = play_swf_bytes(&wav_swf, 5).expect("play WAV stream SWF");
+    assert!(
+        wav_play
+            .audio_events
+            .iter()
+            .filter(|e| e.sync == "stream")
+            .count()
+            >= 4,
+        "SwfBytecodePlayer must record per-frame stream audio events: {:?}",
+        wav_play.audio_events
+    );
+    let wav_reimported = import_swf_bytes(&wav_swf).expect("reimport WAV stream SWF");
+    wav_reimported
+        .validate()
+        .expect("reimported WAV stream validates");
+    let has_reimported_stream = wav_reimported
+        .symbol(&wav_reimported.root)
+        .unwrap()
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .any(|k| {
+            k.sound
+                .as_ref()
+                .is_some_and(|s| s.sync == SoundSync::Stream)
+        });
+    assert!(
+        has_reimported_stream,
+        "reimported SWF must reconstruct SoundSync::Stream"
+    );
+
+    // 2. MP3 44100 Hz across 4 frames (8 MP3 frames = 9216 samples)
+    let mp3_proj = make_stream_project("audio/mpeg", "stream.mp3", make_mp3_44k_frames(8), 4);
+    let (mp3_swf, mp3_rep) = publish_swf_bytes(&mp3_proj, &opts).expect("publish MP3 stream SWF");
+    assert!(mp3_rep.can_proceed(), "{:?}", mp3_rep.items);
+    let mp3_tags = collect_swf_tags_raw(&mp3_swf);
+    let head2 = mp3_tags
+        .iter()
+        .find(|(c, _)| *c == 45)
+        .expect("MP3 SoundStreamHead2");
+    assert_eq!(
+        head2.1[1] >> 4,
+        2,
+        "MP3 SoundStreamHead2 must declare StreamSoundCompression=2 (MP3)"
+    );
+    assert!(
+        mp3_tags.iter().filter(|(c, _)| *c == 19).count() >= 3,
+        "MP3 stream must emit per-frame SoundStreamBlock tags"
+    );
+    let mp3_play = play_swf_bytes(&mp3_swf, 4).expect("play MP3 stream SWF");
+    assert!(mp3_play.audio_events.iter().any(|e| e.sync == "stream"));
+
+    // 3. Strict preflight rejection on unsupported codec (audio/ogg) and non-SWF 48000 Hz WAV
+    let ogg_proj = make_stream_project("audio/ogg", "bad.ogg", b"OggS\x00\x02dummy".to_vec(), 3);
+    assert!(
+        !preflight_swf_publish(&ogg_proj, &opts).can_proceed(),
+        "preflight must strictly reject unsupported OGG stream sound"
+    );
+    let wav48_proj = make_stream_project(
+        "audio/wav",
+        "bad48k.wav",
+        make_wav_pcm_bytes(48_000, 2400),
+        3,
+    );
+    assert!(
+        !preflight_swf_publish(&wav48_proj, &opts).can_proceed(),
+        "preflight must strictly reject non-SWF 48 kHz WAV stream sound"
+    );
+}
+
+#[test]
+fn t451_avm1_and_avm2_for_each_switch_fallthrough_delete_builtins_clip_events_and_drawing_api() {
+    use neoflash_core::Player as CorePlayer;
+
+    // 1. AVM1 (FlashPlayer8Avm1): for each..in, switch fallthrough, delete, Array/String/Math builtins,
+    //    SWF 6/7+ clip & button handlers, and dynamic MovieClip drawing API!
+    let mut avm1_proj = Project::blank();
+    avm1_proj.script_language = Some(ScriptLanguage::ActionScript2);
+
+    let btn_sym = Symbol {
+        id: "sym_btn7".to_owned(),
+        name: "Btn7".to_owned(),
+        folder: String::new(),
+        kind: SymbolKind::Button,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            layers: vec![Layer {
+                id: "b_l".to_owned(),
+                name: "L1".to_owned(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: (0..4)
+                    .map(|f| Keyframe {
+                        frame: f,
+                        elements: vec![Element {
+                            id: format!("b_rect_{f}"),
+                            kind: ElementKind::Rectangle {
+                                width: 30.0,
+                                height: 18.0,
+                                fill: [40, 140, 220, 255],
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            },
+                            ..Element::default()
+                        }],
+                        ..Keyframe::default()
+                    })
+                    .collect(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    };
+    let clip_sym = Symbol {
+        id: "sym_clip7".to_owned(),
+        name: "Clip7".to_owned(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "c_l".to_owned(),
+                name: "L1".to_owned(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "c_rect".to_owned(),
+                        kind: ElementKind::Rectangle {
+                            width: 24.0,
+                            height: 24.0,
+                            fill: [200, 80, 60, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    };
+    avm1_proj.symbols.push(btn_sym);
+    avm1_proj.symbols.push(clip_sym);
+
+    let root_id = avm1_proj.root.clone();
+    {
+        let root_tl = &mut avm1_proj.symbol_mut(&root_id).unwrap().timeline;
+        root_tl.frame_count = 2;
+        root_tl.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![
+                    Element {
+                        id: "inst_btn7".to_owned(),
+                        name: "actBtn".to_owned(),
+                        transform: Transform {
+                            x: 10.0,
+                            y: 10.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Instance {
+                            symbol_id: "sym_btn7".to_owned(),
+                            playback: InstancePlayback::Independent,
+                        },
+                        scripts: vec![ObjectScript {
+                            event: ObjectEvent::Click,
+                            script: Script {
+                                language: ScriptLanguage::ActionScript2,
+                                source: r#"
+                                    on (rollOver) { trace("btn:over"); }
+                                    on (rollOut) { trace("btn:out"); }
+                                    on (keyPress "<Space>") { trace("btn:space"); }
+                                "#
+                                .to_owned(),
+                            },
+                        }],
+                        ..Element::default()
+                    },
+                    Element {
+                        id: "inst_clip7".to_owned(),
+                        name: "actClip".to_owned(),
+                        transform: Transform {
+                            x: 60.0,
+                            y: 10.0,
+                            ..Transform::default()
+                        },
+                        kind: ElementKind::Instance {
+                            symbol_id: "sym_clip7".to_owned(),
+                            playback: InstancePlayback::Independent,
+                        },
+                        scripts: vec![ObjectScript {
+                            event: ObjectEvent::Load,
+                            script: Script {
+                                language: ScriptLanguage::ActionScript2,
+                                source: r#"
+                                    onClipEvent (unload) { trace("clip:unload"); }
+                                    on (releaseOutside) { trace("clip:relOut"); }
+                                "#
+                                .to_owned(),
+                            },
+                        }],
+                        ..Element::default()
+                    },
+                ],
+                ..Keyframe::default()
+            },
+            Keyframe {
+                frame: 1,
+                elements: Vec::new(), // removes both on frame 1 -> triggers clip:unload!
+                ..Keyframe::default()
+            },
+        ];
+        root_tl.scripts = vec![
+            FrameScript {
+                layer: None,
+                frame: 0,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: r#"
+                        var nums = [3, 5, 7];
+                        var sum = 0;
+                        for each (var v in nums) {
+                            sum += v;
+                        }
+                        var sw = 0;
+                        for (var k = 1; k <= 3; k++) {
+                            switch (k) {
+                                case 1:
+                                    sw += 10;
+                                case 2:
+                                    sw += 100;
+                                    break;
+                                default:
+                                    sw += 1;
+                            }
+                        }
+                        var bag = { a: 9, b: 4, c: 2 };
+                        delete bag.b;
+                        var dynKey = "c";
+                        delete bag[dynKey];
+                        var bagCount = 0;
+                        for (var bk in bag) {
+                            bagCount += bag[bk];
+                        }
+                        var arr = [10, 20, 30, 20];
+                        var sp = arr.splice(1, 1, 99);
+                        var cat = arr.concat([40]);
+                        var s = String.fromCharCode(65, 66, 67).concat("-xy-AB");
+                        var mm = Math.min(9, 4, 2, 7) + ":" + Math.max(1, 8, 3, 5);
+
+                        var canvas = createEmptyMovieClip("canvas", 50);
+                        canvas.lineStyle(2, 0x112233, 100);
+                        canvas.beginFill(0x22AA66, 100);
+                        canvas.moveTo(100, 60);
+                        canvas.lineTo(160, 60);
+                        canvas.curveTo(170, 90, 160, 120);
+                        canvas.lineTo(100, 120);
+                        canvas.lineTo(100, 60);
+                        canvas.endFill();
+
+                        trace("avm1:" + sum + ":" + sw + ":" + bagCount + ":" + sp[0] + ":" + cat.length + ":" + arr.indexOf(99) + ":" + s.lastIndexOf("AB") + ":" + mm);
+                    "#
+                    .to_owned(),
+                },
+            },
+            FrameScript {
+                layer: None,
+                frame: 1,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "trace(\"avm1:f2\"); stop();".to_owned(),
+                },
+            },
+        ];
+    }
+    avm1_proj.upgrade_format_for_features();
+    avm1_proj.validate().unwrap();
+
+    let avm1_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let (avm1_swf, avm1_rep) =
+        publish_swf_bytes(&avm1_proj, &avm1_opts).expect("publish AVM1 T-451 SWF");
+    assert!(avm1_rep.can_proceed(), "{:?}", avm1_rep.items);
+    let avm1_reimp = import_swf_bytes(&avm1_swf).expect("reimport AVM1 T-451 SWF");
+    avm1_reimp.validate().unwrap();
+
+    let mut p1 = SwfBytecodePlayer::from_bytes(&avm1_swf).unwrap();
+    let s0 = p1.step_frame();
+    // sum=15, sw=(10+100)+(100)+(1)=211, bagCount=9, sp[0]=20, cat.length=5, indexOf(99)=1, "ABC-xy-AB".lastIndexOf("AB")=7, mm=2:8
+    assert_eq!(s0.traces, vec!["avm1:15:211:9:20:5:1:7:2:8"]);
+    let overlay1 = p1.project_with_display_list_overlay(&avm1_reimp, &avm1_reimp.root, 0);
+    overlay1.validate().unwrap();
+    let rgba1 = CorePlayer::new(&overlay1)
+        .render_snapshot_rgba(&overlay1, overlay1.width, overlay1.height)
+        .unwrap();
+    // Sample inside dynamically drawn polygon [100..160, 60..120]
+    let px_idx = (90usize * overlay1.width as usize + 130usize) * 4;
+    assert_ne!(
+        &rgba1[px_idx..px_idx + 4],
+        &[255, 255, 255, 255],
+        "AVM1 dynamic beginFill/moveTo/lineTo/curveTo/endFill must rasterize onto Stage"
+    );
+
+    let before_trig = p1.trace_output().len();
+    p1.trigger_pointer_roll_over();
+    p1.trigger_pointer_roll_out();
+    p1.trigger_pointer_release_outside();
+    p1.trigger_key_press(32);
+    assert_eq!(
+        &p1.trace_output()[before_trig..],
+        &["btn:over", "btn:out", "clip:relOut", "btn:space"]
+    );
+    let s1 = p1.step_frame();
+    assert_eq!(s1.traces, vec!["clip:unload", "avm1:f2"]);
+
+    // 2. AVM2 (FlashPlayer10Avm2): for each..in, switch fallthrough, delete, Array/String/Math builtins, and Sprite.graphics
+    let mut avm2_proj = Project::blank();
+    avm2_proj.script_language = Some(ScriptLanguage::ActionScript3);
+    let root2 = avm2_proj.root.clone();
+    avm2_proj.symbol_mut(&root2).unwrap().timeline.scripts = vec![FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: r#"
+                var items:Array = [4, 6, 10];
+                var total:int = 0;
+                for each (var item:int in items) {
+                    total += item;
+                }
+                var sw:int = 0;
+                for (var i:int = 1; i <= 3; i++) {
+                    switch (i) {
+                        case 1:
+                            sw += 5;
+                        case 2:
+                            sw += 50;
+                            break;
+                        default:
+                            sw += 2;
+                    }
+                }
+                var dict:Object = { keep: 12, dropA: 99, dropB: 88 };
+                delete dict.dropA;
+                var dk:String = "dropB";
+                delete dict[dk];
+                var dsum:int = 0;
+                for each (var dv:int in dict) {
+                    dsum += dv;
+                }
+                var arr:Array = [1, 2, 3, 2];
+                var cut:Array = arr.splice(1, 1, 77);
+                var joined:Array = arr.concat([9]);
+                var txt:String = String.fromCharCode(88, 89, 90).concat("-XY");
+                var mm:String = Math.min(8, 3, 6, 1) + ":" + Math.max(4, 2, 9, 5);
+
+                var sp:Sprite = new Sprite();
+                sp.graphics.lineStyle(2, 0x223344, 1.0);
+                sp.graphics.beginFill(0xDD3355, 1.0);
+                sp.graphics.moveTo(40, 40);
+                sp.graphics.lineTo(100, 40);
+                sp.graphics.curveTo(110, 70, 100, 100);
+                sp.graphics.lineTo(40, 100);
+                sp.graphics.endFill();
+                sp.graphics.beginFill(0x3388EE, 1.0);
+                sp.graphics.drawCircle(180, 70, 20);
+                sp.graphics.endFill();
+                addChild(sp);
+
+                trace("avm2:" + total + ":" + sw + ":" + dsum + ":" + cut[0] + ":" + joined.length + ":" + arr.indexOf(77) + ":" + txt.lastIndexOf("XY") + ":" + mm);
+                stop();
+            "#
+            .to_owned(),
+        },
+    }];
+    avm2_proj.upgrade_format_for_features();
+    avm2_proj.validate().unwrap();
+
+    let avm2_opts = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer10Avm2);
+    let (avm2_swf, avm2_rep) =
+        publish_swf_bytes(&avm2_proj, &avm2_opts).expect("publish AVM2 T-451 SWF");
+    assert!(avm2_rep.can_proceed(), "{:?}", avm2_rep.items);
+    let avm2_reimp = import_swf_bytes(&avm2_swf).expect("reimport AVM2 T-451 SWF");
+    avm2_reimp.validate().unwrap();
+
+    let mut p2 = SwfBytecodePlayer::from_bytes(&avm2_swf).unwrap();
+    let a0 = p2.step_frame();
+    // total=20, sw=(5+50)+(50)+(2)=107, dsum=12, cut[0]=2, joined.length=5, indexOf(77)=1, "XYZ-XY".lastIndexOf("XY")=4, mm=1:9
+    assert_eq!(a0.traces, vec!["avm2:20:107:12:2:5:1:4:1:9"]);
+    let overlay2 = p2.project_with_display_list_overlay(&avm2_reimp, &avm2_reimp.root, 0);
+    overlay2.validate().unwrap();
+    let rgba2 = CorePlayer::new(&overlay2)
+        .render_snapshot_rgba(&overlay2, overlay2.width, overlay2.height)
+        .unwrap();
+    let px_curve = (70usize * overlay2.width as usize + 70usize) * 4;
+    let px_circle = (70usize * overlay2.width as usize + 180usize) * 4;
+    assert_ne!(&rgba2[px_curve..px_curve + 4], &[255, 255, 255, 255]);
+    assert_ne!(&rgba2[px_circle..px_circle + 4], &[255, 255, 255, 255]);
+}
+
+#[test]
+fn t451_multi_fixture_ruffle_differential_swf_import_and_republish_roundtrip() {
+    use neoflash_core::Player as CorePlayer;
+
+    let ruffle_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .unwrap()
+        .join("examples/fla-corpus/upstream/ruffle");
+
+    // 1. Trace-oracle differential round-trip: original SWF -> imported .nflash -> republished SWF
+    let trace_roundtrip_cases: [(&str, SwfPublishProfile, usize); 3] = [
+        ("avm1-frame-labels", SwfPublishProfile::FlashPlayer8Avm1, 4),
+        ("avm1-clip-events", SwfPublishProfile::FlashPlayer8Avm1, 4),
+        (
+            "avm1-nested-button-text",
+            SwfPublishProfile::FlashPlayer8Avm1,
+            1,
+        ),
+    ];
+    for (name, profile, ticks) in trace_roundtrip_cases {
+        let swf_path = ruffle_dir.join(name).join("test.swf");
+        let oracle_path = ruffle_dir.join(name).join("output.txt");
+        let expected: Vec<String> = fs::read_to_string(&oracle_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+
+        let imported = import_project(&swf_path).unwrap();
+        imported.validate().unwrap();
+        let saved = Project::from_json(&imported.to_json().unwrap()).unwrap();
+        saved.validate().unwrap();
+
+        let (repub_swf, rep) =
+            publish_swf_bytes(&saved, &SwfPublishOptions::for_profile(profile)).unwrap();
+        assert!(
+            rep.can_proceed(),
+            "{name} republish blocked: {:?}",
+            rep.items
+        );
+
+        let mut player = SwfBytecodePlayer::from_bytes(&repub_swf).unwrap();
+        let mut traces = Vec::new();
+        for _ in 0..ticks {
+            traces.extend(player.step_frame().traces);
+        }
+        assert_eq!(
+            traces, expected,
+            "republished SWF trace differential mismatch against Flash oracle on {name}"
+        );
+    }
+
+    // 1b. AVM2 Ruffle SWF fixtures: original SWF == Flash oracle (28/28 & 18/18 lines),
+    //     imported .nflash validates & round-trips JSON, and exports valid HTML5 bundles!
+    let temp = TempDirGuard::new("t451-avm2-ruffle");
+    let runtime_dir = temp.0.join("runtime");
+    create_mock_runtime(&runtime_dir);
+    for (name, ticks, expected_lines) in [
+        ("avm2-button-frame-scripts", 2usize, 28usize),
+        ("avm2-nested-construction", 3usize, 18usize),
+    ] {
+        let swf_path = ruffle_dir.join(name).join("test.swf");
+        let oracle_path = ruffle_dir.join(name).join("output.txt");
+        let expected: Vec<String> = fs::read_to_string(&oracle_path)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(expected.len(), expected_lines);
+
+        let orig_bytes = fs::read(&swf_path).unwrap();
+        let mut p_orig = SwfBytecodePlayer::from_bytes(&orig_bytes).unwrap();
+        let mut orig_traces = Vec::new();
+        for _ in 0..ticks {
+            orig_traces.extend(p_orig.step_frame().traces);
+        }
+        assert_eq!(
+            orig_traces, expected,
+            "original {name} SWF must match Flash oracle"
+        );
+
+        let imported = import_project(&swf_path).unwrap();
+        imported.validate().unwrap();
+        let saved = Project::from_json(&imported.to_json().unwrap()).unwrap();
+        saved.validate().unwrap();
+        assert!(
+            !saved.sources.is_empty(),
+            "{name} must decompile DoABC2 into AS3 sources"
+        );
+
+        let html_out = temp.0.join(name);
+        export_project(&saved, &html_out, &runtime_dir)
+            .expect("export AVM2 Ruffle .nflash to HTML5");
+        assert!(html_out.join("bundle.js").is_file());
+    }
+
+    // 2. Visual RGBA differential round-trip on MX SWFs (original SWF vs imported .nflash vs republished SWF)
+    let visual_cases = [
+        ("mx-button/DefineButton-MX.swf", 1usize),
+        ("mx-shape-tween/DefineMorphShape-MX.swf", 5usize),
+        ("mx-static-text/DefineText2-MX.swf", 1usize),
+    ];
+    for (rel, frames) in visual_cases {
+        let swf_path = ruffle_dir.join(rel);
+        let orig_bytes = fs::read(&swf_path).unwrap();
+        let imported = import_project(&swf_path).unwrap();
+        imported.validate().unwrap();
+
+        let (repub_bytes, rep) = publish_swf_bytes(
+            &imported,
+            &SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1),
+        )
+        .unwrap();
+        assert!(
+            rep.can_proceed(),
+            "{rel} republish blocked: {:?}",
+            rep.items
+        );
+        let reimp = import_swf_bytes(&repub_bytes).unwrap();
+        reimp.validate().unwrap();
+
+        let mut p_orig = SwfBytecodePlayer::from_bytes(&orig_bytes).unwrap();
+        let mut p_repub = SwfBytecodePlayer::from_bytes(&repub_bytes).unwrap();
+        for f in 0..frames {
+            let st_o = p_orig.step_frame();
+            let st_r = p_repub.step_frame();
+            let ov_o =
+                p_orig.project_with_display_list_overlay(&imported, &imported.root, st_o.frame);
+            let ov_r = p_repub.project_with_display_list_overlay(&reimp, &reimp.root, st_r.frame);
+            let rgba_o = CorePlayer::new(&ov_o)
+                .render_snapshot_rgba(&ov_o, ov_o.width, ov_o.height)
+                .unwrap();
+            let rgba_r = CorePlayer::new(&ov_r)
+                .render_snapshot_rgba(&ov_r, ov_r.width, ov_r.height)
+                .unwrap();
+            let fg_o = rgba_o
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|&&px| px != ov_o.background)
+                .count();
+            let fg_r = rgba_r
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|&&px| px != ov_r.background)
+                .count();
+            assert!(
+                fg_o > 0 && fg_r > 0,
+                "{rel} frame {f} foreground pixel count zero (orig={fg_o}, repub={fg_r})"
+            );
+            let ratio = (fg_r as f64) / (fg_o as f64);
+            assert!(
+                (0.75..=1.35).contains(&ratio),
+                "{rel} frame {f} RGBA foreground coverage drifted (orig={fg_o}, repub={fg_r}, ratio={ratio:.3})"
+            );
+        }
+    }
+}

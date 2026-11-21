@@ -93,18 +93,26 @@ pub(crate) fn parse_and_decompile_button2_actions(
             *off = off.saturating_add(action_base);
         }
         if !body.trim().is_empty() || unrecognized > 0 {
-            let conds = describe_button_conditions(cond_b0, cond_b1);
-            let is_direct_click =
-                !conds.is_empty() && conds.iter().all(|c| c == "release" || c == "press");
-            let source = if is_direct_click {
-                body
+            let (conds, native_ok) = describe_button_conditions_classified(cond_b0, cond_b1);
+            let is_direct_release = native_ok && conds.len() == 1 && conds[0] == "release";
+            let (source, approximated_event) = if is_direct_release {
+                (body, false)
+            } else if native_ok && !conds.is_empty() {
+                (
+                    format!(
+                        "on({}) {{\n{}\n}}",
+                        conds.join(", "),
+                        indent_handler_body(&body)
+                    ),
+                    false,
+                )
             } else {
                 let header = if conds.is_empty() {
                     "release".to_owned()
                 } else {
                     conds.join(", ")
                 };
-                format!("// on({header})\n{body}")
+                (format!("// on({header})\n{body}"), true)
             };
             out.push(DecompiledObjectHandler {
                 script: ObjectScript {
@@ -114,7 +122,7 @@ pub(crate) fn parse_and_decompile_button2_actions(
                         source,
                     },
                 },
-                approximated_event: !is_direct_click,
+                approximated_event,
                 unrecognized_opcodes: unrecognized,
                 unrecognized_sites: sites,
             });
@@ -175,12 +183,7 @@ pub(crate) fn parse_and_decompile_clip_actions(
         if body.trim().is_empty() && unrecognized == 0 {
             continue;
         }
-        let (event, approx, label) = classify_clip_event_flags(flags, key_code);
-        let source = if !approx {
-            body
-        } else {
-            format!("// onClipEvent({label})\n{body}")
-        };
+        let (event, approx, source) = build_clip_event_source(flags, key_code, &body);
         out.push(DecompiledObjectHandler {
             script: ObjectScript {
                 event,
@@ -205,15 +208,98 @@ fn read_clip_event_flags(r: &mut SwfSlice<'_>, wide: bool) -> Option<u32> {
     }
 }
 
-fn classify_clip_event_flags(flags: u32, key_code: Option<u8>) -> (ObjectEvent, bool, String) {
-    // Exact single-event matches that map 1:1 to NeoFlash's ObjectEvent variants:
+fn indent_handler_body(body: &str) -> String {
+    body.lines()
+        .map(|line| {
+            if line.trim().is_empty() {
+                String::new()
+            } else {
+                format!("  {line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn build_clip_event_source(
+    flags: u32,
+    key_code: Option<u8>,
+    body: &str,
+) -> (ObjectEvent, bool, String) {
+    // Exact single-event matches that map 1:1 to NeoFlash's ObjectEvent variants without wrapper:
     match flags {
-        0x0000_0001 => return (ObjectEvent::Load, false, "load".into()),
-        0x0000_0002 => return (ObjectEvent::EnterFrame, false, "enterFrame".into()),
-        0x0000_0400 | 0x0000_0800 | 0x0000_0C00 => {
-            return (ObjectEvent::Click, false, "release".into());
-        }
+        0x0000_0001 => return (ObjectEvent::Load, false, body.to_owned()),
+        0x0000_0002 => return (ObjectEvent::EnterFrame, false, body.to_owned()),
+        0x0000_0800 => return (ObjectEvent::Click, false, body.to_owned()),
         _ => {}
+    }
+
+    const NATIVE_CLIP_MASK: u32 = 0x0000_01FF;
+    const NATIVE_ON_MASK: u32 = 0x0003_FC00;
+
+    let primary = if (flags & 0x0000_0002) != 0 {
+        ObjectEvent::EnterFrame
+    } else if (flags & (NATIVE_ON_MASK | 0x0000_0010 | 0x0000_0020)) != 0 {
+        ObjectEvent::Click
+    } else {
+        ObjectEvent::Load
+    };
+
+    let has_unsupported_bits = (flags & !(NATIVE_CLIP_MASK | NATIVE_ON_MASK)) != 0;
+    let key_press_lit = if (flags & 0x0002_0000) != 0 {
+        key_code.and_then(format_flash_keypress_literal)
+    } else {
+        None
+    };
+    let key_press_valid = (flags & 0x0002_0000) == 0 || key_press_lit.is_some();
+
+    if !has_unsupported_bits && key_press_valid && flags != 0 {
+        let indented = indent_handler_body(body);
+        let mut blocks = Vec::new();
+        let clip_table: &[(u32, &str)] = &[
+            (0x0000_0001, "load"),
+            (0x0000_0002, "enterFrame"),
+            (0x0000_0004, "unload"),
+            (0x0000_0008, "mouseMove"),
+            (0x0000_0010, "mouseDown"),
+            (0x0000_0020, "mouseUp"),
+            (0x0000_0040, "keyDown"),
+            (0x0000_0080, "keyUp"),
+            (0x0000_0100, "data"),
+        ];
+        let clip_names: Vec<&str> = clip_table
+            .iter()
+            .filter_map(|&(mask, name)| ((flags & mask) != 0).then_some(name))
+            .collect();
+        if !clip_names.is_empty() {
+            blocks.push(format!(
+                "onClipEvent({}) {{\n{indented}\n}}",
+                clip_names.join(", ")
+            ));
+        }
+
+        let on_table: &[(u32, &str)] = &[
+            (0x0000_0400, "press"),
+            (0x0000_0800, "release"),
+            (0x0000_1000, "releaseOutside"),
+            (0x0000_2000, "rollOver"),
+            (0x0000_4000, "rollOut"),
+            (0x0000_8000, "dragOver"),
+            (0x0001_0000, "dragOut"),
+        ];
+        let mut on_names: Vec<String> = on_table
+            .iter()
+            .filter_map(|&(mask, name)| ((flags & mask) != 0).then_some(name.to_owned()))
+            .collect();
+        if let Some(kp) = key_press_lit {
+            on_names.push(format!("keyPress {kp}"));
+        }
+        if !on_names.is_empty() {
+            blocks.push(format!("on({}) {{\n{indented}\n}}", on_names.join(", ")));
+        }
+        if !blocks.is_empty() {
+            return (primary, false, blocks.join("\n"));
+        }
     }
 
     let mut names = Vec::new();
@@ -246,22 +332,17 @@ fn classify_clip_event_flags(flags: u32, key_code: Option<u8>) -> (ObjectEvent, 
         let key_desc = format_button_key(key_code.unwrap_or(0));
         names.push(format!("keyPress \"{key_desc}\""));
     }
-    let primary = if (flags & 0x0000_0002) != 0 {
-        ObjectEvent::EnterFrame
-    } else if (flags & (0x0000_0400 | 0x0000_0800 | 0x0000_0010 | 0x0000_0020)) != 0 {
-        ObjectEvent::Click
-    } else {
-        ObjectEvent::Load
-    };
     let label = if names.is_empty() {
         format!("0x{flags:x}")
     } else {
         names.join(", ")
     };
-    (primary, true, label)
+    (primary, true, format!("// onClipEvent({label})\n{body}"))
 }
 
-fn describe_button_conditions(b0: u8, b1: u8) -> Vec<String> {
+fn describe_button_conditions_classified(b0: u8, b1: u8) -> (Vec<String>, bool) {
+    let menu_only =
+        ((b0 & 0x80) != 0 && (b0 & 0x20) == 0) || ((b1 & 0x01) != 0 && (b0 & 0x10) == 0);
     let mut conds = Vec::new();
     if (b0 & 0x04) != 0 {
         conds.push("press".into());
@@ -285,10 +366,40 @@ fn describe_button_conditions(b0: u8, b1: u8) -> Vec<String> {
         conds.push("dragOut".into());
     }
     let key = b1 >> 1;
+    let mut key_ok = true;
     if key != 0 {
-        conds.push(format!("keyPress \"{}\"", format_button_key(key)));
+        if let Some(lit) = format_flash_keypress_literal(key) {
+            conds.push(format!("keyPress {lit}"));
+        } else {
+            key_ok = false;
+            conds.push(format!("keyPress \"{}\"", format_button_key(key)));
+        }
     }
-    conds
+    let native_ok = !menu_only && key_ok && !conds.is_empty();
+    (conds, native_ok)
+}
+
+fn format_flash_keypress_literal(code: u8) -> Option<String> {
+    let token = match code {
+        1 => "<Left>",
+        2 => "<Right>",
+        3 => "<Home>",
+        4 => "<End>",
+        5 => "<Insert>",
+        6 => "<Delete>",
+        8 => "<Backspace>",
+        13 => "<Enter>",
+        14 => "<Up>",
+        15 => "<Down>",
+        16 => "<PageUp>",
+        17 => "<PageDown>",
+        18 => "<Tab>",
+        19 => "<Escape>",
+        32 => "<Space>",
+        c @ 33..=126 => return Some(quote_as_string(&(c as char).to_string())),
+        _ => return None,
+    };
+    Some(format!("\"{token}\""))
 }
 
 fn format_button_key(code: u8) -> String {

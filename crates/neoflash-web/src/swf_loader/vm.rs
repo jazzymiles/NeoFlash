@@ -74,6 +74,162 @@ struct Avm1Inst {
     fn_body: Vec<u8>,
 }
 
+pub(super) const AVM1_RUNTIME_INIT_JS: &str = "\
+const __avm1 = (() => {\n\
+  if (!__nfSwfEnv) return null;\n\
+  if (!__nfSwfEnv.avm1) {\n\
+    __nfSwfEnv.avm1 = {\n\
+      tick: 0,\n\
+      pendingQueue: [],\n\
+      enterFrameClips: [],\n\
+      unloadClips: [],\n\
+      onEnterFrameMap: new WeakMap(),\n\
+      onUnloadMap: new WeakMap(),\n\
+      calcPathDepth(target) {\n\
+        let d = 0, cur = target;\n\
+        while (cur && d < 64) {\n\
+          let next = null;\n\
+          try { next = __nfDisplay?.parentSpace?.(cur) || null; } catch (_) { break; }\n\
+          if (!next || next === cur) break;\n\
+          d++;\n\
+          cur = next;\n\
+        }\n\
+        return d;\n\
+      },\n\
+      ensureEnterFrameSlot(target, placedTick) {\n\
+        let slot = this.enterFrameClips.find(it => it.target === target);\n\
+        if (!slot) {\n\
+          slot = { target, fns: [], placedTick, pathDepth: this.calcPathDepth(target) };\n\
+          this.enterFrameClips.push(slot);\n\
+        } else if (slot.placedTick === 0 && placedTick > 0) {\n\
+          slot.placedTick = placedTick;\n\
+        }\n\
+        return slot;\n\
+      },\n\
+      ensureUnloadSlot(target) {\n\
+        let slot = this.unloadClips.find(it => it.target === target && !it.fired);\n\
+        if (!slot) {\n\
+          slot = { target, fns: [], pathDepth: this.calcPathDepth(target), fired: false };\n\
+          this.unloadClips.push(slot);\n\
+        }\n\
+        return slot;\n\
+      },\n\
+      registerClip(target, inits, constructs, loads, enterFrames, unloads) {\n\
+        if (inits.length || constructs.length || loads.length) {\n\
+          this.pendingQueue.push({ target, placedTick: 0, initRan: false, inits, constructs, loads });\n\
+        }\n\
+        if (enterFrames.length) {\n\
+          const slot = this.ensureEnterFrameSlot(target, 0);\n\
+          slot.fns.push(...enterFrames);\n\
+        }\n\
+        if (unloads && unloads.length) {\n\
+          const uslot = this.ensureUnloadSlot(target);\n\
+          uslot.fns.push(...unloads);\n\
+        }\n\
+      },\n\
+      flushUnloads() {\n\
+        const dead = this.unloadClips.filter(it => !it.fired && !__nfDisplay?.alive?.(it.target));\n\
+        if (!dead.length) return;\n\
+        for (const it of dead) it.fired = true;\n\
+        this.unloadClips = this.unloadClips.filter(it => !it.fired);\n\
+        dead.sort((a, b) => b.pathDepth - a.pathDepth);\n\
+        for (const it of dead) {\n\
+          for (const fn of it.fns) __nfSwfApply(fn, it.target, []);\n\
+          const dynFn = this.onUnloadMap.get(it.target);\n\
+          if (typeof dynFn === 'function') __nfSwfApply(dynFn, it.target, []);\n\
+        }\n\
+      },\n\
+      stampPlacedTick(curTick) {\n\
+        for (const it of this.pendingQueue) {\n\
+          if (it.placedTick === 0) it.placedTick = curTick;\n\
+        }\n\
+        for (const sl of this.enterFrameClips) {\n\
+          if (sl.placedTick === 0) sl.placedTick = curTick;\n\
+        }\n\
+      },\n\
+      flushInitConstruct(curTick) {\n\
+        this.stampPlacedTick(curTick);\n\
+        const batch = this.pendingQueue.filter(it => !it.initRan);\n\
+        if (!batch.length) return;\n\
+        for (const it of batch) it.initRan = true;\n\
+        for (const it of batch) {\n\
+          if (__nfDisplay?.alive?.(it.target)) {\n\
+            for (const fn of it.inits) { if (__nfDisplay?.alive?.(it.target)) __nfSwfApply(fn, it.target, []); }\n\
+          }\n\
+        }\n\
+        for (const it of batch) {\n\
+          if (__nfDisplay?.alive?.(it.target)) {\n\
+            for (const fn of it.constructs) { if (__nfDisplay?.alive?.(it.target)) __nfSwfApply(fn, it.target, []); }\n\
+          }\n\
+        }\n\
+      },\n\
+      flushLoadsFor(target) {\n\
+        if (!this.pendingQueue.length) return;\n\
+        const runItems = [];\n\
+        const keep = [];\n\
+        for (const it of this.pendingQueue) {\n\
+          if (!target || it.target === target) runItems.push(it);\n\
+          else keep.push(it);\n\
+        }\n\
+        if (!runItems.length) return;\n\
+        if (runItems.some(it => !it.initRan)) this.flushInitConstruct(this.tick || 1);\n\
+        this.pendingQueue = keep;\n\
+        for (const it of runItems) {\n\
+          if (__nfDisplay?.alive?.(it.target)) {\n\
+            for (const fn of it.loads) { if (__nfDisplay?.alive?.(it.target)) __nfSwfApply(fn, it.target, []); }\n\
+          }\n\
+        }\n\
+      },\n\
+      runEnterFrames(curTick) {\n\
+        this.enterFrameClips = this.enterFrameClips.filter(it => __nfDisplay?.alive?.(it.target));\n\
+        const ordered = this.enterFrameClips\n\
+          .filter(it => it.placedTick > 0 && it.placedTick < curTick)\n\
+          .slice()\n\
+          .sort((a, b) => b.pathDepth - a.pathDepth);\n\
+        for (const it of ordered) {\n\
+          if (!__nfDisplay?.alive?.(it.target)) continue;\n\
+          for (const fn of it.fns) {\n\
+            if (__nfDisplay?.alive?.(it.target)) __nfSwfApply(fn, it.target, []);\n\
+          }\n\
+          const dynFn = this.onEnterFrameMap.get(it.target);\n\
+          if (typeof dynFn === 'function' && __nfDisplay?.alive?.(it.target)) {\n\
+            __nfSwfApply(dynFn, it.target, []);\n\
+          }\n\
+        }\n\
+      },\n\
+      setProp(obj, k, v) {\n\
+        const ks = String(k);\n\
+        if (obj != null && __nfDisplay?.alive?.(obj) && (v == null || typeof v === 'function')) {\n\
+          if (ks === 'onEnterFrame') {\n\
+            if (typeof v === 'function') {\n\
+              this.onEnterFrameMap.set(obj, v);\n\
+              this.ensureEnterFrameSlot(obj, this.tick || 1);\n\
+            } else {\n\
+              this.onEnterFrameMap.delete(obj);\n\
+            }\n\
+            return __nfSwfSet(obj, ks, v);\n\
+          }\n\
+          if (ks === 'onUnload') {\n\
+            if (typeof v === 'function') {\n\
+              this.onUnloadMap.set(obj, v);\n\
+              this.ensureUnloadSlot(obj);\n\
+            } else {\n\
+              this.onUnloadMap.delete(obj);\n\
+            }\n\
+            return __nfSwfSet(obj, ks, v);\n\
+          }\n\
+          if (/^on(?:Load|Data|Press|Release|ReleaseOutside|RollOver|RollOut|DragOver|DragOut|MouseDown|MouseUp|MouseMove|KeyDown|KeyUp|SetFocus|KillFocus)$/.test(ks)) {\n\
+            try { __nfDisplay.setLegacyCallback?.(obj, ks, v); } catch (_) {}\n\
+            return __nfSwfSet(obj, ks, v);\n\
+          }\n\
+        }\n\
+        return __nfSwfSet(obj, ks, v);\n\
+      },\n\
+    };\n\
+  }\n\
+  return __nfSwfEnv.avm1;\n\
+})();\n";
+
 pub(super) fn compile_avm1_actions(
     ctx: &mut SwfDecodeCtx,
     bytes: &[u8],
@@ -86,7 +242,23 @@ pub(super) fn compile_avm1_actions(
     }
     let body = body?;
     Some(format!(
-        "(() => {{\nconst __baseTarget = this;\nconst __global = (__nfSwfEnv && __nfSwfEnv.avm1Global) || (__nfSwfEnv ? (__nfSwfEnv.avm1Global = Object.create(null)) : Object.create(null));\nlet __callDepth = 0;\nconst __outerLocals = [];\nconst __parentCp = [];\nconst __curThis = this;\nconst __superCtor = undefined;\ntry {{\n{body}}} catch (__topErr) {{\n  if (!(__topErr && typeof __topErr === 'object' && '__nfSwfThrown' in __topErr)) throw __topErr;\n}}\n}})();\n"
+        "(() => {{\n{AVM1_RUNTIME_INIT_JS}const __baseTarget = this;\nconst __global = (__nfSwfEnv && __nfSwfEnv.avm1Global) || (__nfSwfEnv ? (__nfSwfEnv.avm1Global = Object.create(null)) : Object.create(null));\nlet __callDepth = 0;\nconst __outerLocals = [];\nconst __parentCp = [];\nconst __curThis = this;\nconst __superCtor = undefined;\ntry {{\n{body}}} catch (__topErr) {{\n  if (!(__topErr && typeof __topErr === 'object' && '__nfSwfThrown' in __topErr)) throw __topErr;\n}}\n}})();\n"
+    ))
+}
+
+pub(super) fn compile_avm1_handler_fn_expr(
+    ctx: &mut SwfDecodeCtx,
+    bytes: &[u8],
+    location: &str,
+) -> Option<String> {
+    let first_warning = ctx.warnings.len();
+    let body = compile_avm1_block(ctx, bytes, false, 0);
+    for warning in &mut ctx.warnings[first_warning..] {
+        warning.push_str(&format!(" Source: {location}."));
+    }
+    let body = body.unwrap_or_default();
+    Some(format!(
+        "__nfSwfFn(function() {{\n{AVM1_RUNTIME_INIT_JS}const __baseTarget = this;\nconst __global = (__nfSwfEnv && __nfSwfEnv.avm1Global) || (__nfSwfEnv ? (__nfSwfEnv.avm1Global = Object.create(null)) : Object.create(null));\nlet __callDepth = 0;\nconst __outerLocals = [];\nconst __parentCp = [];\nconst __curThis = this;\nconst __superCtor = undefined;\ntry {{\n{body}}} catch (__topErr) {{\n  if (!(__topErr && typeof __topErr === 'object' && '__nfSwfThrown' in __topErr)) throw __topErr;\n}}\n}})"
     ))
 }
 
@@ -166,8 +338,8 @@ fn compile_avm1_block(
     }
     js.push_str(
         "const __withStack = [], __tryStack = [];\n\
-let __cp = __parentCp, __pc = 0, __steps = 0;\n\
-const __propNames = ['x','y','scaleX','scaleY','currentFrame','totalFrames','alpha','visible','width','height','rotation'];\n\
+let __cp = __parentCp, __pc = 0, __steps = 0, __curTarget = __baseTarget;\n\
+const __propNames = ['x','y','scaleX','scaleY','currentFrame','totalFrames','alpha','visible','width','height','rotation','_target','_framesloaded','name','_droptarget','_url','_highquality','_focusrect','_soundbuftime','_quality','_xmouse','_ymouse'];\n\
 const __builtinCtors = new Set(['Object','Array','String','Number','Boolean','Date','Error','TypeError','RangeError','ReferenceError','SyntaxError','URIError','EvalError','ArgumentError']);\n\
 const __isSafeLocal = k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype';\n\
 const __readVar = k => {\n\
@@ -181,26 +353,30 @@ const __readVar = k => {\n\
     if (Object.hasOwn(__outerLocals[__si], k)) return __outerLocals[__si][k];\n\
   }\n\
   if (k === 'this') return __curThis;\n\
-  if (k === '_root') return _root;\n\
-  if (k === '_parent') return (__curThis && __nfSwfGet(__curThis, '_parent')) ?? _parent;\n\
+  if (k === '_root' || k === '_level0') return _root;\n\
+  if (k === '_parent') return (__curTarget && __nfSwfGet(__curTarget, '_parent')) ?? (__curThis && __nfSwfGet(__curThis, '_parent')) ?? _parent;\n\
   if (k === '_global') return __global;\n\
-  const __tv = __nfSwfGet(__baseTarget, k);\n\
+  if (k === 'Math') return Math;\n\
+  if (k === 'NaN') return NaN;\n\
+  if (k === 'Infinity') return Infinity;\n\
+  const __tv = __nfSwfGet(__curTarget ?? __baseTarget, k);\n\
   if (__tv !== undefined) return __tv;\n\
   if (Object.hasOwn(__global, k)) return __global[k];\n\
   if (__builtinCtors.has(k)) return k;\n\
   return undefined;\n\
 };\n\
+const __avm1SetProp = (o, k, v) => __avm1 ? __avm1.setProp(o, k, v) : __nfSwfSet(o, k, v);\n\
 const __writeVar = (k, v) => {\n\
   if (!__isSafeLocal(k)) return;\n\
   for (let __wi = __withStack.length - 1; __wi >= 0; __wi--) {\n\
     const __wo = __withStack[__wi].obj;\n\
-    if (__wo != null && (typeof __wo === 'object' || typeof __wo === 'function') && __nfSwfHas(__wo, k)) { __nfSwfSet(__wo, k, v); return; }\n\
+    if (__wo != null && (typeof __wo === 'object' || typeof __wo === 'function') && __nfSwfHas(__wo, k)) { __avm1SetProp(__wo, k, v); return; }\n\
   }\n\
   if (Object.hasOwn(__locals, k)) { __locals[k] = v; return; }\n\
   for (let __si = __outerLocals.length - 1; __si >= 0; __si--) {\n\
     if (Object.hasOwn(__outerLocals[__si], k)) { __outerLocals[__si][k] = v; return; }\n\
   }\n\
-  __nfSwfSet(__baseTarget, k, v);\n\
+  __avm1SetProp(__curTarget ?? __baseTarget, k, v);\n\
 };\n\
 const __routeThrow = __raw => {\n\
   const __val = (__raw && typeof __raw === 'object' && '__nfSwfThrown' in __raw) ? __raw.__nfSwfThrown : __raw;\n\
@@ -310,38 +486,77 @@ while (__pc < ",
         let next_idx = idx + 1;
         let p = &inst.payload;
         match inst.op {
-            0x04 => js.push_str("      if (typeof nextFrame === 'function') nextFrame();\n"),
-            0x05 => js.push_str("      if (typeof prevFrame === 'function') prevFrame();\n"),
-            0x06 => js.push_str("      if (typeof play === 'function') play();\n"),
-            0x07 => js.push_str("      if (typeof stop === 'function') stop();\n"),
-            0x09 => {} // ActionStopSounds (no-op on child timeline unless sound host wired)
+            0x04 => js.push_str("      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'nextFrame', []); else if (typeof nextFrame === 'function') nextFrame();\n"),
+            0x05 => js.push_str("      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'prevFrame', []); else if (typeof prevFrame === 'function') prevFrame();\n"),
+            0x06 => js.push_str("      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'play', []); else if (typeof play === 'function') play();\n"),
+            0x07 => js.push_str("      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'stop', []); else if (typeof stop === 'function') stop();\n"),
+            0x08 => {} // ActionToggleQuality
+            0x09 => {} // ActionStopSounds
+            0x13 => js.push_str("      { const __b = String(__st.pop() ?? ''), __a = String(__st.pop() ?? ''); __st.push(__a === __b); }\n"),
+            0x14 | 0x31 => js.push_str("      __st.push(String(__st.pop() ?? '').length);\n"),
+            0x15 | 0x35 => js.push_str("      { const __cnt = Number(__st.pop()) | 0, __idx = Math.max(0, (Number(__st.pop()) | 0) - 1), __s = String(__st.pop() ?? ''); __st.push(__cnt < 0 ? __s.slice(__idx) : __s.slice(__idx, __idx + __cnt)); }\n"),
+            0x20 => js.push_str("      { const __t = __st.pop(); __curTarget = (!__t || __t === '') ? __baseTarget : (typeof __t === 'string' && __nfDisplay && typeof __nfDisplay.resolveTarget === 'function' ? (__nfDisplay.resolveTarget(__t, __baseTarget) ?? __baseTarget) : __t); }\n"),
+            0x21 => js.push_str("      { const __b = String(__st.pop() ?? ''), __a = String(__st.pop() ?? ''); __st.push(__a + __b); }\n"),
+            0x24 => js.push_str("      { const __d = Number(__st.pop()) | 0, __t = String(__st.pop() ?? ''), __s = __st.pop(); if (__nfAs2Method) { try { __nfAs2Method(__baseTarget, 'duplicateMovieClip')(__s, __t, __d - 16384); } catch (_) {} } }\n"),
+            0x25 => js.push_str("      { const __t = __st.pop(); if (__nfAs2Method) { try { __nfAs2Method(__baseTarget, 'removeMovieClip')(__t); } catch (_) {} } }\n"),
+            0x27 => js.push_str("      { const __tgt = __st.pop(), __lock = Boolean(__st.pop()), __constrain = Number(__st.pop()) !== 0; let __b = []; if (__constrain) { const __y2 = Number(__st.pop()), __x2 = Number(__st.pop()), __y1 = Number(__st.pop()), __x1 = Number(__st.pop()); __b = [__x1, __y1, __x2, __y2]; } if (__tgt) __nfSwfCall(__tgt, 'startDrag', [__lock, ...__b]); }\n"),
+            0x28 => js.push_str("      if (__curTarget) __nfSwfCall(__curTarget, 'stopDrag', []);\n"),
+            0x29 => js.push_str("      { const __b = String(__st.pop() ?? ''), __a = String(__st.pop() ?? ''); __st.push(__a < __b); }\n"),
+            0x30 => js.push_str("      { const __m = Number(__st.pop()) | 0; __st.push(__m > 0 ? Math.floor(Math.random() * __m) : 0); }\n"),
+            0x32 | 0x36 => js.push_str("      { const __s = String(__st.pop() ?? ''); __st.push(__s.length > 0 ? __s.charCodeAt(0) : 0); }\n"),
+            0x33 | 0x37 => js.push_str("      __st.push(String.fromCharCode(Number(__st.pop()) & 0xffff));\n"),
+            0x34 => js.push_str("      __st.push(Math.floor(performance.now()));\n"),
+            0x45 => js.push_str("      { const __o = __st.pop(); __st.push(__nfDisplay && typeof __nfDisplay.targetPath === 'function' ? __nfDisplay.targetPath(__o) : undefined); }\n"),
+            0x68 => js.push_str("      { const __b = String(__st.pop() ?? ''), __a = String(__st.pop() ?? ''); __st.push(__a > __b); }\n"),
+            0x8B => {
+                let tgt = cstr_from_bytes(p);
+                if tgt.is_empty() {
+                    js.push_str("      __curTarget = __baseTarget;\n");
+                } else {
+                    let t_lit = js_string_literal(&tgt);
+                    js.push_str(&format!(
+                        "      __curTarget = (__nfDisplay && typeof __nfDisplay.resolveTarget === 'function') ? (__nfDisplay.resolveTarget({t_lit}, __baseTarget) ?? __baseTarget) : __baseTarget;\n"
+                    ));
+                }
+            }
+            0x8A | 0x8D => {} // ActionWaitForFrame / ActionWaitForFrame2 (all frames decoded synchronously in memory)
+            0x9E => js.push_str("      { const __f = __st.pop(); if (__nfAs2Method) { try { __nfAs2Method(__curTarget ?? __baseTarget, 'callFrame')(__f); } catch (_) {} } }\n"),
             0x81 if p.len() >= 2 => {
                 let frame0 = u32::from(u16::from_le_bytes([p[0], p[1]]));
                 let next_is_play = insts.get(idx + 1).is_some_and(|n| n.op == 0x06);
                 if next_is_play {
                     js.push_str(&format!(
-                        "      if (typeof gotoAndPlay === 'function') gotoAndPlay({});\n",
+                        "      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'gotoAndPlay', [{}]); else if (typeof gotoAndPlay === 'function') gotoAndPlay({});\n",
+                        frame0 + 1,
                         frame0 + 1
                     ));
                 } else {
                     js.push_str(&format!(
-                        "      if (typeof gotoAndStop === 'function') gotoAndStop({});\n",
+                        "      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'gotoAndStop', [{}]); else if (typeof gotoAndStop === 'function') gotoAndStop({});\n",
+                        frame0 + 1,
                         frame0 + 1
                     ));
                 }
             }
             0x8C => {
                 let label = js_string_literal(&cstr_from_bytes(p));
-                js.push_str(&format!(
-                    "      if (typeof gotoAndStop === 'function') gotoAndStop({label});\n"
-                ));
+                let next_is_play = insts.get(idx + 1).is_some_and(|n| n.op == 0x06);
+                if next_is_play {
+                    js.push_str(&format!(
+                        "      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'gotoAndPlay', [{label}]); else if (typeof gotoAndPlay === 'function') gotoAndPlay({label});\n"
+                    ));
+                } else {
+                    js.push_str(&format!(
+                        "      if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'gotoAndStop', [{label}]); else if (typeof gotoAndStop === 'function') gotoAndStop({label});\n"
+                    ));
+                }
             }
             0x9F if !p.is_empty() => {
                 let play_flag = (p[0] & 0x01) != 0;
                 if play_flag {
-                    js.push_str("      { const __f = __st.pop(); if (typeof gotoAndPlay === 'function') gotoAndPlay(__f); }\n");
+                    js.push_str("      { const __f = __st.pop(); if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'gotoAndPlay', [__f]); else if (typeof gotoAndPlay === 'function') gotoAndPlay(__f); }\n");
                 } else {
-                    js.push_str("      { const __f = __st.pop(); if (typeof gotoAndStop === 'function') gotoAndStop(__f); }\n");
+                    js.push_str("      { const __f = __st.pop(); if (__curTarget !== __baseTarget && __curTarget) __nfSwfCall(__curTarget, 'gotoAndStop', [__f]); else if (typeof gotoAndStop === 'function') gotoAndStop(__f); }\n");
                 }
             }
             0x83 => {
@@ -454,13 +669,13 @@ while (__pc < ",
             0x26 => js.push_str("      trace(__st.pop());\n"),
             0x1C => js.push_str("      { const __k = String(__st.pop() ?? ''); __st.push(__readVar(__k)); }\n"),
             0x1D => js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''); __writeVar(__k, __v); }\n"),
-            0x3A => js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop(); __st.push(__nfSwfDelete(__o, __k)); }\n"),
-            0x3B => js.push_str("      { const __k = String(__st.pop() ?? ''); let __d = false; if (__isSafeLocal(__k)) { if (Object.hasOwn(__locals, __k)) { delete __locals[__k]; __d = true; } else __d = __nfSwfDelete(__baseTarget, __k); } __st.push(__d); }\n"),
+            0x3A => js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop(); if (__k === 'onEnterFrame' && __o != null && __avm1) __avm1.onEnterFrameMap.delete(__o); __st.push(__nfSwfDelete(__o, __k)); }\n"),
+            0x3B => js.push_str("      { const __k = String(__st.pop() ?? ''); let __d = false; if (__isSafeLocal(__k)) { if (Object.hasOwn(__locals, __k)) { delete __locals[__k]; __d = true; } else { if (__k === 'onEnterFrame' && __avm1) __avm1.onEnterFrameMap.delete(__baseTarget); __d = __nfSwfDelete(__baseTarget, __k); } } __st.push(__d); }\n"),
             0x3C => js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''); if (__isSafeLocal(__k)) __locals[__k] = __v; }\n"),
             0x41 => js.push_str("      { const __k = String(__st.pop() ?? ''); if (__isSafeLocal(__k) && !Object.hasOwn(__locals, __k)) __locals[__k] = undefined; }\n"),
             0x44 => js.push_str("      { const __v = __st.pop(); __st.push(__v === null ? 'null' : typeof __v === 'function' ? 'function' : typeof __v); }\n"),
             0x4E => js.push_str("      { const __m = String(__st.pop() ?? ''), __o = __st.pop(); __st.push(__nfSwfGet(__o, __m)); }\n"),
-            0x4F => js.push_str("      { const __v = __st.pop(), __m = String(__st.pop() ?? ''), __o = __st.pop(); __nfSwfSet(__o, __m, __v); }\n"),
+            0x4F => js.push_str("      { const __v = __st.pop(), __m = String(__st.pop() ?? ''), __o = __st.pop(); __avm1SetProp(__o, __m, __v); }\n"),
             0x22 => js.push_str("      { const __pi = Number(__st.pop()) | 0, __t = __st.pop() || __baseTarget, __pn = __propNames[__pi]; __st.push(__pn ? (__pi === 2 || __pi === 3 || __pi === 6 ? __nfSwfGet(__t, __pn) * 100 : __nfSwfGet(__t, __pn)) : undefined); }\n"),
             0x23 => js.push_str("      { const __v = __st.pop(), __pi = Number(__st.pop()) | 0, __t = __st.pop() || __baseTarget, __pn = __propNames[__pi]; if (__pn) __nfSwfSet(__t, __pn, (__pi === 2 || __pi === 3 || __pi === 6) ? Number(__v) / 100 : __v); }\n"),
             0x0A => js.push_str("      { const __b = Number(__st.pop()) || 0, __a = Number(__st.pop()) || 0; __st.push(__a + __b); }\n"),
@@ -498,10 +713,11 @@ while (__pc < ",
             0x40 => js.push_str("      { const __cName = String(__st.pop() ?? ''), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); const __ctor = __readVar(__cName) ?? __cName; __st.push(__nfSwfNew(__ctor, undefined, __args)); }\n"),
             0x53 => js.push_str("      { const __mRaw = __st.pop(), __obj = __st.pop(), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); const __mName = (__mRaw === undefined || __mRaw === null || __mRaw === '') ? undefined : String(__mRaw); __st.push(__nfSwfNew(__obj, __mName, __args)); }\n"),
             0x54 => js.push_str("      { const __ctor = __st.pop(), __obj = __st.pop(); __st.push(__nfSwfInstanceOf(__obj, __ctor)); }\n"),
-            0x55 => js.push_str("      { const __obj = __st.pop(); __st.push(null); if (__obj != null && (typeof __obj === 'object' || typeof __obj === 'function')) { for (const __ek of __nfSwfKeys(__obj)) __st.push(__ek); } }\n"),
+            0x46 => js.push_str("      { const __k = String(__st.pop() ?? ''), __obj = __readVar(__k); __st.push(null); if (__obj != null && (typeof __obj === 'object' || typeof __obj === 'function')) { const __eks = __nfSwfKeys(__obj); for (let __ei = __eks.length - 1; __ei >= 0; __ei--) __st.push(__eks[__ei]); } }\n"),
+            0x55 => js.push_str("      { const __obj = __st.pop(); __st.push(null); if (__obj != null && (typeof __obj === 'object' || typeof __obj === 'function')) { const __eks = __nfSwfKeys(__obj); for (let __ei = __eks.length - 1; __ei >= 0; __ei--) __st.push(__eks[__ei]); } }\n"),
             0x69 => js.push_str("      { const __sup = __st.pop(), __sub = __st.pop(); __nfSwfExtends(__sub, __sup); }\n"),
             0x3D => js.push_str("      { const __fnName = String(__st.pop() ?? ''), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); if (__fnName === 'fscommand') { __nfSwfGetURL(__curThis ?? __baseTarget, 'FSCommand:' + String(__args[0] ?? ''), String(__args[1] ?? ''), 0); __st.push(undefined); } else if (__fnName === 'getURL') { __nfSwfGetURL(__curThis ?? __baseTarget, __args[0], __args[1], 0); __st.push(undefined); } else { const __fn = __fnName === 'stop' ? stop : __fnName === 'play' ? play : __fnName === 'gotoAndStop' ? gotoAndStop : __fnName === 'gotoAndPlay' ? gotoAndPlay : __fnName === 'nextFrame' ? nextFrame : __fnName === 'prevFrame' ? prevFrame : __fnName === 'trace' ? trace : __fnName === 'Number' ? (v => Number(v)) : __fnName === 'String' ? (v => String(v ?? '')) : __fnName === 'Boolean' ? (v => Boolean(v)) : __fnName === 'int' ? (v => Number(v) | 0) : __fnName === 'parseInt' ? parseInt : __fnName === 'parseFloat' ? parseFloat : __fnName === 'isNaN' ? isNaN : __fnName === 'isFinite' ? isFinite : __readVar(__fnName); __st.push((__fn === parseInt || __fn === parseFloat || __fn === isNaN || __fn === isFinite) ? __fn(...__args) : __nfSwfApply(__fn, __curThis ?? __baseTarget, __args)); } }\n"),
-            0x52 => js.push_str("      { const __mRaw = __st.pop(), __obj = __st.pop(), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); if (__mRaw === undefined || __mRaw === null || __mRaw === '') { __st.push(__nfSwfApply(__obj, __curThis ?? __baseTarget, __args)); } else { const __tObj = __obj ?? __curThis ?? __baseTarget; __st.push(__nfSwfCall(__tObj, String(__mRaw), __args)); } }\n"),
+            0x52 => js.push_str("      { const __mRaw = __st.pop(), __obj = __st.pop(), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); if (__mRaw === undefined || __mRaw === null || __mRaw === '') { __st.push(__nfSwfApply(__obj, __curThis ?? __baseTarget, __args)); } else { const __mStr = String(__mRaw); if (__obj === 'String' && __mStr === 'fromCharCode') { __st.push(String.fromCharCode(...__args.map(__c => Number(__c) & 0xffff))); } else if (__obj === 'Object' && __mStr === 'registerClass') { __st.push(__nfLegacy?.Object?.registerClass ? __nfLegacy.Object.registerClass(__args[0], __args[1]) : false); } else { const __tObj = (typeof __obj === 'string' && !__builtinCtors.has(__obj)) ? __obj : (__obj ?? __curThis ?? __baseTarget); __st.push(__nfSwfCall(__tObj, __mStr, __args)); } } }\n"),
             0x9B | 0x8E => {
                 emit_avm1_define_function(ctx, &mut js, inst, in_fn, depth);
             }
@@ -797,6 +1013,7 @@ struct AbcTrait {
     name: String,
     kind: u8,
     slot_id: u32,
+    type_name: String,
     method_or_class_id: u32,
     default_val: Option<AbcDefaultVal>,
 }
@@ -817,6 +1034,7 @@ struct AbcException {
     to: u32,
     target: u32,
     exc_type: String,
+    var_name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -828,7 +1046,7 @@ struct AbcMethodBody {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct AbcFile {
+pub(crate) struct AbcFile {
     ints: Vec<i32>,
     uints: Vec<u32>,
     doubles: Vec<f64>,
@@ -917,7 +1135,10 @@ impl<'a> AbcReader<'a> {
             let tr = match kind {
                 0 | 6 => {
                     let slot_id = self.read_u30()?;
-                    let _type_name = self.read_u30()?;
+                    let type_mn = self.read_u30()? as usize;
+                    let type_name = multinames
+                        .get(type_mn)
+                        .map_or_else(String::new, |m| m.name.clone());
                     let vindex = self.read_u30()?;
                     let default_val = if vindex != 0 {
                         let vkind = self.read_u8()?;
@@ -936,6 +1157,7 @@ impl<'a> AbcReader<'a> {
                         name,
                         kind,
                         slot_id,
+                        type_name,
                         method_or_class_id: 0,
                         default_val,
                     }
@@ -947,6 +1169,7 @@ impl<'a> AbcReader<'a> {
                         name,
                         kind,
                         slot_id: slot_or_disp,
+                        type_name: String::new(),
                         method_or_class_id: method_id,
                         default_val: None,
                     }
@@ -958,6 +1181,7 @@ impl<'a> AbcReader<'a> {
                         name,
                         kind,
                         slot_id,
+                        type_name: String::new(),
                         method_or_class_id: classi,
                         default_val: None,
                     }
@@ -1005,6 +1229,19 @@ fn default_val_js(v: &AbcDefaultVal) -> String {
         AbcDefaultVal::Uint(u) => u.to_string(),
         AbcDefaultVal::Double(d) => format_js_f64(*d),
         AbcDefaultVal::Str(s) => js_string_literal(s),
+    }
+}
+
+fn trait_slot_default_js(tr: &AbcTrait) -> String {
+    if let Some(dv) = &tr.default_val {
+        return default_val_js(dv);
+    }
+    match short_multiname(&tr.type_name) {
+        "int" | "uint" => "0".into(),
+        "Number" => "NaN".into(),
+        "Boolean" => "false".into(),
+        "*" | "" => "undefined".into(),
+        _ => "null".into(),
     }
 }
 
@@ -1251,15 +1488,19 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
             let to = r.read_u30()?;
             let target = r.read_u30()?;
             let exc_type_mn = r.read_u30()? as usize;
-            let _var_name = r.read_u30()?;
+            let var_name_mn = r.read_u30()? as usize;
             let exc_type = multinames
                 .get(exc_type_mn)
                 .map_or_else(String::new, |m| m.name.clone());
+            let var_name = multinames
+                .get(var_name_mn)
+                .map_or_else(String::new, |m| short_multiname(&m.name).to_owned());
             exceptions.push(AbcException {
                 from,
                 to,
                 target,
                 exc_type,
+                var_name,
             });
         }
         let traits = r.read_traits(&multinames, &ints, &uints, &doubles, &strings)?;
@@ -1319,14 +1560,7 @@ fn find_abc_class<'a>(abc: &'a AbcFile, target: &str) -> Option<(usize, &'a AbcI
         })
 }
 
-type FrameHookPair = (u32, u32);
-type ExtractedFnMap = HashMap<u32, HashSet<usize>>;
-type RootDocTarget = (usize, usize, Vec<FrameHookPair>);
-
-fn collect_class_frame_hooks(
-    abc: &AbcFile,
-    leaf_idx: usize,
-) -> (Vec<FrameHookPair>, ExtractedFnMap) {
+fn scan_static_frame_script_indices(abc: &AbcFile, leaf_idx: usize) -> Vec<u32> {
     let mut chain = Vec::new();
     let mut visited = HashSet::new();
     let mut cur_opt = Some(leaf_idx);
@@ -1342,35 +1576,63 @@ fn collect_class_frame_hooks(
         cur_opt = find_abc_class(abc, sup).map(|(pi, _)| pi);
     }
     chain.reverse();
-
-    let mut by_frame: HashMap<u32, u32> = HashMap::new();
-    let mut extracted_by_method: HashMap<u32, HashSet<usize>> = HashMap::new();
+    let mut frames = Vec::new();
     for ci in chain {
-        let inst = &abc.instances[ci];
-        if let Some(body) = abc.bodies.get(&inst.iinit) {
-            let (hooks, fn_indices) = extract_avm2_add_frame_scripts(abc, inst, &body.code);
-            if !fn_indices.is_empty() {
-                extracted_by_method.insert(inst.iinit, fn_indices);
-            }
-            for (f, mid) in hooks {
-                by_frame.insert(f, mid);
+        if let Some(body) = abc.bodies.get(&abc.instances[ci].iinit) {
+            let insts = decode_avm2_instructions(&body.code);
+            for (idx, inst) in insts.iter().enumerate() {
+                if matches!(inst.op, 0x46 | 0x4F) && inst.args.len() >= 2 {
+                    let mn_idx = inst.args[0] as usize;
+                    let argc = inst.args[1] as usize;
+                    let mn_name = abc
+                        .multinames
+                        .get(mn_idx)
+                        .map_or("", |m| short_multiname(&m.name));
+                    if mn_name == "addFrameScript"
+                        && argc >= 2
+                        && argc.is_multiple_of(2)
+                        && idx >= argc
+                    {
+                        let pairs = argc / 2;
+                        for p in 0..pairs {
+                            let f_inst = &insts[idx - argc + p * 2];
+                            let frame_opt = match f_inst.op {
+                                0x24 => Some(f_inst.args[0] as i8 as i32),
+                                0x25 => Some(f_inst.args[0] as i32),
+                                0x2D => abc.ints.get(f_inst.args[0] as usize).copied(),
+                                0x2E => abc.uints.get(f_inst.args[0] as usize).map(|&u| u as i32),
+                                _ => None,
+                            };
+                            if let Some(f) = frame_opt
+                                && f >= 0
+                            {
+                                let fu = f as u32;
+                                if !frames.contains(&fu) {
+                                    frames.push(fu);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
-    let mut ordered: Vec<(u32, u32)> = by_frame.into_iter().collect();
-    ordered.sort_by_key(|&(f, _)| f);
-    (ordered, extracted_by_method)
+    frames.sort_unstable();
+    frames
 }
 
-pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Timeline) {
+pub(super) fn apply_abc_scripts(
+    ctx: &mut SwfDecodeCtx,
+    root_timeline: &mut Timeline,
+) -> Option<String> {
     let doc_class = ctx.symbol_classes.get(&0).cloned();
     let abc_list = ctx.abc_blocks.clone();
 
     let mut bound_classes_by_abc: Vec<HashSet<usize>> = vec![HashSet::new(); abc_list.len()];
-    let mut extracted_fn_map_by_abc: Vec<HashMap<u32, HashSet<usize>>> =
-        vec![HashMap::new(); abc_list.len()];
+    let mut valid_char_classes: HashMap<u16, String> = HashMap::new();
+    let mut sprite_frame_attachments: Vec<(String, u32, String)> = Vec::new();
 
-    // 1. Bind non-root SymbolClass (tag 76) sprite/button classes
+    // 1. Validate non-root SymbolClass (tag 76) sprite/button classes
     let mut non_root_bindings: Vec<(u16, String)> = ctx
         .symbol_classes
         .iter()
@@ -1379,7 +1641,6 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         .collect();
     non_root_bindings.sort_by_key(|&(cid, _)| cid);
 
-    let mut sprite_frame_attachments: Vec<(String, u32, usize, u32, String)> = Vec::new();
     for (cid, cls_name) in non_root_bindings {
         let found_abc = abc_list
             .iter()
@@ -1395,28 +1656,17 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
             && valid_sym
         {
             bound_classes_by_abc[abc_idx].insert(cls_idx);
-            let (hooks, ext_fns) = collect_class_frame_hooks(&abc_list[abc_idx], cls_idx);
-            for (m, set) in ext_fns {
-                extracted_fn_map_by_abc[abc_idx]
-                    .entry(m)
-                    .or_default()
-                    .extend(set);
-            }
+            valid_char_classes.insert(cid, cls_name.clone());
+            let static_frames = scan_static_frame_script_indices(&abc_list[abc_idx], cls_idx);
             if let Some(sym) = ctx.symbols.iter_mut().find(|s| s.id == sym_id) {
                 sym.class_name = Some(cls_name.clone());
                 if sym.linkage_id.is_none() {
                     sym.linkage_id = Some(cls_name.clone());
                 }
                 let sym_fc = sym.timeline.frame_count;
-                for (f_idx, m_id) in hooks {
+                for f_idx in static_frames {
                     if f_idx < sym_fc {
-                        sprite_frame_attachments.push((
-                            sym_id.clone(),
-                            f_idx,
-                            abc_idx,
-                            m_id,
-                            cls_name.clone(),
-                        ));
+                        sprite_frame_attachments.push((sym_id.clone(), f_idx, cls_name.clone()));
                     }
                 }
             }
@@ -1428,7 +1678,7 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
     }
 
     // 2. Identify root Document Class (cid == 0, or primary ABC instance ONLY when SymbolClass is empty)
-    let mut root_doc_target: Option<RootDocTarget> = None;
+    let mut root_doc_target: Option<(usize, String)> = None;
     for (abc_idx, abc) in abc_list.iter().enumerate() {
         let chosen = if let Some(dc) = &doc_class {
             find_abc_class(abc, dc).map(|(ci, _)| ci)
@@ -1443,35 +1693,138 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         };
         if let Some(ci) = chosen {
             bound_classes_by_abc[abc_idx].insert(ci);
-            let (hooks, ext_fns) = collect_class_frame_hooks(abc, ci);
-            for (m, set) in ext_fns {
-                extracted_fn_map_by_abc[abc_idx]
-                    .entry(m)
-                    .or_default()
-                    .extend(set);
-            }
-            root_doc_target = Some((abc_idx, ci, hooks));
+            root_doc_target = Some((abc_idx, abc.instances[ci].name.clone()));
         }
     }
 
     if abc_list.is_empty() {
-        return;
+        return None;
     }
 
-    // 3. Emit bundle-level AVM2 ABC registry (`avm2-abc-init`) so all classes, prototypes,
-    //    `newfunction` closures, and `SymbolClass` constructors are ready before child sprites construct!
+    // Build symbol/character metadata for the AVM2 display-tree coordinator (`__nfSwfEnv`).
+    // Note: `MainTimeline` is inserted at `project.symbols[0]`, so `ctx.symbols[idx]` mounts at `s{idx + 1}`.
+    let mut sym_id_to_mounted_slot: HashMap<String, usize> = HashMap::new();
+    for (idx, sym) in ctx.symbols.iter().enumerate() {
+        sym_id_to_mounted_slot.insert(sym.id.clone(), idx + 1);
+    }
+
+    let mut char_entries_js = Vec::new();
+    let mut sym_entries_js = Vec::new();
+    let mut all_cids: Vec<u16> = ctx
+        .char_symbols
+        .keys()
+        .chain(ctx.char_edit_texts.keys())
+        .chain(ctx.char_morphs.keys())
+        .copied()
+        .collect();
+    all_cids.sort_unstable();
+    all_cids.dedup();
+
+    for cid in all_cids {
+        let kind_str = if ctx.char_button_records.contains_key(&cid)
+            || ctx
+                .char_symbols
+                .get(&cid)
+                .and_then(|sid| ctx.symbols.iter().find(|s| &s.id == sid))
+                .is_some_and(|s| s.kind == SymbolKind::Button)
+        {
+            "button"
+        } else if ctx.char_sprite_frame0_children.contains_key(&cid) {
+            "movie_clip"
+        } else if ctx.char_edit_texts.contains_key(&cid) {
+            "text"
+        } else if ctx.char_bitmaps.contains_key(&cid) {
+            "bitmap"
+        } else if ctx.char_morphs.contains_key(&cid) {
+            "morph"
+        } else {
+            "shape"
+        };
+        let cls_js = valid_char_classes
+            .get(&cid)
+            .map_or_else(|| "null".to_owned(), |c| js_string_literal(c));
+        let btn_js = ctx
+            .char_button_records
+            .get(&cid)
+            .map(|recs| {
+                recs.iter()
+                    .map(|&(m, rc)| format!("[{m},{rc}]"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .unwrap_or_default();
+        let f0_js = ctx
+            .char_sprite_frame0_children
+            .get(&cid)
+            .map(|kids| {
+                kids.iter()
+                    .map(|(kcid, knm)| format!("[{kcid},{}]", js_string_literal(knm)))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .unwrap_or_default();
+        let entry_obj = format!(
+            "{{ cid: {cid}, kind: '{kind_str}', className: {cls_js}, btnRecords: [{btn_js}], f0Kids: [{f0_js}] }}"
+        );
+        char_entries_js.push(format!("__nfSwfEnv.charTable[{cid}] = {entry_obj};"));
+        if let Some(sid) = ctx.char_symbols.get(&cid)
+            && let Some(&slot) = sym_id_to_mounted_slot.get(sid)
+        {
+            sym_entries_js.push(format!(
+                "__nfSwfEnv.symTable['s{slot}'] = __nfSwfEnv.charTable[{cid}];"
+            ));
+        }
+    }
+    // Also map morph ratio symbols (`morph_ratio_symbols`) to their morph character info
+    for (&(mcid, _), msid) in &ctx.morph_ratio_symbols {
+        if let Some(&slot) = sym_id_to_mounted_slot.get(msid) {
+            sym_entries_js.push(format!(
+                "if (__nfSwfEnv.charTable[{mcid}]) __nfSwfEnv.symTable['s{slot}'] = __nfSwfEnv.charTable[{mcid}];"
+            ));
+        }
+    }
+
+    // 3. Emit bundle-level AVM2 ABC registry (`avm2-abc-init`)
     let mut init_blocks = Vec::new();
     for (abc_idx, abc) in abc_list.iter().enumerate() {
-        if let Some(block_js) = compile_abc_module_js(
-            ctx,
-            abc_idx,
-            abc,
-            &bound_classes_by_abc[abc_idx],
-            &extracted_fn_map_by_abc[abc_idx],
-        ) {
+        if let Some(block_js) = compile_abc_module_js(ctx, abc_idx, abc) {
             init_blocks.push(block_js);
         }
     }
+
+    let mut meta_js = String::from(
+        "(() => {\nif (!__nfSwfEnv || !__nfSwfEnv.abcs) return;\n__nfSwfEnv.rootClip = this;\n",
+    );
+    for line in char_entries_js {
+        meta_js.push_str(&line);
+        meta_js.push('\n');
+    }
+    for line in sym_entries_js {
+        meta_js.push_str(&line);
+        meta_js.push('\n');
+    }
+    let mut standalone_inits = Vec::new();
+    if let Some((abc_idx, cls_qname)) = &root_doc_target {
+        let cls_lit = js_string_literal(cls_qname);
+        meta_js.push_str(&format!(
+            "__nfSwfEnv.rootDocTarget = {{ abcIdx: {abc_idx}, clsName: {cls_lit} }};\n"
+        ));
+    } else {
+        for (abc_idx, abc) in abc_list.iter().enumerate() {
+            if abc.instances.is_empty()
+                && let Some(&script_init) = abc.script_inits.last()
+                && abc.bodies.contains_key(&script_init)
+            {
+                standalone_inits.push((abc_idx, script_init));
+                meta_js.push_str(&format!(
+                    "__nfSwfEnv.standaloneInits.push([{abc_idx}, {script_init}]);\n"
+                ));
+            }
+        }
+    }
+    meta_js.push_str("})();\n");
+    init_blocks.push(meta_js);
+
     if !init_blocks.is_empty() {
         let source_id = format!("/*swf-{}-avm2-abc-init*/", ctx.mount_seq);
         ctx.scripts.push(super::CompiledSwfScriptUnit {
@@ -1482,11 +1835,11 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         });
     }
 
-    // 4. Attach sprite `addFrameScript` hooks
-    for (sym_id, frame_idx, abc_idx, method_id, cls_name) in sprite_frame_attachments {
+    // 4. Attach idempotent sprite `addFrameScript` fallback entries
+    for (sym_id, frame_idx, cls_name) in sprite_frame_attachments {
         let cls_lit = js_string_literal(&cls_name);
         let call_js = format!(
-            "if (__nfSwfEnv && typeof __nfSwfEnv.invokeMethod === 'function') __nfSwfEnv.invokeMethod({abc_idx}, {method_id}, this, {cls_lit});\n"
+            "if (__nfSwfEnv && typeof __nfSwfEnv.onSpriteFrameEntry === 'function') __nfSwfEnv.onSpriteFrameEntry(this, {frame_idx}, {cls_lit});\n"
         );
         let mut sym_tl = ctx
             .symbols
@@ -1508,83 +1861,33 @@ pub(super) fn apply_abc_scripts(ctx: &mut SwfDecodeCtx, root_timeline: &mut Time
         }
     }
 
-    // 5. Attach root Document Class constructor + root `addFrameScript` hooks (or standalone script_init)
-    if let Some((abc_idx, cls_idx, hooks)) = root_doc_target {
-        let cls_qname = &abc_list[abc_idx].instances[cls_idx].name;
-        let cls_lit = js_string_literal(cls_qname);
-        let ctor_js = format!(
-            "if (__nfSwfEnv && typeof __nfSwfEnv.attachDocClass === 'function') __nfSwfEnv.attachDocClass({abc_idx}, {cls_lit}, this);\n"
-        );
+    // 5. Attach root Document Class or standalone script_init FrameScript ONLY when present
+    if let Some((_, cls_qname)) = root_doc_target {
         attach_compiled_frame_script(
             ctx,
             root_timeline,
             0,
-            &ctor_js,
+            "if (__nfSwfEnv && typeof __nfSwfEnv.bootAvm2Mount === 'function') __nfSwfEnv.bootAvm2Mount(this);\n",
             "avm2-doc-ctor",
             neoflash_core::ScriptLanguage::ActionScript3,
         );
-        for (frame_idx, method_id) in hooks {
-            if frame_idx < root_timeline.frame_count {
-                let f_js = format!(
-                    "if (__nfSwfEnv && typeof __nfSwfEnv.invokeMethod === 'function') __nfSwfEnv.invokeMethod({abc_idx}, {method_id}, this, {cls_lit});\n"
-                );
-                attach_compiled_frame_script(
-                    ctx,
-                    root_timeline,
-                    frame_idx,
-                    &f_js,
-                    "avm2-framescript",
-                    neoflash_core::ScriptLanguage::ActionScript3,
-                );
-            }
-        }
+        Some(cls_qname)
     } else {
-        for (abc_idx, abc) in abc_list.iter().enumerate() {
-            if abc.instances.is_empty()
-                && let Some(&script_init) = abc.script_inits.last()
-                && abc.bodies.contains_key(&script_init)
-            {
-                let s_js = format!(
-                    "if (__nfSwfEnv && typeof __nfSwfEnv.invokeMethod === 'function') __nfSwfEnv.invokeMethod({abc_idx}, {script_init}, this, '');\n"
-                );
-                attach_compiled_frame_script(
-                    ctx,
-                    root_timeline,
-                    0,
-                    &s_js,
-                    "avm2-script",
-                    neoflash_core::ScriptLanguage::ActionScript3,
-                );
-            }
+        if !standalone_inits.is_empty() {
+            attach_compiled_frame_script(
+                ctx,
+                root_timeline,
+                0,
+                "if (__nfSwfEnv && typeof __nfSwfEnv.bootAvm2Mount === 'function') __nfSwfEnv.bootAvm2Mount(this);\n",
+                "avm2-script",
+                neoflash_core::ScriptLanguage::ActionScript3,
+            );
         }
+        None
     }
 }
 
-fn compile_abc_module_js(
-    ctx: &mut SwfDecodeCtx,
-    abc_idx: usize,
-    abc: &AbcFile,
-    timeline_bound_classes: &HashSet<usize>,
-    extracted_fn_map: &HashMap<u32, HashSet<usize>>,
-) -> Option<String> {
-    let mut skip_afs_methods = HashSet::new();
-    for &ci in timeline_bound_classes {
-        let mut cur = Some(ci);
-        let mut seen = HashSet::new();
-        while let Some(idx) = cur {
-            if !seen.insert(idx) {
-                break;
-            }
-            skip_afs_methods.insert(abc.instances[idx].iinit);
-            let sup = &abc.instances[idx].super_name;
-            cur = if sup.is_empty() {
-                None
-            } else {
-                find_abc_class(abc, sup).map(|(pi, _)| pi)
-            };
-        }
-    }
-
+fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) -> Option<String> {
     let mut out = String::from("(() => {\n");
     out.push_str(
         "if (!__nfSwfEnv) return;\n\
@@ -1592,30 +1895,590 @@ if (!__nfSwfEnv.abcs) {\n\
   __nfSwfEnv.abcs = Object.create(null);\n\
   __nfSwfEnv.classes = Object.create(null);\n\
   __nfSwfEnv.globals = Object.create(null);\n\
+  __nfSwfEnv.symTable = Object.create(null);\n\
+  __nfSwfEnv.charTable = Object.create(null);\n\
+  __nfSwfEnv.rootDocTarget = null;\n\
+  __nfSwfEnv.standaloneInits = [];\n\
+  __nfSwfEnv.rootClip = null;\n\
+  __nfSwfEnv.booted = false;\n\
+  __nfSwfEnv.internalDepth = 0;\n\
+  __nfSwfEnv.nextInstId = 0;\n\
   __nfSwfEnv.docAttached = new WeakSet();\n\
+  __nfSwfEnv.entryOf = new WeakMap();\n\
+  __nfSwfEnv.classOf = new WeakMap();\n\
+  __nfSwfEnv.preSuper = new WeakSet();\n\
+  __nfSwfEnv.superConstructed = new WeakSet();\n\
+  __nfSwfEnv.constructingNow = new WeakSet();\n\
+  __nfSwfEnv.constructingChildrenOf = new WeakSet();\n\
+  __nfSwfEnv.pendingDisplay = new WeakSet();\n\
+  __nfSwfEnv.constructedDisplay = new WeakSet();\n\
+  __nfSwfEnv.explicitNames = new WeakMap();\n\
+  __nfSwfEnv.assignedChildProps = new WeakMap();\n\
+  __nfSwfEnv.synthParent = new WeakMap();\n\
+  __nfSwfEnv.synthF0Kids = new WeakMap();\n\
+  __nfSwfEnv.frameScripts = new WeakMap();\n\
+  __nfSwfEnv.lastScriptFrame = new WeakMap();\n\
+  __nfSwfEnv.evListeners = new WeakMap();\n\
+  __nfSwfEnv.trackedClips = [];\n\
+  __nfSwfEnv.stageProxy = null;\n\
   __nfSwfEnv.callDepth = 0;\n\
+  const __strCtor = __nfSwfFn(v => String(v ?? ''));\n\
+  __nfSwfSet(__strCtor, 'fromCharCode', __nfSwfFn((...codes) => String.fromCharCode(...codes.map(c => Number(c) & 0xffff))));\n\
+  const __mkEventObj = (type, bubbles = false, cancelable = false) => {\n\
+    const ev = Object.create(null);\n\
+    ev.type = String(type ?? '');\n\
+    ev.bubbles = Boolean(bubbles);\n\
+    ev.cancelable = Boolean(cancelable);\n\
+    ev.target = null;\n\
+    ev.currentTarget = null;\n\
+    ev.eventPhase = 2;\n\
+    let stopped = false, immStopped = false, prevented = false;\n\
+    __nfSwfSet(ev, 'stopPropagation', __nfSwfFn(() => { stopped = true; }));\n\
+    __nfSwfSet(ev, 'stopImmediatePropagation', __nfSwfFn(() => { stopped = true; immStopped = true; }));\n\
+    __nfSwfSet(ev, 'preventDefault', __nfSwfFn(() => { if (ev.cancelable) prevented = true; }));\n\
+    __nfSwfSet(ev, 'isDefaultPrevented', __nfSwfFn(() => prevented));\n\
+    const fmt = () => '[Event type=\"' + ev.type + '\" bubbles=' + ev.bubbles + ' cancelable=' + ev.cancelable + ' eventPhase=' + ev.eventPhase + ']';\n\
+    __nfSwfSet(ev, 'toString', __nfSwfFn(fmt));\n\
+    ev.__nfEvFmt = fmt;\n\
+    ev.__nfState = () => ({ stopped, immStopped });\n\
+    if (__evCtor) __nfSwfTagInstance(ev, __evCtor);\n\
+    return ev;\n\
+  };\n\
+  let __evCtor = null;\n\
+  const __mkEventCtor = (qname, shortName, consts) => {\n\
+    const ctor = __nfSwfFn(function(type, bubbles = false, cancelable = false) {\n\
+      return __mkEventObj(type, bubbles, cancelable);\n\
+    });\n\
+    for (const [ck, cv] of Object.entries(consts)) __nfSwfSet(ctor, ck, cv);\n\
+    __nfSwfSetClassMeta(ctor, qname, shortName, shortName === 'Event' ? 'Object' : 'Event');\n\
+    return ctor;\n\
+  };\n\
+  __evCtor = __mkEventCtor('flash.events.Event', 'Event', {\n\
+    ADDED: 'added', ADDED_TO_STAGE: 'addedToStage', REMOVED: 'removed', REMOVED_FROM_STAGE: 'removedFromStage',\n\
+    ENTER_FRAME: 'enterFrame', FRAME_CONSTRUCTED: 'frameConstructed', EXIT_FRAME: 'exitFrame',\n\
+    COMPLETE: 'complete', INIT: 'init', OPEN: 'open', RENDER: 'render', UNLOAD: 'unload',\n\
+    CHANGE: 'change', SELECT: 'select', ACTIVATE: 'activate', DEACTIVATE: 'deactivate'\n\
+  });\n\
+  const __mouseEvCtor = __mkEventCtor('flash.events.MouseEvent', 'MouseEvent', {\n\
+    CLICK: 'click', DOUBLE_CLICK: 'doubleClick', MOUSE_DOWN: 'mouseDown', MOUSE_UP: 'mouseUp',\n\
+    MOUSE_MOVE: 'mouseMove', MOUSE_OVER: 'mouseOver', MOUSE_OUT: 'mouseOut',\n\
+    ROLL_OVER: 'rollOver', ROLL_OUT: 'rollOut', MOUSE_WHEEL: 'mouseWheel', RELEASE_OUTSIDE: 'releaseOutside'\n\
+  });\n\
+  const __keyEvCtor = __mkEventCtor('flash.events.KeyboardEvent', 'KeyboardEvent', {\n\
+    KEY_DOWN: 'keyDown', KEY_UP: 'keyUp'\n\
+  });\n\
   __nfSwfEnv.builtins = Object.assign(Object.create(null), {\n\
-    Object: 'Object', Array: 'Array', String: __nfSwfFn(v => String(v ?? '')),\n\
+    Object: 'Object', Array: 'Array', String: __strCtor,\n\
     Number: __nfSwfFn(v => Number(v)), Boolean: __nfSwfFn(v => Boolean(v)),\n\
     int: __nfSwfFn(v => Number(v) | 0), uint: __nfSwfFn(v => Number(v) >>> 0),\n\
     parseInt: __nfSwfFn((s, r) => parseInt(s, r)), parseFloat: __nfSwfFn(s => parseFloat(s)),\n\
     isNaN: __nfSwfFn(v => Number.isNaN(Number(v))), isFinite: __nfSwfFn(v => Number.isFinite(Number(v))),\n\
+    Math: Math,\n\
+    Event: __evCtor, MouseEvent: __mouseEvCtor, KeyboardEvent: __keyEvCtor,\n\
     Error: 'Error', TypeError: 'TypeError', RangeError: 'RangeError',\n\
     ReferenceError: 'ReferenceError', ArgumentError: 'ArgumentError',\n\
-    SyntaxError: 'SyntaxError', URIError: 'URIError', EvalError: 'EvalError',\n\
-    MovieClip: 'MovieClip', Sprite: 'Sprite', DisplayObject: 'DisplayObject',\n\
+    SyntaxError: 'SyntaxError', URIError: 'URIError', EvalError: 'EvalError', SecurityError: 'SecurityError', VerifyError: 'VerifyError',\n\
+    MovieClip: 'MovieClip', Sprite: 'Sprite', SimpleButton: 'SimpleButton', Shape: 'Shape',\n\
+    TextField: 'TextField', Bitmap: 'Bitmap', Stage: 'Stage',\n\
+    DisplayObjectContainer: 'DisplayObjectContainer', InteractiveObject: 'InteractiveObject',\n\
+    DisplayObject: 'DisplayObject', EventDispatcher: 'EventDispatcher', Function: 'Function',\n\
     fscommand: __nfSwfFn((c, a) => __nfSwfGetURL(this, 'FSCommand:' + String(c ?? ''), String(a ?? ''), 0)),\n\
     navigateToURL: __nfSwfFn((req, tgt) => { const u = req && typeof req === 'object' ? __nfSwfGet(req, 'url') : req; __nfSwfGetURL(this, u, tgt, 0); }),\n\
   });\n\
+  __nfSwfEnv.nextInstanceName = () => 'instance' + (++__nfSwfEnv.nextInstId);\n\
+  __nfSwfEnv.getSymInfo = proxy => {\n\
+    if (!proxy || !__nfDisplay?.alive?.(proxy)) return null;\n\
+    const desc = __nfDisplay.descriptor(proxy);\n\
+    const sid = desc?.symbol_id || '';\n\
+    if (!sid) return null;\n\
+    const key = (__nfSwfEnv.prefix && sid.startsWith(__nfSwfEnv.prefix)) ? sid.slice(__nfSwfEnv.prefix.length) : sid;\n\
+    return __nfSwfEnv.symTable[key] || null;\n\
+  };\n\
+  __nfSwfEnv.getStageProxy = () => {\n\
+    if (__nfSwfEnv.stageProxy) return __nfSwfEnv.stageProxy;\n\
+    const realStage = __nfDisplay ? (typeof __nfDisplay.stageContainer === 'function' ? __nfDisplay.stageContainer() : __nfDisplay.stageContainer) : null;\n\
+    const sp = Object.create(null);\n\
+    __nfSwfEnv.classOf.set(sp, 'Stage');\n\
+    __nfSwfEnv.stageProxy = sp;\n\
+    const sEntry = { getters: Object.create(null), setters: Object.create(null) };\n\
+    sEntry.getters.numChildren = __nfSwfFn(() => __nfSwfEnv.rootClip && __nfDisplay?.alive?.(__nfSwfEnv.rootClip) ? 1 : 0);\n\
+    for (const p of ['stageWidth', 'stageHeight', 'frameRate', 'scaleMode', 'align', 'quality', 'color', 'focus']) {\n\
+      sEntry.getters[p] = __nfSwfFn(() => realStage ? __nfSwfGet(realStage, p) : undefined);\n\
+      sEntry.setters[p] = __nfSwfFn(v => { if (realStage) __nfSwfSet(realStage, p, v); });\n\
+    }\n\
+    __nfSwfEnv.entryOf.set(sp, sEntry);\n\
+    __nfSwfSet(sp, 'getChildAt', __nfSwfFn(idx => {\n\
+      if ((idx | 0) === 0 && __nfSwfEnv.rootClip && __nfDisplay?.alive?.(__nfSwfEnv.rootClip)) return __nfSwfEnv.rootClip;\n\
+      throw new RangeError('Child index is outside Stage.');\n\
+    }));\n\
+    __nfSwfSet(sp, 'getChildByName', __nfSwfFn(nm => {\n\
+      if (__nfSwfEnv.rootClip && __nfDisplay?.alive?.(__nfSwfEnv.rootClip) && __nfSwfGet(__nfSwfEnv.rootClip, 'name') === String(nm)) return __nfSwfEnv.rootClip;\n\
+      return null;\n\
+    }));\n\
+    return sp;\n\
+  };\n\
+  __nfSwfEnv.isUnconstructedChild = v => {\n\
+    if (!v || (typeof v !== 'object' && typeof v !== 'function')) return false;\n\
+    if (__nfSwfEnv.pendingDisplay.has(v)) return true;\n\
+    if (__nfSwfEnv.constructedDisplay.has(v)) return false;\n\
+    const sinfo = __nfSwfEnv.getSymInfo(v);\n\
+    if (sinfo && sinfo.className && __nfSwfEnv.hasClass(sinfo.className)) return true;\n\
+    return false;\n\
+  };\n\
+  __nfSwfEnv.toStr = v => {\n\
+    if (v === undefined) return 'undefined';\n\
+    if (v === null) return 'null';\n\
+    if (typeof v === 'string') return v;\n\
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);\n\
+    if (Array.isArray(v)) return v.map(x => x == null ? '' : __nfSwfEnv.toStr(x)).join(',');\n\
+    if (typeof v === 'object' || typeof v === 'function') {\n\
+      if (typeof v.__nfEvFmt === 'function') return v.__nfEvFmt();\n\
+      const ent = __nfSwfEnv.entryOf.get(v);\n\
+      if (ent && ent.hasCustomToString) return String(__nfSwfCall(v, 'toString', []));\n\
+      const cname = __nfSwfEnv.classOf.get(v);\n\
+      if (cname) return '[object ' + cname + ']';\n\
+      if (__nfDisplay && typeof __nfDisplay.alive === 'function' && __nfDisplay.alive(v)) {\n\
+        const sinfo = __nfSwfEnv.getSymInfo(v);\n\
+        if (sinfo?.kind === 'bitmap') return '[object Bitmap]';\n\
+        if (sinfo?.kind === 'morph') return '[object MorphShape]';\n\
+        const own = __nfDisplay.ownerOf?.(v);\n\
+        if (own === 'movie_clip') return '[object MovieClip]';\n\
+        if (own === 'button') return '[object SimpleButton]';\n\
+        if (own === 'text') return '[object TextField]';\n\
+        if (own === 'bitmap') return '[object Bitmap]';\n\
+        return '[object Shape]';\n\
+      }\n\
+      if (__nfDisplay && v === (typeof __nfDisplay.stageContainer === 'function' ? __nfDisplay.stageContainer() : __nfDisplay.stageContainer)) return '[object Stage]';\n\
+    }\n\
+    return String(v);\n\
+  };\n\
+  __nfSwfEnv.avm2Get = (obj, prop) => {\n\
+    if (obj == null) return undefined;\n\
+    const k = String(prop);\n\
+    if (k === 'stage' && __nfDisplay?.alive?.(obj)) {\n\
+      return __nfDisplay.descriptor(obj)?.on_stage === false ? null : __nfSwfEnv.getStageProxy();\n\
+    }\n\
+    if (k === 'root' && __nfDisplay?.alive?.(obj)) {\n\
+      return __nfDisplay.descriptor(obj)?.on_stage === false ? null : __nfSwfEnv.rootClip;\n\
+    }\n\
+    if (k === 'parent' && obj === __nfSwfEnv.rootClip) {\n\
+      return __nfSwfEnv.getStageProxy();\n\
+    }\n\
+    const ent = (typeof obj === 'object' || typeof obj === 'function') ? __nfSwfEnv.entryOf.get(obj) : null;\n\
+    if (ent) {\n\
+      const gf = ent.getters[k];\n\
+      if (typeof gf === 'function') return __nfSwfApply(gf, obj, []);\n\
+    }\n\
+    if ((typeof obj === 'object' || typeof obj === 'function') && __nfSwfEnv.preSuper.has(obj) && !__nfSwfHasOwn(obj, k)) {\n\
+      if (!['stage','parent','root','name','x','y','scaleX','scaleY','alpha','visible','rotation','currentFrame','totalFrames','graphics'].includes(k)) {\n\
+        if (__nfDisplay?.alive?.(obj) && __nfSwfCall(obj, 'getChildByName', [k]) != null) return undefined;\n\
+      }\n\
+    }\n\
+    const raw = __nfSwfGet(obj, k);\n\
+    if (__nfSwfEnv.isUnconstructedChild(raw)) return undefined;\n\
+    return raw;\n\
+  };\n\
+  __nfSwfEnv.avm2Set = (obj, prop, val) => {\n\
+    if (obj == null) return val;\n\
+    const k = String(prop);\n\
+    const ent = (typeof obj === 'object' || typeof obj === 'function') ? __nfSwfEnv.entryOf.get(obj) : null;\n\
+    if (ent) {\n\
+      const sf = ent.setters[k];\n\
+      if (typeof sf === 'function') { __nfSwfApply(sf, obj, [val]); return val; }\n\
+    }\n\
+    return __nfSwfSet(obj, k, val);\n\
+  };\n\
+  const __avm2LifecycleTypes = new Set(['added', 'addedToStage', 'removed', 'removedFromStage', 'frameConstructed', 'exitFrame', 'enterFrame']);\n\
+  __nfSwfEnv.addAvm2Listener = (target, type, fn, useCapture = false) => {\n\
+    if (!target || typeof fn !== 'function') return;\n\
+    const t = String(type ?? ''), cap = Boolean(useCapture);\n\
+    let byType = __nfSwfEnv.evListeners.get(target);\n\
+    if (!byType) { byType = Object.create(null); __nfSwfEnv.evListeners.set(target, byType); }\n\
+    let list = byType[t];\n\
+    if (!list) { list = []; byType[t] = list; }\n\
+    if (!list.some(it => it.fn === fn && it.cap === cap) && list.length < 256) list.push({ fn, cap });\n\
+  };\n\
+  __nfSwfEnv.removeAvm2Listener = (target, type, fn, useCapture = false) => {\n\
+    const byType = target ? __nfSwfEnv.evListeners.get(target) : null;\n\
+    const list = byType ? byType[String(type ?? '')] : null;\n\
+    if (!list) return;\n\
+    const cap = Boolean(useCapture);\n\
+    const idx = list.findIndex(it => it.fn === fn && it.cap === cap);\n\
+    if (idx >= 0) list.splice(idx, 1);\n\
+  };\n\
+  __nfSwfEnv.hasAvm2Listener = (target, type) => {\n\
+    const byType = target ? __nfSwfEnv.evListeners.get(target) : null;\n\
+    const list = byType ? byType[String(type ?? '')] : null;\n\
+    return Boolean(list && list.length > 0);\n\
+  };\n\
+  __nfSwfEnv.parentOfTarget = cur => {\n\
+    if (!cur || cur === __nfSwfEnv.stageProxy) return null;\n\
+    if (__nfSwfEnv.synthParent.has(cur)) return __nfSwfEnv.synthParent.get(cur) || null;\n\
+    if (cur === __nfSwfEnv.rootClip) {\n\
+      return (__nfDisplay?.alive?.(cur) && __nfDisplay.descriptor(cur)?.on_stage !== false) ? __nfSwfEnv.getStageProxy() : null;\n\
+    }\n\
+    if (__nfDisplay?.alive?.(cur)) {\n\
+      try { return __nfDisplay.parentSpace(cur) || null; } catch (_) { return null; }\n\
+    }\n\
+    return null;\n\
+  };\n\
+  __nfSwfEnv.dispatchAvm2EventObj = (target, ev) => {\n\
+    if (!target || !ev) return true;\n\
+    const ancestors = [];\n\
+    let p = __nfSwfEnv.parentOfTarget(target), guard = 0;\n\
+    while (p && guard++ < 64) {\n\
+      ancestors.push(p);\n\
+      if (p === __nfSwfEnv.stageProxy) break;\n\
+      p = __nfSwfEnv.parentOfTarget(p);\n\
+    }\n\
+    ev.target = target;\n\
+    const fireOn = (node, phase, wantCap) => {\n\
+      const byType = __nfSwfEnv.evListeners.get(node);\n\
+      const list = byType ? byType[ev.type] : null;\n\
+      if (!list || !list.length) return;\n\
+      ev.currentTarget = node;\n\
+      ev.eventPhase = phase;\n\
+      for (const item of [...list]) {\n\
+        if (item.cap !== wantCap) continue;\n\
+        __nfSwfApply(item.fn, node, [ev]);\n\
+        if (ev.__nfState?.().immStopped) break;\n\
+      }\n\
+    };\n\
+    for (let i = ancestors.length - 1; i >= 0; i--) {\n\
+      fireOn(ancestors[i], 1, true);\n\
+      if (ev.__nfState?.().stopped) return true;\n\
+    }\n\
+    fireOn(target, 2, false);\n\
+    if (ev.__nfState?.().stopped || !ev.bubbles) return true;\n\
+    for (let i = 0; i < ancestors.length; i++) {\n\
+      fireOn(ancestors[i], 3, false);\n\
+      if (ev.__nfState?.().stopped) break;\n\
+    }\n\
+    return true;\n\
+  };\n\
+  __nfSwfEnv.dispatchAvm2Event = (target, type, bubbles = false) => {\n\
+    return __nfSwfEnv.dispatchAvm2EventObj(target, __mkEventObj(type, bubbles, false));\n\
+  };\n\
+  __nfSwfEnv.registerFrameScripts = (target, args) => {\n\
+    if (!target || (typeof target !== 'object' && typeof target !== 'function')) return;\n\
+    let map = __nfSwfEnv.frameScripts.get(target);\n\
+    if (!map) { map = new Map(); __nfSwfEnv.frameScripts.set(target, map); }\n\
+    for (let i = 0; i + 1 < args.length; i += 2) {\n\
+      const fIdx = Number(args[i]) | 0;\n\
+      const fn = args[i + 1];\n\
+      if (fIdx < 0 || fIdx > 16000) continue;\n\
+      if (typeof fn === 'function') map.set(fIdx, fn);\n\
+      else map.delete(fIdx);\n\
+    }\n\
+  };\n\
+  __nfSwfEnv.trackClip = clip => {\n\
+    if (clip && !__nfSwfEnv.trackedClips.includes(clip)) __nfSwfEnv.trackedClips.push(clip);\n\
+  };\n\
+  __nfSwfEnv.pruneTracked = () => {\n\
+    __nfSwfEnv.trackedClips = __nfSwfEnv.trackedClips.filter(c => __nfDisplay?.alive?.(c));\n\
+  };\n\
+  __nfSwfEnv.broadcastPhase = phaseType => {\n\
+    __nfSwfEnv.pruneTracked();\n\
+    for (const clip of [...__nfSwfEnv.trackedClips]) {\n\
+      if (__nfDisplay?.alive?.(clip) && __nfSwfEnv.hasAvm2Listener(clip, phaseType)) {\n\
+        __nfSwfEnv.dispatchAvm2EventObj(clip, __mkEventObj(phaseType, false, false));\n\
+      }\n\
+    }\n\
+    if (__nfSwfEnv.stageProxy && __nfSwfEnv.hasAvm2Listener(__nfSwfEnv.stageProxy, phaseType)) {\n\
+      __nfSwfEnv.dispatchAvm2EventObj(__nfSwfEnv.stageProxy, __mkEventObj(phaseType, false, false));\n\
+    }\n\
+  };\n\
+  __nfSwfEnv.runPendingFrameScripts = () => {\n\
+    __nfSwfEnv.pruneTracked();\n\
+    for (const clip of [...__nfSwfEnv.trackedClips]) {\n\
+      if (!__nfDisplay?.alive?.(clip)) continue;\n\
+      const curF = ((Number(__nfSwfGet(clip, 'currentFrame')) || 1) - 1) | 0;\n\
+      if (__nfSwfEnv.lastScriptFrame.get(clip) === curF) continue;\n\
+      __nfSwfEnv.lastScriptFrame.set(clip, curF);\n\
+      const map = __nfSwfEnv.frameScripts.get(clip);\n\
+      const fn = map ? map.get(curF) : null;\n\
+      if (typeof fn === 'function') __nfSwfApply(fn, clip, []);\n\
+    }\n\
+  };\n\
+  __nfSwfEnv.runFramePhase = includeExit => {\n\
+    __nfSwfEnv.broadcastPhase('frameConstructed');\n\
+    __nfSwfEnv.runPendingFrameScripts();\n\
+    if (includeExit) __nfSwfEnv.broadcastPhase('exitFrame');\n\
+  };\n\
+  __nfSwfEnv.constructSynthChar = (cid, parentTarget, dispatchAddedOnSelf) => {\n\
+    const cinfo = __nfSwfEnv.charTable[cid] || null;\n\
+    const sobj = Object.create(null);\n\
+    const defName = __nfSwfEnv.nextInstanceName();\n\
+    __nfSwfSet(sobj, 'name', defName);\n\
+    __nfSwfSet(sobj, 'x', 0); __nfSwfSet(sobj, 'y', 0);\n\
+    __nfSwfSet(sobj, 'scaleX', 1); __nfSwfSet(sobj, 'scaleY', 1);\n\
+    __nfSwfSet(sobj, 'alpha', 1); __nfSwfSet(sobj, 'visible', true); __nfSwfSet(sobj, 'rotation', 0);\n\
+    __nfSwfEnv.synthParent.set(sobj, parentTarget);\n\
+    const shortKind = cinfo?.className ? cinfo.className.split('.').pop() : (cinfo?.kind === 'movie_clip' ? 'MovieClip' : cinfo?.kind === 'button' ? 'SimpleButton' : cinfo?.kind === 'text' ? 'TextField' : cinfo?.kind === 'bitmap' ? 'Bitmap' : 'Shape');\n\
+    __nfSwfEnv.classOf.set(sobj, shortKind);\n\
+    if (cinfo?.kind === 'movie_clip') {\n\
+      __nfSwfEnv.synthF0Kids.set(sobj, cinfo.f0Kids || []);\n\
+      if (cinfo.className && __nfSwfEnv.hasClass(cinfo.className)) {\n\
+        __nfSwfEnv.attachClassToInstance(cinfo.className, sobj, []);\n\
+      } else {\n\
+        __nfSwfEnv.superConstruct(sobj);\n\
+      }\n\
+    } else if (cinfo?.kind === 'button') {\n\
+      __nfSwfEnv.constructButtonNode(sobj, cinfo);\n\
+    }\n\
+    __nfSwfEnv.constructedDisplay.add(sobj);\n\
+    if (dispatchAddedOnSelf) __nfSwfEnv.dispatchAvm2Event(sobj, 'added', true);\n\
+    return sobj;\n\
+  };\n\
+  __nfSwfEnv.constructButtonNode = (btnTarget, symInfo) => {\n\
+    const recs = symInfo?.btnRecords || [];\n\
+    const instantiated = [];\n\
+    for (const [stateMask, recCid] of recs) {\n\
+      const recObj = __nfSwfEnv.constructSynthChar(recCid, btnTarget, false);\n\
+      instantiated.push([stateMask, recObj]);\n\
+    }\n\
+    let firstUp = null;\n\
+    for (const [stateMask, recObj] of instantiated) {\n\
+      if ((stateMask & 1) !== 0) { if (!firstUp) firstUp = recObj; }\n\
+      else __nfSwfEnv.synthParent.set(recObj, null);\n\
+    }\n\
+    if (firstUp) {\n\
+      __nfSwfEnv.dispatchAvm2Event(firstUp, 'added', true);\n\
+      __nfSwfEnv.dispatchAvm2Event(firstUp, 'addedToStage', false);\n\
+    }\n\
+    __nfSwfEnv.runFramePhase(true);\n\
+    if (symInfo?.className && __nfSwfEnv.hasClass(symInfo.className)) {\n\
+      __nfSwfEnv.attachClassToInstance(symInfo.className, btnTarget, []);\n\
+    }\n\
+  };\n\
+  __nfSwfEnv.superConstruct = target => {\n\
+    if (!target || (typeof target !== 'object' && typeof target !== 'function')) return;\n\
+    if (__nfSwfEnv.superConstructed.has(target)) return;\n\
+    __nfSwfEnv.superConstructed.add(target);\n\
+    __nfSwfEnv.preSuper.delete(target);\n\
+    if (__nfSwfEnv.synthF0Kids.has(target)) {\n\
+      const f0 = __nfSwfEnv.synthF0Kids.get(target) || [];\n\
+      for (const [kcid, knm] of f0) {\n\
+        const sk = __nfSwfEnv.constructSynthChar(kcid, target, true);\n\
+        if (knm) { __nfSwfSet(sk, 'name', knm); __nfSwfSet(target, knm, sk); }\n\
+      }\n\
+      return;\n\
+    }\n\
+    __nfSwfEnv.constructChildren(target);\n\
+  };\n\
+  __nfSwfEnv.constructChildren = parentProxy => {\n\
+    if (!parentProxy || !__nfDisplay?.alive?.(parentProxy)) return;\n\
+    if (__nfSwfEnv.constructingChildrenOf.has(parentProxy)) return;\n\
+    const pDesc = __nfDisplay.descriptor(parentProxy);\n\
+    if (!pDesc || (pDesc.owner !== 'movie_clip' && pDesc.owner !== 'sprite')) return;\n\
+    __nfSwfEnv.constructingChildrenOf.add(parentProxy);\n\
+    try {\n\
+    const rawKids = __nfDisplay.children(parentProxy) || [];\n\
+    const unconstructed = [];\n\
+    for (const knode of rawKids) {\n\
+      const kproxy = __nfDisplay.nodeProxy(knode);\n\
+      if (!kproxy || __nfSwfEnv.constructedDisplay.has(kproxy) || __nfSwfEnv.constructingNow.has(kproxy)) continue;\n\
+      if (!knode.name) {\n\
+        const defName = __nfSwfEnv.nextInstanceName();\n\
+        try { __nfSwfSet(kproxy, 'name', defName); } catch (_) {}\n\
+      } else {\n\
+        __nfSwfEnv.explicitNames.set(kproxy, knode.name);\n\
+      }\n\
+      __nfSwfEnv.pendingDisplay.add(kproxy);\n\
+      unconstructed.push({ knode, kproxy });\n\
+    }\n\
+    for (const { knode, kproxy } of unconstructed) {\n\
+      if (!__nfDisplay.alive(kproxy)) { __nfSwfEnv.pendingDisplay.delete(kproxy); continue; }\n\
+      __nfSwfEnv.constructingNow.add(kproxy);\n\
+      __nfSwfEnv.trackClip(kproxy);\n\
+      const symInfo = __nfSwfEnv.getSymInfo(kproxy);\n\
+      try {\n\
+        if (knode.owner === 'button' || symInfo?.kind === 'button') {\n\
+          __nfSwfEnv.constructButtonNode(kproxy, symInfo);\n\
+        } else if (symInfo?.className && __nfSwfEnv.hasClass(symInfo.className)) {\n\
+          __nfSwfEnv.attachClassToInstance(symInfo.className, kproxy, []);\n\
+        } else {\n\
+          __nfSwfEnv.superConstruct(kproxy);\n\
+        }\n\
+      } finally {\n\
+        __nfSwfEnv.constructingNow.delete(kproxy);\n\
+        __nfSwfEnv.pendingDisplay.delete(kproxy);\n\
+        __nfSwfEnv.constructedDisplay.add(kproxy);\n\
+      }\n\
+      const expName = __nfSwfEnv.explicitNames.get(kproxy);\n\
+      if (expName && __nfDisplay.alive(parentProxy)) {\n\
+        __nfSwfSet(parentProxy, expName, kproxy);\n\
+        let assigned = __nfSwfEnv.assignedChildProps.get(parentProxy);\n\
+        if (!assigned) { assigned = new Map(); __nfSwfEnv.assignedChildProps.set(parentProxy, assigned); }\n\
+        assigned.set(expName, kproxy);\n\
+      }\n\
+      if (__nfDisplay.alive(kproxy)) {\n\
+        __nfSwfEnv.dispatchAvm2Event(kproxy, 'added', true);\n\
+        if (__nfDisplay.descriptor(kproxy)?.on_stage !== false) {\n\
+          __nfSwfEnv.dispatchAvm2Event(kproxy, 'addedToStage', false);\n\
+        }\n\
+      }\n\
+    }\n\
+    } finally { __nfSwfEnv.constructingChildrenOf.delete(parentProxy); }\n\
+  };\n\
+  __nfSwfEnv.pruneRetiredChildren = container => {\n\
+    const assigned = container ? __nfSwfEnv.assignedChildProps.get(container) : null;\n\
+    if (!assigned) return;\n\
+    for (const [nm, childProxy] of [...assigned.entries()]) {\n\
+      if (!__nfDisplay?.alive?.(childProxy)) {\n\
+        assigned.delete(nm);\n\
+        if (__nfSwfGet(container, nm) === childProxy) __nfSwfDelete(container, nm);\n\
+      }\n\
+    }\n\
+  };\n\
+  __nfSwfEnv.scanAndConstruct = container => {\n\
+    if (!container || !__nfDisplay?.alive?.(container)) return;\n\
+    const desc = __nfDisplay.descriptor(container);\n\
+    if (!desc || (desc.owner !== 'movie_clip' && desc.owner !== 'sprite')) return;\n\
+    __nfSwfEnv.pruneRetiredChildren(container);\n\
+    if (__nfSwfEnv.superConstructed.has(container) && !__nfSwfEnv.constructingChildrenOf.has(container)) {\n\
+      __nfSwfEnv.constructChildren(container);\n\
+    }\n\
+    for (const knode of (__nfDisplay.children(container) || [])) {\n\
+      const kp = __nfDisplay.nodeProxy(knode);\n\
+      if (kp && (__nfSwfEnv.constructedDisplay.has(kp) || __nfSwfEnv.superConstructed.has(kp))) __nfSwfEnv.scanAndConstruct(kp);\n\
+    }\n\
+  };\n\
+  __nfSwfEnv.avm2Goto = (clip, method, args) => {\n\
+    if (!clip || !__nfDisplay?.alive?.(clip)) return undefined;\n\
+    __nfSwfEnv.internalDepth++;\n\
+    try {\n\
+      const prevF = __nfSwfGet(clip, 'currentFrame');\n\
+      __nfSwfEnv.inHostNav = true;\n\
+      try { __nfSwfCall(clip, method, args); } finally { __nfSwfEnv.inHostNav = false; }\n\
+      const nextF = __nfSwfGet(clip, 'currentFrame');\n\
+      if (nextF === prevF) return undefined;\n\
+      __nfSwfEnv.scanAndConstruct(__nfSwfEnv.rootClip || clip);\n\
+      __nfSwfEnv.runFramePhase(true);\n\
+      return undefined;\n\
+    } finally {\n\
+      __nfSwfEnv.internalDepth--;\n\
+    }\n\
+  };\n\
+  __nfSwfEnv.avm2Call = (rawRecv, methodName, args, curThis) => {\n\
+    const m = String(methodName ?? '');\n\
+    const isGlobalRecv = rawRecv == null || rawRecv === __nfSwfEnv.globals || rawRecv === __nfSwfEnv.builtins;\n\
+    if (m === 'addFrameScript') {\n\
+      const tgt = isGlobalRecv ? curThis : rawRecv;\n\
+      __nfSwfEnv.registerFrameScripts(tgt, args);\n\
+      return undefined;\n\
+    }\n\
+    if (m === 'stop' || m === 'play') {\n\
+      const tgt = isGlobalRecv ? ((curThis && __nfDisplay?.alive?.(curThis)) ? curThis : __nfSwfEnv.rootClip) : rawRecv;\n\
+      if (!tgt) return undefined;\n\
+      __nfSwfEnv.internalDepth++;\n\
+      try { return __nfSwfCall(tgt, m, []); } finally { __nfSwfEnv.internalDepth--; }\n\
+    }\n\
+    if (m === 'gotoAndStop' || m === 'gotoAndPlay' || m === 'nextFrame' || m === 'prevFrame') {\n\
+      const tgt = isGlobalRecv ? ((curThis && __nfDisplay?.alive?.(curThis)) ? curThis : __nfSwfEnv.rootClip) : rawRecv;\n\
+      return __nfSwfEnv.avm2Goto(tgt, m, args);\n\
+    }\n\
+    if (m === 'addEventListener' && args.length >= 2) {\n\
+      const tgt = isGlobalRecv ? curThis : rawRecv;\n\
+      const evType = String(args[0] ?? '');\n\
+      if (__avm2LifecycleTypes.has(evType) || tgt === __nfSwfEnv.stageProxy || __nfSwfEnv.synthParent.has(tgt)) {\n\
+        __nfSwfEnv.addAvm2Listener(tgt, evType, args[1], Boolean(args[2]));\n\
+        return undefined;\n\
+      }\n\
+    }\n\
+    if (m === 'removeEventListener' && args.length >= 2) {\n\
+      const tgt = isGlobalRecv ? curThis : rawRecv;\n\
+      const evType = String(args[0] ?? '');\n\
+      if (__avm2LifecycleTypes.has(evType) || tgt === __nfSwfEnv.stageProxy || __nfSwfEnv.synthParent.has(tgt)) {\n\
+        __nfSwfEnv.removeAvm2Listener(tgt, evType, args[1], Boolean(args[2]));\n\
+        return undefined;\n\
+      }\n\
+    }\n\
+    if (m === 'hasEventListener' && args.length >= 1) {\n\
+      const tgt = isGlobalRecv ? curThis : rawRecv;\n\
+      const evType = String(args[0] ?? '');\n\
+      if (__avm2LifecycleTypes.has(evType) || tgt === __nfSwfEnv.stageProxy || __nfSwfEnv.synthParent.has(tgt)) {\n\
+        return __nfSwfEnv.hasAvm2Listener(tgt, evType);\n\
+      }\n\
+    }\n\
+    if (m === 'dispatchEvent' && args.length >= 1) {\n\
+      const tgt = isGlobalRecv ? curThis : rawRecv;\n\
+      const ev = args[0];\n\
+      if (ev && typeof ev === 'object' && ev.__nfEvFmt && (__avm2LifecycleTypes.has(ev.type) || tgt === __nfSwfEnv.stageProxy || __nfSwfEnv.synthParent.has(tgt))) {\n\
+        return __nfSwfEnv.dispatchAvm2EventObj(tgt, ev);\n\
+      }\n\
+    }\n\
+    const recv = isGlobalRecv ? curThis : rawRecv;\n\
+    const r = __nfSwfCall(recv, m, args);\n\
+    if ((m === 'getChildAt' || m === 'getChildByName') && __nfSwfEnv.isUnconstructedChild(r)) return null;\n\
+    return r;\n\
+  };\n\
+  __nfSwfEnv.bootAvm2Mount = rootTarget => {\n\
+    if (!rootTarget || __nfSwfEnv.booted) return;\n\
+    __nfSwfEnv.booted = true;\n\
+    __nfSwfEnv.rootClip = rootTarget;\n\
+    __nfSwfEnv.internalDepth++;\n\
+    try {\n\
+      try { __nfSwfSet(rootTarget, 'name', 'root1'); } catch (_) {}\n\
+      __nfSwfEnv.trackClip(rootTarget);\n\
+      if (__nfSwfEnv.rootDocTarget) {\n\
+        __nfSwfEnv.attachDocClass(__nfSwfEnv.rootDocTarget.abcIdx, __nfSwfEnv.rootDocTarget.clsName, rootTarget);\n\
+      } else {\n\
+        __nfSwfEnv.superConstruct(rootTarget);\n\
+        __nfSwfEnv.constructedDisplay.add(rootTarget);\n\
+        for (const [aIdx, mId] of __nfSwfEnv.standaloneInits) {\n\
+          __nfSwfEnv.invokeMethod(aIdx, mId, rootTarget, '');\n\
+        }\n\
+      }\n\
+      if (__nfDisplay?.alive?.(rootTarget)) {\n\
+        __nfSwfEnv.dispatchAvm2Event(rootTarget, 'added', true);\n\
+        if (__nfDisplay.descriptor(rootTarget)?.on_stage !== false) {\n\
+          __nfSwfEnv.dispatchAvm2Event(rootTarget, 'addedToStage', false);\n\
+        }\n\
+      }\n\
+      __nfSwfEnv.runFramePhase(true);\n\
+      if (__nfDisplay?.alive?.(rootTarget)) {\n\
+        __nfSwfCall(rootTarget, 'addEventListener', ['enterFrame', __nfSwfFn(() => {\n\
+          if (__nfSwfEnv.internalDepth > 0 || !__nfDisplay?.alive?.(rootTarget)) return;\n\
+          __nfSwfEnv.broadcastPhase('enterFrame');\n\
+        })]);\n\
+        __nfSwfCall(rootTarget, 'addEventListener', ['frameConstructed', __nfSwfFn(() => {\n\
+          if (__nfSwfEnv.internalDepth > 0 || !__nfDisplay?.alive?.(rootTarget)) return;\n\
+          __nfSwfEnv.internalDepth++;\n\
+          try {\n\
+            __nfSwfEnv.scanAndConstruct(rootTarget);\n\
+            __nfSwfEnv.broadcastPhase('frameConstructed');\n\
+            __nfSwfEnv.runPendingFrameScripts();\n\
+          } finally { __nfSwfEnv.internalDepth--; }\n\
+        })]);\n\
+        __nfSwfCall(rootTarget, 'addEventListener', ['exitFrame', __nfSwfFn(() => {\n\
+          if (__nfSwfEnv.internalDepth > 0 || !__nfDisplay?.alive?.(rootTarget)) return;\n\
+          __nfSwfEnv.broadcastPhase('exitFrame');\n\
+        })]);\n\
+      }\n\
+    } finally {\n\
+      __nfSwfEnv.internalDepth--;\n\
+    }\n\
+  };\n\
   __nfSwfEnv.hasClass = clsName => {\n\
     if (!clsName || !__nfSwfEnv.classes) return false;\n\
     const s = String(clsName), short = s.split('.').pop();\n\
     return Boolean(__nfSwfEnv.classes[s] || (short && __nfSwfEnv.classes[short]));\n\
   };\n\
+  __nfSwfEnv.onSpriteFrameEntry = (target, fIdx) => {\n\
+    if (!target || __nfSwfEnv.internalDepth > 0 || !__nfDisplay?.alive?.(target)) return;\n\
+    if (__nfSwfEnv.lastScriptFrame.get(target) === fIdx) return;\n\
+    __nfSwfEnv.lastScriptFrame.set(target, fIdx);\n\
+    const map = __nfSwfEnv.frameScripts.get(target);\n\
+    const fn = map ? map.get(fIdx) : null;\n\
+    if (typeof fn === 'function') __nfSwfApply(fn, target, []);\n\
+  };\n\
   __nfSwfEnv.attachClassToInstance = (clsName, target, args) => {\n\
+    if (!target || __nfSwfEnv.inHostNav || __nfSwfEnv.internalDepth === 0 || __nfSwfEnv.docAttached.has(target) || __nfSwfEnv.constructedDisplay.has(target)) return;\n\
     const s = String(clsName || ''), short = s.split('.').pop();\n\
     const entry = __nfSwfEnv.classes[s] || (short ? __nfSwfEnv.classes[short] : null);\n\
-    if (!entry || !target) return;\n\
+    if (!entry) return;\n\
+    __nfSwfEnv.docAttached.add(target);\n\
     entry.bindToDisplay(target, Array.isArray(args) ? args : []);\n\
   };\n\
   __nfSwfEnv.attachDocClass = (aIdx, clsName, target) => {\n\
@@ -1666,14 +2529,11 @@ if (!__nfSwfEnv.abcs) {\n\
     // Sort method IDs deterministically
     let mut body_ids: Vec<u32> = abc.bodies.keys().copied().collect();
     body_ids.sort_unstable();
-    let empty_set = HashSet::new();
     for mid in body_ids {
         let body = &abc.bodies[&mid];
         let minfo = abc.methods.get(mid as usize);
-        let skip_afs = skip_afs_methods.contains(&mid);
-        let ext_set = extracted_fn_map.get(&mid).unwrap_or(&empty_set);
         let first_warning = ctx.warnings.len();
-        if let Some(fn_js) = compile_avm2_method_factory(ctx, abc, body, minfo, skip_afs, ext_set) {
+        if let Some(fn_js) = compile_avm2_method_factory(ctx, abc, body, minfo) {
             out.push_str(&format!("__abc.methods[{mid}] = {fn_js};\n"));
         }
         for warning in &mut ctx.warnings[first_warning..] {
@@ -1690,53 +2550,67 @@ if (!__nfSwfEnv.abcs) {\n\
 
         let mut inst_slots_js = Vec::new();
         let mut inst_methods_js = Vec::new();
+        let mut inst_getters_js = Vec::new();
+        let mut inst_setters_js = Vec::new();
         let mut next_inst_slot = 1u32;
         for tr in &inst.traits {
             let sname = js_string_literal(short_multiname(&tr.name));
             match tr.kind {
                 0 | 6 => {
                     let sid = resolve_trait_slot_id(tr.slot_id, &mut next_inst_slot);
-                    let dv = tr
-                        .default_val
-                        .as_ref()
-                        .map_or_else(|| "undefined".to_owned(), default_val_js);
+                    let dv = trait_slot_default_js(tr);
                     inst_slots_js.push(format!("[{sname}, {sid}, {dv}]"));
                 }
-                1 => {
+                1 | 5 => {
                     inst_methods_js.push(format!("[{sname}, {}]", tr.method_or_class_id));
+                }
+                2 => {
+                    inst_getters_js.push(format!("[{sname}, {}]", tr.method_or_class_id));
+                }
+                3 => {
+                    inst_setters_js.push(format!("[{sname}, {}]", tr.method_or_class_id));
                 }
                 _ => {}
             }
         }
         let mut static_slots_js = Vec::new();
         let mut static_methods_js = Vec::new();
+        let mut static_getters_js = Vec::new();
+        let mut static_setters_js = Vec::new();
         let mut next_static_slot = 1u32;
         for tr in &inst.static_traits {
             let sname = js_string_literal(short_multiname(&tr.name));
             match tr.kind {
                 0 | 6 => {
                     let sid = resolve_trait_slot_id(tr.slot_id, &mut next_static_slot);
-                    let dv = tr
-                        .default_val
-                        .as_ref()
-                        .map_or_else(|| "undefined".to_owned(), default_val_js);
+                    let dv = trait_slot_default_js(tr);
                     static_slots_js.push(format!("[{sname}, {sid}, {dv}]"));
                 }
-                1 => {
+                1 | 5 => {
                     static_methods_js.push(format!("[{sname}, {}]", tr.method_or_class_id));
+                }
+                2 => {
+                    static_getters_js.push(format!("[{sname}, {}]", tr.method_or_class_id));
+                }
+                3 => {
+                    static_setters_js.push(format!("[{sname}, {}]", tr.method_or_class_id));
                 }
                 _ => {}
             }
         }
 
         out.push_str(&format!(
-            "__abc.specs[{ci}] = {{ qname: {qname_lit}, shortName: {short_lit}, superQname: {sup_qname_lit}, superShort: {sup_short_lit}, iinit: {}, cinit: {}, instSlots: [{}], instMethods: [{}], staticSlots: [{}], staticMethods: [{}] }};\n",
+            "__abc.specs[{ci}] = {{ qname: {qname_lit}, shortName: {short_lit}, superQname: {sup_qname_lit}, superShort: {sup_short_lit}, iinit: {}, cinit: {}, instSlots: [{}], instMethods: [{}], instGetters: [{}], instSetters: [{}], staticSlots: [{}], staticMethods: [{}], staticGetters: [{}], staticSetters: [{}] }};\n",
             inst.iinit,
             inst.cinit,
             inst_slots_js.join(","),
             inst_methods_js.join(","),
+            inst_getters_js.join(","),
+            inst_setters_js.join(","),
             static_slots_js.join(","),
-            static_methods_js.join(",")
+            static_methods_js.join(","),
+            static_getters_js.join(","),
+            static_setters_js.join(",")
         ));
     }
 
@@ -1767,12 +2641,17 @@ if (!__nfSwfEnv.abcs) {\n\
   const entry = Object.create(null);\n\
   entry.spec = spec;\n\
   entry.superEntry = superEntry;\n\
+  entry.getters = Object.assign(Object.create(null), superEntry ? superEntry.getters : null);\n\
+  entry.setters = Object.assign(Object.create(null), superEntry ? superEntry.setters : null);\n\
+  entry.hasCustomToString = Boolean(superEntry && superEntry.hasCustomToString);\n\
   const scopes = Array.isArray(baseScopes) && baseScopes.length ? [...baseScopes] : [__nfSwfEnv.globals];\n\
   entry.initChain = target => {\n\
     if (entry.superEntry) entry.superEntry.initChain(target);\n\
     const slotPairs = [];\n\
+    const isDisp = Boolean(__nfDisplay && typeof __nfDisplay.alive === 'function' && __nfDisplay.alive(target));\n\
     for (const [sn, sid, dv] of spec.instSlots) {\n\
       if (sid > 0) slotPairs.push([sid, sn]);\n\
+      if (isDisp && (dv === null || dv === undefined) && __nfSwfCall(target, 'getChildByName', [sn]) != null) continue;\n\
       if (!__nfSwfHasOwn(target, sn) && !(dv === undefined && __nfSwfGet(target, sn) !== undefined)) __nfSwfSet(target, sn, dv);\n\
     }\n\
     if (slotPairs.length) __nfSwfSlotMeta(target, slotPairs);\n\
@@ -1793,11 +2672,24 @@ if (!__nfSwfEnv.abcs) {\n\
   };\n\
   entry.bindToDisplay = (target, args) => {\n\
     __nfSwfTagInstance(target, entry.ctor);\n\
+    __nfSwfEnv.entryOf.set(target, entry);\n\
+    __nfSwfEnv.classOf.set(target, spec.shortName);\n\
     entry.initChain(target);\n\
     entry.bindMethodsToTarget(target);\n\
-    entry.runIinit(target, args);\n\
+    __nfSwfEnv.preSuper.add(target);\n\
+    try {\n\
+      entry.runIinit(target, args);\n\
+      if (!__nfSwfEnv.superConstructed.has(target)) {\n\
+        __nfSwfEnv.superConstruct(target);\n\
+      }\n\
+    } finally {\n\
+      __nfSwfEnv.preSuper.delete(target);\n\
+      __nfSwfEnv.constructedDisplay.add(target);\n\
+    }\n\
   };\n\
   const ctor = __nfSwfFn(function(...cArgs) {\n\
+    __nfSwfEnv.entryOf.set(this, entry);\n\
+    __nfSwfEnv.classOf.set(this, spec.shortName);\n\
     entry.initChain(this);\n\
     entry.runIinit(this, cArgs);\n\
   });\n\
@@ -1815,9 +2707,20 @@ if (!__nfSwfEnv.abcs) {\n\
   __nfSwfEnv.globals[spec.qname] = ctor;\n\
   __nfSwfEnv.globals[spec.shortName] = ctor;\n\
   for (const [mn, mid] of spec.instMethods) {\n\
+    if (mn === 'toString') entry.hasCustomToString = true;\n\
     const mf = __abc.methods[mid];\n\
     if (mf) __nfSwfSet(entry.proto, mn, mf(entry.methodScopes, entry));\n\
   }\n\
+  for (const [gn, gmid] of spec.instGetters) {\n\
+    const gf = __abc.methods[gmid];\n\
+    if (gf) entry.getters[gn] = gf(entry.methodScopes, entry);\n\
+  }\n\
+  for (const [sn, smid] of spec.instSetters) {\n\
+    const sf = __abc.methods[smid];\n\
+    if (sf) entry.setters[sn] = sf(entry.methodScopes, entry);\n\
+  }\n\
+  const sEntry = { getters: Object.create(null), setters: Object.create(null) };\n\
+  __nfSwfEnv.entryOf.set(ctor, sEntry);\n\
   const sSlotPairs = [];\n\
   for (const [sn, sid, dv] of spec.staticSlots) {\n\
     if (sid > 0) sSlotPairs.push([sid, sn]);\n\
@@ -1830,6 +2733,14 @@ if (!__nfSwfEnv.abcs) {\n\
       const sfn = smf(entry.cinitScopes, entry);\n\
       __nfSwfSet(ctor, smn, __nfSwfFn(function(...a) { return __nfSwfApply(sfn, ctor, a); }));\n\
     }\n\
+  }\n\
+  for (const [sgn, sgmid] of spec.staticGetters) {\n\
+    const sgf = __abc.methods[sgmid];\n\
+    if (sgf) sEntry.getters[sgn] = sgf(entry.cinitScopes, entry);\n\
+  }\n\
+  for (const [ssn, ssmid] of spec.staticSetters) {\n\
+    const ssf = __abc.methods[ssmid];\n\
+    if (ssf) sEntry.setters[ssn] = ssf(entry.cinitScopes, entry);\n\
   }\n\
   const ciFn = __abc.methods[spec.cinit];\n\
   if (ciFn) __nfSwfApply(ciFn(entry.cinitScopes, entry), ctor, []);\n\
@@ -1878,9 +2789,9 @@ fn decode_avm2_instructions(code: &[u8]) -> Vec<Avm2Inst> {
             0x25 => Ok(vec![i64::from(r.read_u30()? as i16)]),
             // 1 u30
             0x04 | 0x05 | 0x06 | 0x08 | 0x2C | 0x2D | 0x2E | 0x2F | 0x31 | 0x40 | 0x41 | 0x42
-            | 0x49 | 0x53 | 0x55 | 0x56 | 0x58 | 0x59 | 0x5A | 0x5D | 0x5E | 0x5F | 0x60 | 0x61
-            | 0x62 | 0x63 | 0x66 | 0x67 | 0x68 | 0x6A | 0x6C | 0x6D | 0x6E | 0x6F | 0x78 | 0x80
-            | 0x86 | 0x92 | 0x94 | 0xB2 | 0xC2 | 0xC3 | 0xF0 | 0xF1 => {
+            | 0x49 | 0x53 | 0x55 | 0x56 | 0x58 | 0x59 | 0x5A | 0x5B | 0x5C | 0x5D | 0x5E | 0x5F
+            | 0x60 | 0x61 | 0x62 | 0x63 | 0x66 | 0x67 | 0x68 | 0x6A | 0x6C | 0x6D | 0x6E | 0x6F
+            | 0x78 | 0x80 | 0x86 | 0x92 | 0x94 | 0xB2 | 0xC2 | 0xC3 | 0xF0 | 0xF1 => {
                 Ok(vec![i64::from(r.read_u30()?)])
             }
             // 2 u30
@@ -1917,74 +2828,11 @@ fn decode_avm2_instructions(code: &[u8]) -> Vec<Avm2Inst> {
     out
 }
 
-fn extract_avm2_add_frame_scripts(
-    abc: &AbcFile,
-    inst_info: &AbcInstanceInfo,
-    code: &[u8],
-) -> (Vec<(u32, u32)>, HashSet<usize>) {
-    let insts = decode_avm2_instructions(code);
-    let mut trait_methods_by_name = HashMap::new();
-    for tr in &inst_info.traits {
-        if tr.kind == 1 {
-            trait_methods_by_name
-                .insert(short_multiname(&tr.name).to_owned(), tr.method_or_class_id);
-        }
-    }
-    let mut hooks = Vec::new();
-    let mut fn_inst_indices = HashSet::new();
-    for (idx, inst) in insts.iter().enumerate() {
-        if matches!(inst.op, 0x46 | 0x4F) && inst.args.len() >= 2 {
-            let mn_idx = inst.args[0] as usize;
-            let argc = inst.args[1] as usize;
-            let mn_name = abc
-                .multinames
-                .get(mn_idx)
-                .map_or("", |m| short_multiname(&m.name));
-            if mn_name == "addFrameScript" && argc >= 2 && argc.is_multiple_of(2) && idx >= argc {
-                let pairs = argc / 2;
-                for p in 0..pairs {
-                    let fn_pos = idx - argc + p * 2 + 1;
-                    let f_inst = &insts[idx - argc + p * 2];
-                    let fn_inst = &insts[fn_pos];
-                    let frame_opt = match f_inst.op {
-                        0x24 => Some(f_inst.args[0] as i8 as i32),
-                        0x25 => Some(f_inst.args[0] as i32),
-                        0x2D => abc.ints.get(f_inst.args[0] as usize).copied(),
-                        0x2E => abc.uints.get(f_inst.args[0] as usize).map(|&u| u as i32),
-                        _ => None,
-                    };
-                    let method_opt = match fn_inst.op {
-                        0x40 => Some(fn_inst.args[0] as u32),
-                        0x60 => {
-                            let fn_mn = fn_inst.args[0] as usize;
-                            abc.multinames.get(fn_mn).and_then(|m| {
-                                trait_methods_by_name.get(short_multiname(&m.name)).copied()
-                            })
-                        }
-                        _ => None,
-                    };
-                    if let (Some(f), Some(mid)) = (frame_opt, method_opt)
-                        && f >= 0
-                    {
-                        hooks.push((f as u32, mid));
-                        if fn_inst.op == 0x40 {
-                            fn_inst_indices.insert(fn_pos);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    (hooks, fn_inst_indices)
-}
-
 fn compile_avm2_method_factory(
     ctx: &mut SwfDecodeCtx,
     abc: &AbcFile,
     body: &AbcMethodBody,
     minfo: Option<&AbcMethodInfo>,
-    skip_add_frame_script: bool,
-    extracted_fn_indices: &HashSet<usize>,
 ) -> Option<String> {
     let code = &body.code;
     let insts = decode_avm2_instructions(code);
@@ -2031,8 +2879,9 @@ fn compile_avm2_method_factory(
         let to_pc = resolve_pc_at_or_after(exc.to as usize);
         let target_pc = resolve_pc_at_or_after(exc.target as usize);
         let et_short = js_string_literal(short_multiname(&exc.exc_type));
+        let vn_lit = js_string_literal(&exc.var_name);
         exc_entries.push(format!(
-            "{{ from: {from_pc}, to: {to_pc}, target: {target_pc}, type: {et_short} }}"
+            "{{ from: {from_pc}, to: {to_pc}, target: {target_pc}, type: {et_short}, varName: {vn_lit} }}"
         ));
     }
     let exc_lit = format!("[{}]", exc_entries.join(","));
@@ -2077,8 +2926,9 @@ fn compile_avm2_method_factory(
     js.push_str(&format!(
         "      const __excs = {exc_lit};\n\
       let __pc = 0, __steps = 0;\n\
-      const __callHostGlobal = (n, a) => n === 'stop' ? (typeof stop === 'function' ? stop() : undefined) : n === 'play' ? (typeof play === 'function' ? play() : undefined) : n === 'gotoAndStop' ? (typeof gotoAndStop === 'function' ? gotoAndStop(...a) : undefined) : n === 'gotoAndPlay' ? (typeof gotoAndPlay === 'function' ? gotoAndPlay(...a) : undefined) : n === 'nextFrame' ? (typeof nextFrame === 'function' ? nextFrame() : undefined) : n === 'prevFrame' ? (typeof prevFrame === 'function' ? prevFrame() : undefined) : n === 'trace' ? trace(...a) : undefined;\n\
-      const __isHostBuiltin = n => n === 'stop' || n === 'play' || n === 'gotoAndStop' || n === 'gotoAndPlay' || n === 'nextFrame' || n === 'prevFrame' || n === 'trace';\n\
+      const __callHostGlobal = (n, a) => n === 'trace' ? trace(...a.map(__nfSwfEnv.toStr)) : undefined;\n\
+      const __isHostBuiltin = n => n === 'trace';\n\
+      const __isClipCtrl = n => n === 'stop' || n === 'play' || n === 'gotoAndStop' || n === 'gotoAndPlay' || n === 'nextFrame' || n === 'prevFrame' || n === 'addFrameScript';\n\
       const __findScope = (qname, sname) => {{\n\
         for (let __i = __sc.length - 1; __i >= 0; __i--) {{\n\
           const __s = __sc[__i];\n\
@@ -2094,7 +2944,7 @@ fn compile_avm2_method_factory(
         if (qname && Object.hasOwn(__nfSwfEnv.globals, qname)) return __nfSwfEnv.globals;\n\
         if (Object.hasOwn(__nfSwfEnv.globals, sname)) return __nfSwfEnv.globals;\n\
         if (Object.hasOwn(__nfSwfEnv.builtins, sname)) return __nfSwfEnv.builtins;\n\
-        if (__isHostBuiltin(sname)) return this ?? __nfSwfEnv.globals;\n\
+        if (__isHostBuiltin(sname) || __isClipCtrl(sname)) return this ?? __nfSwfEnv.globals;\n\
         return __sc[0] ?? this ?? __nfSwfEnv.globals;\n\
       }};\n\
       while (__pc < {}\n      ) {{\n\
@@ -2158,7 +3008,19 @@ fn compile_avm2_method_factory(
                 ));
             }
             0x5A => {
-                js.push_str("      __st.push(Object.create(null));\n");
+                let exc_idx = inst.args[0].max(0) as usize;
+                let vname = body
+                    .exceptions
+                    .get(exc_idx)
+                    .map_or("", |e| e.var_name.as_str());
+                if vname.is_empty() {
+                    js.push_str("      __st.push(Object.create(null));\n");
+                } else {
+                    let vlit = js_string_literal(vname);
+                    js.push_str(&format!(
+                        "      __st.push(__nfSwfSlotMeta(Object.create(null), [[1, {vlit}]]));\n"
+                    ));
+                }
             }
             0x6C => {
                 let slot_id = inst.args[0].max(0);
@@ -2216,9 +3078,7 @@ fn compile_avm2_method_factory(
             0x2B => js.push_str("      if (__st.length >= 2) { const __t = __st[__st.length - 1]; __st[__st.length - 1] = __st[__st.length - 2]; __st[__st.length - 2] = __t; }\n"),
             0x40 => {
                 let m_id = inst.args[0] as u32;
-                if skip_add_frame_script && extracted_fn_indices.contains(&idx) {
-                    js.push_str("      __st.push(__nfSwfStubFn());\n");
-                } else if abc.bodies.contains_key(&m_id) {
+                if abc.bodies.contains_key(&m_id) {
                     js.push_str(&format!(
                         "      {{ const __mf = __abc.methods[{m_id}]; __st.push(__mf ? __mf([...__outerSc, ...__sc], __ownerCls) : __nfSwfStubFn()); }}\n"
                     ));
@@ -2283,6 +3143,9 @@ fn compile_avm2_method_factory(
                     "      {{ const __a = new Array({cnt}); for (let __i = {cnt} - 1; __i >= 0; __i--) __a[__i] = __st.pop(); __st.push(__a); }}\n"
                 ));
             }
+            0x5B | 0x5C => {
+                js.push_str("      __st.push(__nfSwfEnv.globals);\n");
+            }
             0x5D..=0x5F => {
                 let (qname, sname, rt) = mn_full_short(0);
                 if rt {
@@ -2298,29 +3161,29 @@ fn compile_avm2_method_factory(
                 let qlit = js_string_literal(&qname);
                 let slit = js_string_literal(&sname);
                 js.push_str(&format!(
-                    "      {{ const __so = __findScope({qlit}, {slit}); const __v = ({qlit} && __nfSwfGet(__so, {qlit}) !== undefined) ? __nfSwfGet(__so, {qlit}) : __nfSwfGet(__so, {slit}); __st.push(typeof __v === 'function' && __so && __so !== __nfSwfEnv.globals && __so !== __nfSwfEnv.builtins ? __nfSwfFn(function(...__ba) {{ return __nfSwfApply(__v, __so, __ba); }}) : __v); }}\n"
+                    "      {{ const __so = __findScope({qlit}, {slit}); const __v = ({qlit} && __nfSwfEnv.avm2Get(__so, {qlit}) !== undefined) ? __nfSwfEnv.avm2Get(__so, {qlit}) : __nfSwfEnv.avm2Get(__so, {slit}); __st.push(typeof __v === 'function' && __so && __so !== __nfSwfEnv.globals && __so !== __nfSwfEnv.builtins && __so !== Math ? __nfSwfFn(function(...__ba) {{ return __nfSwfApply(__v, __so, __ba); }}) : __v); }}\n"
                 ));
             }
             0x66 => {
                 let (_, sname, rt) = mn_full_short(0);
                 if rt {
-                    js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __st.push(__nfSwfGet(__o, __k)); }\n");
+                    js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, __k)); }\n");
                 } else {
                     let name_lit = js_string_literal(&sname);
                     js.push_str(&format!(
-                        "      {{ const __o = __st.pop() ?? this; __st.push(__nfSwfGet(__o, {name_lit})); }}\n"
+                        "      {{ const __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, {name_lit})); }}\n"
                     ));
                 }
             }
             0x61 | 0x68 => {
                 let (qname, sname, rt) = mn_full_short(0);
                 if rt {
-                    js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __nfSwfSet(__o, __k, __v); }\n");
+                    js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __nfSwfEnv.avm2Set(__o, __k, __v); }\n");
                 } else {
                     let qlit = js_string_literal(&qname);
                     let slit = js_string_literal(&sname);
                     js.push_str(&format!(
-                        "      {{ const __v = __st.pop(), __o = __st.pop() ?? this; if (__o === __nfSwfEnv.globals && {qlit}) __nfSwfSet(__o, {qlit}, __v); __nfSwfSet(__o, {slit}, __v); }}\n"
+                        "      {{ const __v = __st.pop(), __o = __st.pop() ?? this; if (__o === __nfSwfEnv.globals && {qlit}) __nfSwfSet(__o, {qlit}, __v); __nfSwfEnv.avm2Set(__o, {slit}, __v); }}\n"
                     ));
                 }
             }
@@ -2344,14 +3207,12 @@ fn compile_avm2_method_factory(
                 ));
                 if rt {
                     js.push_str(
-                        "        const __m = String(__st.pop() ?? ''), __recv = __st.pop() ?? this;\n        const __r = (__isHostBuiltin(__m) && (__recv === this || __recv === __nfSwfEnv.globals)) ? __callHostGlobal(__m, __args) : __nfSwfCall(__recv, __m, __args);\n",
+                        "        const __m = String(__st.pop() ?? ''), __recv = __st.pop() ?? this;\n        const __r = (__isHostBuiltin(__m) && (__recv === this || __recv === __nfSwfEnv.globals)) ? __callHostGlobal(__m, __args) : __nfSwfEnv.avm2Call(__recv, __m, __args, this);\n",
                     );
-                } else if skip_add_frame_script && sname == "addFrameScript" {
-                    js.push_str("        __st.pop(); const __r = undefined;\n");
                 } else {
                     let name_lit = js_string_literal(&sname);
                     js.push_str(&format!(
-                        "        const __recv = __st.pop() ?? this;\n        const __r = (__isHostBuiltin({name_lit}) && (__recv === this || __recv === __nfSwfEnv.globals) && !__nfSwfHasOwn(__recv, {name_lit})) ? __callHostGlobal({name_lit}, __args) : __nfSwfCall(__recv, {name_lit}, __args);\n"
+                        "        const __recv = __st.pop() ?? this;\n        let __r;\n        if (__isHostBuiltin({name_lit}) && (__recv === this || __recv === __nfSwfEnv.globals) && !__nfSwfHasOwn(__recv, {name_lit})) {{\n          __r = __callHostGlobal({name_lit}, __args);\n        }} else if ((__recv === __nfSwfEnv.globals || __recv === __nfSwfEnv.builtins) && __args.length === 1 && (__nfSwfEnv.classes[{name_lit}] || typeof __nfSwfEnv.builtins[{name_lit}] === 'string')) {{\n          const __cv = __args[0];\n          __r = (__cv == null) ? ({name_lit} === 'Object' ? {{}} : null) : (__nfSwfInstanceOf(__cv, __nfSwfEnv.globals[{name_lit}] ?? {name_lit}) ? __cv : null);\n        }} else {{\n          __r = __nfSwfEnv.avm2Call(__recv, {name_lit}, __args, this);\n        }}\n"
                     ));
                 }
                 if push_ret {
@@ -2363,7 +3224,7 @@ fn compile_avm2_method_factory(
                 // constructsuper u30 argc
                 let argc = inst.args[0].clamp(0, MAX_SWF_OPCODE_ARITY);
                 js.push_str(&format!(
-                    "      {{ const __args = new Array({argc}); for (let __i = {argc} - 1; __i >= 0; __i--) __args[__i] = __st.pop(); const __recv = __st.pop(); if (__ownerCls && __ownerCls.superEntry) {{ __ownerCls.superEntry.runIinit(__recv, __args); }} else {{ if (__ownerCls && __ownerCls.spec && (__ownerCls.spec.superShort === 'Error' || __ownerCls.spec.superShort.endsWith('Error'))) {{ if (__args.length > 0 && __args[0] !== undefined) __nfSwfSet(__recv, 'message', String(__args[0])); __nfSwfSet(__recv, 'name', __ownerCls.spec.shortName); }} __nfSwfSuperConstruct(__recv); }} }}\n"
+                    "      {{ const __args = new Array({argc}); for (let __i = {argc} - 1; __i >= 0; __i--) __args[__i] = __st.pop(); const __recv = __st.pop(); if (__ownerCls && __ownerCls.superEntry) {{ __ownerCls.superEntry.runIinit(__recv, __args); }} else {{ if (__recv && (typeof __recv === 'object' || typeof __recv === 'function')) __nfSwfEnv.preSuper.delete(__recv); if (__ownerCls && __ownerCls.spec && (__ownerCls.spec.superShort === 'Error' || __ownerCls.spec.superShort.endsWith('Error'))) {{ if (__args.length > 0 && __args[0] !== undefined) __nfSwfSet(__recv, 'message', String(__args[0])); __nfSwfSet(__recv, 'name', __ownerCls.spec.shortName); }} __nfSwfEnv.superConstruct(__recv); }} }}\n"
                 ));
             }
             0x04 => {
@@ -2421,17 +3282,22 @@ fn compile_avm2_method_factory(
                     "      {{ const __ho = __loc[{obj_r}], __hi = Number(__loc[{idx_r}]) | 0; const __ks = __ho != null ? __nfSwfKeys(__ho) : []; if (__hi < __ks.length) {{ __loc[{idx_r}] = __hi + 1; __st.push(true); }} else {{ __loc[{obj_r}] = null; __loc[{idx_r}] = 0; __st.push(false); }} }}\n"
                 ));
             }
+            0x1F => {
+                // hasnext
+                js.push_str("      { const __hi = Number(__st.pop()) | 0, __ho = __st.pop(); const __ks = __ho != null ? __nfSwfKeys(__ho) : []; __st.push(__hi < __ks.length ? __hi + 1 : 0); }\n");
+            }
             0x1E => {
                 // nextname
                 js.push_str("      { const __ni = (Number(__st.pop()) | 0) - 1, __no = __st.pop(); const __ks = __no != null ? __nfSwfKeys(__no) : []; __st.push(__ks[__ni]); }\n");
             }
             0x23 => {
                 // nextvalue
-                js.push_str("      { const __ni = (Number(__st.pop()) | 0) - 1, __no = __st.pop(); const __ks = __no != null ? __nfSwfKeys(__no) : []; __st.push(__ks[__ni] !== undefined ? __nfSwfGet(__no, __ks[__ni]) : undefined); }\n");
+                js.push_str("      { const __ni = (Number(__st.pop()) | 0) - 1, __no = __st.pop(); const __ks = __no != null ? __nfSwfKeys(__no) : []; __st.push(__ks[__ni] !== undefined ? __nfSwfEnv.avm2Get(__no, __ks[__ni]) : undefined); }\n");
             }
-            0xA0 => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(typeof __a === 'string' || typeof __b === 'string' ? String(__a ?? '') + String(__b ?? '') : (Number(__a) || 0) + (Number(__b) || 0)); }\n"),
+            0xA0 => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); const __na = typeof __a === 'number' || typeof __a === 'boolean' || __a === null || __a === undefined, __nb = typeof __b === 'number' || typeof __b === 'boolean' || __b === null || __b === undefined; __st.push((__na && __nb && !(__a === undefined && __b === undefined)) ? Number(__a) + Number(__b) : (__a === undefined && __b === undefined ? NaN : __nfSwfEnv.toStr(__a) + __nfSwfEnv.toStr(__b))); }\n"),
             0xA1 | 0xC6 => js.push_str("      { const __b = Number(__st.pop()) || 0, __a = Number(__st.pop()) || 0; __st.push(__a - __b); }\n"),
             0xA2 | 0xC7 => js.push_str("      { const __b = Number(__st.pop()) || 0, __a = Number(__st.pop()) || 0; __st.push(__a * __b); }\n"),
+            0xC4 => js.push_str("      __st.push((-(Number(__st.pop()) | 0)) | 0);\n"),
             0xC5 => js.push_str("      { const __b = Number(__st.pop()) | 0, __a = Number(__st.pop()) | 0; __st.push((__a + __b) | 0); }\n"),
             0xA3 => js.push_str("      { const __b = Number(__st.pop()), __a = Number(__st.pop()); __st.push(__a / __b); }\n"),
             0xA4 => js.push_str("      { const __b = Number(__st.pop()), __a = Number(__st.pop()); __st.push(__a % __b); }\n"),
@@ -2455,15 +3321,17 @@ fn compile_avm2_method_factory(
             0x95 => js.push_str("      { const __v = __st.pop(); __st.push(__v === null ? 'object' : typeof __v === 'function' ? 'function' : typeof __v); }\n"),
             0x96 => js.push_str("      __st.push(!__st.pop());\n"),
             0x97 => js.push_str("      __st.push(~(Number(__st.pop()) | 0));\n"),
-            0x73 => js.push_str("      __st.push(Number(__st.pop()) | 0);\n"),
-            0x74 => js.push_str("      __st.push(Number(__st.pop()) >>> 0);\n"),
-            0x75 => js.push_str("      __st.push(Number(__st.pop()));\n"),
-            0x76 => js.push_str("      __st.push(Boolean(__st.pop()));\n"),
-            0x70 => js.push_str("      { const __v = __st.pop(); __st.push(String(__v ?? '')); }\n"),
+            0x71 | 0x72 => js.push_str("      { const __v = String(__st.pop() ?? ''); __st.push(__v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;')); }\n"),
+            0x73 | 0x83 => js.push_str("      __st.push(Number(__st.pop()) | 0);\n"),
+            0x74 | 0x88 => js.push_str("      __st.push(Number(__st.pop()) >>> 0);\n"),
+            0x75 | 0x84 => js.push_str("      __st.push(Number(__st.pop()));\n"),
+            0x76 | 0x81 => js.push_str("      __st.push(Boolean(__st.pop()));\n"),
+            0x77 => {} // convert_o
+            0x70 => js.push_str("      { const __v = __st.pop(); __st.push(__nfSwfEnv.toStr(__v)); }\n"),
             0x80 => {
                 let (_, sname, _) = mn_full_short(0);
                 if sname == "String" {
-                    js.push_str("      { const __v = __st.pop(); __st.push(__v == null ? null : String(__v)); }\n");
+                    js.push_str("      { const __v = __st.pop(); __st.push(__v == null ? null : __nfSwfEnv.toStr(__v)); }\n");
                 } else if sname == "int" {
                     js.push_str("      __st.push(Number(__st.pop()) | 0);\n");
                 } else if sname == "uint" {
@@ -2472,10 +3340,13 @@ fn compile_avm2_method_factory(
                     js.push_str("      __st.push(Number(__st.pop()));\n");
                 } else if sname == "Boolean" {
                     js.push_str("      __st.push(Boolean(__st.pop()));\n");
+                } else if !sname.is_empty() && sname != "*" {
+                    js.push_str("      { const __v = __st.pop(); __st.push(__v === undefined ? null : __v); }\n");
                 }
             }
-            0x82 | 0x89 => {} // coerce_a / coerce_o
-            0x85 => js.push_str("      { const __v = __st.pop(); __st.push(__v == null ? null : String(__v)); }\n"),
+            0x82 => {} // coerce_a
+            0x89 => js.push_str("      { const __v = __st.pop(); __st.push(__v === undefined ? null : __v); }\n"),
+            0x85 => js.push_str("      { const __v = __st.pop(); __st.push(__v == null ? null : __nfSwfEnv.toStr(__v)); }\n"),
             0x86 => {
                 let (_, sname, _) = mn_full_short(0);
                 let slit = js_string_literal(&sname);

@@ -254,13 +254,33 @@ fn valid_png_and_intentional_basic_text_outlines_remain_publishable() {
     ]);
 
     let default_report = preflight_swf_publish(&project, &SwfPublishOptions::default());
+    assert!(default_report.can_proceed(), "{:#?}", default_report.items);
     assert!(
         default_report
             .items
             .iter()
+            .any(|item| item.code == "swf_font3_embedded")
+    );
+
+    let mut non_bmp = project.clone();
+    root_keyframe_mut(&mut non_bmp).elements.push(Element {
+        id: "emoji-text".to_owned(),
+        kind: ElementKind::Text {
+            text: "SWF \u{1F680}".to_owned(),
+            font_family: "Arial".to_owned(),
+            font_size: 20.0,
+            color: [10, 20, 30, 255],
+        },
+        ..Element::default()
+    });
+    let non_bmp_report = preflight_swf_publish(&non_bmp, &SwfPublishOptions::default());
+    assert!(
+        non_bmp_report
+            .items
+            .iter()
             .any(|item| item.code == "swf_text_requires_outlines")
     );
-    assert!(!default_report.can_proceed());
+    assert!(!non_bmp_report.can_proceed());
 
     let options = SwfPublishOptions {
         outline_text: true,

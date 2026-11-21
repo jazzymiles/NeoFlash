@@ -41,11 +41,20 @@ const MAX_FRAME_JUMPS_PER_STEP: usize = 32;
 const CLIP_EVENT_LOAD: u32 = 0x0000_0001;
 const CLIP_EVENT_ENTER_FRAME: u32 = 0x0000_0002;
 const CLIP_EVENT_UNLOAD: u32 = 0x0000_0004;
+const CLIP_EVENT_MOUSE_MOVE: u32 = 0x0000_0008;
 const CLIP_EVENT_MOUSE_DOWN: u32 = 0x0000_0010;
 const CLIP_EVENT_MOUSE_UP: u32 = 0x0000_0020;
+const CLIP_EVENT_KEY_DOWN: u32 = 0x0000_0040;
+const CLIP_EVENT_KEY_UP: u32 = 0x0000_0080;
+const CLIP_EVENT_DATA: u32 = 0x0000_0100;
 const CLIP_EVENT_INITIALIZE: u32 = 0x0000_0200;
 const CLIP_EVENT_PRESS: u32 = 0x0000_0400;
 const CLIP_EVENT_RELEASE: u32 = 0x0000_0800;
+const CLIP_EVENT_RELEASE_OUTSIDE: u32 = 0x0000_1000;
+const CLIP_EVENT_ROLL_OVER: u32 = 0x0000_2000;
+const CLIP_EVENT_ROLL_OUT: u32 = 0x0000_4000;
+const CLIP_EVENT_DRAG_OVER: u32 = 0x0000_8000;
+const CLIP_EVENT_DRAG_OUT: u32 = 0x0001_0000;
 const CLIP_EVENT_KEY_PRESS: u32 = 0x0002_0000;
 const CLIP_EVENT_CONSTRUCT: u32 = 0x0004_0000;
 
@@ -434,6 +443,8 @@ struct LiveSlot {
     props: HashMap<String, Avm1Value>,
     clip_handlers: Vec<ClipEventHandler>,
     graphics: RuntimeGraphicsState,
+    placed_this_step: bool,
+    avm2_object_id: Option<usize>,
 }
 
 impl LiveSlot {
@@ -566,6 +577,14 @@ impl Avm1Value {
             Self::Super { .. } => "[object Object]".to_owned(),
             Self::Object(id) => {
                 if let Some(obj) = objects.get(*id) {
+                    if let Some((ev_ty, bubbles, cancelable, _, _, phase)) = &obj.avm2_event {
+                        return format!(
+                            "[Event type=\"{ev_ty}\" bubbles={bubbles} cancelable={cancelable} eventPhase={phase}]"
+                        );
+                    }
+                    if let Some(meta) = &obj.avm2_display {
+                        return format!("[object {}]", meta.short_class_name);
+                    }
                     if let Some(err_cls) = &obj.avm2_builtin_error {
                         let name = obj
                             .props
@@ -608,11 +627,33 @@ impl Avm1Value {
                     if obj.function.is_some() {
                         return "[type Function]".to_owned();
                     }
+                    if let Some(Self::String(cls_short)) = obj.props.get("__avm2_short_class__") {
+                        return format!("[object {cls_short}]");
+                    }
                 }
                 "[object Object]".to_owned()
             }
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+struct Avm2DisplayMeta {
+    display_type: String,
+    short_class_name: String,
+    character_id: u16,
+    parent_oid: Option<usize>,
+    on_stage: bool,
+    constructed: bool,
+    super_constructed: bool,
+    explicit_timeline_name: Option<String>,
+    children_oids: Vec<usize>,
+    frame_scripts: HashMap<u32, Avm1Value>,
+    last_ran_frame_script: Option<u32>,
+    current_frame: u32,
+    total_frames: u32,
+    playing: bool,
+    listeners: HashMap<String, Vec<Avm1Value>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -626,6 +667,8 @@ struct Avm1Object {
     avm2_activation_method: Option<(usize, usize)>,
     avm2_catch_var: Option<(String, usize, usize)>,
     avm2_builtin_error: Option<String>,
+    avm2_display: Option<Avm2DisplayMeta>,
+    avm2_event: Option<(String, bool, bool, usize, usize, u8)>,
     graphics: Option<RuntimeGraphicsState>,
     avm2_graphics_owner: Option<usize>,
 }
@@ -689,6 +732,8 @@ pub struct SwfBytecodePlayer {
     root_timeline: TimelineDef,
     sprites: HashMap<u16, TimelineDef>,
     buttons: HashMap<u16, Vec<ButtonCondAction>>,
+    button_records: HashMap<u16, Vec<(u8, u16, u16)>>,
+    char_kinds: HashMap<u16, &'static str>,
     exports: HashMap<String, u16>,
     init_actions: Vec<(u16, Vec<u8>)>,
     abc_tags: Vec<LoadedAbc>,
@@ -734,6 +779,10 @@ pub struct SwfBytecodePlayer {
 
     // AVM2 state
     avm2_initialized: bool,
+    avm2_stage_oid: Option<usize>,
+    avm2_root_oid: Option<usize>,
+    avm2_next_instance_id: u32,
+    avm2_sync_goto_handled: bool,
     avm2_globals: HashMap<String, Avm1Value>,
     avm2_frame_scripts: HashMap<u32, Avm1Value>, // frame_idx -> callable token
     avm2_closures: Vec<Avm2Closure>,
@@ -789,6 +838,8 @@ impl SwfBytecodePlayer {
         let mut has_do_abc = false;
         let mut sprites: HashMap<u16, TimelineDef> = HashMap::new();
         let mut buttons: HashMap<u16, Vec<ButtonCondAction>> = HashMap::new();
+        let mut button_records: HashMap<u16, Vec<(u8, u16, u16)>> = HashMap::new();
+        let mut char_kinds: HashMap<u16, &'static str> = HashMap::new();
         let mut exports: HashMap<String, u16> = HashMap::new();
         let mut init_actions: Vec<(u16, Vec<u8>)> = Vec::new();
         let mut abc_tags: Vec<LoadedAbc> = Vec::new();
@@ -809,18 +860,45 @@ impl SwfBytecodePlayer {
                         as3_flag = true;
                     }
                 }
+                2 | 22 | 32 | 46 | 83 | 84 | 11 | 33 => {
+                    if payload.len() >= 2 {
+                        let cid = u16::from_le_bytes([payload[0], payload[1]]);
+                        char_kinds.insert(cid, "Shape");
+                    }
+                }
+                20 | 21 | 35 | 36 => {
+                    if payload.len() >= 2 {
+                        let cid = u16::from_le_bytes([payload[0], payload[1]]);
+                        char_kinds.insert(cid, "Bitmap");
+                    }
+                }
+                37 => {
+                    if payload.len() >= 2 {
+                        let cid = u16::from_le_bytes([payload[0], payload[1]]);
+                        char_kinds.insert(cid, "TextField");
+                    }
+                }
+                60 => {
+                    if payload.len() >= 2 {
+                        let cid = u16::from_le_bytes([payload[0], payload[1]]);
+                        char_kinds.insert(cid, "Video");
+                    }
+                }
                 39 => {
                     // DefineSprite
                     let mut sr = SwfSlice::new(payload);
                     if let (Some(sprite_id), Some(fc)) = (sr.u16(), sr.u16()) {
                         let def = parse_timeline_tags(sr.rest(), container.swf_version, fc);
                         sprites.insert(sprite_id, def);
+                        char_kinds.insert(sprite_id, "MovieClip");
                     }
                 }
                 7 | 34 => {
                     // DefineButton / DefineButton2
-                    if let Some((btn_id, conds)) = parse_button_actions(code, payload) {
+                    if let Some((btn_id, recs, conds)) = parse_button_actions(code, payload) {
                         buttons.insert(btn_id, conds);
+                        button_records.insert(btn_id, recs);
+                        char_kinds.insert(btn_id, "SimpleButton");
                     }
                 }
                 56 => {
@@ -933,6 +1011,8 @@ impl SwfBytecodePlayer {
             },
             sprites,
             buttons,
+            button_records,
+            char_kinds,
             exports,
             init_actions,
             abc_tags,
@@ -972,6 +1052,10 @@ impl SwfBytecodePlayer {
             drag_target: None,
             rng_state: 0x1234_5678,
             avm2_initialized: false,
+            avm2_stage_oid: None,
+            avm2_root_oid: None,
+            avm2_next_instance_id: 1,
+            avm2_sync_goto_handled: false,
             avm2_globals: HashMap::new(),
             avm2_frame_scripts: HashMap::new(),
             avm2_closures: Vec::new(),
@@ -1059,6 +1143,10 @@ impl SwfBytecodePlayer {
         self.drag_target = None;
         self.rng_state = 0x1234_5678;
         self.avm2_initialized = false;
+        self.avm2_stage_oid = None;
+        self.avm2_root_oid = None;
+        self.avm2_next_instance_id = 1;
+        self.avm2_sync_goto_handled = false;
         self.avm2_globals.clear();
         self.avm2_frame_scripts.clear();
         self.avm2_closures.clear();
@@ -1184,98 +1272,167 @@ impl SwfBytecodePlayer {
             }
         }
 
-        let entering_frame = self.current_frame;
+        let mut entering_frame = self.current_frame;
         let frame_changed = self.last_applied_frame != Some(entering_frame);
         self.last_applied_frame = Some(entering_frame);
+        self.avm2_sync_goto_handled = false;
 
         let mut frame_label = None;
-        let mut pending_do_actions: Vec<Vec<u8>> = Vec::new();
-        let mut pending_lifecycle = Vec::new();
 
-        if frame_changed
-            && let Some(tags) = self
-                .root_timeline
-                .frames
-                .get(entering_frame as usize)
-                .cloned()
-        {
-            for tag in tags {
-                match tag.code {
-                    43 => {
-                        let mut lr = SwfSlice::new(&tag.payload);
-                        if let Some((lbl, _)) = lr.c_string(self.swf_version)
-                            && !lbl.is_empty()
-                        {
-                            frame_label.get_or_insert(lbl);
+        if self.vm_kind == SwfVmKind::Avm1 {
+            let mut action_queue: Vec<PendingAvm1Work> = Vec::new();
+            if frame_changed
+                && let Some(tags) = self
+                    .root_timeline
+                    .frames
+                    .get(entering_frame as usize)
+                    .cloned()
+            {
+                for tag in tags {
+                    match tag.code {
+                        43 => {
+                            let mut lr = SwfSlice::new(&tag.payload);
+                            if let Some((lbl, _)) = lr.c_string(self.swf_version)
+                                && !lbl.is_empty()
+                            {
+                                frame_label.get_or_insert(lbl);
+                            }
                         }
+                        4 | 26 | 70 => {
+                            let work = self.apply_place_tag_avm1(
+                                tag.code,
+                                &tag.payload,
+                                entering_frame == 0,
+                            );
+                            action_queue.extend(work);
+                        }
+                        5 | 28 => {
+                            action_queue.extend(self.apply_remove_tag(tag.code, &tag.payload));
+                        }
+                        12 => {
+                            action_queue.push(PendingAvm1Work::Action {
+                                target: "_root".to_owned(),
+                                actions: tag.payload,
+                            });
+                        }
+                        15 => {
+                            self.apply_start_sound(&tag.payload, entering_frame);
+                        }
+                        18 | 45 => {
+                            self.stream_sound_active = true;
+                        }
+                        19 if self.stream_sound_active => {
+                            let ev = SwfAudioEvent {
+                                frame: entering_frame,
+                                sound_id: 0,
+                                sync: "stream".to_owned(),
+                                loops: 1,
+                            };
+                            self.audio_events.push(ev.clone());
+                            self.frame_audio_events.push(ev);
+                        }
+                        _ => {}
                     }
-                    4 | 26 | 70 => {
-                        pending_lifecycle.extend(self.apply_place_tag(tag.code, &tag.payload));
-                    }
-                    5 | 28 => {
-                        pending_lifecycle.extend(self.apply_remove_tag(tag.code, &tag.payload));
-                    }
-                    12 => {
-                        pending_do_actions.push(tag.payload);
-                    }
-                    15 => {
-                        self.apply_start_sound(&tag.payload, entering_frame);
-                    }
-                    18 | 45 => {
-                        self.stream_sound_active = true;
-                    }
-                    19 if self.stream_sound_active => {
-                        let ev = SwfAudioEvent {
-                            frame: entering_frame,
-                            sound_id: 0,
-                            sync: "stream".to_owned(),
-                            loops: 1,
-                        };
-                        self.audio_events.push(ev.clone());
-                        self.frame_audio_events.push(ev);
-                    }
-                    _ => {}
                 }
             }
-        }
 
-        // 1. Fire ClipEventLoad handlers for newly placed instances
-        self.execute_avm1_work_list(pending_lifecycle);
+            let nested_advance_work = self.advance_preexisting_avm1_sprites();
+            let mut enter_frame_work = Vec::new();
+            collect_preexisting_enter_frame_work(&self.display_list, "", &mut enter_frame_work);
+            clear_placed_this_step_in_map(&mut self.display_list);
 
-        // 2. Fire ClipEventEnterFrame handlers on active instances (and step nested sprites)
-        let depths: Vec<u16> = self.display_list.keys().copied().collect();
-        for d in depths {
-            self.step_sprite_frame_actions(d, true);
-        }
+            self.execute_avm1_work_list(enter_frame_work);
+            self.execute_avm1_work_list(nested_advance_work);
+            self.execute_avm1_work_list(action_queue);
 
-        // 3. Execute frame DoAction scripts
-        if frame_changed {
-            for action_bytes in pending_do_actions {
-                self.execute_avm1_slice(&action_bytes);
+            // Sync any nested sprites whose `current_frame` was modified by scripts
+            let post_depths: Vec<u16> = self.display_list.keys().copied().collect();
+            for d in post_depths {
+                self.step_sprite_frame_actions(d, false);
             }
-            if self.vm_kind == SwfVmKind::Avm2 && !self.avm2_initialized {
+            clear_placed_this_step_in_map(&mut self.display_list);
+        } else {
+            if self.avm2_initialized {
+                self.dispatch_avm2_broadcast_event("enterFrame");
+            }
+
+            if frame_changed
+                && let Some(tags) = self
+                    .root_timeline
+                    .frames
+                    .get(entering_frame as usize)
+                    .cloned()
+            {
+                for tag in tags {
+                    match tag.code {
+                        43 => {
+                            let mut lr = SwfSlice::new(&tag.payload);
+                            if let Some((lbl, _)) = lr.c_string(self.swf_version)
+                                && !lbl.is_empty()
+                            {
+                                frame_label.get_or_insert(lbl);
+                            }
+                        }
+                        4 | 26 | 70 => {
+                            let _ = self.apply_place_tag(tag.code, &tag.payload);
+                        }
+                        5 | 28 => {
+                            let _ = self.apply_remove_tag(tag.code, &tag.payload);
+                        }
+                        15 => {
+                            self.apply_start_sound(&tag.payload, entering_frame);
+                        }
+                        18 | 45 => {
+                            self.stream_sound_active = true;
+                        }
+                        19 if self.stream_sound_active => {
+                            let ev = SwfAudioEvent {
+                                frame: entering_frame,
+                                sound_id: 0,
+                                sync: "stream".to_owned(),
+                                loops: 1,
+                            };
+                            self.audio_events.push(ev.clone());
+                            self.frame_audio_events.push(ev);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if !self.avm2_initialized {
                 self.avm2_initialized = true;
                 self.initialize_avm2();
+            } else {
+                if frame_changed && let Some(root_oid) = self.avm2_root_oid {
+                    if let Some(meta) = self
+                        .avm1_objects
+                        .get_mut(root_oid)
+                        .and_then(|o| o.avm2_display.as_mut())
+                    {
+                        meta.current_frame = entering_frame;
+                        meta.last_ran_frame_script = None;
+                    }
+                    let mut steps = 0usize;
+                    self.sync_avm2_container_with_display_list(root_oid, "_root", &mut steps, 0);
+                }
+                self.advance_avm2_nested_timelines();
             }
-            // 4. Execute AVM2 addFrameScript callback if registered for this frame
-            if self.vm_kind == SwfVmKind::Avm2
-                && let Some(callable) = self.avm2_frame_scripts.get(&entering_frame).cloned()
-            {
-                let mut steps = 0usize;
-                let _ = self.invoke_avm2_callable_with_this(
-                    &callable,
-                    Avm1Value::MovieClip("_root".to_owned()),
-                    Vec::new(),
-                    &mut steps,
-                    0,
-                );
-            }
-        }
 
-        // Sync any nested sprites whose `current_frame` was modified by root frame scripts
-        let post_depths: Vec<u16> = self.display_list.keys().copied().collect();
-        for d in post_depths {
-            self.step_sprite_frame_actions(d, false);
+            let mut steps = 0usize;
+            self.run_avm2_frame_phase(&mut steps, 0);
+
+            if self.avm2_sync_goto_handled {
+                entering_frame = self.current_frame;
+                frame_label = self
+                    .root_timeline
+                    .labels
+                    .iter()
+                    .find(|(_, f)| *f == entering_frame)
+                    .map(|(l, _)| l.clone());
+                self.avm2_sync_goto_handled = false;
+            }
+            clear_placed_this_step_in_map(&mut self.display_list);
         }
 
         // A root goto changes the displayed frame immediately. Apply skipped timeline-display
@@ -1346,11 +1503,84 @@ impl SwfBytecodePlayer {
         state
     }
 
-    /// Trigger button condition / clip mouse press events on placed buttons/clips.
+    /// Trigger button condition / clip mouse press+release events on placed buttons/clips.
     pub fn trigger_pointer_click(&mut self) {
+        self.trigger_pointer_event(
+            CLIP_EVENT_MOUSE_UP | CLIP_EVENT_MOUSE_DOWN | CLIP_EVENT_RELEASE | CLIP_EVENT_PRESS,
+            0x000C,
+        );
+    }
+
+    /// Trigger SWF 6/7+ RollOver / RollOut / ReleaseOutside / DragOver / DragOut / MouseMove clip & button events.
+    pub fn trigger_pointer_roll_over(&mut self) {
+        self.trigger_pointer_event(CLIP_EVENT_ROLL_OVER, 0x0001);
+    }
+
+    pub fn trigger_pointer_roll_out(&mut self) {
+        self.trigger_pointer_event(CLIP_EVENT_ROLL_OUT, 0x0002);
+    }
+
+    pub fn trigger_pointer_release_outside(&mut self) {
+        self.trigger_pointer_event(CLIP_EVENT_RELEASE_OUTSIDE, 0x0010);
+    }
+
+    pub fn trigger_pointer_drag_over(&mut self) {
+        self.trigger_pointer_event(CLIP_EVENT_DRAG_OVER, 0x0020 | 0x0100);
+    }
+
+    pub fn trigger_pointer_drag_out(&mut self) {
+        self.trigger_pointer_event(CLIP_EVENT_DRAG_OUT, 0x0040 | 0x0080);
+    }
+
+    pub fn trigger_pointer_move(&mut self) {
+        self.trigger_pointer_event(CLIP_EVENT_MOUSE_MOVE, 0);
+    }
+
+    pub fn trigger_data_event(&mut self) {
+        self.trigger_pointer_event(CLIP_EVENT_DATA, 0);
+    }
+
+    pub fn trigger_key_down(&mut self, key_code: Option<u8>) {
+        self.trigger_key_event(CLIP_EVENT_KEY_DOWN, key_code);
+    }
+
+    pub fn trigger_key_up(&mut self, key_code: Option<u8>) {
+        self.trigger_key_event(CLIP_EVENT_KEY_UP, key_code);
+    }
+
+    pub fn trigger_key_press(&mut self, key_code: u8) {
+        self.trigger_key_event(CLIP_EVENT_KEY_PRESS, Some(key_code));
+    }
+
+    /// Trigger specific SWF clip mouse/button condition flags (e.g. RollOver, RollOut, ReleaseOutside, DragOver, DragOut).
+    pub fn trigger_pointer_event(&mut self, clip_mask: u32, btn_cond_mask: u16) {
         let buttons = self.buttons.clone();
         let mut actions = Vec::new();
-        collect_pointer_actions(&self.display_list, "", &buttons, &mut actions);
+        collect_pointer_actions_filtered(
+            &self.display_list,
+            "",
+            &buttons,
+            clip_mask,
+            btn_cond_mask,
+            &mut actions,
+        );
+        for (target, code) in actions {
+            self.execute_avm1_for_target(&target, &code);
+        }
+    }
+
+    /// Trigger SWF clip/button key events (`KeyDown`, `KeyUp`, `KeyPress` with SWF key code).
+    pub fn trigger_key_event(&mut self, clip_mask: u32, key_code: Option<u8>) {
+        let buttons = self.buttons.clone();
+        let mut actions = Vec::new();
+        collect_key_actions_filtered(
+            &self.display_list,
+            "",
+            &buttons,
+            clip_mask,
+            key_code,
+            &mut actions,
+        );
         for (target, code) in actions {
             self.execute_avm1_for_target(&target, &code);
         }
@@ -1363,7 +1593,8 @@ impl SwfBytecodePlayer {
             let prev_frame = self.current_frame;
             let state = self.step_frame();
             frames_executed.push(state);
-            let any_child_playing = any_playing_descendant(&self.display_list);
+            let any_child_playing =
+                any_playing_descendant(&self.display_list) || self.has_active_avm2_tick_listeners();
             let root_pending = self.last_applied_frame != Some(self.current_frame);
             if !self.playing
                 && self.current_frame == prev_frame

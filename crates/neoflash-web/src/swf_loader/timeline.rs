@@ -1,17 +1,35 @@
 //! Font, text, sprite, placement, and timeline reconstruction for SWF Loader bundles.
 
+use super::tags_extra::{
+    attach_element_object_script, build_glyph_path_commands, ensure_morph_ratio_symbol,
+    parse_clip_actions_to_js, parse_glyph_shape_records,
+};
 use super::vm::compile_avm1_actions;
 use super::{
-    ActivePlacement, BitReader, MAX_SWF_FRAMES, MAX_SWF_KEYFRAMES, MAX_SWF_PLACEMENTS,
-    SwfDecodeCtx, SwfFontRecord, attach_compiled_frame_script, make_default_element,
-    parse_tag_slice,
+    BitReader, MAX_SWF_FRAMES, MAX_SWF_KEYFRAMES, MAX_SWF_PLACEMENTS, SwfDecodeCtx, SwfFontRecord,
+    attach_compiled_frame_script, make_default_element, parse_tag_slice,
 };
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Element, ElementKind, FilterSpec, FrameLabelType,
-    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_OBJECT_FILTERS, Symbol,
-    SymbolKind, TextFormat, Timeline, Transform,
+    BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FilterSpec, FrameLabelType,
+    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_OBJECT_FILTERS, PathCommand,
+    Symbol, SymbolKind, TextFormat, Timeline, Transform,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+#[derive(Clone, PartialEq)]
+pub(super) struct ActivePlacement {
+    pub(super) char_id: u16,
+    pub(super) matrix: [f64; 6],
+    pub(super) cxform: ColorTransform,
+    pub(super) name: String,
+    pub(super) clip_depth: u16,
+    pub(super) visible: bool,
+    pub(super) cache_as_bitmap: bool,
+    pub(super) blend_mode: BlendMode,
+    pub(super) filters: Vec<FilterSpec>,
+    pub(super) ratio: u16,
+    pub(super) clip_script_js: Option<String>,
+}
 
 pub(super) fn decode_font_tag(
     ctx: &mut SwfDecodeCtx,
@@ -23,12 +41,33 @@ pub(super) fn decode_font_tag(
     }
     let font_id = u16::from_le_bytes([data[0], data[1]]);
     if tag_code == 10 {
+        let mut glyph_shapes = Vec::new();
+        if data.len() >= 4 {
+            let first_off = usize::from(u16::from_le_bytes([data[2], data[3]]));
+            let num_glyphs = (first_off / 2).min(4096);
+            if 2 + num_glyphs * 2 <= data.len() {
+                for i in 0..num_glyphs {
+                    let off =
+                        usize::from(u16::from_le_bytes([data[2 + i * 2], data[2 + i * 2 + 1]]));
+                    let shape_pos = 2usize.saturating_add(off);
+                    if shape_pos < data.len() {
+                        let mut sr = BitReader::new(data, shape_pos);
+                        glyph_shapes.push(parse_glyph_shape_records(&mut sr));
+                    } else {
+                        glyph_shapes.push(Vec::new());
+                    }
+                }
+            }
+        }
         ctx.fonts.entry(font_id).or_insert_with(|| SwfFontRecord {
             name: "sans-serif".into(),
             codes: Vec::new(),
+            glyph_shapes,
+            em_units: 1024.0,
         });
         return Ok(());
     }
+    let em_units = if tag_code == 75 { 20480.0 } else { 1024.0 };
     let flags = data[2];
     let wide_offsets = (flags & 0x08) != 0;
     let wide_codes = (flags & 0x04) != 0 || tag_code == 75;
@@ -53,15 +92,24 @@ pub(super) fn decode_font_tag(
                     raw_name
                 },
                 codes: Vec::new(),
+                glyph_shapes: Vec::new(),
+                em_units,
             },
         );
         return Ok(());
     }
     let offset_table_base = pos;
+    let mut glyph_offsets = Vec::with_capacity(num_glyphs.min(8192));
     let code_table_offset = if wide_offsets {
         let need = (num_glyphs + 1) * 4;
         if pos + need > data.len() {
             return Ok(());
+        }
+        for i in 0..num_glyphs.min(8192) {
+            let p = pos + i * 4;
+            glyph_offsets.push(
+                u32::from_le_bytes([data[p], data[p + 1], data[p + 2], data[p + 3]]) as usize,
+            );
         }
         let off_pos = pos + num_glyphs * 4;
         u32::from_le_bytes([
@@ -75,10 +123,24 @@ pub(super) fn decode_font_tag(
         if pos + need > data.len() {
             return Ok(());
         }
+        for i in 0..num_glyphs.min(8192) {
+            let p = pos + i * 2;
+            glyph_offsets.push(usize::from(u16::from_le_bytes([data[p], data[p + 1]])));
+        }
         let off_pos = pos + num_glyphs * 2;
         usize::from(u16::from_le_bytes([data[off_pos], data[off_pos + 1]]))
     };
     let ct_start = offset_table_base + code_table_offset;
+    let mut glyph_shapes = Vec::with_capacity(glyph_offsets.len());
+    for g_off in glyph_offsets {
+        let s_pos = offset_table_base.saturating_add(g_off);
+        if s_pos < ct_start.min(data.len()) {
+            let mut sr = BitReader::new(&data[..ct_start.min(data.len())], s_pos);
+            glyph_shapes.push(parse_glyph_shape_records(&mut sr));
+        } else {
+            glyph_shapes.push(Vec::new());
+        }
+    }
     let mut codes = Vec::with_capacity(num_glyphs);
     if wide_codes {
         for i in 0..num_glyphs {
@@ -106,6 +168,8 @@ pub(super) fn decode_font_tag(
                 raw_name
             },
             codes,
+            glyph_shapes,
+            em_units,
         },
     );
     Ok(())
@@ -173,42 +237,103 @@ pub(super) fn decode_static_text_tag(
             };
         }
         let glyph_count = usize::from(r.read_u8()?);
+        let run_start_x = cur_x;
         let mut units = Vec::with_capacity(glyph_count);
+        let mut glyph_cmds: Vec<PathCommand> = Vec::new();
+        let mut any_glyph_outline = false;
         for _ in 0..glyph_count {
             let g_idx = r.read_ubits(glyph_bits)? as usize;
-            let _adv = r.read_sbits(advance_bits)?;
-            let code = ctx
-                .fonts
-                .get(&cur_font_id)
-                .and_then(|f| f.codes.get(g_idx).copied())
-                .unwrap_or(b'?' as u16);
-            units.push(code);
+            let adv = r.read_sbits(advance_bits)?;
+            if let Some(font) = ctx.fonts.get(&cur_font_id) {
+                if let Some(cmds) = build_glyph_path_commands(font, g_idx, cur_x, cur_y, cur_height)
+                {
+                    any_glyph_outline = true;
+                    glyph_cmds.extend(cmds);
+                }
+                let code = font.codes.get(g_idx).copied().unwrap_or(b'?' as u16);
+                units.push(code);
+            } else {
+                units.push(b'?' as u16);
+            }
+            cur_x += f64::from(adv) / 20.0;
         }
         r.align();
-        let text = String::from_utf16_lossy(&units);
-        if !text.is_empty() {
+        if any_glyph_outline && !glyph_cmds.is_empty() {
             run_idx += 1;
-            let font_family = ctx
-                .fonts
-                .get(&cur_font_id)
-                .map_or_else(|| "sans-serif".to_owned(), |f| f.name.clone());
-            let mut el = make_default_element(
+            let [ma, mb, mc, md, mtx, mty] = text_matrix;
+            let transformed_cmds: Vec<PathCommand> = glyph_cmds
+                .into_iter()
+                .map(|cmd| match cmd {
+                    PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+                        x: ma * x + mc * y + mtx,
+                        y: mb * x + md * y + mty,
+                    },
+                    PathCommand::LineTo { x, y } => PathCommand::LineTo {
+                        x: ma * x + mc * y + mtx,
+                        y: mb * x + md * y + mty,
+                    },
+                    PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
+                        cx: ma * cx + mc * cy + mtx,
+                        cy: mb * cx + md * cy + mty,
+                        x: ma * x + mc * y + mtx,
+                        y: mb * x + md * y + mty,
+                    },
+                    PathCommand::CubicTo {
+                        cx1,
+                        cy1,
+                        cx2,
+                        cy2,
+                        x,
+                        y,
+                    } => PathCommand::CubicTo {
+                        cx1: ma * cx1 + mc * cy1 + mtx,
+                        cy1: mb * cx1 + md * cy1 + mty,
+                        cx2: ma * cx2 + mc * cy2 + mtx,
+                        cy2: mb * cx2 + md * cy2 + mty,
+                        x: ma * x + mc * y + mtx,
+                        y: mb * x + md * y + mty,
+                    },
+                    PathCommand::Close => PathCommand::Close,
+                })
+                .collect();
+            elements.push(make_default_element(
                 format!("swf-{}-txt{char_id}-{run_idx}", ctx.mount_seq),
-                ElementKind::Text {
-                    text,
-                    font_family,
-                    font_size: cur_height,
-                    color: cur_color,
+                ElementKind::Path {
+                    commands: transformed_cmds,
+                    fill_rule: FillRule::EvenOdd,
+                    fill: cur_color,
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
                 },
-                cur_x,
-                (cur_y - cur_height * 0.85).max(0.0),
-            );
-            if let Some(mut tf) = Transform::from_matrix(text_matrix) {
-                tf.x += el.transform.x;
-                tf.y += el.transform.y;
-                el.transform = tf;
+                0.0,
+                0.0,
+            ));
+        } else {
+            let text = String::from_utf16_lossy(&units);
+            if !text.is_empty() {
+                run_idx += 1;
+                let font_family = ctx
+                    .fonts
+                    .get(&cur_font_id)
+                    .map_or_else(|| "sans-serif".to_owned(), |f| f.name.clone());
+                let mut el = make_default_element(
+                    format!("swf-{}-txt{char_id}-{run_idx}", ctx.mount_seq),
+                    ElementKind::Text {
+                        text,
+                        font_family,
+                        font_size: cur_height,
+                        color: cur_color,
+                    },
+                    run_start_x,
+                    (cur_y - cur_height * 0.85).max(0.0),
+                );
+                if let Some(mut tf) = Transform::from_matrix(text_matrix) {
+                    tf.x += el.transform.x;
+                    tf.y += el.transform.y;
+                    el.transform = tf;
+                }
+                elements.push(el);
             }
-            elements.push(el);
         }
     }
 
@@ -243,7 +368,7 @@ pub(super) fn decode_static_text_tag(
 }
 
 fn tag_uses_em_divide(_fonts: &HashMap<u16, SwfFontRecord>, _font_id: u16, raw_h: f64) -> bool {
-    raw_h > 400.0
+    raw_h > 4096.0
 }
 
 fn strip_basic_html(s: &str) -> String {
@@ -341,17 +466,20 @@ pub(super) fn decode_edit_text_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Resul
         word_wrap,
         multiline,
     };
+    let text_alpha = (f64::from(color[3]) / 255.0).clamp(0.0, 1.0);
     ctx.char_edit_texts
-        .insert(char_id, (tb_kind.clone(), bx, by));
+        .insert(char_id, (tb_kind.clone(), bx, by, text_alpha));
 
     let sym_id = format!("swf-{}-char-{char_id}", ctx.mount_seq);
     let mut kf = Keyframe::default();
-    kf.elements.push(make_default_element(
+    let mut ed_el = make_default_element(
         format!("swf-{}-edtxt-{char_id}", ctx.mount_seq),
         tb_kind,
         bx,
         by,
-    ));
+    );
+    ed_el.transform.alpha = text_alpha;
+    kf.elements.push(ed_el);
     ctx.symbols.push(Symbol {
         id: sym_id.clone(),
         name: format!("EditText_{char_id}"),
@@ -385,6 +513,68 @@ pub(super) fn decode_sprite_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Result<(
     let declared_frames =
         u32::from(u16::from_le_bytes([data[2], data[3]])).clamp(1, MAX_SWF_FRAMES);
     let sub_tags = parse_tag_slice(&data[4..])?;
+    let mut f0_active: BTreeMap<u16, (u16, String)> = BTreeMap::new();
+    for &(sc, spay) in &sub_tags {
+        match sc {
+            1 => break,
+            4 if spay.len() >= 4 => {
+                let cid = u16::from_le_bytes([spay[0], spay[1]]);
+                let dep = u16::from_le_bytes([spay[2], spay[3]]);
+                f0_active.insert(dep, (cid, String::new()));
+            }
+            26 | 70 => {
+                let mut pr = BitReader::new(spay, 0);
+                if let Ok(fl1) = pr.read_u8() {
+                    let fl2 = if sc == 70 {
+                        pr.read_u8().unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    if let Ok(dep) = pr.read_u16() {
+                        if (fl2 & 0x08) != 0 || ((fl2 & 0x10) != 0 && (fl1 & 0x02) != 0) {
+                            let _ = pr.read_c_string();
+                        }
+                        let cid_opt = if (fl1 & 0x02) != 0 {
+                            pr.read_u16().ok()
+                        } else {
+                            None
+                        };
+                        if (fl1 & 0x04) != 0 {
+                            let _ = pr.read_matrix();
+                        }
+                        if (fl1 & 0x08) != 0 {
+                            let _ = pr.read_cxform(true);
+                        }
+                        if (fl1 & 0x10) != 0 {
+                            let _ = pr.read_u16();
+                        }
+                        let nm = if (fl1 & 0x20) != 0 {
+                            pr.read_c_string().unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+                        if let Some(cid) = cid_opt {
+                            f0_active.insert(dep, (cid, nm));
+                        } else if (fl1 & 0x01) != 0
+                            && !nm.is_empty()
+                            && let Some(ent) = f0_active.get_mut(&dep)
+                        {
+                            ent.1 = nm;
+                        }
+                    }
+                }
+            }
+            5 if spay.len() >= 4 => {
+                f0_active.remove(&u16::from_le_bytes([spay[2], spay[3]]));
+            }
+            28 if spay.len() >= 2 => {
+                f0_active.remove(&u16::from_le_bytes([spay[0], spay[1]]));
+            }
+            _ => {}
+        }
+    }
+    ctx.char_sprite_frame0_children
+        .insert(sprite_id, f0_active.into_values().collect());
     let label = format!("spr{sprite_id}");
     let timeline = build_timeline_from_tags(ctx, &sub_tags, Some(declared_frames), &label);
     let sym_id = format!("swf-{}-char-{sprite_id}", ctx.mount_seq);
@@ -434,18 +624,26 @@ pub(super) fn decode_symbol_class_tag(ctx: &mut SwfDecodeCtx, data: &[u8]) -> Re
 }
 
 fn placement_to_element(
-    ctx: &SwfDecodeCtx,
+    ctx: &mut SwfDecodeCtx,
     scope_prefix: &str,
     depth: u16,
     p: &ActivePlacement,
 ) -> Option<Element> {
     let mut tf = Transform::from_matrix(p.matrix).unwrap_or_default();
-    tf.alpha = p.cxform.multipliers[3].clamp(0.0, 1.0);
+    tf.alpha = (p.cxform.multipliers[3] + p.cxform.offsets[3] / 255.0).clamp(0.0, 1.0);
     tf.color_transform = p.cxform;
-    let kind = if let Some((tb_kind, bx, by)) = ctx.char_edit_texts.get(&p.char_id) {
+    let kind = if let Some((tb_kind, bx, by, text_alpha)) = ctx.char_edit_texts.get(&p.char_id) {
         tf.x += *bx;
         tf.y += *by;
+        tf.alpha =
+            (p.cxform.multipliers[3] * *text_alpha + p.cxform.offsets[3] / 255.0).clamp(0.0, 1.0);
         tb_kind.clone()
+    } else if ctx.char_morphs.contains_key(&p.char_id) {
+        let sym_id = ensure_morph_ratio_symbol(ctx, p.char_id, p.ratio);
+        ElementKind::Instance {
+            symbol_id: sym_id,
+            playback: InstancePlayback::Independent,
+        }
     } else {
         let sym_id = ctx.char_symbols.get(&p.char_id)?.clone();
         ElementKind::Instance {
@@ -468,6 +666,21 @@ fn placement_to_element(
     el.cache_as_bitmap = p.cache_as_bitmap;
     el.blend_mode = p.blend_mode;
     el.filters.clone_from(&p.filters);
+    let mut combined_obj_js = String::new();
+    if let Some(btn_js) = ctx.char_button_scripts.get(&p.char_id) {
+        combined_obj_js.push_str(btn_js);
+    }
+    if let Some(clip_js) = &p.clip_script_js {
+        combined_obj_js.push_str(clip_js);
+    }
+    if !combined_obj_js.is_empty() {
+        attach_element_object_script(
+            ctx,
+            &mut el,
+            &combined_obj_js,
+            &format!("{scope_prefix}-d{depth}"),
+        );
+    }
     Some(el)
 }
 
@@ -483,6 +696,9 @@ pub(super) fn build_timeline_from_tags(
     let mut max_clip_by_depth: BTreeMap<u16, u16> = BTreeMap::new();
     let mut frame_labels: BTreeMap<u32, Vec<(String, FrameLabelType)>> = BTreeMap::new();
     let mut frame_actions: BTreeMap<u32, Vec<String>> = BTreeMap::new();
+    let mut pre_place_action_frames: BTreeSet<u32> = BTreeSet::new();
+    let mut frame_saw_place = false;
+    let mut frame_actions_before_place = false;
     if scope_prefix == "root" && !ctx.init_actions.is_empty() {
         let init = std::mem::take(&mut ctx.init_actions).join("\n");
         frame_actions.entry(0).or_default().push(format!(
@@ -527,6 +743,7 @@ pub(super) fn build_timeline_from_tags(
             4 => {
                 if let Ok(Some(depth)) = apply_place_object1(ctx, &mut active, payload) {
                     dirty_depths.insert(depth);
+                    frame_saw_place = true;
                 }
             }
             26 | 70 => {
@@ -534,6 +751,7 @@ pub(super) fn build_timeline_from_tags(
                     apply_place_object2_or_3(ctx, &mut active, payload, code == 70)
                 {
                     dirty_depths.insert(depth);
+                    frame_saw_place = true;
                 }
             }
             5 if payload.len() >= 4 => {
@@ -571,10 +789,18 @@ pub(super) fn build_timeline_from_tags(
                     payload,
                     &format!("{scope_prefix} frame {} DoAction", shown_frames + 1),
                 ) {
+                    if !frame_saw_place {
+                        frame_actions_before_place = true;
+                    }
                     frame_actions.entry(shown_frames).or_default().push(js);
                 }
             }
             1 if shown_frames < MAX_SWF_FRAMES => {
+                if frame_actions_before_place && frame_saw_place {
+                    pre_place_action_frames.insert(shown_frames);
+                }
+                frame_saw_place = false;
+                frame_actions_before_place = false;
                 flush_dirty(
                     ctx,
                     shown_frames,
@@ -707,17 +933,49 @@ pub(super) fn build_timeline_from_tags(
         guides: Vec::new(),
     };
 
-    for (frame, blocks) in frame_actions {
-        if frame < total_frames {
-            let joined = blocks.join("\n");
+    if scope_prefix == "root" && ctx.action_script_version < 3 && ctx.saw_do_action {
+        for frame in 0..total_frames {
+            let pre_place = pre_place_action_frames.contains(&frame);
+            let mut combined = format!(
+                "(() => {{\n{}if (__avm1) {{\n  const __t = ++__avm1.tick;\n  __avm1.flushUnloads();\n  __avm1.runEnterFrames(__t);\n  __avm1.flushInitConstruct(__t);\n",
+                super::vm::AVM1_RUNTIME_INIT_JS
+            );
+            if !pre_place {
+                combined.push_str("  __avm1.flushLoadsFor(null);\n");
+            }
+            combined.push_str("}\n})();\n");
+            if let Some(blocks) = frame_actions.remove(&frame) {
+                combined.push_str(&blocks.join("\n"));
+            }
             attach_compiled_frame_script(
                 ctx,
                 &mut timeline,
                 frame,
-                &joined,
+                &combined,
                 scope_prefix,
                 neoflash_core::ScriptLanguage::ActionScript2,
             );
+        }
+    } else {
+        if scope_prefix != "root" && ctx.action_script_version < 3 {
+            let flush_self = format!(
+                "(() => {{\n{}if (__avm1) __avm1.flushLoadsFor(this);\n}})();\n",
+                super::vm::AVM1_RUNTIME_INIT_JS
+            );
+            frame_actions.entry(0).or_default().insert(0, flush_self);
+        }
+        for (frame, blocks) in frame_actions {
+            if frame < total_frames {
+                let joined = blocks.join("\n");
+                attach_compiled_frame_script(
+                    ctx,
+                    &mut timeline,
+                    frame,
+                    &joined,
+                    scope_prefix,
+                    neoflash_core::ScriptLanguage::ActionScript2,
+                );
+            }
         }
     }
 
@@ -755,6 +1013,8 @@ fn apply_place_object1(
             cache_as_bitmap: false,
             blend_mode: BlendMode::Normal,
             filters: Vec::new(),
+            ratio: 0,
+            clip_script_js: None,
         },
     );
     Ok(Some(depth))
@@ -782,6 +1042,7 @@ fn apply_place_object2_or_3(
     let has_ratio = (flags1 & 0x10) != 0;
     let has_name = (flags1 & 0x20) != 0;
     let has_clip_depth = (flags1 & 0x40) != 0;
+    let has_clip_actions = (flags1 & 0x80) != 0;
 
     let has_class_name = (flags2 & 0x08) != 0;
     let has_image = (flags2 & 0x10) != 0;
@@ -809,9 +1070,7 @@ fn apply_place_object2_or_3(
     } else {
         None
     };
-    if has_ratio {
-        let _ = r.read_u16()?;
-    }
+    let ratio = if has_ratio { Some(r.read_u16()?) } else { None };
     let name = if has_name {
         Some(r.read_c_string()?)
     } else {
@@ -846,6 +1105,11 @@ fn apply_place_object2_or_3(
     if has_bg_color {
         let _ = r.read_rgba()?;
     }
+    let clip_script_js = if has_clip_actions {
+        parse_clip_actions_to_js(ctx, &mut r, depth).ok().flatten()
+    } else {
+        None
+    };
 
     if has_move && let Some(existing) = active.get_mut(&depth) {
         ctx.total_placements += 1;
@@ -857,6 +1121,9 @@ fn apply_place_object2_or_3(
         }
         if let Some(cx) = cxform {
             existing.cxform = cx;
+        }
+        if let Some(rat) = ratio {
+            existing.ratio = rat;
         }
         if let Some(n) = name {
             existing.name = n;
@@ -876,6 +1143,9 @@ fn apply_place_object2_or_3(
         if let Some(fl) = filters {
             existing.filters = fl;
         }
+        if clip_script_js.is_some() {
+            existing.clip_script_js = clip_script_js;
+        }
         return Ok(Some(depth));
     } else if let Some(cid) = char_id {
         ctx.total_placements += 1;
@@ -891,6 +1161,8 @@ fn apply_place_object2_or_3(
                 cache_as_bitmap: cache_as_bitmap.unwrap_or(false),
                 blend_mode: blend_mode.unwrap_or(BlendMode::Normal),
                 filters: filters.unwrap_or_default(),
+                ratio: ratio.unwrap_or(0),
+                clip_script_js,
             },
         );
         return Ok(Some(depth));
@@ -908,7 +1180,7 @@ fn sanitize_finite(v: f64, lo: f64, hi: f64) -> f64 {
     if v.is_finite() { v.clamp(lo, hi) } else { 0.0 }
 }
 
-fn decode_swf_blend_mode(ctx: &mut SwfDecodeCtx, mode_byte: u8) -> BlendMode {
+pub(super) fn decode_swf_blend_mode(ctx: &mut SwfDecodeCtx, mode_byte: u8) -> BlendMode {
     match mode_byte {
         0 | 1 => BlendMode::Normal,
         2 => BlendMode::Layer,
@@ -933,7 +1205,7 @@ fn decode_swf_blend_mode(ctx: &mut SwfDecodeCtx, mode_byte: u8) -> BlendMode {
     }
 }
 
-fn decode_swf_filter_list(
+pub(super) fn decode_swf_filter_list(
     ctx: &mut SwfDecodeCtx,
     r: &mut BitReader<'_>,
 ) -> Result<Vec<FilterSpec>, String> {

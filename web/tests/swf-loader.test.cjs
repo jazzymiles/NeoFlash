@@ -1462,3 +1462,286 @@ test('T-416: Loader.loadBytes executes neoflash-export AVM1/AVM2 closures, Defin
     player.free();
   }
 });
+
+test('T-451: Loader.load & Loader.loadBytes match Flash Player trace oracles on upstream Ruffle AVM1/AVM2 SWFs, render MX morph/button/text SWFs & dynamic graphics, and sniff JPEG XR', async () => {
+  const fs = require('node:fs');
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+
+  const ruffleDir = resolve(root, 'examples/fla-corpus/upstream/ruffle');
+  const avm1FrameLabelsSwf = fs.readFileSync(resolve(ruffleDir, 'avm1-frame-labels/test.swf'));
+
+  const baseProject = {
+    format_version: 3,
+    name: 'T451 SWF Oracle Host',
+    width: 550,
+    height: 400,
+    fps: 24,
+    background: [255, 255, 255, 255],
+    root: 'root',
+    resources: [
+      {
+        id: 'res-ruffle-labels',
+        path: 'ruffle/avm1-frame-labels.swf',
+        media_type: 'application/x-shockwave-flash',
+        data_base64: avm1FrameLabelsSwf.toString('base64'),
+      },
+    ],
+    symbols: [
+      {
+        id: 'root',
+        name: 'Main',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 16,
+          layers: [{ id: 'l0', name: 'L0', visible: true, locked: false, keyframes: [{ frame: 0, elements: [], label: '', tween: null }] }],
+          scripts: [],
+        },
+      },
+    ],
+  };
+
+  const functionsMap = new Map();
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(baseProject));
+  const { host, traceCalls } = createRuntimeHost(root, player, [], {
+    project: baseProject,
+    bundle: { project: baseProject },
+    functions: functionsMap,
+  });
+
+  try {
+    const prog = host.program();
+    const Loader = prog.type('flash.display.Loader');
+    const BitmapData = prog.type('flash.display.BitmapData');
+    const URLRequest = prog.type('flash.net.URLRequest');
+    const ByteArray = prog.type('flash.utils.ByteArray');
+    const rootClip = host.proxyFor([]);
+
+    const toBa = buf => {
+      const ba = new ByteArray();
+      for (const b of buf) ba.writeByte(b);
+      return ba;
+    };
+
+    const stepHostTick = () => {
+      host.broadcastFrame();
+      player.tick();
+      host.dispatchScripts();
+    };
+
+    // 1. Upstream Ruffle AVM1 & AVM2 Flash Player trace oracle suite
+    const oracleCases = [
+      { name: 'avm1-frame-labels', ticks: 4, expectedCount: 17, viaUrl: 'ruffle/avm1-frame-labels.swf' },
+      { name: 'avm1-clip-events', ticks: 4, expectedCount: 19, viaUrl: null },
+      { name: 'avm1-nested-button-text', ticks: 1, expectedCount: 0, viaUrl: null },
+      { name: 'avm2-button-frame-scripts', ticks: 2, expectedCount: 28, viaUrl: null },
+      { name: 'avm2-nested-construction', ticks: 3, expectedCount: 18, viaUrl: null },
+    ];
+
+    for (const tc of oracleCases) {
+      traceCalls.length = 0;
+      const swfBuf = fs.readFileSync(resolve(ruffleDir, tc.name, 'test.swf'));
+      const expectedLines = fs
+        .readFileSync(resolve(ruffleDir, tc.name, 'output.txt'), 'utf8')
+        .split(/\r?\n/)
+        .filter((line, idx, arr) => !(idx === arr.length - 1 && line === ''));
+      assert.equal(expectedLines.length, tc.expectedCount, `oracle line count for ${tc.name}`);
+
+      const loader = new Loader();
+      loader.contentLoaderInfo.addEventListener('ioError', e => {
+        throw new Error(`${tc.name} ioError: ${e.text}`);
+      });
+      rootClip.addChild(loader);
+      if (tc.viaUrl) {
+        loader.load(new URLRequest(tc.viaUrl));
+      } else {
+        loader.loadBytes(toBa(swfBuf));
+      }
+      await new Promise(r => setTimeout(r, 25));
+
+      // Initial load executes tick 1 (frame 1); step remaining ticks - 1
+      for (let t = 1; t < tc.ticks; t++) {
+        stepHostTick();
+      }
+
+      const actualLines = traceCalls.map(row => row.map(v => String(v)).join(' '));
+      assert.deepEqual(
+        actualLines,
+        expectedLines,
+        `HTML5 swf_loader trace mismatch against Flash Player oracle on ${tc.name}`,
+      );
+
+      if (tc.name === 'avm1-nested-button-text') {
+        const snap = new BitmapData(200, 150, true, 0xffffffff);
+        snap.draw(loader);
+        let nonWhite = 0;
+        for (let y = 0; y < 150; y += 2) {
+          for (let x = 0; x < 200; x += 2) {
+            if ((snap.getPixel32(x, y) >>> 0) !== 0xffffffff) nonWhite++;
+          }
+        }
+        snap.dispose();
+        assert.ok(nonWhite > 0, 'avm1-nested-button-text rendered visible button/text pixels in HTML5');
+      }
+
+      loader.unloadAndStop(true);
+      rootClip.removeChild(loader);
+      assert.equal(functionsMap.size, 0, `unloadAndStop cleaned up all scripts for ${tc.name}`);
+    }
+
+    // 2. Visual MX SWFs: DefineMorphShape-MX, DefineButton-MX, DefineText2-MX
+    const morphBuf = fs.readFileSync(resolve(ruffleDir, 'mx-shape-tween/DefineMorphShape-MX.swf'));
+    const lMorph = new Loader();
+    rootClip.addChild(lMorph);
+    lMorph.loadBytes(toBa(morphBuf));
+    await new Promise(r => setTimeout(r, 20));
+
+    const captureSignature = targetLoader => {
+      const w = Math.min(240, Math.max(32, targetLoader.contentLoaderInfo.width | 0));
+      const h = Math.min(200, Math.max(32, targetLoader.contentLoaderInfo.height | 0));
+      const bmp = new BitmapData(w, h, true, 0xffffffff);
+      bmp.draw(targetLoader);
+      let fg = 0;
+      let hash = 2166136261 >>> 0;
+      for (let y = 0; y < h; y += 2) {
+        for (let x = 0; x < w; x += 2) {
+          const px = bmp.getPixel32(x, y) >>> 0;
+          if (px !== 0xffffffff) fg++;
+          hash = Math.imul(hash ^ px, 16777619) >>> 0;
+        }
+      }
+      bmp.dispose();
+      return { fg, hash };
+    };
+
+    const morphF1 = captureSignature(lMorph);
+    assert.ok(morphF1.fg > 0, 'DefineMorphShape-MX frame 1 rendered foreground pixels');
+    for (let i = 0; i < 5; i++) stepHostTick();
+    const morphF6 = captureSignature(lMorph);
+    assert.ok(morphF6.fg > 0, 'DefineMorphShape-MX frame 6 rendered foreground pixels');
+    assert.notEqual(morphF1.hash, morphF6.hash, 'DefineMorphShape-MX visibly morphed across frames');
+    lMorph.unloadAndStop(true);
+    rootClip.removeChild(lMorph);
+
+    for (const rel of ['mx-button/DefineButton-MX.swf', 'mx-static-text/DefineText2-MX.swf']) {
+      const lMx = new Loader();
+      rootClip.addChild(lMx);
+      lMx.loadBytes(toBa(fs.readFileSync(resolve(ruffleDir, rel))));
+      await new Promise(r => setTimeout(r, 20));
+      const sig = captureSignature(lMx);
+      assert.ok(sig.fg > 0, `${rel} rendered foreground pixels in HTML5 swf_loader`);
+      lMx.unload();
+      rootClip.removeChild(lMx);
+    }
+
+    // 3. Dynamic AVM2 `graphics` (`beginFill`, `moveTo`, `lineTo`, `curveTo`, `drawRect`, `drawCircle`, `endFill`, `clear`) in child SWF
+    const buildDynamicGraphicsAvm2Swf = () => {
+      const abc = [16, 0, 46, 0];
+      writeU30(abc, 1); writeU30(abc, 1);
+      // doubles: [1]=0.0, [2]=1.0, [3]=40.0, [4]=10.0
+      writeU30(abc, 5);
+      for (const dv of [0.0, 1.0, 40.0, 10.0]) {
+        const db = Buffer.alloc(8);
+        db.writeDoubleLE(dv, 0);
+        for (const b of db) abc.push(b);
+      }
+      const strs = [
+        '', '', 'GfxDoc', 'MovieClip', 'graphics', 'beginFill', 'drawRect',
+        'drawCircle', 'moveTo', 'lineTo', 'curveTo', 'endFill', 'clear', 'wipe',
+      ];
+      writeU30(abc, strs.length);
+      for (let i = 1; i < strs.length; i++) {
+        const b = Buffer.from(strs[i], 'utf8');
+        writeU30(abc, b.length);
+        for (const c of b) abc.push(c);
+      }
+      writeU30(abc, 2); abc.push(0x16); writeU30(abc, 1);
+      writeU30(abc, 1);
+      // mn 1..12 => strs 2..13
+      writeU30(abc, 13);
+      for (let sid = 2; sid <= 13; sid++) {
+        abc.push(0x07); writeU30(abc, 1); writeU30(abc, sid);
+      }
+      // methods: 0=cinit, 1=iinit, 2=wipeFn, 3=script_init
+      writeU30(abc, 4);
+      for (let m = 0; m < 4; m++) {
+        writeU30(abc, 0); writeU30(abc, 0); writeU30(abc, 0); abc.push(0);
+      }
+      writeU30(abc, 0);
+      writeU30(abc, 1);
+      writeU30(abc, 1); writeU30(abc, 2); abc.push(0); writeU30(abc, 0); writeU30(abc, 1); writeU30(abc, 0);
+      writeU30(abc, 0); writeU30(abc, 0);
+      writeU30(abc, 1); writeU30(abc, 3); writeU30(abc, 0);
+
+      // iinit:
+      //   super();
+      //   this.graphics.beginFill(255, 1.0);
+      //   this.graphics.drawRect(0, 0, 40, 40);
+      //   this.graphics.drawCircle(60, 20, 10);
+      //   this.graphics.endFill();
+      //   this.wipe = newfunction(2);
+      const iinitCode = [
+        0xd0, 0x30,
+        0xd0, 0x49, 0,
+        0xd0, 0x66, 3, 0x25, 0xff, 0x01, 0x2f, 2, 0x4f, 4, 2, // graphics.beginFill(255, 1.0)
+        0xd0, 0x66, 3, 0x2f, 1, 0x2f, 1, 0x2f, 3, 0x2f, 3, 0x4f, 5, 4, // graphics.drawRect(0,0,40,40)
+        0xd0, 0x66, 3, 0x24, 60, 0x24, 20, 0x2f, 4, 0x4f, 6, 3, // graphics.drawCircle(60,20,10)
+        0xd0, 0x66, 3, 0x4f, 10, 0, // graphics.endFill()
+        0xd0, 0x40, 2, 0x61, 12, // this.wipe = newfunction(2)
+        0x47,
+      ];
+      // wipeFn: this.graphics.clear()
+      const wipeCode = [0xd0, 0x66, 3, 0x4f, 11, 0, 0x47];
+      writeU30(abc, 2);
+      for (const [mid, code] of [[1, iinitCode], [2, wipeCode]]) {
+        writeU30(abc, mid); writeU30(abc, 8); writeU30(abc, 4); writeU30(abc, 0); writeU30(abc, 4);
+        writeU30(abc, code.length);
+        for (const b of code) abc.push(b);
+        writeU30(abc, 0); writeU30(abc, 0);
+      }
+      const doAbc2 = makeSwfTag(82, Buffer.concat([Buffer.from([1, 0, 0, 0, ...Buffer.from('g\0', 'utf8')]), Buffer.from(abc)]));
+      const sym = new BitWriter();
+      sym.writeU16(1); sym.writeU16(0); sym.writeCString('GfxDoc');
+      return wrapSwf('FWS', 13, 100, 60, 24, 1, [
+        makeSwfTag(69, Buffer.from([0x08, 0, 0, 0])),
+        doAbc2,
+        makeSwfTag(76, sym.toBuffer()),
+        makeSwfTag(1, Buffer.alloc(0)),
+      ]);
+    };
+
+    const lGfx = new Loader();
+    rootClip.addChild(lGfx);
+    lGfx.loadBytes(toBa(buildDynamicGraphicsAvm2Swf()));
+    await new Promise(r => setTimeout(r, 20));
+
+    const gfxSnap1 = new BitmapData(100, 60, true, 0xffffffff);
+    gfxSnap1.draw(lGfx);
+    assert.equal(gfxSnap1.getPixel32(20, 20) >>> 0, 0xff0000ff, 'dynamic AVM2 drawRect rendered blue pixel');
+    assert.equal(gfxSnap1.getPixel32(60, 20) >>> 0, 0xff0000ff, 'dynamic AVM2 drawCircle rendered blue pixel');
+    gfxSnap1.dispose();
+
+    lGfx.content.wipe.call(lGfx.content);
+    const gfxSnap2 = new BitmapData(100, 60, true, 0xffffffff);
+    gfxSnap2.draw(lGfx);
+    assert.equal(gfxSnap2.getPixel32(20, 20) >>> 0, 0xffffffff, 'dynamic AVM2 graphics.clear() cleared Stage');
+    gfxSnap2.dispose();
+    lGfx.unload();
+    rootClip.removeChild(lGfx);
+
+    // 4. JPEG XR (`.jxr`) magic-byte `contentType` sniff (`0x49, 0x49, 0xBC, 0x01` -> `image/vnd.ms-photo`)
+    const lJxr = new Loader();
+    let jxrErrText = null;
+    lJxr.contentLoaderInfo.addEventListener('ioError', ev => { jxrErrText = String(ev?.text ?? ''); });
+    lJxr.loadBytes(toBa(Buffer.from([0x49, 0x49, 0xbc, 0x01, 0x00, 0x00, 0x00, 0x00])));
+    await new Promise(r => setTimeout(r, 20));
+    assert.ok(jxrErrText !== null, 'truncated synthetic JXR surfaces clean ioError');
+    assert.ok(!jxrErrText.includes('Other file formats'), 'JPEG XR magic bytes recognized by Loader contentType sniff');
+    assert.throws(() => lJxr.contentLoaderInfo.contentType, /after INIT/, 'LoaderInfo.contentType remains gated until INIT after ioError');
+
+    assert.equal(functionsMap.size, 0, 'all T-451 child SWFs unloaded cleanly');
+  } finally {
+    host.disposeFamily();
+    player.free();
+  }
+});

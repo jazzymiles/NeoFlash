@@ -1463,6 +1463,13 @@ fn avm1_compile_stmt_with_flow(
                 let after_drain = out.len();
                 patch_avm1_branch(out, skip_drain_patch, after_drain)?;
             }
+            if *is_each && !in_function {
+                for tmp in [&obj_tmp, &key_tmp] {
+                    avm1_push_string(out, tmp)?;
+                    out.push(0x3b); // ActionDelete2
+                    out.push(0x17); // ActionPop
+                }
+            }
         }
         SwfStmt::Switch {
             discriminant,

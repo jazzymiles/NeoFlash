@@ -45,6 +45,11 @@ enum SwfCharacter {
         element: Box<Element>,
         fallback_symbol_id: Option<Id>,
     },
+    InlineVideo {
+        width: f64,
+        height: f64,
+        fallback_symbol_id: Id,
+    },
     Button {
         symbol_id: Id,
         tag_code: u16,
@@ -118,6 +123,7 @@ struct FrameSnapshot {
     slots: BTreeMap<u16, ActiveSlot>,
     labels: Vec<(String, FrameLabelType)>,
     actions: Vec<String>,
+    actions_before_place: bool,
     sounds: Vec<FrameSound>,
 }
 
@@ -144,6 +150,7 @@ struct SwfBuilder<'a> {
     scenes_meta: Vec<(u32, String)>,
     scaling_grids: Vec<(u16, usize, usize, Option<[f64; 4]>)>,
     binary_data_ids: HashSet<u16>,
+    video_stream_warned: HashSet<u16>,
     symbols: Vec<Symbol>,
     resources: Vec<ResourceUnit>,
     resource_bytes_total: usize,
@@ -251,6 +258,7 @@ pub(crate) fn build_project_from_swf(
         scenes_meta: Vec::new(),
         scaling_grids: Vec::new(),
         binary_data_ids: HashSet::new(),
+        video_stream_warned: HashSet::new(),
         symbols: Vec::new(),
         resources: Vec::new(),
         resource_bytes_total: 0,
@@ -619,6 +627,8 @@ impl SwfBuilder<'_> {
         let mut stream_collector: Option<SwfStreamSoundCollector> = None;
         let mut stream_seq: usize = 0;
         let mut saw_pending_frame_mutation = false;
+        let mut frame_saw_place = false;
+        let mut frame_actions_before_place = false;
 
         let mut pos = 0usize;
         while pos + 2 <= bytes.len() {
@@ -651,9 +661,12 @@ impl SwfBuilder<'_> {
                         slots: active_slots.clone(),
                         labels: std::mem::take(&mut pending_labels),
                         actions: std::mem::take(&mut pending_actions),
+                        actions_before_place: frame_actions_before_place && frame_saw_place,
                         sounds: std::mem::take(&mut pending_sounds),
                     });
                     saw_pending_frame_mutation = false;
+                    frame_saw_place = false;
+                    frame_actions_before_place = false;
                 }
                 // DefineShape 1/2/3/4
                 2 | 22 | 32 | 83 if scope_uid == "root" => {
@@ -945,6 +958,7 @@ impl SwfBuilder<'_> {
                         &mut next_span_id,
                     );
                     saw_pending_frame_mutation = true;
+                    frame_saw_place = true;
                 }
                 // RemoveObject (5), RemoveObject2 (28)
                 5 => {
@@ -984,6 +998,9 @@ impl SwfBuilder<'_> {
                         decompile_actions(payload, self.swf_version, &mut self.legacy_cp_warned);
                     self.warn_avm1_sites(tag_code, tag_offset, scope_uid, cur_frame, unrec, &sites);
                     if !src.trim().is_empty() {
+                        if !frame_saw_place {
+                            frame_actions_before_place = true;
+                        }
                         pending_actions.push(src);
                         saw_pending_frame_mutation = true;
                     }
@@ -1155,8 +1172,20 @@ impl SwfBuilder<'_> {
                 // DefineVideoStream (60)
                 60 if scope_uid == "root" && payload.len() >= 8 => {
                     let vid = u16::from_le_bytes([payload[0], payload[1]]);
-                    let vw = f64::from(u16::from_le_bytes([payload[4], payload[5]])).max(16.0);
-                    let vh = f64::from(u16::from_le_bytes([payload[6], payload[7]])).max(16.0);
+                    let num_frames = u16::from_le_bytes([payload[2], payload[3]]);
+                    let raw_w = u16::from_le_bytes([payload[4], payload[5]]);
+                    let raw_h = u16::from_le_bytes([payload[6], payload[7]]);
+                    let codec_id = payload.get(9).copied().unwrap_or(0);
+                    let vw = if raw_w == 0 {
+                        160.0
+                    } else {
+                        f64::from(raw_w).clamp(1.0, 8192.0)
+                    };
+                    let vh = if raw_h == 0 {
+                        120.0
+                    } else {
+                        f64::from(raw_h).clamp(1.0, 8192.0)
+                    };
                     let el = Element {
                         id: format!("swf-video-{vid}-el"),
                         name: String::new(),
@@ -1167,7 +1196,8 @@ impl SwfBuilder<'_> {
                         },
                         ..Element::default()
                     };
-                    let tl = single_frame_timeline(&format!("swf-sym-{vid}"), vec![el]);
+                    let mut tl = single_frame_timeline(&format!("swf-sym-{vid}"), vec![el]);
+                    tl.frame_count = u32::from(num_frames).max(1);
                     let sym_id = self.register_character_symbol(
                         vid,
                         format!("Video {vid}"),
@@ -1177,23 +1207,41 @@ impl SwfBuilder<'_> {
                     );
                     self.characters.insert(
                         vid,
-                        SwfCharacter::Sprite {
-                            symbol_id: sym_id,
-                            is_pure_vector: false,
+                        SwfCharacter::InlineVideo {
+                            width: vw,
+                            height: vh,
+                            fallback_symbol_id: sym_id,
                         },
                     );
-                    self.report.warning(
-                        "swf_video_viewport",
-                        format!(
-                            "{}#tag=60@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
-                            self.location
-                        ),
-                        "Embedded SWF video stream imported as a Video viewport placeholder; raw codec frames remain in the source SWF.",
-                    );
+                    if (num_frames > 0 || codec_id != 0) && self.video_stream_warned.insert(vid) {
+                        self.report.warning(
+                            "swf_video_viewport",
+                            format!(
+                                "{}#tag=60@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
+                                self.location
+                            ),
+                            "Embedded SWF video stream imported as a Video viewport placeholder; raw codec frames remain in the source SWF.",
+                        );
+                    }
                 }
-                // Non-drawable metadata, debugger, telemetry, font-hint, and video-frame stream tags
-                9 | 24 | 41 | 49 | 51 | 58 | 61 | 63 | 64 | 65 | 66 | 69 | 73 | 74 | 77 | 92
-                | 93 => {}
+                // VideoFrame (61)
+                61 => {
+                    if payload.len() >= 2 {
+                        let vid = u16::from_le_bytes([payload[0], payload[1]]);
+                        if self.video_stream_warned.insert(vid) {
+                            self.report.warning(
+                                "swf_video_viewport",
+                                format!(
+                                    "{}#tag=61@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
+                                    self.location
+                                ),
+                                "Embedded SWF video stream imported as a Video viewport placeholder; raw codec frames remain in the source SWF.",
+                            );
+                        }
+                    }
+                }
+                // Non-drawable metadata, debugger, telemetry, and font-hint stream tags
+                9 | 24 | 41 | 49 | 51 | 58 | 63 | 64 | 65 | 66 | 69 | 73 | 74 | 77 | 92 | 93 => {}
                 _ => {
                     self.warn_unsupported_tag(
                         "swf_tag_unsupported",
@@ -1215,6 +1263,7 @@ impl SwfBuilder<'_> {
                 slots: active_slots,
                 labels: pending_labels,
                 actions: pending_actions,
+                actions_before_place: frame_actions_before_place && frame_saw_place,
                 sounds: pending_sounds,
             });
         } else if !snapshots.is_empty()
@@ -1741,7 +1790,7 @@ impl SwfBuilder<'_> {
                             "{}#tag={tag_code}@{tag_offset}:symbol={scope_uid}:frame={cur_frame}:depth={depth}",
                             self.location
                         ),
-                        "Non-core AVM1 clip/button events (e.g. rollOver, keyPress, mouseMove) were preserved with event-header comments on ObjectScript.",
+                        "AVM1 clip events without direct runtime equivalents (e.g. initialize, construct, or non-ASCII key codes) were preserved with event-header comments on ObjectScript.",
                     );
                 }
             }
@@ -2061,6 +2110,27 @@ impl SwfBuilder<'_> {
         }
 
         // Frame scripts
+        let pre_place_layer_id = if !is_button
+            && snapshots
+                .iter()
+                .any(|snap| !snap.actions.is_empty() && snap.actions_before_place)
+        {
+            let aid = format!("{sym_uid}-actions-top");
+            layers.push(Layer {
+                id: aid.clone(),
+                name: "Actions".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    ..Default::default()
+                }],
+                properties: LayerProperties::default(),
+            });
+            Some(aid)
+        } else {
+            None
+        };
         let mut scripts = Vec::new();
         if !is_button {
             let lang = script_language_for_swf(self.swf_version);
@@ -2069,7 +2139,11 @@ impl SwfBuilder<'_> {
                     let source = snap.actions.join("\n\n");
                     if !source.trim().is_empty() {
                         scripts.push(FrameScript {
-                            layer: None,
+                            layer: if snap.actions_before_place {
+                                pre_place_layer_id.clone()
+                            } else {
+                                None
+                            },
                             frame: f_idx as u32,
                             script: Script {
                                 language: lang,
@@ -2119,10 +2193,24 @@ impl SwfBuilder<'_> {
                 fallback_symbol_id,
             } => {
                 // Compose placement matrix with the TextBox's local transform so text sits directly on the timeline!
+                // Multiply placement alpha with local TextColor alpha so non-opaque DefineText2/DefineEditText alpha is preserved.
                 let composed = mul_matrix(slot.matrix, transform_to_matrix(element.transform));
-                if let Some(mut tf) = Transform::from_matrix(composed) {
-                    tf.color_transform = slot.color_transform;
-                    tf.alpha = transform.alpha;
+                if scripts.is_empty()
+                    && let Some(mut tf) = Transform::from_matrix(composed)
+                {
+                    let local_alpha = element.transform.alpha.clamp(0.0, 1.0);
+                    let mut ct = slot.color_transform;
+                    if ct.offsets[3] != 0.0 {
+                        ct.multipliers[3] = (ct.multipliers[3] * local_alpha).clamp(-1e4, 1e4);
+                        tf.alpha = transform.alpha;
+                    } else {
+                        tf.alpha = if slot.visible {
+                            (slot.alpha * local_alpha).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
+                    }
+                    tf.color_transform = ct;
                     let name = if !slot.name.is_empty() {
                         slot.name.clone()
                     } else {
@@ -2164,6 +2252,51 @@ impl SwfBuilder<'_> {
                             false,
                         )
                     })
+                }
+            }
+            SwfCharacter::InlineVideo {
+                width,
+                height,
+                fallback_symbol_id,
+            } => {
+                if scripts.is_empty() {
+                    Some((
+                        Element {
+                            id: elem_id,
+                            name: slot.name.clone(),
+                            transform,
+                            kind: ElementKind::Video {
+                                width: *width,
+                                height: *height,
+                            },
+                            scripts,
+                            visible: slot.visible,
+                            cache_as_bitmap,
+                            blend_mode,
+                            filters,
+                            ..Element::default()
+                        },
+                        false,
+                    ))
+                } else {
+                    Some((
+                        Element {
+                            id: elem_id,
+                            name: slot.name.clone(),
+                            transform,
+                            kind: ElementKind::Instance {
+                                symbol_id: fallback_symbol_id.clone(),
+                                playback: InstancePlayback::Independent,
+                            },
+                            scripts,
+                            visible: slot.visible,
+                            cache_as_bitmap,
+                            blend_mode,
+                            filters,
+                            ..Element::default()
+                        },
+                        false,
+                    ))
                 }
             }
             SwfCharacter::GraphicSymbol {
@@ -3273,6 +3406,9 @@ fn char_symbol_id(characters: &HashMap<u16, SwfCharacter>, cid: u16) -> Option<I
         SwfCharacter::InlineText {
             fallback_symbol_id, ..
         } => fallback_symbol_id.clone(),
+        SwfCharacter::InlineVideo {
+            fallback_symbol_id, ..
+        } => Some(fallback_symbol_id.clone()),
     }
 }
 

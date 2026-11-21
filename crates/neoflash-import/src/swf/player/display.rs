@@ -120,38 +120,132 @@ pub(super) fn find_slot_in_detached_mut<'a>(
     find_slot_by_identity_mut(&mut root_slot.children, suffix)
 }
 
-pub(super) fn collect_pointer_actions(
+pub(super) fn collect_pointer_actions_filtered(
     display_list: &BTreeMap<u16, LiveSlot>,
     parent_target: &str,
     buttons: &HashMap<u16, Vec<ButtonCondAction>>,
+    clip_mask: u32,
+    btn_cond_mask: u16,
     actions: &mut Vec<(String, Vec<u8>)>,
 ) {
     for (&depth, slot) in display_list {
         let target = join_target_path(parent_target, &live_slot_segment(depth, slot));
-        if let Some(conditions) = buttons.get(&slot.character_id) {
+        if btn_cond_mask != 0
+            && let Some(conditions) = buttons.get(&slot.character_id)
+        {
+            let btn_scope = if parent_target.is_empty() {
+                "_root".to_owned()
+            } else {
+                parent_target.to_owned()
+            };
             actions.extend(
                 conditions
                     .iter()
                     .filter(|condition| {
-                        condition.conditions == 0 || (condition.conditions & 0x000C) != 0
+                        (condition.conditions == 0 && (btn_cond_mask & 0x000C) != 0)
+                            || (condition.conditions & btn_cond_mask) != 0
                     })
-                    .map(|condition| (target.clone(), condition.actions.clone())),
+                    .map(|condition| (btn_scope.clone(), condition.actions.clone())),
             );
         }
-        actions.extend(
-            slot.clip_handlers
-                .iter()
-                .filter(|handler| {
-                    (handler.event_flags
-                        & (CLIP_EVENT_MOUSE_UP
-                            | CLIP_EVENT_MOUSE_DOWN
-                            | CLIP_EVENT_RELEASE
-                            | CLIP_EVENT_PRESS))
-                        != 0
-                })
-                .map(|handler| (target.clone(), handler.actions.clone())),
+        if clip_mask != 0 {
+            actions.extend(
+                slot.clip_handlers
+                    .iter()
+                    .filter(|handler| (handler.event_flags & clip_mask) != 0)
+                    .map(|handler| (target.clone(), handler.actions.clone())),
+            );
+        }
+        collect_pointer_actions_filtered(
+            &slot.children,
+            &target,
+            buttons,
+            clip_mask,
+            btn_cond_mask,
+            actions,
         );
-        collect_pointer_actions(&slot.children, &target, buttons, actions);
+    }
+}
+
+pub(super) fn collect_key_actions_filtered(
+    display_list: &BTreeMap<u16, LiveSlot>,
+    parent_target: &str,
+    buttons: &HashMap<u16, Vec<ButtonCondAction>>,
+    clip_mask: u32,
+    key_code: Option<u8>,
+    actions: &mut Vec<(String, Vec<u8>)>,
+) {
+    for (&depth, slot) in display_list {
+        let target = join_target_path(parent_target, &live_slot_segment(depth, slot));
+        if let Some(kc) = key_code
+            && kc != 0
+            && let Some(conditions) = buttons.get(&slot.character_id)
+        {
+            let btn_scope = if parent_target.is_empty() {
+                "_root".to_owned()
+            } else {
+                parent_target.to_owned()
+            };
+            actions.extend(
+                conditions
+                    .iter()
+                    .filter(|condition| ((condition.conditions >> 9) as u8) == kc)
+                    .map(|condition| (btn_scope.clone(), condition.actions.clone())),
+            );
+        }
+        if clip_mask != 0 {
+            actions.extend(
+                slot.clip_handlers
+                    .iter()
+                    .filter(|handler| {
+                        (handler.event_flags & clip_mask) != 0
+                            && ((handler.event_flags & CLIP_EVENT_KEY_PRESS) == 0
+                                || key_code.is_none()
+                                || handler.key_code == key_code)
+                    })
+                    .map(|handler| (target.clone(), handler.actions.clone())),
+            );
+        }
+        collect_key_actions_filtered(
+            &slot.children,
+            &target,
+            buttons,
+            clip_mask,
+            key_code,
+            actions,
+        );
+    }
+}
+
+pub(super) fn collect_preexisting_enter_frame_work(
+    display_list: &BTreeMap<u16, LiveSlot>,
+    parent_target: &str,
+    work: &mut Vec<PendingAvm1Work>,
+) {
+    for (&depth, slot) in display_list {
+        let target = join_target_path(parent_target, &live_slot_segment(depth, slot));
+        collect_preexisting_enter_frame_work(&slot.children, &target, work);
+        if !slot.placed_this_step {
+            work.extend(
+                slot.clip_handlers
+                    .iter()
+                    .filter(|handler| (handler.event_flags & CLIP_EVENT_ENTER_FRAME) != 0)
+                    .map(|handler| pending_action(target.clone(), handler.actions.clone())),
+            );
+            if let Some(Avm1Value::Object(fn_obj_id)) = slot.props.get("onEnterFrame") {
+                work.push(PendingAvm1Work::Callback {
+                    target,
+                    fn_obj_id: *fn_obj_id,
+                });
+            }
+        }
+    }
+}
+
+pub(super) fn clear_placed_this_step_in_map(display_list: &mut BTreeMap<u16, LiveSlot>) {
+    for slot in display_list.values_mut() {
+        slot.placed_this_step = false;
+        clear_placed_this_step_in_map(&mut slot.children);
     }
 }
 
@@ -299,15 +393,7 @@ impl SwfBytecodePlayer {
         for (_, sym) in extra {
             overlay.symbols.push(sym);
         }
-        if overlay.uses_format_7() && overlay.format_version < 7 {
-            overlay.format_version = 7;
-        }
-        if overlay.uses_format_8() && overlay.format_version < 8 {
-            overlay.format_version = 8;
-        }
-        if overlay.uses_format_9() && overlay.format_version < 9 {
-            overlay.format_version = 9;
-        }
+        overlay.upgrade_format_for_features();
         overlay
     }
 
@@ -716,6 +802,17 @@ impl SwfBytecodePlayer {
             });
         }
 
+        let mut scripts = base_sym.timeline.scripts.clone();
+        for fs in &mut scripts {
+            if fs
+                .layer
+                .as_deref()
+                .is_some_and(|lid| !layers.iter().any(|l| l.id == lid))
+            {
+                fs.layer = None;
+            }
+        }
+
         Some(Symbol {
             id: target_symbol_id.to_owned(),
             name: base_sym.name.clone(),
@@ -726,7 +823,7 @@ impl SwfBytecodePlayer {
             timeline: Timeline {
                 frame_count: base_sym.timeline.frame_count.max(frame + 1),
                 layers,
-                scripts: base_sym.timeline.scripts.clone(),
+                scripts,
                 guides: base_sym.timeline.guides.clone(),
             },
         })
@@ -778,6 +875,7 @@ impl SwfBytecodePlayer {
                 self.step_sprite_frame_actions(d, frame > start_frame);
             }
         }
+        clear_placed_this_step_in_map(&mut self.display_list);
         self.last_applied_frame = destination_frame.checked_sub(1);
     }
 
@@ -1026,6 +1124,348 @@ impl SwfBytecodePlayer {
         work
     }
 
+    pub(super) fn apply_place_tag_avm1(
+        &mut self,
+        tag_code: u16,
+        payload: &[u8],
+        include_enter_frame_on_f0: bool,
+    ) -> Vec<PendingAvm1Work> {
+        let mut work = Vec::new();
+        let blocked = place_tag_blocked_by_tombstone(
+            tag_code,
+            payload,
+            &self.removed_timeline_depths,
+            &self.display_list,
+        );
+        let Some(depth) = place_tag_depth(tag_code, payload) else {
+            return work;
+        };
+        let is_move = tag_code != 4 && payload.first().is_some_and(|f| (f & 0x01) != 0);
+        let has_char = place_tag_replaces_slot(tag_code, payload);
+        let had_existing = self.display_list.contains_key(&depth);
+        let will_create_new_slot = !blocked && has_char && (!is_move || had_existing);
+
+        if will_create_new_slot
+            && let Some(slot) = self.display_list.get(&depth)
+            && let Some(unload) = detached_unload_work(slot, &live_slot_segment(depth, slot))
+        {
+            work.push(unload);
+        }
+
+        let (_legacy_load_scripts, unmodeled_filter) = apply_place_tag_to_map(
+            &mut self.display_list,
+            &mut self.removed_timeline_depths,
+            &self.sprites,
+            self.swf_version,
+            tag_code,
+            payload,
+        );
+        if will_create_new_slot && had_existing {
+            self.prune_dangling_masks();
+        }
+        if unmodeled_filter {
+            self.record_unsupported_diagnostic(
+                "SWF PlaceObject3 filter list contained an unmodeled filter".to_owned(),
+            );
+        }
+        if will_create_new_slot && let Some(slot) = self.display_list.get(&depth) {
+            let target = live_slot_segment(depth, slot);
+            work.extend(self.instantiate_avm1_placed_subtree(
+                &target,
+                0,
+                include_enter_frame_on_f0,
+            ));
+        }
+        work
+    }
+
+    pub(super) fn instantiate_avm1_placed_subtree(
+        &mut self,
+        root_target: &str,
+        runtime_depth: usize,
+        include_enter_frame: bool,
+    ) -> Vec<PendingAvm1Work> {
+        let mut diagnostics = Vec::new();
+        let sprites = self.sprites.clone();
+        let swf_version = self.swf_version;
+        if let Some(root_slot) = self.target_slot_mut(root_target) {
+            populate_placed_slot_frame0_recursive(
+                root_slot,
+                &sprites,
+                swf_version,
+                runtime_depth,
+                &mut diagnostics,
+            );
+        }
+        for d in diagnostics {
+            self.record_unsupported_diagnostic(d);
+        }
+
+        let mut preorder = Vec::new();
+        if let Some(root_slot) = self.target_slot(root_target) {
+            collect_placed_subtree_preorder(root_slot, root_target, &mut preorder);
+        }
+
+        // 1. Immediate parent-first ClipEventInitialize
+        for (target, _) in &preorder {
+            let init_actions: Vec<Vec<u8>> = self
+                .target_slot(target)
+                .map(|s| {
+                    s.clip_handlers
+                        .iter()
+                        .filter(|h| (h.event_flags & CLIP_EVENT_INITIALIZE) != 0)
+                        .map(|h| h.actions.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            for code in init_actions {
+                self.execute_avm1_for_target(target, &code);
+            }
+        }
+
+        // 2. Immediate parent-first ClipEventConstruct + Object.registerClass constructor
+        for (target, cid) in &preorder {
+            let construct_actions: Vec<Vec<u8>> = self
+                .target_slot(target)
+                .map(|s| {
+                    s.clip_handlers
+                        .iter()
+                        .filter(|h| (h.event_flags & CLIP_EVENT_CONSTRUCT) != 0)
+                        .map(|h| h.actions.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            for code in construct_actions {
+                self.execute_avm1_for_target(target, &code);
+            }
+            if let Some(ctor_id) = self.exports.iter().find_map(|(name, &exp_cid)| {
+                (exp_cid == *cid)
+                    .then(|| self.avm1_registered_classes.get(name).copied())
+                    .flatten()
+            }) {
+                let proto = self.get_avm1_member(&Avm1Value::Object(ctor_id), "prototype");
+                if let Some(slot) = self.target_slot_mut(target) {
+                    slot.props.insert("__proto__".to_owned(), proto);
+                }
+                if let Some(func) = self
+                    .avm1_objects
+                    .get(ctor_id)
+                    .and_then(|o| o.function.clone())
+                {
+                    let super_ctor = self
+                        .avm1_objects
+                        .get(ctor_id)
+                        .and_then(|o| o.props.get("__super_ctor__"))
+                        .and_then(|v| match v {
+                            Avm1Value::Object(sid) => Some(*sid),
+                            _ => None,
+                        });
+                    let mut steps = 0usize;
+                    let _ = self.invoke_avm1_func_with_this(
+                        &func,
+                        Avm1Value::MovieClipIdentity(target.clone()),
+                        super_ctor,
+                        Vec::new(),
+                        &mut steps,
+                        0,
+                    );
+                }
+            }
+        }
+
+        // 3. Deferred parent-first ClipEventLoad (+ Frame-0 EnterFrame if requested) + sprite Frame-0 DoAction
+        let mut deferred = Vec::new();
+        for (target, cid) in preorder {
+            if let Some(slot) = self.target_slot(&target) {
+                for h in &slot.clip_handlers {
+                    if (h.event_flags & CLIP_EVENT_LOAD) != 0 {
+                        deferred.push(pending_action(target.clone(), h.actions.clone()));
+                    }
+                }
+                if let Some(Avm1Value::Object(fn_id)) = slot.props.get("onLoad") {
+                    deferred.push(PendingAvm1Work::Callback {
+                        target: target.clone(),
+                        fn_obj_id: *fn_id,
+                    });
+                }
+                if include_enter_frame {
+                    for h in &slot.clip_handlers {
+                        if (h.event_flags & CLIP_EVENT_ENTER_FRAME) != 0 {
+                            deferred.push(pending_action(target.clone(), h.actions.clone()));
+                        }
+                    }
+                    if let Some(Avm1Value::Object(fn_id)) = slot.props.get("onEnterFrame") {
+                        deferred.push(PendingAvm1Work::Callback {
+                            target: target.clone(),
+                            fn_obj_id: *fn_id,
+                        });
+                    }
+                }
+            }
+            if let Some(def) = self.sprites.get(&cid)
+                && let Some(tags) = def.frames.first()
+            {
+                for tag in tags {
+                    if tag.code == 12 {
+                        deferred.push(pending_action(target.clone(), tag.payload.clone()));
+                    }
+                }
+            }
+        }
+        deferred
+    }
+
+    pub(super) fn advance_preexisting_avm1_sprites(&mut self) -> Vec<PendingAvm1Work> {
+        let mut targets = Vec::new();
+        collect_preexisting_sprite_targets(&self.display_list, "", &mut targets);
+        let sprites = self.sprites.clone();
+        let swf_version = self.swf_version;
+        let mut work = Vec::new();
+        for (target, runtime_depth) in targets {
+            if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH {
+                continue;
+            }
+            let Some((cid, prev_frame, next_frame)) = self.target_slot_mut(&target).and_then(|s| {
+                if s.placed_this_step {
+                    return None;
+                }
+                if s.last_applied_frame.is_some() && s.playing && s.total_frames > 1 {
+                    let prev = s.last_applied_frame;
+                    s.current_frame = (s.current_frame + 1) % s.total_frames;
+                    Some((s.character_id, prev, s.current_frame))
+                } else {
+                    None
+                }
+            }) else {
+                continue;
+            };
+            if prev_frame == Some(next_frame) {
+                continue;
+            }
+            let Some(def) = self.sprites.get(&cid).cloned() else {
+                if let Some(s) = self.target_slot_mut(&target) {
+                    s.last_applied_frame = Some(next_frame);
+                }
+                continue;
+            };
+            if let Some(s) = self.target_slot_mut(&target) {
+                s.last_applied_frame = Some(next_frame);
+            }
+            let start_frame = match prev_frame {
+                Some(prev) if next_frame > prev => prev + 1,
+                _ => {
+                    if let Some(s) = self.target_slot_mut(&target) {
+                        for (&d, child) in &s.children {
+                            let ct = join_target_path(&target, &live_slot_segment(d, child));
+                            if let Some(u) = detached_unload_work(child, &ct) {
+                                work.push(u);
+                            }
+                        }
+                        s.children.clear();
+                        s.removed_timeline_depths.clear();
+                    }
+                    0
+                }
+            };
+            let max_frame = next_frame.min(def.frames.len().saturating_sub(1) as u32);
+            for frame in start_frame..=max_frame {
+                let Some(tags) = def.frames.get(frame as usize) else {
+                    continue;
+                };
+                for tag in tags {
+                    match tag.code {
+                        4 | 26 | 70 => {
+                            let Some(depth) = place_tag_depth(tag.code, &tag.payload) else {
+                                continue;
+                            };
+                            let is_move = tag.code != 4
+                                && tag.payload.first().is_some_and(|f| (f & 0x01) != 0);
+                            let has_char = place_tag_replaces_slot(tag.code, &tag.payload);
+                            let mut unmodeled_filter = false;
+                            let mut created_child_target = None;
+                            if let Some(pslot) = self.target_slot_mut(&target) {
+                                let blocked = place_tag_blocked_by_tombstone(
+                                    tag.code,
+                                    &tag.payload,
+                                    &pslot.removed_timeline_depths,
+                                    &pslot.children,
+                                );
+                                let had_existing = pslot.children.contains_key(&depth);
+                                let will_create =
+                                    !blocked && has_char && (!is_move || had_existing);
+                                if will_create && let Some(old_c) = pslot.children.get(&depth) {
+                                    let ct =
+                                        join_target_path(&target, &live_slot_segment(depth, old_c));
+                                    if let Some(u) = detached_unload_work(old_c, &ct) {
+                                        work.push(u);
+                                    }
+                                }
+                                let (_, uf) = apply_place_tag_to_map(
+                                    &mut pslot.children,
+                                    &mut pslot.removed_timeline_depths,
+                                    &sprites,
+                                    swf_version,
+                                    tag.code,
+                                    &tag.payload,
+                                );
+                                unmodeled_filter = uf;
+                                if will_create && let Some(new_c) = pslot.children.get(&depth) {
+                                    created_child_target = Some(join_target_path(
+                                        &target,
+                                        &live_slot_segment(depth, new_c),
+                                    ));
+                                }
+                            }
+                            if unmodeled_filter {
+                                self.record_unsupported_diagnostic(
+                                    "SWF PlaceObject3 filter list contained an unmodeled filter"
+                                        .to_owned(),
+                                );
+                            }
+                            if let Some(ct) = created_child_target {
+                                work.extend(self.instantiate_avm1_placed_subtree(
+                                    &ct,
+                                    runtime_depth + 1,
+                                    false,
+                                ));
+                            }
+                        }
+                        5 | 28 => {
+                            if let Some(pslot) = self.target_slot_mut(&target) {
+                                if let Some(depth) = remove_tag_depth(tag.code, &tag.payload)
+                                    && let Some(child) = pslot.children.get(&depth)
+                                    && !child.is_dynamic
+                                {
+                                    let ct =
+                                        join_target_path(&target, &live_slot_segment(depth, child));
+                                    if let Some(u) = detached_unload_work(child, &ct) {
+                                        work.push(u);
+                                    }
+                                }
+                                let _ = apply_remove_tag_to_map(
+                                    &mut pslot.children,
+                                    &mut pslot.removed_timeline_depths,
+                                    tag.code,
+                                    &tag.payload,
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if let Some(tags) = def.frames.get(next_frame as usize) {
+                for tag in tags {
+                    if tag.code == 12 {
+                        work.push(pending_action(target.clone(), tag.payload.clone()));
+                    }
+                }
+            }
+        }
+        self.prune_dangling_masks();
+        work
+    }
+
     pub(super) fn apply_remove_tag(
         &mut self,
         tag_code: u16,
@@ -1097,25 +1537,118 @@ pub(super) fn parse_timeline_tags(
     }
 }
 
-pub(super) fn parse_button_actions(
-    tag_code: u16,
-    payload: &[u8],
-) -> Option<(u16, Vec<ButtonCondAction>)> {
+fn populate_placed_slot_frame0_recursive(
+    slot: &mut LiveSlot,
+    sprites: &HashMap<u16, TimelineDef>,
+    swf_version: u8,
+    runtime_depth: usize,
+    diagnostics: &mut Vec<String>,
+) {
+    slot.placed_this_step = true;
+    if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH {
+        diagnostics.push(format!(
+            "SWF nested sprite depth exceeded the {MAX_RUNTIME_SPRITE_DEPTH}-level runtime limit"
+        ));
+        return;
+    }
+    let Some(def) = sprites.get(&slot.character_id) else {
+        slot.last_applied_frame = Some(0);
+        return;
+    };
+    slot.last_applied_frame = Some(0);
+    if let Some(tags) = def.frames.first() {
+        for tag in tags {
+            match tag.code {
+                4 | 26 | 70 => {
+                    let (_, unmodeled_filter) = apply_place_tag_to_map(
+                        &mut slot.children,
+                        &mut slot.removed_timeline_depths,
+                        sprites,
+                        swf_version,
+                        tag.code,
+                        &tag.payload,
+                    );
+                    if unmodeled_filter {
+                        diagnostics.push(
+                            "SWF PlaceObject3 filter list contained an unmodeled filter".to_owned(),
+                        );
+                    }
+                }
+                5 | 28 => {
+                    let _ = apply_remove_tag_to_map(
+                        &mut slot.children,
+                        &mut slot.removed_timeline_depths,
+                        tag.code,
+                        &tag.payload,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    for child in slot.children.values_mut() {
+        populate_placed_slot_frame0_recursive(
+            child,
+            sprites,
+            swf_version,
+            runtime_depth + 1,
+            diagnostics,
+        );
+    }
+}
+
+fn collect_placed_subtree_preorder(slot: &LiveSlot, target: &str, out: &mut Vec<(String, u16)>) {
+    out.push((target.to_owned(), slot.character_id));
+    for (&depth, child) in &slot.children {
+        let child_target = join_target_path(target, &live_slot_segment(depth, child));
+        collect_placed_subtree_preorder(child, &child_target, out);
+    }
+}
+
+fn collect_preexisting_sprite_targets(
+    display_list: &BTreeMap<u16, LiveSlot>,
+    parent_target: &str,
+    out: &mut Vec<(String, usize)>,
+) {
+    collect_preexisting_sprite_targets_inner(display_list, parent_target, 0, out);
+}
+
+fn collect_preexisting_sprite_targets_inner(
+    display_list: &BTreeMap<u16, LiveSlot>,
+    parent_target: &str,
+    depth_lvl: usize,
+    out: &mut Vec<(String, usize)>,
+) {
+    for (&depth, slot) in display_list {
+        if !slot.placed_this_step {
+            let target = join_target_path(parent_target, &live_slot_segment(depth, slot));
+            out.push((target.clone(), depth_lvl));
+            collect_preexisting_sprite_targets_inner(&slot.children, &target, depth_lvl + 1, out);
+        }
+    }
+}
+
+pub(super) type ParsedButtonActions = (u16, Vec<(u8, u16, u16)>, Vec<ButtonCondAction>);
+
+pub(super) fn parse_button_actions(tag_code: u16, payload: &[u8]) -> Option<ParsedButtonActions> {
     let mut r = SwfSlice::new(payload);
     let btn_id = r.u16()?;
+    let mut records = Vec::new();
     if tag_code == 7 {
         for _ in 0..1024 {
             let flags = r.u8()?;
             if flags == 0 {
                 break;
             }
-            let _cid = r.u16()?;
-            let _depth = r.u16()?;
+            let cid = r.u16()?;
+            let depth = r.u16()?;
             let _mat = r.matrix_px()?;
+            records.push((flags & 0x0F, cid, depth));
         }
         let actions = r.rest().to_vec();
         return Some((
             btn_id,
+            records,
             vec![ButtonCondAction {
                 conditions: 0,
                 actions,
@@ -1125,8 +1658,34 @@ pub(super) fn parse_button_actions(
     let _flags = r.u8()?;
     let off_pos = r.pos();
     let rel = usize::from(r.u16()?);
+    let records_end = if rel == 0 {
+        payload.len()
+    } else {
+        (off_pos + rel).min(payload.len())
+    };
+    for _ in 0..1024 {
+        if r.pos() >= records_end {
+            break;
+        }
+        let Some(rec_flags) = r.u8() else { break };
+        if rec_flags == 0 {
+            break;
+        }
+        let Some(cid) = r.u16() else { break };
+        let Some(depth) = r.u16() else { break };
+        if r.matrix_px().is_none() || r.cxform(true).is_none() {
+            break;
+        }
+        if (rec_flags & 0x10) != 0 {
+            let _ = parse_swf_filter_list(&mut r);
+        }
+        if (rec_flags & 0x20) != 0 {
+            let _ = r.u8();
+        }
+        records.push((rec_flags & 0x0F, cid, depth));
+    }
     if rel == 0 || off_pos + rel >= payload.len() {
-        return Some((btn_id, Vec::new()));
+        return Some((btn_id, records, Vec::new()));
     }
     let mut cond_slice = &payload[off_pos + rel..];
     let mut conds = Vec::new();
@@ -1146,7 +1705,7 @@ pub(super) fn parse_button_actions(
         });
         cond_slice = &cond_slice[size..];
     }
-    Some((btn_id, conds))
+    Some((btn_id, records, conds))
 }
 
 pub(super) fn parse_raw_clip_handlers(
@@ -1328,6 +1887,8 @@ pub(super) fn apply_place_tag_to_map(
                 props: HashMap::new(),
                 clip_handlers: Vec::new(),
                 graphics: RuntimeGraphicsState::default(),
+                placed_this_step: true,
+                avm2_object_id: None,
             },
         );
         return (load_scripts, false);
@@ -1448,6 +2009,8 @@ pub(super) fn apply_place_tag_to_map(
                 props: HashMap::new(),
                 clip_handlers: new_handlers,
                 graphics: RuntimeGraphicsState::default(),
+                placed_this_step: true,
+                avm2_object_id: None,
             };
             return (load_scripts, unmodeled_filter);
         }
@@ -1542,6 +2105,8 @@ pub(super) fn apply_place_tag_to_map(
             props: HashMap::new(),
             clip_handlers: new_handlers,
             graphics: RuntimeGraphicsState::default(),
+            placed_this_step: true,
+            avm2_object_id: None,
         },
     );
     (load_scripts, unmodeled_filter)

@@ -29,13 +29,18 @@ impl SwfBytecodePlayer {
                 );
                 self.avm2_thrown = None;
             }
+        }
 
-            // 2. Run class static initializers (`cinit`) and main timeline / document class constructor (`iinit`)
+        // 2. Run class static initializers (`cinit`) across all ABC tags before constructing root
+        let mut total_classes = 0usize;
+        for abc_idx in 0..abc_count {
             let class_count = self.abc_tags[abc_idx].abc.classes.len();
+            total_classes += class_count;
             for c_idx in 0..class_count {
                 let cinit = self.abc_tags[abc_idx].abc.classes[c_idx].cinit;
                 let mut cinit_steps = 0usize;
                 let cinit_scopes = self.avm2_captured_class_scopes(abc_idx, c_idx, false);
+                self.avm2_thrown = None;
                 let _ = self.run_avm2_method_with_outer_scopes(
                     abc_idx,
                     cinit,
@@ -45,37 +50,142 @@ impl SwfBytecodePlayer {
                     &mut cinit_steps,
                     0,
                 );
-
-                let (pkg, cls_name) = self.abc_tags[abc_idx]
-                    .abc
-                    .split_qname(self.abc_tags[abc_idx].abc.instances[c_idx].name);
-                let full_name = if pkg.is_empty() {
-                    cls_name.clone()
-                } else {
-                    format!("{pkg}.{cls_name}")
-                };
-                let is_doc_or_timeline = self.symbol_classes.get(&0) == Some(&full_name)
-                    || cls_name == "MainTimeline"
-                    || class_count == 1;
-                if is_doc_or_timeline {
-                    let iinit = self.abc_tags[abc_idx].abc.instances[c_idx].iinit;
-                    self.execute_avm2_method(abc_idx, iinit, Vec::new());
-                }
+                self.avm2_thrown = None;
             }
         }
-    }
 
-    pub(super) fn execute_avm2_method(
-        &mut self,
-        abc_idx: usize,
-        method_idx: usize,
-        args: Vec<Avm1Value>,
-    ) -> Avm1Value {
-        self.avm2_thrown = None;
+        // 3. Resolve root document class (`SymbolClass[0]`, `MainTimeline`, or single-class SWF without child bindings)
+        let doc_class: Option<(usize, usize)> = if let Some(bound0) = self.symbol_classes.get(&0) {
+            let (pkg, short) = match bound0.rsplit_once('.') {
+                Some((p, s)) => (p, s),
+                None => ("", bound0.as_str()),
+            };
+            (0..abc_count).find_map(|ai| self.find_avm2_class(ai, pkg, short))
+        } else {
+            (0..abc_count)
+                .find_map(|ai| {
+                    self.abc_tags[ai]
+                        .abc
+                        .instances
+                        .iter()
+                        .position(|inst| {
+                            self.abc_tags[ai].abc.split_qname(inst.name).1 == "MainTimeline"
+                        })
+                        .map(|ci| (ai, ci))
+                })
+                .or_else(|| {
+                    (total_classes == 1 && self.symbol_classes.is_empty()).then(|| {
+                        (0..abc_count)
+                            .find(|&ai| !self.abc_tags[ai].abc.classes.is_empty())
+                            .map(|ai| (ai, 0))
+                    })?
+                })
+        };
+
+        // 4. Allocate Stage and root MovieClip (`"root1"`), then construct root and its Frame-0 children
+        let stage_oid = self.avm1_objects.len();
+        let mut stage_props = HashMap::new();
+        stage_props.insert("name".to_owned(), Avm1Value::Null);
+        self.avm1_objects.push(Avm1Object {
+            props: stage_props,
+            avm2_display: Some(Avm2DisplayMeta {
+                display_type: "Stage".to_owned(),
+                short_class_name: "Stage".to_owned(),
+                on_stage: true,
+                constructed: true,
+                super_constructed: true,
+                total_frames: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        self.avm2_stage_oid = Some(stage_oid);
+
+        let root_short = doc_class
+            .map(|(a, c)| {
+                self.abc_tags[a]
+                    .abc
+                    .split_qname(self.abc_tags[a].abc.instances[c].name)
+                    .1
+            })
+            .unwrap_or_else(|| "MovieClip".to_owned());
+        let mut root_props = if let Some((da, dc)) = doc_class {
+            self.collect_avm2_instance_slot_defaults(da, dc)
+        } else {
+            HashMap::new()
+        };
+        root_props.insert("name".to_owned(), Avm1Value::String("root1".to_owned()));
+        root_props.insert("x".to_owned(), Avm1Value::Number(0.0));
+        root_props.insert("y".to_owned(), Avm1Value::Number(0.0));
+        root_props.insert("scaleX".to_owned(), Avm1Value::Number(1.0));
+        root_props.insert("scaleY".to_owned(), Avm1Value::Number(1.0));
+        root_props.insert("alpha".to_owned(), Avm1Value::Number(1.0));
+        root_props.insert("visible".to_owned(), Avm1Value::Bool(true));
+        root_props.insert("rotation".to_owned(), Avm1Value::Number(0.0));
+        root_props.insert(
+            "__display_target__".to_owned(),
+            Avm1Value::MovieClipIdentity("_root".to_owned()),
+        );
+        let root_oid = self.avm1_objects.len();
+        self.avm1_objects.push(Avm1Object {
+            props: root_props,
+            avm2_class: doc_class,
+            avm2_display: Some(Avm2DisplayMeta {
+                display_type: "MovieClip".to_owned(),
+                short_class_name: root_short,
+                character_id: 0,
+                parent_oid: Some(stage_oid),
+                on_stage: true,
+                constructed: true,
+                super_constructed: false,
+                current_frame: 0,
+                total_frames: self.root_timeline.total_frames.max(1),
+                playing: true,
+                ..Default::default()
+            }),
+            graphics: Some(RuntimeGraphicsState::default()),
+            ..Default::default()
+        });
+        if let Some(st_meta) = self
+            .avm1_objects
+            .get_mut(stage_oid)
+            .and_then(|o| o.avm2_display.as_mut())
+        {
+            st_meta.children_oids.push(root_oid);
+        }
+        self.avm2_root_oid = Some(root_oid);
+
         let mut steps = 0usize;
-        let ret = self.run_avm2_method_bounded(abc_idx, method_idx, args, &mut steps, 0);
-        self.avm2_thrown = None;
-        ret
+        if let Some((da, dc)) = doc_class {
+            let iinit = self.abc_tags[da].abc.instances[dc].iinit;
+            self.avm2_thrown = None;
+            let _ = self.run_avm2_method_with_this(
+                da,
+                iinit,
+                Avm1Value::Object(root_oid),
+                Vec::new(),
+                &mut steps,
+                0,
+            );
+            self.avm2_thrown = None;
+        }
+        let need_children = self
+            .avm1_objects
+            .get(root_oid)
+            .and_then(|o| o.avm2_display.as_ref())
+            .is_some_and(|m| !m.super_constructed);
+        if need_children {
+            if let Some(meta) = self
+                .avm1_objects
+                .get_mut(root_oid)
+                .and_then(|o| o.avm2_display.as_mut())
+            {
+                meta.super_constructed = true;
+            }
+            self.construct_avm2_children_for_container(root_oid, "_root", &mut steps, 0);
+        }
+        self.dispatch_avm2_event_on_oid(root_oid, "added", true, false, &mut steps, 0);
+        self.dispatch_avm2_event_on_oid(root_oid, "addedToStage", false, false, &mut steps, 0);
     }
 
     pub(super) fn run_avm2_method_bounded(
@@ -86,14 +196,11 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
-        self.run_avm2_method_with_this(
-            abc_idx,
-            method_idx,
-            Avm1Value::MovieClip("_root".to_owned()),
-            args,
-            steps,
-            depth,
-        )
+        let this_val = self.avm2_root_oid.map_or_else(
+            || Avm1Value::MovieClip("_root".to_owned()),
+            Avm1Value::Object,
+        );
+        self.run_avm2_method_with_this(abc_idx, method_idx, this_val, args, steps, depth)
     }
 
     fn avm2_captured_class_scopes(
@@ -220,22 +327,35 @@ impl SwfBytecodePlayer {
                 | "name"
                 | "width"
                 | "height"
+                | "stage"
+                | "parent"
+                | "root"
                 | "currentFrame"
                 | "totalFrames"
                 | "numChildren"
                 | "graphics"
+                | "upState"
+                | "overState"
+                | "downState"
+                | "hitTestState"
                 | "stop"
                 | "play"
                 | "nextFrame"
                 | "prevFrame"
                 | "gotoAndStop"
                 | "gotoAndPlay"
+                | "addFrameScript"
                 | "addChild"
                 | "removeChild"
+                | "getChildAt"
                 | "getChildByName"
+                | "getChildIndex"
+                | "contains"
                 | "addEventListener"
                 | "removeEventListener"
                 | "dispatchEvent"
+                | "hasEventListener"
+                | "willTrigger"
         )
     }
 
@@ -290,6 +410,14 @@ impl SwfBytecodePlayer {
         match sc {
             Avm1Value::Object(oid) => {
                 if self.avm2_object_has_prop(*oid, prop) {
+                    return true;
+                }
+                if self
+                    .avm1_objects
+                    .get(*oid)
+                    .is_some_and(|o| o.avm2_display.is_some())
+                    && Self::is_avm2_builtin_display_member(prop)
+                {
                     return true;
                 }
                 if let Some((c_abc, c_idx)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
@@ -850,8 +978,12 @@ impl SwfBytecodePlayer {
                                             .entry("name".into())
                                             .or_insert_with(|| Avm1Value::String(cls_short));
                                     }
+                                } else {
+                                    self.run_avm2_builtin_display_super(oid, steps, depth + 1);
                                 }
                             }
+                        } else {
+                            self.run_avm2_builtin_display_super(oid, steps, depth + 1);
                         }
                     } else if matches!(&receiver, Avm1Value::MovieClip(mc) if mc == "_root")
                         && let Some(owner_cls) = self.abc_tags.get(abc_idx).and_then(|l| {
@@ -1019,6 +1151,16 @@ impl SwfBytecodePlayer {
                         resolved = Some(this_val.clone());
                     }
                     if resolved.is_none()
+                        && let Avm1Value::Object(oid) = &this_val
+                        && let Some((ca, cc)) =
+                            self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+                    {
+                        let cls_tok = format!("__avm2_class:{ca}:{cc}");
+                        if self.avm2_class_token_has_static_prop(&cls_tok, &name) {
+                            resolved = Some(Avm1Value::MovieClip(cls_tok));
+                        }
+                    }
+                    if resolved.is_none()
                         && op == 0x5E
                         && let Some(Avm1Value::Object(oid)) = scope_stack.first()
                         && self
@@ -1044,6 +1186,21 @@ impl SwfBytecodePlayer {
                     if val_opt.is_none() && self.avm2_scope_owns_prop(&this_val, &name) {
                         val_opt = Some(self.get_avm2_property_eval(&this_val, &name, steps, depth));
                     }
+                    if val_opt.is_none()
+                        && let Avm1Value::Object(oid) = &this_val
+                        && let Some((ca, cc)) =
+                            self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+                    {
+                        let cls_tok = format!("__avm2_class:{ca}:{cc}");
+                        if self.avm2_class_token_has_static_prop(&cls_tok, &name) {
+                            val_opt = Some(self.get_avm2_property_eval(
+                                &Avm1Value::MovieClip(cls_tok),
+                                &name,
+                                steps,
+                                depth,
+                            ));
+                        }
+                    }
                     let val = if let Some(v) = val_opt {
                         v
                     } else if let Some((c_abc, c_idx)) = self.find_avm2_class(abc_idx, &pkg, &name)
@@ -1063,10 +1220,16 @@ impl SwfBytecodePlayer {
                             | "Sprite"
                             | "Shape"
                             | "SimpleButton"
+                            | "Stage"
+                            | "TextField"
+                            | "Bitmap"
                             | "DisplayObject"
                             | "DisplayObjectContainer"
                             | "InteractiveObject"
                             | "EventDispatcher"
+                            | "Event"
+                            | "MouseEvent"
+                            | "KeyboardEvent"
                             | "Error"
                             | "TypeError"
                             | "RangeError"
