@@ -5,8 +5,10 @@ use roxmltree::{Document, Node, ParsingOptions};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 mod assets;
+mod custom_ease;
 mod elements;
 mod filters;
+mod ik;
 pub(crate) mod media;
 mod publish;
 mod shape;
@@ -65,6 +67,9 @@ pub(crate) fn convert(
         legacy_filter_strength_warning: false,
         pending_bitmap_fills: Vec::new(),
         pending_video_resource: None,
+        stage_size: [550.0, 400.0],
+        view_angle_3d: None,
+        vanishing_point_3d: None,
     };
     parser.audit(
         root,
@@ -413,6 +418,30 @@ pub(crate) fn convert(
     p.name = "Imported XFL".into();
     p.width = parser.stage_dimension(root, "width", 550, 65535, "DOMDocument.xml");
     p.height = parser.stage_dimension(root, "height", 400, 65535, "DOMDocument.xml");
+    parser.stage_size = [f64::from(p.width), f64::from(p.height)];
+    parser.view_angle_3d = root
+        .attribute("viewAngle3D")
+        .map(|_| parser.number(root, "viewAngle3D", 55.0, "DOMDocument.xml"));
+    parser.vanishing_point_3d = match (
+        root.attribute("vanishingPoint3DX"),
+        root.attribute("vanishingPoint3DY"),
+    ) {
+        (Some(_), Some(_)) => Some([
+            parser.number(
+                root,
+                "vanishingPoint3DX",
+                f64::from(p.width) * 0.5,
+                "DOMDocument.xml",
+            ),
+            parser.number(
+                root,
+                "vanishingPoint3DY",
+                f64::from(p.height) * 0.5,
+                "DOMDocument.xml",
+            ),
+        ]),
+        _ => None,
+    };
     p.fps = parser.stage_dimension(root, "frameRate", 24, 1000, "DOMDocument.xml");
     p.background = parser.color(
         root.attribute("backgroundColor").unwrap_or("#FFFFFF"),
@@ -903,7 +932,8 @@ fn parse<'a>(xml: &'a str, path: &str, report: &mut ImportReport) -> Option<Docu
                 if node.tag_name().namespace().is_some_and(|namespace| {
                     path == "PublishSettings.xml"
                         || (namespace != "http://ns.adobe.com/xfl/2008/"
-                            && !is_tlf_namespace_element(node.tag_name().name(), namespace))
+                            && !is_tlf_namespace_element(node.tag_name().name(), namespace)
+                            && !is_fl_motion_namespace_element(node, namespace))
                 }) {
                     report.error(
                         "unknown_namespace",
@@ -992,6 +1022,9 @@ struct Parser<'a> {
     legacy_filter_strength_warning: bool,
     pending_bitmap_fills: Vec<AuthoredBitmapFill>,
     pending_video_resource: Option<(Id, bool, bool)>,
+    stage_size: [f64; 2],
+    view_angle_3d: Option<f64>,
+    vanishing_point_3d: Option<[f64; 2]>,
 }
 
 impl Parser<'_> {
@@ -1005,11 +1038,9 @@ impl Parser<'_> {
 
     fn audit(&mut self, node: Node<'_, '_>, file: &str, attrs: &[&str], children: &[&str]) {
         let location = self.location(node, file);
-        if node
-            .tag_name()
-            .namespace()
-            .is_some_and(|ns| ns != "http://ns.adobe.com/xfl/2008/")
-        {
+        if node.tag_name().namespace().is_some_and(|ns| {
+            ns != "http://ns.adobe.com/xfl/2008/" && !is_fl_motion_namespace_element(node, ns)
+        }) {
             self.report
                 .error("unknown_namespace", &location, "Unknown XML namespace.");
         }
@@ -1109,6 +1140,10 @@ impl Parser<'_> {
                     | "GradientBevelFilter"
                     | "AdjustColorFilter"
                     | "TLFFont"
+                    | "ikNode"
+                    | "IKNode"
+                    | "DOMBone"
+                    | "Bone"
             ) && elements(node)
                 .filter(|n| n.tag_name().name() == *tag)
                 .count()
@@ -1619,10 +1654,9 @@ impl Parser<'_> {
     fn audit_unmodeled_xfl_subtree(&mut self, root_sub: Node<'_, '_>, file: &str) {
         for n in root_sub.descendants().filter(Node::is_element) {
             let loc = self.location(n, file);
-            if n.tag_name()
-                .namespace()
-                .is_some_and(|ns| ns != "http://ns.adobe.com/xfl/2008/")
-            {
+            if n.tag_name().namespace().is_some_and(|ns| {
+                ns != "http://ns.adobe.com/xfl/2008/" && !is_fl_motion_namespace_element(n, ns)
+            }) {
                 self.report
                     .error("unknown_namespace", &loc, "Unknown XML namespace.");
             }
@@ -1665,6 +1699,13 @@ impl Parser<'_> {
             }
         }
     }
+}
+
+fn is_fl_motion_namespace_element(node: Node<'_, '_>, ns: &str) -> bool {
+    ns == "fl.motion.*"
+        && node
+            .ancestors()
+            .any(|a| a.is_element() && a.tag_name().name() == "Motion")
 }
 
 fn normalize_xfl_folder_path(raw: &str) -> String {

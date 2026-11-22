@@ -776,6 +776,7 @@ fn component_props_only_attach_to_implemented_avm1_movieclips_and_broken_tweens_
         include_hidden: true,
         motion_pose_budget: crate::motion_xml::DOCUMENT_POSE_BUDGET,
         contents_revision: Some(0x3f),
+        motion_3d: ([550.0, 400.0], None, None),
         generated: vec![],
         inline_resources: vec![],
         compiled_clip_sources: vec![],

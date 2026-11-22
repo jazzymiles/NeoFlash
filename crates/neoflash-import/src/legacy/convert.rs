@@ -747,6 +747,8 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         .filter(|s| s.stop_code.is_some())
         .map(|s| s.index)
         .collect();
+    let (view_angle_3d, vanishing_point_3d) = parse_contents_3d_perspective(c);
+    let stage_size_px = [size[0] as f64 / 20.0, size[1] as f64 / 20.0];
     let mut context = Context {
         report,
         library,
@@ -763,6 +765,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         include_hidden,
         motion_pose_budget: crate::motion_xml::DOCUMENT_POSE_BUDGET,
         contents_revision: c.revision,
+        motion_3d: (stage_size_px, view_angle_3d, vanishing_point_3d),
         generated: vec![],
         inline_resources: vec![],
         compiled_clip_sources: vec![],
@@ -1361,6 +1364,7 @@ struct Context<'a> {
     include_hidden: bool,
     motion_pose_budget: usize,
     contents_revision: Option<u8>,
+    motion_3d: ([f64; 2], Option<f64>, Option<[f64; 2]>),
     generated: Vec<Symbol>,
     inline_resources: Vec<ResourceUnit>,
     compiled_clip_sources: Vec<SourceUnit>,
@@ -2071,13 +2075,6 @@ impl Context<'_> {
                     );
                 }
                 let video = frame_videos.into_iter().next();
-                if f.pose_matrices.is_some() && l.animation_type.unwrap_or(0) == 0 {
-                    self.report.warning(
-                        "fla_layer_animation",
-                        &at,
-                        "IK pose matrices are retained in the embedded source; the keyframe uses its stored pose.",
-                    );
-                }
                 if let Some(ext) = &f.pose_extension
                     && (ext.matrix_words != [65536, 0, 0, 65536, 0, 0]
                         || ext.color_transform.multipliers != [256; 4]
@@ -2375,17 +2372,43 @@ impl Context<'_> {
                         if duration > MAX_TIMELINE_FRAMES - cursor {
                             return Err("motion span exceeds timeline limit");
                         }
-                        crate::motion_xml::poses(
+                        let ctx_3d = crate::motion_xml::MotionContext {
+                            pivot,
+                            stage_size: self.motion_3d.0,
+                            view_angle_3d: self.motion_3d.1,
+                            vanishing_point_3d: self.motion_3d.2,
+                        };
+                        crate::motion_xml::sample_poses(
                             doc.root_element(),
                             key,
                             duration,
-                            pivot,
+                            ctx_3d,
                             &mut self.motion_pose_budget,
                         )
                     })();
                     match sampled {
-                        Ok(poses) => {
-                            motion_keys.extend(poses);
+                        Ok(res) => {
+                            if let Some(el0) = res.start_element
+                                && let Some(last_kf) = layer.keyframes.last_mut()
+                                && !last_kf.elements.is_empty()
+                            {
+                                last_kf.elements[0] = el0;
+                            }
+                            if res.used_3d {
+                                self.report.warning(
+                                    "fla_3d_transform",
+                                    &at,
+                                    "Projected 3D motion-object rotation and depth tracks to 2D perspective affine poses.",
+                                );
+                            }
+                            if res.filter_approximated {
+                                self.report.warning(
+                                    "fla_filter_approximated",
+                                    &at,
+                                    "Unsupported motion-object filter curves were approximated on sampled poses.",
+                                );
+                            }
+                            motion_keys.extend(res.poses);
                             self.report.warning(
                                 "fla_motion_xml",
                                 &at,
@@ -2397,6 +2420,34 @@ impl Context<'_> {
                             &at,
                             format!("Motion-object tracks use the stored pose: {reason}."),
                         ),
+                    }
+                } else if let Some(pm_span) = f.pose_matrices {
+                    let key = layer.keyframes.last().unwrap();
+                    let sampled_ik = sample_fla_ik_pose_matrices(
+                        &s.original_bytes,
+                        pm_span,
+                        key,
+                        duration,
+                        cursor,
+                        &self.library,
+                        &self.library_kinds,
+                        &mut self.motion_pose_budget,
+                    );
+                    if let Some(ik_poses) = sampled_ik {
+                        motion_keys.extend(ik_poses);
+                        if l.animation_type.unwrap_or(0) == 0 {
+                            self.report.warning(
+                                "fla_layer_animation",
+                                &at,
+                                "Sampled binary FLA IK pose matrices into editable per-frame keyframes; runtime IK bone constraints are baked to frame poses.",
+                            );
+                        }
+                    } else if l.animation_type.unwrap_or(0) == 0 {
+                        self.report.warning(
+                            "fla_layer_animation",
+                            &at,
+                            "IK pose matrices are retained in the embedded source; the keyframe uses its stored pose.",
+                        );
                     }
                 }
                 let next_cursor = u64::from(cursor) + u64::from(duration);
@@ -4176,6 +4227,164 @@ fn try_wrap_tweened_frame_shapes_into_group(
 fn eval_cubic_scalar(p0: f64, p1: f64, p2: f64, p3: f64, s: f64) -> f64 {
     let u = 1.0 - s;
     u * u * u * p0 + 3.0 * u * u * s * p1 + 3.0 * u * s * s * p2 + s * s * s * p3
+}
+
+fn parse_contents_3d_perspective(
+    c: &super::contents::BinaryContentsPrefix,
+) -> (Option<f64>, Option<[f64; 2]>) {
+    let Some(version) = c.revision else {
+        return (None, None);
+    };
+    if version < 0x45 {
+        return (None, None);
+    };
+    let Some(ext) = c.extensions.as_ref() else {
+        return (None, None);
+    };
+    let tail_len = match version {
+        0x45 => 8,
+        0x46 => 16,
+        _ => 20,
+    };
+    if ext.encoded.end < ext.encoded.start + tail_len {
+        return (None, None);
+    }
+    let base = ext.encoded.end - tail_len;
+    let Some(slice) = c.original_bytes.get(base..ext.encoded.end) else {
+        return (None, None);
+    };
+    let fov = f64::from_le_bytes(slice[0..8].try_into().unwrap());
+    let view_angle = (fov.is_finite() && fov > 0.0 && fov < 180.0).then_some(fov);
+    let vanishing_point = if version >= 0x46 && slice.len() >= 16 {
+        let vx = i32::from_le_bytes(slice[8..12].try_into().unwrap());
+        let vy = i32::from_le_bytes(slice[12..16].try_into().unwrap());
+        (vx != i32::MIN && vy != i32::MIN).then_some([f64::from(vx) / 20.0, f64::from(vy) / 20.0])
+    } else {
+        None
+    };
+    (view_angle, vanishing_point)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sample_fla_ik_pose_matrices(
+    original_bytes: &[u8],
+    span: TimelineByteSpan,
+    key: &Keyframe,
+    duration: u32,
+    cursor: u32,
+    library: &BTreeMap<u32, String>,
+    library_kinds: &BTreeMap<u32, SymbolKind>,
+    budget: &mut usize,
+) -> Option<Vec<Keyframe>> {
+    if duration <= 1
+        || key.elements.is_empty()
+        || key.tween.is_some()
+        || duration > 1_000_000_u32.saturating_sub(cursor)
+    {
+        return None;
+    }
+    let raw = original_bytes.get(span.start..span.end)?;
+    if !raw.len().is_multiple_of(24) {
+        return None;
+    }
+    let total_mats = raw.len() / 24;
+    let elem_count = key.elements.len();
+    let expected = elem_count.checked_mul(duration as usize)?;
+    if total_mats != expected {
+        return None;
+    }
+    let count = (duration - 1) as usize;
+    let elem_bytes: usize = key
+        .elements
+        .iter()
+        .map(|el| serde_json::to_vec(el).map_or(256, |v| v.len()))
+        .sum();
+    let cost = count.saturating_mul(elem_bytes.div_ceil(2048).max(1));
+    if count > 4095 || cost > *budget {
+        return None;
+    }
+
+    let mut mats = Vec::with_capacity(total_mats);
+    for chunk in raw.as_chunks::<24>().0 {
+        let words: [i32; 6] = std::array::from_fn(|i| {
+            i32::from_le_bytes(chunk[i * 4..i * 4 + 4].try_into().unwrap())
+        });
+        mats.push(shape::matrix(words));
+    }
+
+    let mul_mat = |m1: [f64; 6], m2: [f64; 6]| -> [f64; 6] {
+        [
+            m1[0] * m2[0] + m1[2] * m2[1],
+            m1[1] * m2[0] + m1[3] * m2[1],
+            m1[0] * m2[2] + m1[2] * m2[3],
+            m1[1] * m2[2] + m1[3] * m2[3],
+            m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+            m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+        ]
+    };
+
+    let mut any_changed = false;
+    let mut poses = Vec::with_capacity(count);
+    for step in 1..duration {
+        let mut frame_elems = Vec::with_capacity(elem_count);
+        for (e_idx, base_el) in key.elements.iter().enumerate() {
+            let mut el = base_el.clone();
+            let m0 = mats[e_idx * (duration as usize)];
+            let mf = mats[e_idx * (duration as usize) + (step as usize)];
+            let delta = invert_affine_matrix(m0).map_or(mf, |inv0| mul_mat(mf, inv0));
+            if (delta[0] - 1.0).abs() > 1e-7
+                || delta[1].abs() > 1e-7
+                || delta[2].abs() > 1e-7
+                || (delta[3] - 1.0).abs() > 1e-7
+                || delta[4].abs() > 1e-7
+                || delta[5].abs() > 1e-7
+            {
+                any_changed = true;
+            }
+            let composed = mul_mat(delta, transform_matrix(base_el.transform));
+            if let Some(mut tr) = Transform::from_matrix(composed) {
+                tr.alpha = base_el.transform.alpha;
+                tr.color_transform = base_el.transform.color_transform;
+                el.transform = tr;
+            }
+            if let ElementKind::Instance {
+                symbol_id,
+                playback,
+            } = &mut el.kind
+            {
+                let is_graphic = library
+                    .iter()
+                    .find(|(_, sid)| *sid == symbol_id)
+                    .and_then(|(lid, _)| library_kinds.get(lid))
+                    .is_some_and(|&k| k == SymbolKind::Graphic);
+                if is_graphic {
+                    *playback = match *playback {
+                        InstancePlayback::Loop => InstancePlayback::LoopFrom(step),
+                        InstancePlayback::LoopFrom(f0) => {
+                            InstancePlayback::LoopFrom(f0.saturating_add(step))
+                        }
+                        InstancePlayback::PlayOnce => InstancePlayback::PlayOnceFrom(step),
+                        InstancePlayback::PlayOnceFrom(f0) => {
+                            InstancePlayback::PlayOnceFrom(f0.saturating_add(step))
+                        }
+                        other => other,
+                    };
+                }
+            }
+            frame_elems.push(el);
+        }
+        poses.push(Keyframe {
+            frame: cursor.saturating_add(step),
+            elements: frame_elems,
+            ..Default::default()
+        });
+    }
+
+    if !any_changed {
+        return None;
+    }
+    *budget -= cost;
+    Some(poses)
 }
 
 fn solve_monotonic_cubic_x(x0: f64, c1x: f64, c2x: f64, x3: f64, target_x: f64) -> f64 {
@@ -7122,6 +7331,7 @@ fn convert_accessibility(
 fn decode_cpic_text_style(
     stream: &BinaryTimelineStream,
     style: &TimelineTextStyle,
+    single_line_inert_leading: bool,
     lossy: &mut Vec<&'static str>,
 ) -> Result<(TextFormat, f64), String> {
     if style.revision < 2 {
@@ -7182,6 +7392,15 @@ fn decode_cpic_text_style(
         target: optional_text(&stream.original_bytes, style.target.as_ref())?,
         ..TextFormat::default()
     };
+    // Single-line auto-expanding Static Point Text has only one line and never
+    // wraps or edits at runtime, so negative Flash CS3/CS4 paragraph leading on it
+    // has zero visual or semantic effect.
+    if single_line_inert_leading
+        && (1.0..=9999.0).contains(&value.size)
+        && value.size * 1.2 + value.leading <= 0.0
+    {
+        value.leading = 0.0;
+    }
     let target_needs_clean = value.target.len() > 256 || value.target.chars().any(char::is_control);
     if value.validate().is_err() || target_needs_clean {
         if value.font.trim().is_empty()
@@ -7285,7 +7504,15 @@ pub(super) fn convert_timeline_text(
         .or(text.default_style.as_ref())
         .ok_or("Text has no run or default style")?;
 
-    let (mut format, alpha) = decode_cpic_text_style(stream, style, &mut lossy)?;
+    let raw_has_newlines = text.runs.iter().any(|run| {
+        read_string_with_charset(&stream.original_bytes, &run.characters, run.style.char_set)
+            .is_ok_and(|s| s.contains(['\r', '\n']))
+    });
+    let single_line_inert_leading =
+        !is_dynamic_or_input && text.auto_expand.unwrap_or(0) != 0 && !raw_has_newlines;
+
+    let (mut format, alpha) =
+        decode_cpic_text_style(stream, style, single_line_inert_leading, &mut lossy)?;
     let html = is_dynamic_or_input && (flags & (0x8000 | 0x0080)) != 0;
     let mut characters = String::new();
     let mut format_runs: Vec<TextFormatRun> = Vec::new();
@@ -7293,7 +7520,8 @@ pub(super) fn convert_timeline_text(
     let mut utf16_cursor = 0u32;
     let mut prev_ended_cr = false;
     for run in &text.runs {
-        let (run_format, run_alpha) = decode_cpic_text_style(stream, &run.style, &mut lossy)?;
+        let (run_format, run_alpha) =
+            decode_cpic_text_style(stream, &run.style, single_line_inert_leading, &mut lossy)?;
         if (run_alpha - alpha).abs() > 1e-4 {
             lossy.push("per-run alpha uses the first run's alpha");
         }

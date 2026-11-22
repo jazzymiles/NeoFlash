@@ -4,35 +4,66 @@ impl Parser<'_> {
     fn motion_object_poses(
         &mut self,
         wrapper: Node<'_, '_>,
-        key: &Keyframe,
+        key: &mut Keyframe,
         duration: u32,
         location: &str,
         file: &str,
     ) -> Vec<Keyframe> {
-        let sampled = (|| {
-            let root = child(wrapper, "AnimationCore").ok_or("missing AnimationCore")?;
-            let pivot = wrapper
-                .parent()
-                .and_then(|frame| child(frame, "elements"))
-                .and_then(|n| child(n, "DOMSymbolInstance"))
-                .and_then(|n| child(n, "transformationPoint"))
-                .and_then(|n| child(n, "Point"))
-                .and_then(|n| {
-                    Some([
-                        n.attribute("x").unwrap_or("0").parse::<f64>().ok()?,
-                        n.attribute("y").unwrap_or("0").parse::<f64>().ok()?,
-                    ])
-                });
-            crate::motion_xml::poses(root, key, duration, pivot, &mut self.motion_pose_budget)
-        })();
+        let pivot = wrapper
+            .parent()
+            .and_then(|frame| child(frame, "elements"))
+            .and_then(|container| {
+                elements(container).find_map(|el_node| {
+                    child(el_node, "transformationPoint")
+                        .and_then(|tp| child(tp, "Point"))
+                        .and_then(|pt| {
+                            Some([
+                                pt.attribute("x").unwrap_or("0").parse::<f64>().ok()?,
+                                pt.attribute("y").unwrap_or("0").parse::<f64>().ok()?,
+                            ])
+                        })
+                })
+            });
+        let ctx = crate::motion_xml::MotionContext {
+            pivot,
+            stage_size: self.stage_size,
+            view_angle_3d: self.view_angle_3d,
+            vanishing_point_3d: self.vanishing_point_3d,
+        };
+        let sampled = crate::motion_xml::sample_poses(
+            wrapper,
+            key,
+            duration,
+            ctx,
+            &mut self.motion_pose_budget,
+        );
         match sampled {
-            Ok(poses) => {
+            Ok(res) => {
+                if let Some(el0) = res.start_element
+                    && !key.elements.is_empty()
+                {
+                    key.elements[0] = el0;
+                }
+                if res.used_3d {
+                    self.report.warning(
+                        "xfl_3d_approximated",
+                        location,
+                        "Projected 3D motion-object rotation and depth tracks to 2D perspective affine poses.",
+                    );
+                }
+                if res.filter_approximated {
+                    self.report.warning(
+                        "xfl_filters_approximated",
+                        location,
+                        "Unsupported motion-object filter curves were approximated on sampled poses.",
+                    );
+                }
                 self.report.warning(
                     "xfl_motion_sampled",
                     location,
-                    "Sampled 2D motion-object tracks into editable per-frame poses.",
+                    "Sampled motion-object tracks into editable per-frame poses.",
                 );
-                poses
+                res.poses
             }
             Err(reason) => {
                 self.audit_unmodeled_xfl_subtree(wrapper, file);
@@ -100,6 +131,9 @@ impl Parser<'_> {
             .collect();
         let mut parent_indices: Vec<Option<(usize, String)>> = vec![None; layer_nodes.len()];
         let mut spans = vec![];
+        let mut layer_pending_custom_eases: Vec<
+            Vec<(u32, super::custom_ease::PendingXflCustomEase)>,
+        > = Vec::with_capacity(layer_nodes.len());
         let mut instance_starts: BTreeMap<u32, Vec<(Id, String)>> = BTreeMap::new();
         let mut instance_ends: BTreeMap<u32, BTreeSet<Id>> = BTreeMap::new();
         let mut published_end = 0;
@@ -127,8 +161,18 @@ impl Parser<'_> {
                     "highlighted",
                     "poseLocations",
                 ],
-                &["frames"],
+                &["frames", "DOMIKTree", "IKTree", "bones"],
             );
+            for ik_layer_tag in ["DOMIKTree", "IKTree", "bones"] {
+                if let Some(sub) = child(layer_node, ik_layer_tag) {
+                    self.audit_unmodeled_xfl_subtree(sub, file);
+                }
+            }
+            let layer_bones = child(layer_node, "DOMIKTree")
+                .or_else(|| child(layer_node, "IKTree"))
+                .or_else(|| child(layer_node, "bones").map(|_| layer_node))
+                .map(super::ik::parse_tree_bones)
+                .unwrap_or_default();
             for attr in ["heightLiteral", "heightMultiplier"] {
                 if layer_node.attribute(attr).is_some() {
                     let h = self.integer(layer_node, attr, 1, file);
@@ -144,9 +188,17 @@ impl Parser<'_> {
             if let Some(anim) = layer_node.attribute("animationType")
                 && !anim.is_empty()
                 && anim != "none"
+                && anim != "IK pose"
                 && !(anim == "motion object"
                     && layer_node.descendants().any(|n| {
-                        n.has_tag_name("motionObjectXML") || n.has_tag_name("MotionObjectXML")
+                        matches!(
+                            n.tag_name().name(),
+                            "motionObjectXML"
+                                | "MotionObjectXML"
+                                | "DOMMotionObject"
+                                | "Motion"
+                                | "AnimationCore"
+                        )
                     }))
             {
                 self.report.warning(
@@ -157,11 +209,14 @@ impl Parser<'_> {
                     ),
                 );
             }
+            let is_armature_layer = layer_node.attribute("layerType") == Some("armature")
+                || layer_node.attribute("animationType") == Some("IK pose");
             let role = match layer_node.attribute("layerType").unwrap_or("normal") {
                 "normal" => LayerRole::Normal,
                 "guide" => LayerRole::Guide,
                 "mask" => LayerRole::Mask,
                 "folder" => LayerRole::Folder,
+                "armature" => LayerRole::Normal,
                 "camera" => {
                     self.report.warning(
                         "xfl_camera_layer_approximated",
@@ -225,15 +280,22 @@ impl Parser<'_> {
                 Vec<(Id, String)>,
                 Keyframe,
                 Option<Node<'a, 'input>>,
+                Node<'a, 'input>,
+                Vec<super::ik::PlacedElementMeta>,
             );
             let mut ends = vec![];
             let mut raw_keys: Vec<RawKeyframeEntry> = vec![];
             let mut pending_morph_hints: HashMap<u32, Vec<RawXflMorphHint>> = HashMap::new();
+            let mut pending_custom_eases: Vec<(u32, super::custom_ease::PendingXflCustomEase)> =
+                vec![];
             if let Some(frames) = child(layer_node, "frames") {
                 self.audit(frames, file, &[], &["DOMFrame"]);
                 for frame_node in elements(frames).filter(|n| n.has_tag_name("DOMFrame")) {
                     let motion_wrapper = child(frame_node, "MotionObjectXML")
-                        .or_else(|| child(frame_node, "motionObjectXML"));
+                        .or_else(|| child(frame_node, "motionObjectXML"))
+                        .or_else(|| child(frame_node, "DOMMotionObject"))
+                        .or_else(|| child(frame_node, "Motion"))
+                        .or_else(|| child(frame_node, "AnimationCore"));
                     let has_motion_xml = motion_wrapper.is_some();
                     self.audit(
                         frame_node,
@@ -252,6 +314,7 @@ impl Parser<'_> {
                             "bookmark",
                             "tweenInstanceName",
                             "isIKPose",
+                            "poseLocations",
                             "motionTweenOrientToPath",
                             "motionTweenSnap",
                             "motionTweenRotate",
@@ -277,20 +340,37 @@ impl Parser<'_> {
                             "SoundEnvelope",
                             "MotionObjectXML",
                             "motionObjectXML",
+                            "DOMMotionObject",
+                            "Motion",
+                            "AnimationCore",
                             "MorphShape",
                             "morphHintsList",
                             "betweenFrameMatrixList",
                             "IKTree",
+                            "DOMIKTree",
+                            "bones",
+                            "ikNode",
+                            "IKNode",
+                            "DOMBone",
                         ],
                     );
                     let _ = self.boolean(frame_node, "isMotionObject", false, file);
                     let _ = self.boolean(frame_node, "bookmark", false, file);
-                    let _ = self.boolean(frame_node, "isIKPose", false, file);
+                    let is_ik_pose_attr = self.boolean(frame_node, "isIKPose", false, file);
+                    let frame_has_ik = is_armature_layer
+                        || is_ik_pose_attr
+                        || frame_node.attribute("tweenType") == Some("IK pose")
+                        || child(frame_node, "IKTree").is_some()
+                        || child(frame_node, "DOMIKTree").is_some()
+                        || child(frame_node, "bones").is_some()
+                        || elements(frame_node).any(|c| {
+                            matches!(c.tag_name().name(), "ikNode" | "IKNode" | "DOMBone")
+                        });
                     let mut warn_morph_ignored = false;
                     for morph_tag in ["MorphShape", "morphHintsList", "betweenFrameMatrixList"] {
                         if let Some(sub) = child(frame_node, morph_tag) {
                             self.audit_unmodeled_xfl_subtree(sub, file);
-                            if morph_tag == "betweenFrameMatrixList" {
+                            if morph_tag == "betweenFrameMatrixList" && !frame_has_ik {
                                 warn_morph_ignored = true;
                             }
                         }
@@ -304,16 +384,20 @@ impl Parser<'_> {
                             "Compatible XFL shape hints were retained; malformed, unsupported, or excess MorphShape data was ignored, and remaining contours are resampled automatically.",
                         );
                     }
-                    if let Some(sub) = child(frame_node, "IKTree") {
-                        self.audit_unmodeled_xfl_subtree(sub, file);
-                        self.report.warning(
-                            "xfl_ik_approximated",
-                            self.location(frame_node, file),
-                            "XFL inverse-kinematics IKTree pose constraints are approximated using authored element poses.",
-                        );
+                    for ik_tag in [
+                        "IKTree",
+                        "DOMIKTree",
+                        "bones",
+                        "ikNode",
+                        "IKNode",
+                        "DOMBone",
+                    ] {
+                        for sub in elements(frame_node).filter(|n| n.has_tag_name(ik_tag)) {
+                            self.audit_unmodeled_xfl_subtree(sub, file);
+                        }
                     }
                     let frame_loc = self.location(frame_node, file);
-                    let (tween, tween_kind, orient_to_path) =
+                    let (tween, tween_kind, orient_to_path, tween_scale, deferred_custom_ease) =
                         self.frame_tween(frame_node, has_motion_xml, file);
                     let sound = self.frame_sound(frame_node, file);
                     let frame_label: String = frame_node.attribute("name").unwrap_or("").into();
@@ -371,6 +455,7 @@ impl Parser<'_> {
                         elements: vec![],
                         tween,
                         tween_kind,
+                        tween_scale,
                         orient_to_path,
                         sound,
                         label: frame_label,
@@ -378,6 +463,7 @@ impl Parser<'_> {
                         ..Default::default()
                     };
                     let mut elem_locs = vec![];
+                    let mut elem_metas = vec![];
                     if let Some(container) = child(frame_node, "elements") {
                         self.audit(
                             container,
@@ -411,16 +497,36 @@ impl Parser<'_> {
                             let identity = format!("xfl-{id}-{li}-{ei}");
                             self.pending_bitmap_fills.clear();
                             self.pending_video_resource = None;
-                            for element in self.element_with_depth(
+                            let built = self.element_with_depth(
                                 element_node,
                                 identity,
                                 frame,
                                 0,
                                 kind,
                                 file,
-                            ) {
+                            );
+                            let one_to_one = built.len() == 1;
+                            let ref_id = element_node
+                                .attribute("referenceID")
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_owned);
+                            let xml_name = element_node
+                                .attribute("name")
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_owned);
+                            let lib_item = element_node
+                                .attribute("libraryItemName")
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_owned);
+                            for element in built {
                                 elem_locs
                                     .push((element.id.clone(), self.location(element_node, file)));
+                                elem_metas.push(super::ik::PlacedElementMeta {
+                                    reference_id: ref_id.clone(),
+                                    xml_name: xml_name.clone(),
+                                    library_item: lib_item.clone(),
+                                    one_to_one,
+                                });
                                 key.elements.push(element);
                             }
                             key.bitmap_fills.append(&mut self.pending_bitmap_fills);
@@ -487,7 +593,19 @@ impl Parser<'_> {
                         if !parsed_morph_hints.is_empty() {
                             pending_morph_hints.insert(frame, parsed_morph_hints);
                         }
-                        raw_keys.push((frame, end, frame_loc, elem_locs, key, motion_wrapper));
+                        if let Some(def_ce) = deferred_custom_ease {
+                            pending_custom_eases.push((frame, def_ce));
+                        }
+                        raw_keys.push((
+                            frame,
+                            end,
+                            frame_loc,
+                            elem_locs,
+                            key,
+                            motion_wrapper,
+                            frame_node,
+                            elem_metas,
+                        ));
                     }
                 }
             }
@@ -602,7 +720,7 @@ impl Parser<'_> {
             // Record true instance placement lifetimes (continuous classic-tween chains
             // share one element ID and do not end/restart at intermediate tween keys).
             let mut active_instances: HashMap<Id, (Id, u32)> = HashMap::new();
-            for (frame, end, _, elem_locs, key, _) in &raw_keys {
+            for (frame, end, _, elem_locs, key, _, _, _) in &raw_keys {
                 let current_ids: BTreeSet<&str> =
                     key.elements.iter().map(|e| e.id.as_str()).collect();
                 active_instances.retain(|elem_id, (sym_id, prev_end)| {
@@ -638,18 +756,95 @@ impl Parser<'_> {
             for (_, (sym_id, last_end)) in active_instances {
                 instance_ends.entry(last_end).or_default().insert(sym_id);
             }
+            let effective_layer_bones = if !layer_bones.is_empty() {
+                layer_bones
+            } else {
+                raw_keys
+                    .first()
+                    .and_then(|entry| {
+                        child(entry.6, "DOMIKTree")
+                            .or_else(|| child(entry.6, "IKTree"))
+                            .or_else(|| child(entry.6, "bones").map(|_| entry.6))
+                    })
+                    .map(super::ik::parse_tree_bones)
+                    .unwrap_or_default()
+            };
+            let mut all_metas = Vec::with_capacity(raw_keys.len());
+            let mut all_pose_overrides = Vec::with_capacity(raw_keys.len());
+            let mut sampled_any_ik = false;
+            let mut saw_any_ik_frame = is_armature_layer;
             // Classic tween endpoints now have their continuing placement IDs. Build
-            // MotionObjectXML poses from those endpoints to keep the child playhead.
-            for (frame, end, frame_loc, _, key, wrapper) in raw_keys {
+            // MotionObjectXML and single-frame IK pose spans from those endpoints.
+            for (frame, end, frame_loc, _, mut key, wrapper, frame_node, elem_metas) in raw_keys {
                 let poses = wrapper.map(|wrapper| {
-                    self.motion_object_poses(wrapper, &key, end - frame, &frame_loc, file)
+                    self.motion_object_poses(wrapper, &mut key, end - frame, &frame_loc, file)
                 });
+                let frame_is_ik = is_armature_layer
+                    || frame_node.attribute("tweenType") == Some("IK pose")
+                    || frame_node.attribute("isIKPose") == Some("true")
+                    || child(frame_node, "IKTree").is_some()
+                    || child(frame_node, "DOMIKTree").is_some()
+                    || child(frame_node, "bones").is_some()
+                    || elements(frame_node)
+                        .any(|c| matches!(c.tag_name().name(), "ikNode" | "IKNode" | "DOMBone"));
+                if frame_is_ik {
+                    saw_any_ik_frame = true;
+                }
+                let ik_poses = if poses.is_none() && frame_is_ik {
+                    super::ik::sample_single_frame_ik_span(
+                        frame_node,
+                        &key,
+                        &elem_metas,
+                        &effective_layer_bones,
+                        end - frame,
+                        &self.symbols,
+                        &mut self.motion_pose_budget,
+                    )
+                } else {
+                    None
+                };
+                if ik_poses.is_some() {
+                    sampled_any_ik = true;
+                    self.report.warning(
+                        "xfl_ik_sampled",
+                        &frame_loc,
+                        "Sampled XFL inverse-kinematics armature poses into editable per-frame keyframes; runtime IK bone constraints are baked to frame poses.",
+                    );
+                }
+                all_pose_overrides.push(super::ik::parse_frame_ik_pose_override(frame_node));
+                all_metas.push(elem_metas);
                 layer.keyframes.push(key);
                 if let Some(poses) = poses {
                     layer.keyframes.extend(poses);
                 }
+                if let Some(ik_poses) = ik_poses {
+                    layer.keyframes.extend(ik_poses);
+                }
+            }
+            if !sampled_any_ik && saw_any_ik_frame {
+                if super::ik::bake_multi_keyframe_armature_layer(
+                    &mut layer.keyframes,
+                    &all_metas,
+                    &all_pose_overrides,
+                    &effective_layer_bones,
+                    &self.symbols,
+                    &mut self.motion_pose_budget,
+                ) {
+                    self.report.warning(
+                        "xfl_ik_sampled",
+                        self.location(layer_node, file),
+                        "Sampled XFL inverse-kinematics armature poses into editable per-frame keyframes; runtime IK bone constraints are baked to frame poses.",
+                    );
+                } else {
+                    self.report.warning(
+                        "xfl_ik_sampled",
+                        self.location(layer_node, file),
+                        "Imported XFL inverse-kinematics armature layer using its authored frame poses; runtime IK bone constraints are baked to frame poses.",
+                    );
+                }
             }
             spans.push(ends);
+            layer_pending_custom_eases.push(pending_custom_eases);
             timeline.layers.push(layer);
         }
         let roles_and_ids: Vec<(LayerRole, Id)> = timeline
@@ -698,7 +893,12 @@ impl Parser<'_> {
         if excluded_end > published_end {
             self.report.error("excluded_layer_duration", self.location(node, file), "An excluded hidden layer defines a longer timeline than the published layers. Published duration cannot yet be established without dropping authored frame structure; align the visible timeline extent before importing.");
         }
-        for (layer, ends) in timeline.layers.iter_mut().zip(spans) {
+        for ((layer, ends), pending_ce) in timeline
+            .layers
+            .iter_mut()
+            .zip(spans)
+            .zip(layer_pending_custom_eases)
+        {
             if layer.properties.role == LayerRole::Folder {
                 continue;
             }
@@ -714,6 +914,8 @@ impl Parser<'_> {
                 }
             }
             layer.keyframes.sort_by_key(|k| k.frame);
+            let has_guide = layer.properties.motion_guide.is_some();
+            self.apply_pending_xfl_custom_eases(layer, has_guide, timeline.frame_count, pending_ce);
         }
         // XFL lists topmost layers first; NeoFlash stores painter order.
         timeline.layers.reverse();
@@ -733,7 +935,13 @@ impl Parser<'_> {
         frame_node: Node<'_, '_>,
         has_motion_xml: bool,
         file: &str,
-    ) -> (Option<Easing>, TweenKind, bool) {
+    ) -> (
+        Option<Easing>,
+        TweenKind,
+        bool,
+        bool,
+        Option<super::custom_ease::PendingXflCustomEase>,
+    ) {
         let loc = self.location(frame_node, file);
         let accel = self.number(frame_node, "acceleration", 0., file);
         if !(-100.0..=100.0).contains(&accel) {
@@ -745,7 +953,6 @@ impl Parser<'_> {
         }
         let has_custom_ease = self.boolean(frame_node, "hasCustomEase", false, file);
         let single_ease = self.boolean(frame_node, "useSingleEaseCurve", true, file);
-        let mut custom_bezier = None;
         let mut named_ease_method: Option<String> =
             frame_node.attribute("easeMethodName").map(str::to_owned);
         if let Some(tweens) = child(frame_node, "tweens") {
@@ -758,119 +965,52 @@ impl Parser<'_> {
                     named_ease_method = Some(m.to_owned());
                 }
             }
-            let eases: Vec<_> = elements(tweens)
-                .filter(|n| n.has_tag_name("CustomEase"))
-                .collect();
-            if has_custom_ease || !eases.is_empty() {
-                let chosen = eases
-                    .iter()
-                    .copied()
-                    .find(|n| n.attribute("target") == Some("all"))
-                    .or_else(|| eases.first().copied());
-                if !single_ease || eases.len() > 1 {
-                    self.report.warning(
-                        "custom_ease_not_supported",
-                        self.location(tweens, file),
-                        "Multiple per-property XFL CustomEase curves are approximated with the primary curve.",
-                    );
-                }
-                for ease_node in &eases {
-                    self.audit(*ease_node, file, &["target"], &["Point"]);
-                    for pt in elements(*ease_node).filter(|n| n.has_tag_name("Point")) {
-                        self.audit(pt, file, &["x", "y"], &[]);
-                        let _ = self.number(pt, "x", 0., file);
-                        let _ = self.number(pt, "y", 0., file);
-                    }
-                }
-                if let Some(ease_node) = chosen {
-                    if ease_node.attribute("target") != Some("all") {
-                        self.report.warning(
-                            "custom_ease_not_supported",
-                            self.location(ease_node, file),
-                            "Per-property XFL CustomEase target is applied to the whole tween span.",
-                        );
-                    }
-                    let pts: Vec<_> = elements(ease_node)
-                        .filter(|n| n.has_tag_name("Point"))
-                        .map(|pt| {
-                            [
-                                self.number(pt, "x", 0., file),
-                                self.number(pt, "y", 0., file),
-                            ]
-                        })
-                        .collect();
-                    if pts.len() == 4 && pts[0] == [0., 0.] && pts[3] == [1., 1.] {
-                        if !(0.0..=1.0).contains(&pts[1][0])
-                            || !(0.0..=1.0).contains(&pts[2][0])
-                            || pts[1][1].abs() > 100.0
-                            || pts[2][1].abs() > 100.0
-                        {
-                            self.report.error(
-                                "custom_ease_not_supported",
-                                self.location(ease_node, file),
-                                "CustomEase Bézier controls must have x in [0, 1] and |y| <= 100.",
-                            );
-                        } else {
-                            custom_bezier = Some(Easing::CubicBezier {
-                                x1: pts[1][0],
-                                y1: pts[1][1],
-                                x2: pts[2][0],
-                                y2: pts[2][1],
-                            });
-                        }
-                    } else {
-                        self.report.warning(
-                            "custom_ease_not_supported",
-                            self.location(ease_node, file),
-                            "Multi-segment XFL CustomEase curve is approximated with standard tween easing.",
-                        );
-                    }
-                } else {
-                    self.report.warning(
-                        "custom_ease_not_supported",
-                        self.location(tweens, file),
-                        "hasCustomEase is true, but no CustomEase curve was supplied.",
-                    );
-                }
-            }
-        } else if has_custom_ease {
-            self.report.error(
-                "custom_ease_not_supported",
-                &loc,
-                "hasCustomEase is true, but no <tweens> CustomEase curve was supplied.",
-            );
         }
-        let ease = custom_bezier.unwrap_or_else(|| {
+        let fallback_ease = {
             if let Some(ref method) = named_ease_method {
                 let m = method.to_ascii_lowercase();
                 if m.contains("bounce") {
-                    return Easing::Bounce;
+                    Easing::Bounce
+                } else if m.contains("elastic") {
+                    Easing::Elastic
+                } else if m.contains("inout") || m.contains("in_out") || m.contains("in-out") {
+                    Easing::EaseInOut
+                } else if m.contains("in") {
+                    Easing::EaseIn
+                } else if m.contains("out") {
+                    Easing::EaseOut
+                } else {
+                    let clamped = accel.clamp(-100.0, 100.0);
+                    if clamped == 0.0 {
+                        Easing::Linear
+                    } else {
+                        Easing::Flash {
+                            acceleration: clamped,
+                        }
+                    }
                 }
-                if m.contains("elastic") {
-                    return Easing::Elastic;
-                }
-                if m.contains("inout") || m.contains("in_out") || m.contains("in-out") {
-                    return Easing::EaseInOut;
-                }
-                if m.contains("in") {
-                    return Easing::EaseIn;
-                }
-                if m.contains("out") {
-                    return Easing::EaseOut;
-                }
-            }
-            let clamped = accel.clamp(-100.0, 100.0);
-            if clamped == 0.0 {
-                Easing::Linear
             } else {
-                Easing::Flash {
-                    acceleration: clamped,
+                let clamped = accel.clamp(-100.0, 100.0);
+                if clamped == 0.0 {
+                    Easing::Linear
+                } else {
+                    Easing::Flash {
+                        acceleration: clamped,
+                    }
                 }
             }
-        });
+        };
+        let (custom_bezier, deferred_custom) = self.parse_frame_custom_eases(
+            frame_node,
+            has_custom_ease,
+            single_ease,
+            fallback_ease,
+            file,
+        );
+        let ease = custom_bezier.unwrap_or(fallback_ease);
         let orient = self.boolean(frame_node, "motionTweenOrientToPath", false, file);
         self.boolean(frame_node, "motionTweenSnap", false, file);
-        self.boolean(frame_node, "motionTweenScale", true, file);
+        let tween_scale = self.boolean(frame_node, "motionTweenScale", true, file);
         self.boolean(frame_node, "motionTweenSync", false, file);
         let rotate_times = self.integer(frame_node, "motionTweenRotateTimes", 0, file);
         let rotate_mode = frame_node.attribute("motionTweenRotate").unwrap_or("auto");
@@ -895,7 +1035,7 @@ impl Parser<'_> {
             );
         }
         match frame_node.attribute("tweenType") {
-            None | Some("") | Some("none") => (None, TweenKind::Classic, false),
+            None | Some("") | Some("none") => (None, TweenKind::Classic, false, tween_scale, None),
             Some("motion") => {
                 if matches!(rotate_mode, "clockwise" | "counter-clockwise") || rotate_times > 0 {
                     self.report.warning(
@@ -904,7 +1044,13 @@ impl Parser<'_> {
                         "Directed classic-tween rotation (clockwise/counter-clockwise turns) is interpolated along the shortest angle.",
                     );
                 }
-                (Some(ease), TweenKind::Classic, orient)
+                (
+                    Some(ease),
+                    TweenKind::Classic,
+                    orient,
+                    tween_scale,
+                    deferred_custom,
+                )
             }
             Some("shape") => {
                 if shape_blend == "angular" {
@@ -914,7 +1060,14 @@ impl Parser<'_> {
                         "Angular shape-tween vertex blending is approximated with distributive arc-length resampling.",
                     );
                 }
-                (Some(ease), TweenKind::Shape, false)
+                if deferred_custom.is_some() {
+                    self.report.warning(
+                        "xfl_tween_easing",
+                        &loc,
+                        "Multi-segment or per-property XFL CustomEase on a shape tween uses the primary easing curve.",
+                    );
+                }
+                (Some(ease), TweenKind::Shape, false, tween_scale, None)
             }
             Some("motion object") => {
                 if !has_motion_xml {
@@ -924,23 +1077,16 @@ impl Parser<'_> {
                         "XFL motion-object property-track tween is approximated by holding the authored keyframe pose.",
                     );
                 }
-                (None, TweenKind::Classic, false)
+                (None, TweenKind::Classic, false, tween_scale, None)
             }
-            Some("IK pose") => {
-                self.report.warning(
-                    "xfl_ik_approximated",
-                    &loc,
-                    "XFL inverse-kinematics IK pose tween is approximated using authored keyframe poses.",
-                );
-                (None, TweenKind::Classic, false)
-            }
+            Some("IK pose") => (None, TweenKind::Classic, false, tween_scale, None),
             Some(other) => {
                 self.report.error(
                     "tween_not_supported",
                     &loc,
                     format!("Unsupported XFL tweenType {other:?}."),
                 );
-                (None, TweenKind::Classic, false)
+                (None, TweenKind::Classic, false, tween_scale, None)
             }
         }
     }
