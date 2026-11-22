@@ -343,6 +343,7 @@ impl SwfBytecodePlayer {
         frame: u32,
     ) -> HashMap<String, Symbol> {
         let mut overrides = HashMap::new();
+        self.build_video_scanline_symbol_overrides(project, &mut overrides);
         let entries = self.display_list();
         let mut next_runtime_symbol = 0usize;
         let instance_symbols = self.materialize_runtime_symbol_overrides(
@@ -398,9 +399,14 @@ impl SwfBytecodePlayer {
         }
         let mut extra: Vec<(String, Symbol)> = overrides.into_iter().collect();
         extra.sort_by(|a, b| a.0.cmp(&b.0));
-        for (_, sym) in extra {
-            overlay.symbols.push(sym);
+        for (id, sym) in extra {
+            if let Some(existing) = overlay.symbol_mut(&id) {
+                *existing = sym;
+            } else {
+                overlay.symbols.push(sym);
+            }
         }
+        self.inject_video_png_resources(&mut overlay);
         overlay.upgrade_format_for_features();
         overlay
     }

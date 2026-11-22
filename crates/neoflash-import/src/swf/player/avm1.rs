@@ -1643,7 +1643,7 @@ impl SwfBytecodePlayer {
                 _ => {
                     let cur_target = self.current_target_path();
                     self.record_unsupported_diagnostic(format!(
-                        "Unsupported AVM1 action opcode 0x{op:02X} at target={cur_target} frame={} offset=0x{insn_pc:x}",
+                        "Unsupported AVM1 action opcode 0x{op:02X} at #tag=12:target={cur_target} frame={} offset=0x{insn_pc:x}",
                         self.current_frame
                     ));
                 }

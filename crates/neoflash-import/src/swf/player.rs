@@ -32,6 +32,7 @@ mod collections;
 mod display;
 mod e4x;
 mod sound;
+mod video;
 
 use self::{avm1::*, avm2_runtime::*, collections::*, display::*, e4x::*};
 
@@ -776,6 +777,7 @@ struct Avm1Function {
 
 #[derive(Clone, Debug)]
 struct LoadedAbc {
+    tag_code: u16,
     abc: AbcFile,
 }
 
@@ -821,6 +823,7 @@ pub struct SwfBytecodePlayer {
     buttons: HashMap<u16, Vec<ButtonCondAction>>,
     button_records: HashMap<u16, Vec<(u8, u16, u16)>>,
     button_sounds: HashMap<u16, [sound::ButtonSoundCue; 4]>,
+    video_streams: BTreeMap<u16, video::PlayerVideoStreamDef>,
     char_kinds: HashMap<u16, &'static str>,
     exports: HashMap<String, u16>,
     init_actions: Vec<(u16, Vec<u8>)>,
@@ -838,6 +841,7 @@ pub struct SwfBytecodePlayer {
     root_props: RootClipProps,
     root_graphics: RuntimeGraphicsState,
     display_list: BTreeMap<u16, LiveSlot>,
+    live_videos: BTreeMap<u16, video::LiveVideoStreamState>,
     removed_timeline_depths: BTreeSet<u16>,
     trace_output: Vec<String>,
     frame_traces: Vec<String>,
@@ -867,6 +871,7 @@ pub struct SwfBytecodePlayer {
 
     // AVM2 state
     avm2_initialized: bool,
+    avm2_cinit_ran: BTreeSet<(usize, usize)>,
     avm2_stage_oid: Option<usize>,
     avm2_root_oid: Option<usize>,
     avm2_next_instance_id: u32,
@@ -1032,7 +1037,10 @@ impl SwfBytecodePlayer {
                         payload
                     };
                     if let Some(abc) = parse_abc_file(abc_bytes) {
-                        abc_tags.push(LoadedAbc { abc });
+                        abc_tags.push(LoadedAbc {
+                            tag_code: code,
+                            abc,
+                        });
                     }
                 }
                 86 => {
@@ -1103,6 +1111,7 @@ impl SwfBytecodePlayer {
                 button_sounds.insert(bid, slots);
             }
         }
+        let video_streams = video::collect_player_video_streams(tag_stream);
         let total_frames = (root_frames.len() as u32).max(u32::from(declared_frames).max(1));
         let vm_kind = if as3_flag || has_do_abc {
             SwfVmKind::Avm2
@@ -1130,6 +1139,7 @@ impl SwfBytecodePlayer {
             buttons,
             button_records,
             button_sounds,
+            video_streams,
             char_kinds,
             exports,
             init_actions,
@@ -1145,6 +1155,7 @@ impl SwfBytecodePlayer {
             root_props: RootClipProps::default(),
             root_graphics: RuntimeGraphicsState::default(),
             display_list: BTreeMap::new(),
+            live_videos: BTreeMap::new(),
             removed_timeline_depths: BTreeSet::new(),
             trace_output: Vec::new(),
             frame_traces: Vec::new(),
@@ -1170,6 +1181,7 @@ impl SwfBytecodePlayer {
             drag_target: None,
             rng_state: 0x1234_5678,
             avm2_initialized: false,
+            avm2_cinit_ran: BTreeSet::new(),
             avm2_stage_oid: None,
             avm2_root_oid: None,
             avm2_next_instance_id: 1,
@@ -1237,6 +1249,7 @@ impl SwfBytecodePlayer {
         self.root_props = RootClipProps::default();
         self.root_graphics.clear();
         self.display_list.clear();
+        self.live_videos.clear();
         self.removed_timeline_depths.clear();
         self.trace_output.clear();
         self.frame_traces.clear();
@@ -1266,6 +1279,7 @@ impl SwfBytecodePlayer {
         self.drag_target = None;
         self.rng_state = 0x1234_5678;
         self.avm2_initialized = false;
+        self.avm2_cinit_ran.clear();
         self.avm2_stage_oid = None;
         self.avm2_root_oid = None;
         self.avm2_next_instance_id = 1;
@@ -1525,6 +1539,7 @@ impl SwfBytecodePlayer {
             entering_frame
         };
         self.presented_frame = displayed_frame;
+        self.sync_live_video_streams(displayed_frame);
         self.collect_and_queue_nested_audio(displayed_frame);
         let state = SwfFrameState {
             frame: displayed_frame,

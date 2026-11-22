@@ -9,9 +9,10 @@ use super::avm1::{
 use super::avm2::{RecoveredAs3Class, decompile_do_abc_tag};
 use super::bits::{SwfSlice, symbol_class_bindings};
 use super::media::{
-    SwfSoundAsset, SwfStreamSoundCollector, append_sound_stream_block, decode_define_sound_tag,
-    decode_jpeg_bitmap_tag, decode_lossless_bitmap_tag, finalize_stream_sound, parse_sound_info,
-    parse_sound_stream_head,
+    SwfSoundAsset, SwfStreamSoundCollector, SwfVideoStreamDef, append_sound_stream_block,
+    collect_swf_video_streams, decode_define_sound_tag, decode_jpeg_bitmap_tag,
+    decode_lossless_bitmap_tag, finalize_stream_sound, mux_swf_video_stream_to_flv,
+    parse_sound_info, parse_sound_stream_head, register_video_resource,
 };
 use super::shape::{SwfBitmapRef, decode_define_morph_shape, decode_define_shape};
 use super::text::{
@@ -24,8 +25,8 @@ use neoflash_core::{
     Color, ColorTransform, Easing, Element, ElementKind, FrameLabelType, FrameScript, FrameSound,
     Id, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_BITMAP_BYTES,
     MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ObjectScript, Project,
-    ResourceUnit, Script, ScriptLanguage, SourceUnit, Symbol, SymbolKind, Timeline, Transform,
-    TweenKind,
+    ResourceUnit, Script, ScriptLanguage, SourceUnit, Symbol, SymbolKind, Timeline,
+    TimelineVideoSpan, Transform, TweenKind,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -49,6 +50,8 @@ enum SwfCharacter {
         width: f64,
         height: f64,
         fallback_symbol_id: Id,
+        resource_id: Option<Id>,
+        stream_frame_count: u32,
     },
     Button {
         symbol_id: Id,
@@ -65,7 +68,7 @@ enum SwfCharacter {
 
 #[derive(Clone, Debug)]
 struct ButtonRecord {
-    states: u8, // bit 0=Up, 1=Over, 2=Down, 3=Hit
+    states: u8, // bit 0=Up, 1=Over, 2=Down, 2=Down, 3=Hit
     character_id: u16,
     place_depth: u16,
     matrix: [f64; 6],
@@ -102,12 +105,15 @@ struct ActiveSlot {
 
 impl ActiveSlot {
     fn same_visual_state(&self, other: &Self) -> bool {
+        self.ratio == other.ratio && self.same_visual_state_ignoring_ratio(other)
+    }
+
+    fn same_visual_state_ignoring_ratio(&self, other: &Self) -> bool {
         self.span_id == other.span_id
             && self.character_id == other.character_id
             && self.matrix == other.matrix
             && self.color_transform == other.color_transform
             && self.alpha == other.alpha
-            && self.ratio == other.ratio
             && self.name == other.name
             && self.clip_depth == other.clip_depth
             && self.visible == other.visible
@@ -129,6 +135,7 @@ struct FrameSnapshot {
 
 struct SwfBuilder<'a> {
     swf_version: u8,
+    fps_f64: f64,
     location: &'a str,
     report: &'a mut ImportReport,
     jpeg_tables: Option<Vec<u8>>,
@@ -151,6 +158,7 @@ struct SwfBuilder<'a> {
     scenes_meta: Vec<(u32, String)>,
     scaling_grids: Vec<(u16, usize, usize, Option<[f64; 4]>)>,
     binary_data_ids: HashSet<u16>,
+    video_streams: BTreeMap<u16, SwfVideoStreamDef>,
     video_stream_warned: HashSet<u16>,
     symbols: Vec<Symbol>,
     resources: Vec<ResourceUnit>,
@@ -200,11 +208,8 @@ pub(crate) fn build_project_from_swf(
     } else {
         -(f64::from(bounds[2]) / 20.0)
     };
-    let fps = inspection
-        .frame_rate
-        .unwrap_or(24.0)
-        .round()
-        .clamp(1.0, 1000.0) as u32;
+    let fps_f64 = inspection.frame_rate.unwrap_or(24.0).clamp(1.0, 1000.0);
+    let fps = fps_f64.round().clamp(1.0, 1000.0) as u32;
     let background = inspection
         .background_color
         .as_deref()
@@ -238,8 +243,10 @@ pub(crate) fn build_project_from_swf(
         };
     let tag_bytes = body.get(tags_offset..)?;
     let symbol_classes = symbol_class_bindings(tag_bytes);
+    let video_streams = collect_swf_video_streams(tag_bytes);
     let mut builder = SwfBuilder {
         swf_version: container.swf_version,
+        fps_f64,
         location,
         report,
         jpeg_tables: None,
@@ -265,6 +272,7 @@ pub(crate) fn build_project_from_swf(
         scenes_meta: Vec::new(),
         scaling_grids: Vec::new(),
         binary_data_ids: HashSet::new(),
+        video_streams,
         video_stream_warned: HashSet::new(),
         symbols: Vec::new(),
         resources: Vec::new(),
@@ -1040,6 +1048,7 @@ impl SwfBuilder<'_> {
                         };
                         self.legacy_cp_warned |= cp;
                         if !name.is_empty() {
+                            self.character_by_class.entry(name.clone()).or_insert(cid);
                             self.exports.push((cid, name));
                         }
                     }
@@ -1196,6 +1205,81 @@ impl SwfBuilder<'_> {
                     } else {
                         f64::from(raw_h).clamp(1.0, 8192.0)
                     };
+                    let pre_def = self.video_streams.get(&vid).cloned();
+                    let max_packet_frame = pre_def
+                        .as_ref()
+                        .and_then(|d| d.frames.keys().next_back().copied())
+                        .map_or(0u32, |f| u32::from(f).saturating_add(1));
+                    let stream_frame_count = u32::from(num_frames).max(max_packet_frame).max(1);
+
+                    let resource_id = match pre_def {
+                        Some(ref def) if def.budget_exceeded => {
+                            if self.video_stream_warned.insert(vid) {
+                                self.report.warning(
+                                    "swf_media_budget",
+                                    format!(
+                                        "{}#tag=60@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
+                                        self.location
+                                    ),
+                                    format!(
+                                        "SWF embedded video stream #{vid} exceeded the 16 MiB / 64 MiB resource limit."
+                                    ),
+                                );
+                            }
+                            None
+                        }
+                        Some(ref def) if !def.frames.is_empty() => {
+                            match mux_swf_video_stream_to_flv(def, self.fps_f64) {
+                                Ok(flv_bytes) => {
+                                    self.video_stream_warned.insert(vid);
+                                    register_video_resource(
+                                        vid,
+                                        &flv_bytes,
+                                        &mut self.resources,
+                                        &mut self.resource_bytes_total,
+                                        self.location,
+                                        self.report,
+                                    )
+                                }
+                                Err(err_msg) => {
+                                    if self.video_stream_warned.insert(vid) {
+                                        self.report.warning(
+                                            "swf_video_viewport",
+                                            format!(
+                                                "{}#tag=60@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
+                                                self.location
+                                            ),
+                                            err_msg,
+                                        );
+                                    }
+                                    None
+                                }
+                            }
+                        }
+                        _ => {
+                            if (raw_w > 0 || raw_h > 0 || num_frames > 0 || codec_id != 0)
+                                && self.video_stream_warned.insert(vid)
+                            {
+                                let reason = if codec_id != 0 && !matches!(codec_id, 2..=7) {
+                                    format!(
+                                        "SWF DefineVideoStream #{vid} uses unknown codec_id {codec_id} and was imported as a Video viewport placeholder."
+                                    )
+                                } else {
+                                    "SWF DefineVideoStream has 0 embedded VideoFrame tags (external NetStream viewport placeholder).".to_owned()
+                                };
+                                self.report.warning(
+                                    "swf_video_viewport",
+                                    format!(
+                                        "{}#tag=60@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
+                                        self.location
+                                    ),
+                                    reason,
+                                );
+                            }
+                            None
+                        }
+                    };
+
                     let el = Element {
                         id: format!("swf-video-{vid}-el"),
                         name: String::new(),
@@ -1207,7 +1291,17 @@ impl SwfBuilder<'_> {
                         ..Element::default()
                     };
                     let mut tl = single_frame_timeline(&format!("swf-sym-{vid}"), vec![el]);
-                    tl.frame_count = u32::from(num_frames).max(1);
+                    tl.frame_count = stream_frame_count;
+                    if let Some(ref res_id) = resource_id {
+                        let out_ms = ((f64::from(stream_frame_count) * 1000.0)
+                            / self.fps_f64.max(1.0))
+                        .round()
+                        .max(1.0) as u32;
+                        tl.layers[0].keyframes[0].video = Some(
+                            TimelineVideoSpan::embedded(res_id.clone())
+                                .with_trim_ms(0, Some(out_ms)),
+                        );
+                    }
                     let sym_id = self.register_character_symbol(
                         vid,
                         format!("Video {vid}"),
@@ -1221,31 +1315,27 @@ impl SwfBuilder<'_> {
                             width: vw,
                             height: vh,
                             fallback_symbol_id: sym_id,
+                            resource_id,
+                            stream_frame_count,
                         },
                     );
-                    if (num_frames > 0 || codec_id != 0) && self.video_stream_warned.insert(vid) {
-                        self.report.warning(
-                            "swf_video_viewport",
-                            format!(
-                                "{}#tag=60@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
-                                self.location
-                            ),
-                            "Embedded SWF video stream imported as a Video viewport placeholder; raw codec frames remain in the source SWF.",
-                        );
-                    }
                 }
                 // VideoFrame (61)
                 61 => {
                     if payload.len() >= 2 {
                         let vid = u16::from_le_bytes([payload[0], payload[1]]);
-                        if self.video_stream_warned.insert(vid) {
+                        if !self.video_streams.contains_key(&vid)
+                            && self.video_stream_warned.insert(vid)
+                        {
                             self.report.warning(
                                 "swf_video_viewport",
                                 format!(
                                     "{}#tag=61@{tag_offset}:symbol=swf-sym-{vid}:frame={cur_frame}",
                                     self.location
                                 ),
-                                "Embedded SWF video stream imported as a Video viewport placeholder; raw codec frames remain in the source SWF.",
+                                format!(
+                                    "Orphan SWF VideoFrame referenced undefined DefineVideoStream #{vid}."
+                                ),
                             );
                         }
                     }
@@ -2011,6 +2101,7 @@ impl SwfBuilder<'_> {
 
                 let mut keyframes: Vec<Keyframe> = Vec::new();
                 let mut prev_slot: Option<&ActiveSlot> = None;
+                let mut pending_video_spans: Vec<(usize, Id, u32, u16)> = Vec::new();
 
                 for (f_idx, snap) in snapshots.iter().enumerate() {
                     let frame = f_idx as u32;
@@ -2024,15 +2115,26 @@ impl SwfBuilder<'_> {
                     });
                     let unchanged = match (prev_slot, cur_slot) {
                         (None, None) => frame > 0,
-                        (Some(a), Some(b)) => a.same_visual_state(b),
+                        (Some(a), Some(b)) => {
+                            a.same_visual_state(b)
+                                || (!is_button
+                                    && matches!(
+                                        self.characters.get(&b.character_id),
+                                        Some(SwfCharacter::InlineVideo { .. })
+                                    )
+                                    && a.same_visual_state_ignoring_ratio(b)
+                                    && b.ratio == Some(a.ratio.unwrap_or(0).saturating_add(1)))
+                        }
                         _ => false,
                     };
                     if unchanged {
+                        prev_slot = cur_slot;
                         continue;
                     }
                     prev_slot = cur_slot;
 
                     let mut elements = Vec::new();
+                    let mut video_meta: Option<(Id, u32, u16)> = None;
                     if let Some(slot) = cur_slot
                         && self.total_elements < MAX_AUTHORED_ELEMENTS
                         && let Some((el, el_vec)) = self.instantiate_slot_with_layer_id(
@@ -2042,10 +2144,24 @@ impl SwfBuilder<'_> {
                         if !el_vec {
                             all_layers_pure_vector = false;
                         }
+                        if matches!(el.kind, ElementKind::Video { .. })
+                            && let Some(SwfCharacter::InlineVideo {
+                                resource_id: Some(res_id),
+                                stream_frame_count,
+                                ..
+                            }) = self.characters.get(&slot.character_id)
+                        {
+                            video_meta = Some((
+                                res_id.clone(),
+                                *stream_frame_count,
+                                slot.ratio.unwrap_or(0),
+                            ));
+                        }
                         self.total_elements += 1;
                         elements.push(el);
                     }
 
+                    let kf_idx = keyframes.len();
                     keyframes.push(Keyframe {
                         frame,
                         elements,
@@ -2053,6 +2169,9 @@ impl SwfBuilder<'_> {
                         label: String::new(),
                         ..Default::default()
                     });
+                    if let Some((res_id, stream_frames, start_ratio)) = video_meta {
+                        pending_video_spans.push((kf_idx, res_id, stream_frames, start_ratio));
+                    }
                 }
 
                 if keyframes.is_empty() {
@@ -2066,6 +2185,35 @@ impl SwfBuilder<'_> {
                 // and collapse smooth linear/eased runs into start + end keyframes with recovered Easing.
                 if !is_button {
                     recover_classic_tween_spans(&mut keyframes);
+                    let safe_fps = self.fps_f64.max(1.0);
+                    for (kf_idx, res_id, stream_frames, start_ratio) in pending_video_spans {
+                        if let Some(kf) = keyframes.get(kf_idx) {
+                            let kf_frame = kf.frame;
+                            let end_frame = keyframes
+                                .get(kf_idx + 1)
+                                .map_or(frame_count, |next| next.frame);
+                            let span_frames = end_frame.saturating_sub(kf_frame).max(1);
+                            let in_ms = ((f64::from(start_ratio) * 1000.0) / safe_fps)
+                                .round()
+                                .clamp(0.0, f64::from(u32::MAX - 1))
+                                as u32;
+                            let avail_frames =
+                                stream_frames.saturating_sub(u32::from(start_ratio)).max(1);
+                            let played_frames = span_frames.min(avail_frames).max(1);
+                            let raw_out_ms =
+                                ((f64::from(u32::from(start_ratio).saturating_add(played_frames))
+                                    * 1000.0)
+                                    / safe_fps)
+                                    .round()
+                                    .clamp(1.0, f64::from(u32::MAX))
+                                    as u32;
+                            let out_ms = raw_out_ms.max(in_ms.saturating_add(1));
+                            keyframes[kf_idx].video = Some(
+                                TimelineVideoSpan::embedded(res_id)
+                                    .with_trim_ms(in_ms, Some(out_ms)),
+                            );
+                        }
+                    }
                 }
 
                 let mut properties = LayerProperties::default();
@@ -2339,6 +2487,7 @@ impl SwfBuilder<'_> {
                 width,
                 height,
                 fallback_symbol_id,
+                ..
             } => {
                 if scripts.is_empty() {
                     Some((

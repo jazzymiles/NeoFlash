@@ -114,6 +114,7 @@ pub(crate) fn decode_define_shape(
     let mut non_round_stroke = false;
     let mut fill_rule = FillRule::EvenOdd;
     let mut approx_reason: Option<&'static str> = None;
+    let mut bitmap_fill_approx: Option<&'static str> = None;
 
     if tag_code == 83 {
         let _edge_bounds = r.rect_twips()?;
@@ -204,6 +205,7 @@ pub(crate) fn decode_define_shape(
                     &mut stroke_edges,
                     bitmaps,
                     &mut approx_reason,
+                    &mut bitmap_fill_approx,
                     &mut elements,
                 );
                 r.align();
@@ -293,6 +295,7 @@ pub(crate) fn decode_define_shape(
         &mut stroke_edges,
         bitmaps,
         &mut approx_reason,
+        &mut bitmap_fill_approx,
         &mut elements,
     );
 
@@ -301,6 +304,13 @@ pub(crate) fn decode_define_shape(
             "swf_stroke_rendering",
             format!("{location}#shape:{shape_id}"),
             "SWF hairline, non-round cap/join or non-scaling stroke flags are approximated with standard round strokes.",
+        );
+    }
+    if let Some(reason) = bitmap_fill_approx {
+        report.warning(
+            "swf_bitmap_fill_approximated",
+            format!("{location}#shape:{shape_id}"),
+            reason,
         );
     }
     if let Some(reason) = approx_reason {
@@ -347,6 +357,7 @@ pub(crate) fn decode_define_morph_shape(
     let end_edges_pos = after_offset_pos.saturating_add(offset);
 
     let mut approx_reason: Option<&'static str> = None;
+    let mut bitmap_fill_approx: Option<&'static str> = None;
     let mut non_round = false;
 
     let fill_count = read_style_count(&mut r, true)?;
@@ -380,6 +391,7 @@ pub(crate) fn decode_define_morph_shape(
                 None,
                 bitmaps,
                 &mut approx_reason,
+                &mut bitmap_fill_approx,
             )
         } else {
             decode_morph_half_edges(
@@ -391,6 +403,7 @@ pub(crate) fn decode_define_morph_shape(
                 None,
                 bitmaps,
                 &mut approx_reason,
+                &mut bitmap_fill_approx,
             )
         };
 
@@ -410,6 +423,7 @@ pub(crate) fn decode_define_morph_shape(
         Some(&style_trace),
         bitmaps,
         &mut approx_reason,
+        &mut bitmap_fill_approx,
     );
     let fallback_end_pos = styles_end_pos
         .saturating_add(start_consumed)
@@ -424,6 +438,7 @@ pub(crate) fn decode_define_morph_shape(
             Some(&style_trace),
             bitmaps,
             &mut approx_reason,
+            &mut bitmap_fill_approx,
         );
         if !alt_end.elements.is_empty() {
             end_elements = alt_end;
@@ -440,6 +455,13 @@ pub(crate) fn decode_define_morph_shape(
             "Morph shape non-round cap/join or scaling flags are approximated with round strokes.",
         );
     }
+    if let Some(reason) = bitmap_fill_approx {
+        report.warning(
+            "swf_bitmap_fill_approximated",
+            format!("{location}#morph:{morph_id}"),
+            reason,
+        );
+    }
     if let Some(reason) = approx_reason {
         report.warning(
             "swf_shape_approximated",
@@ -449,8 +471,13 @@ pub(crate) fn decode_define_morph_shape(
     }
 
     if end_elements.elements.is_empty() && !start_elements.elements.is_empty() {
-        end_elements =
-            build_collapsed_morph_end_shape(&start_elements, &end_fills, &end_lines, end_anchor);
+        end_elements = build_collapsed_morph_end_shape(
+            &start_elements,
+            &end_fills,
+            &end_lines,
+            bitmaps,
+            end_anchor,
+        );
     }
 
     Some((
@@ -563,6 +590,7 @@ fn decode_morph_half_edges(
     inherited_trace: Option<&[MorphEdgeStyle]>,
     bitmaps: &HashMap<u16, SwfBitmapRef>,
     approx_reason: &mut Option<&'static str>,
+    bitmap_fill_approx: &mut Option<&'static str>,
 ) -> (
     DecodedSwfShape,
     Vec<MorphEdgeStyle>,
@@ -710,7 +738,9 @@ fn decode_morph_half_edges(
         &mut fill_edges,
         &mut stroke_edges,
         bitmaps,
+        false,
         approx_reason,
+        bitmap_fill_approx,
         &mut elements,
     );
     (elements, style_trace, consumed, first_anchor)
@@ -720,6 +750,7 @@ fn build_collapsed_morph_end_shape(
     start_shape: &DecodedSwfShape,
     end_fills: &[SwfPaint],
     end_lines: &[SwfStrokeStyle],
+    bitmaps: &HashMap<u16, SwfBitmapRef>,
     end_anchor: Option<[i32; 2]>,
 ) -> DecodedSwfShape {
     let mut out = start_shape.clone();
@@ -741,7 +772,7 @@ fn build_collapsed_morph_end_shape(
     });
     let mut fill_cursor = 0usize;
     let mut line_cursor = 0usize;
-    for el in &mut out.elements {
+    for (el_idx, el) in out.elements.iter_mut().enumerate() {
         let is_stroke_only = match &el.kind {
             ElementKind::Path {
                 fill, stroke_width, ..
@@ -812,7 +843,47 @@ fn build_collapsed_morph_end_shape(
                         stroke_width: 0.0,
                     };
                 }
-                SwfPaint::Bitmap { .. } => {}
+                SwfPaint::Bitmap {
+                    bitmap_id,
+                    matrix,
+                    repeat,
+                    smoothing,
+                } => {
+                    let c = bitmaps
+                        .get(bitmap_id)
+                        .map_or([128, 128, 128, 255], |b| b.avg_color);
+                    el.kind = ElementKind::Path {
+                        commands: cmds,
+                        fill_rule: FillRule::NonZero,
+                        fill: c,
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    };
+                    if let Some(image) = bitmaps.get(bitmap_id) {
+                        let fill_matrix = image.stored_matrix(bitmap_pixel_matrix(*matrix));
+                        if is_valid_bitmap_fill_matrix(&fill_matrix) {
+                            if let Some((_, existing)) =
+                                out.bitmap_fills.iter_mut().find(|(idx, _)| *idx == el_idx)
+                            {
+                                existing.resource_id.clone_from(&image.resource_id);
+                                existing.matrix = fill_matrix;
+                                existing.repeat = *repeat;
+                                existing.smoothing = *smoothing;
+                            } else {
+                                out.bitmap_fills.push((
+                                    el_idx,
+                                    neoflash_core::AuthoredBitmapFill {
+                                        element_id: el.id.clone(),
+                                        resource_id: image.resource_id.clone(),
+                                        matrix: fill_matrix,
+                                        repeat: *repeat,
+                                        smoothing: *smoothing,
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1208,6 +1279,7 @@ fn flush_style_group(
     stroke_edges: &mut BTreeMap<usize, Vec<TwipEdge>>,
     bitmaps: &HashMap<u16, SwfBitmapRef>,
     approx_reason: &mut Option<&'static str>,
+    bitmap_fill_approx: &mut Option<&'static str>,
     out: &mut DecodedSwfShape,
 ) {
     flush_style_group_named(
@@ -1218,7 +1290,9 @@ fn flush_style_group(
         fill_edges,
         stroke_edges,
         bitmaps,
+        true,
         approx_reason,
+        bitmap_fill_approx,
         out,
     );
 }
@@ -1232,7 +1306,9 @@ fn flush_style_group_named(
     fill_edges: &mut BTreeMap<usize, Vec<TwipEdge>>,
     stroke_edges: &mut BTreeMap<usize, Vec<TwipEdge>>,
     bitmaps: &HashMap<u16, SwfBitmapRef>,
+    allow_bitmap_quad_element: bool,
     approx_reason: &mut Option<&'static str>,
+    bitmap_fill_approx: &mut Option<&'static str>,
     out: &mut DecodedSwfShape,
 ) {
     let taken_fills = std::mem::take(fill_edges);
@@ -1244,13 +1320,17 @@ fn flush_style_group_named(
             continue;
         };
 
-        // Fast-path stage bitmap quads compiled by Flash as DefineShape + ClippedBitmap/RepeatingBitmap!
-        if let SwfPaint::Bitmap {
-            bitmap_id,
-            matrix,
-            smoothing,
-            ..
-        } = paint
+        // Fast-path axis-aligned ClippedBitmap stage quads compiled by Flash as DefineShape + 0x41/0x43;
+        // repeating (0x40/0x42), rotated/sheared, non-quad, and morph fills preserve AuthoredBitmapFill!
+        if allow_bitmap_quad_element
+            && let SwfPaint::Bitmap {
+                bitmap_id,
+                matrix,
+                repeat: false,
+                smoothing,
+            } = paint
+            && matrix[1].abs() <= 1e-6
+            && matrix[2].abs() <= 1e-6
             && let Some(bm) = bitmaps.get(bitmap_id)
             && let Some(bitmap_elem) =
                 try_build_bitmap_element(prefix, elem_seq, bm, *matrix, *smoothing, &edges)
@@ -1273,7 +1353,7 @@ fn flush_style_group_named(
             SwfPaint::Gradient { fallback, paint } => (*fallback, Some(paint.clone())),
             SwfPaint::Bitmap { bitmap_id, .. } => {
                 let c = bitmaps.get(bitmap_id).map_or_else(|| {
-                    approx_reason.get_or_insert("Bitmap fill references an unavailable dictionary image; retained its contour with a solid fallback.");
+                    bitmap_fill_approx.get_or_insert("Bitmap fill references an unavailable dictionary image; retained its contour with a solid fallback.");
                     [128, 128, 128, 255]
                 }, |b| b.avg_color);
                 (c, None)
@@ -1291,16 +1371,23 @@ fn flush_style_group_named(
             } = paint
                 && let Some(image) = bitmaps.get(bitmap_id)
             {
-                out.bitmap_fills.push((
-                    out.elements.len(),
-                    neoflash_core::AuthoredBitmapFill {
-                        element_id: id.clone(),
-                        resource_id: image.resource_id.clone(),
-                        matrix: image.stored_matrix(bitmap_pixel_matrix(*matrix)),
-                        repeat: *repeat,
-                        smoothing: *smoothing,
-                    },
-                ));
+                let fill_matrix = image.stored_matrix(bitmap_pixel_matrix(*matrix));
+                if is_valid_bitmap_fill_matrix(&fill_matrix) {
+                    out.bitmap_fills.push((
+                        out.elements.len(),
+                        neoflash_core::AuthoredBitmapFill {
+                            element_id: id.clone(),
+                            resource_id: image.resource_id.clone(),
+                            matrix: fill_matrix,
+                            repeat: *repeat,
+                            smoothing: *smoothing,
+                        },
+                    ));
+                } else {
+                    bitmap_fill_approx.get_or_insert(
+                        "Singular or out-of-range SWF bitmap fill matrix approximated with solid average fill.",
+                    );
+                }
             }
             let kind = if let Some(grad) = &gradient {
                 ElementKind::PaintedPath {
@@ -1390,6 +1477,13 @@ fn bitmap_pixel_matrix([a, b, c, d, x, y]: [f64; 6]) -> [f64; 6] {
     [a / 20., b / 20., c / 20., d / 20., x, y]
 }
 
+fn is_valid_bitmap_fill_matrix(m: &[f64; 6]) -> bool {
+    m.iter().all(|v| v.is_finite() && v.abs() <= 1e9) && {
+        let det = m[0] * m[3] - m[1] * m[2];
+        det.is_finite() && det.abs() > 1e-12
+    }
+}
+
 fn try_build_bitmap_element(
     prefix: &str,
     elem_seq: &mut usize,
@@ -1409,6 +1503,7 @@ fn try_build_bitmap_element(
     let transform = Transform::from_matrix(bm.stored_matrix(px_matrix))?;
     let w = f64::from(bm.width);
     let h = f64::from(bm.height);
+    let corner_tol = (w.min(h) * 0.02).clamp(0.1, 0.5);
     let expected_corners = [[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]].map(|[u, v]| {
         [
             px_matrix[0] * u + px_matrix[2] * v + px_matrix[4],
@@ -1450,7 +1545,8 @@ fn try_build_bitmap_element(
                 })?
                 .0;
             if matched_corners[corner]
-                || (expected_corners[corner][0] - x).hypot(expected_corners[corner][1] - y) > 1.5
+                || (expected_corners[corner][0] - x).hypot(expected_corners[corner][1] - y)
+                    > corner_tol
             {
                 return None;
             }

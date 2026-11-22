@@ -500,6 +500,35 @@ impl SwfBytecodePlayer {
         }
     }
 
+    pub(super) fn avm2_class_extends_non_interface(
+        &self,
+        mut cur_abc: usize,
+        mut cur_cls: usize,
+        target_abc: usize,
+        target_cls: usize,
+    ) -> bool {
+        let is_target_iface = self
+            .abc_tags
+            .get(target_abc)
+            .and_then(|l| l.abc.instances.get(target_cls))
+            .is_some_and(|inst| (inst.flags & 0x04) != 0);
+        if is_target_iface {
+            return false;
+        }
+        for _ in 0..32 {
+            if cur_abc == target_abc && cur_cls == target_cls {
+                return true;
+            }
+            if let Some((sa, sc)) = self.avm2_superclass(cur_abc, cur_cls) {
+                cur_abc = sa;
+                cur_cls = sc;
+            } else {
+                break;
+            }
+        }
+        false
+    }
+
     pub(super) fn avm2_instanceof_value(
         &self,
         abc_idx: usize,
@@ -516,6 +545,27 @@ impl SwfBytecodePlayer {
             && !is_avm2_fn_token(s)
         {
             return false;
+        }
+        if let Avm1Value::MovieClip(s) | Avm1Value::String(s) = type_val {
+            if let Some((t_abc, t_cls)) = parse_avm2_class_token(s) {
+                if let Avm1Value::Object(id) = val
+                    && let Some((c_abc, c_cls)) =
+                        self.avm1_objects.get(*id).and_then(|o| o.avm2_class)
+                {
+                    return self.avm2_class_extends_non_interface(c_abc, c_cls, t_abc, t_cls);
+                }
+                return false;
+            }
+            let tname = s.strip_prefix("__avm2_type:").unwrap_or(s.as_str());
+            if let Some((t_abc, t_cls)) = self.find_avm2_class(abc_idx, "", tname)
+                && self
+                    .abc_tags
+                    .get(t_abc)
+                    .and_then(|l| l.abc.instances.get(t_cls))
+                    .is_some_and(|inst| (inst.flags & 0x04) != 0)
+            {
+                return false;
+            }
         }
         self.avm2_is_type_value(abc_idx, val, type_val)
     }
@@ -1895,6 +1945,25 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
+        if let Some(iface_qname) = self.abc_tags.get(c_abc).and_then(|l| {
+            let inst = l.abc.instances.get(c_idx)?;
+            if (inst.flags & 0x04) == 0 {
+                return None;
+            }
+            let (ipkg, iname) = l.abc.split_qname(inst.name);
+            Some(if ipkg.is_empty() {
+                iname
+            } else {
+                format!("{ipkg}::{iname}")
+            })
+        }) {
+            self.throw_avm2_builtin_error(
+                "VerifyError",
+                1001,
+                &format!("The method {iface_qname}() is not implemented."),
+            );
+            return Avm1Value::Undefined;
+        }
         let mut props = self.collect_avm2_instance_slot_defaults(c_abc, c_idx);
         let short_cls = self
             .abc_tags
@@ -2392,7 +2461,7 @@ impl SwfBytecodePlayer {
             && !is_avm2_fn_token(s)
             && prop == "length"
         {
-            return Avm1Value::Number(s.chars().count() as f64);
+            return Avm1Value::Number(s.encode_utf16().count() as f64);
         }
         self.get_avm2_property(obj, prop)
     }
@@ -2619,6 +2688,9 @@ impl SwfBytecodePlayer {
         }
         for (abc_idx, loaded) in self.abc_tags.iter().enumerate() {
             for inst in &loaded.abc.instances {
+                if (inst.flags & 0x04) != 0 {
+                    continue;
+                }
                 for tr in &inst.traits {
                     let (_, tname) = loaded.abc.split_qname(tr.name);
                     if tname == prop
@@ -2651,6 +2723,28 @@ impl SwfBytecodePlayer {
                     } else {
                         Avm1Value::MovieClipIdentity(live_slot_segment(depth, slot))
                     }
+                } else if let Some((ca, cc)) =
+                    (0..self.abc_tags.len()).find_map(|ai| self.find_avm2_class(ai, "", prop))
+                {
+                    Avm1Value::MovieClip(format!("__avm2_class:{ca}:{cc}"))
+                } else if matches!(
+                    prop,
+                    "Object"
+                        | "Class"
+                        | "Function"
+                        | "Array"
+                        | "String"
+                        | "Number"
+                        | "int"
+                        | "uint"
+                        | "Boolean"
+                        | "Dictionary"
+                        | "XML"
+                        | "XMLList"
+                        | "QName"
+                        | "Namespace"
+                ) {
+                    Avm1Value::MovieClip(format!("__avm2_type:{prop}"))
                 } else {
                     Avm1Value::MovieClip(prop.to_owned())
                 }
@@ -3005,6 +3099,25 @@ impl SwfBytecodePlayer {
                     );
                 }
                 cur = self.avm2_superclass(a, c);
+            }
+            if let Avm1Value::Object(oid) = recv_val {
+                if self
+                    .avm1_objects
+                    .get(oid)
+                    .is_some_and(|o| o.avm2_display.is_some())
+                    && let Some(ret) =
+                        self.call_avm2_display_builtin_method(oid, prop, &args, steps, depth)
+                {
+                    return ret;
+                }
+                if prop == "toString" {
+                    let full = self.avm2_runtime_class_label(&Avm1Value::Object(oid));
+                    let short = full.rsplit_once("::").map_or(full.as_str(), |(_, s)| s);
+                    return Avm1Value::String(format!("[object {short}]"));
+                }
+                if prop == "valueOf" {
+                    return Avm1Value::Object(oid);
+                }
             }
         }
         Avm1Value::Undefined
@@ -3746,19 +3859,21 @@ impl SwfBytecodePlayer {
                     return Avm1Value::Bool(n.is_finite());
                 }
                 "parseInt" => {
-                    let s = args
-                        .first()
-                        .map_or_else(String::new, |v| avm2_convert_string(v, &self.avm1_objects));
+                    let Some(first) = args.first() else {
+                        return Avm1Value::Number(f64::NAN);
+                    };
+                    let s = self.avm2_coerce_to_string_eval(first, abc_idx, steps, depth);
                     let radix = args
                         .get(1)
                         .map_or(0, |v| ecma_f64_to_i32(avm2_to_number(v)));
                     return Avm1Value::Number(parse_avm_int_radix(&s, radix));
                 }
                 "parseFloat" => {
-                    let s = args
-                        .first()
-                        .map_or_else(String::new, |v| avm2_convert_string(v, &self.avm1_objects));
-                    return Avm1Value::Number(avm2_string_to_number(&s));
+                    let Some(first) = args.first() else {
+                        return Avm1Value::Number(f64::NAN);
+                    };
+                    let s = self.avm2_coerce_to_string_eval(first, abc_idx, steps, depth);
+                    return Avm1Value::Number(parse_avm2_float(&s));
                 }
                 "XML" => {
                     return self.construct_avm2_xml(&args, true, abc_idx, steps, depth);
@@ -3794,21 +3909,8 @@ impl SwfBytecodePlayer {
                             self.resolve_avm2_vector_elem_type_from_name(abc_idx, "", prop);
                         return self.call_avm2_vector_cast(elem_ty, &args, abc_idx, steps, depth);
                     }
-                    if args.len() == 1
-                        && let Some((c_abc, c_idx)) = self.find_avm2_class(abc_idx, "", prop)
-                    {
-                        let v = &args[0];
-                        return if matches!(v, Avm1Value::Undefined | Avm1Value::Null) {
-                            Avm1Value::Null
-                        } else if let Avm1Value::Object(oid) = v
-                            && let Some((va, vc)) =
-                                self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
-                            && self.avm2_class_matches_or_extends(va, vc, c_abc, c_idx)
-                        {
-                            v.clone()
-                        } else {
-                            Avm1Value::Null
-                        };
+                    if let Some((c_abc, c_idx)) = self.find_avm2_class(abc_idx, "", prop) {
+                        return self.coerce_avm2_class_cast(c_abc, c_idx, &args);
                     }
                 }
             }
@@ -3940,9 +4042,188 @@ impl SwfBytecodePlayer {
             );
         }
 
-        // Check if `prop` is a method on the class in `abc_idx`
-        if let Some(loaded) = self.abc_tags.get(abc_idx) {
+        if let Avm1Value::Object(oid) = receiver
+            && self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.array_elements.is_some())
+        {
+            match prop {
+                "every" | "some" | "forEach" | "filter" | "map" => {
+                    let cb = args.first().cloned().unwrap_or(Avm1Value::Null);
+                    let this_obj = args
+                        .get(1)
+                        .cloned()
+                        .unwrap_or(Avm1Value::MovieClip("_root".into()));
+                    if matches!(cb, Avm1Value::Null | Avm1Value::Undefined) {
+                        return match prop {
+                            "every" => Avm1Value::Bool(true),
+                            "some" => Avm1Value::Bool(false),
+                            "filter" | "map" => {
+                                let id = self.avm1_objects.len();
+                                self.avm1_objects.push(Avm1Object {
+                                    array_elements: Some(Vec::new()),
+                                    ..Default::default()
+                                });
+                                Avm1Value::Object(id)
+                            }
+                            _ => Avm1Value::Undefined,
+                        };
+                    }
+                    let snapshot = self
+                        .avm1_objects
+                        .get(*oid)
+                        .and_then(|o| o.array_elements.clone())
+                        .unwrap_or_default();
+                    let mut out_elems = Vec::new();
+                    for (i, item) in snapshot.into_iter().enumerate() {
+                        let r = self.invoke_avm2_callable_with_this(
+                            &cb,
+                            this_obj.clone(),
+                            vec![
+                                item.clone(),
+                                Avm1Value::Number(i as f64),
+                                Avm1Value::Object(*oid),
+                            ],
+                            steps,
+                            depth,
+                        );
+                        if self.avm2_thrown.is_some() {
+                            return Avm1Value::Undefined;
+                        }
+                        match prop {
+                            "every" if !r.to_bool(9) => return Avm1Value::Bool(false),
+                            "some" if r.to_bool(9) => return Avm1Value::Bool(true),
+                            "filter" if r.to_bool(9) => out_elems.push(item),
+                            "map" => out_elems.push(r),
+                            _ => {}
+                        }
+                    }
+                    return match prop {
+                        "every" => Avm1Value::Bool(true),
+                        "some" => Avm1Value::Bool(false),
+                        "filter" | "map" => {
+                            let id = self.avm1_objects.len();
+                            self.avm1_objects.push(Avm1Object {
+                                array_elements: Some(out_elems),
+                                ..Default::default()
+                            });
+                            Avm1Value::Object(id)
+                        }
+                        _ => Avm1Value::Undefined,
+                    };
+                }
+                "concat" => {
+                    let mut out_elems = self
+                        .avm1_objects
+                        .get(*oid)
+                        .and_then(|o| o.array_elements.clone())
+                        .unwrap_or_default();
+                    for a in args {
+                        if let Avm1Value::Object(aid) = &a
+                            && let Some(sub) = self
+                                .avm1_objects
+                                .get(*aid)
+                                .and_then(|o| o.array_elements.clone())
+                        {
+                            out_elems.extend(sub);
+                        } else {
+                            out_elems.push(a);
+                        }
+                    }
+                    let id = self.avm1_objects.len();
+                    self.avm1_objects.push(Avm1Object {
+                        array_elements: Some(out_elems),
+                        ..Default::default()
+                    });
+                    return Avm1Value::Object(id);
+                }
+                "toString" => {
+                    let elems = self
+                        .avm1_objects
+                        .get(*oid)
+                        .and_then(|o| o.array_elements.clone())
+                        .unwrap_or_default();
+                    let mut parts = Vec::with_capacity(elems.len());
+                    for e in &elems {
+                        if matches!(e, Avm1Value::Undefined | Avm1Value::Null) {
+                            parts.push(String::new());
+                        } else {
+                            let s = self.avm2_coerce_to_string_eval(e, abc_idx, steps, depth);
+                            if self.avm2_thrown.is_some() {
+                                return Avm1Value::Undefined;
+                            }
+                            parts.push(s);
+                        }
+                    }
+                    return Avm1Value::String(parts.join(","));
+                }
+                "hasOwnProperty" => {
+                    let key = args
+                        .first()
+                        .map_or_else(String::new, |v| avm2_convert_string(v, &self.avm1_objects));
+                    let has = self.avm1_objects.get(*oid).is_some_and(|o| {
+                        o.props.contains_key(&key)
+                            || o.array_elements.as_ref().is_some_and(|el| {
+                                key.parse::<usize>().is_ok_and(|idx| {
+                                    idx < el.len() && !o.deleted_indices.contains(&idx)
+                                })
+                            })
+                    });
+                    return Avm1Value::Bool(has);
+                }
+                _ => {}
+            }
+        }
+        if matches!(receiver, Avm1Value::Object(_)) && prop == "valueOf" {
+            return receiver.clone();
+        }
+
+        if let Avm1Value::String(s) = receiver
+            && !is_avm2_fn_token(s)
+        {
+            match prop {
+                "charAt" => {
+                    let units: Vec<u16> = s.encode_utf16().collect();
+                    let idx_f = args.first().map_or(0.0, avm2_to_number);
+                    let idx = if idx_f.is_nan() {
+                        0isize
+                    } else {
+                        idx_f.trunc() as isize
+                    };
+                    if idx < 0 || (idx as usize) >= units.len() {
+                        return Avm1Value::String(String::new());
+                    }
+                    return Avm1Value::String(String::from_utf16_lossy(&[units[idx as usize]]));
+                }
+                "charCodeAt" => {
+                    let units: Vec<u16> = s.encode_utf16().collect();
+                    let idx_f = args.first().map_or(0.0, avm2_to_number);
+                    if !idx_f.is_finite() && !idx_f.is_nan() {
+                        return Avm1Value::Number(f64::NAN);
+                    }
+                    let idx = if idx_f.is_nan() {
+                        0isize
+                    } else {
+                        idx_f.trunc() as isize
+                    };
+                    if idx < 0 || (idx as usize) >= units.len() {
+                        return Avm1Value::Number(f64::NAN);
+                    }
+                    return Avm1Value::Number(f64::from(units[idx as usize]));
+                }
+                _ => {}
+            }
+        }
+
+        // Check if `prop` is a method on the class in `abc_idx` (only for global/timeline receivers)
+        if matches!(receiver, Avm1Value::MovieClip(_))
+            && let Some(loaded) = self.abc_tags.get(abc_idx)
+        {
             for inst in &loaded.abc.instances {
+                if (inst.flags & 0x04) != 0 {
+                    continue;
+                }
                 for tr in &inst.traits {
                     let (_, tname) = loaded.abc.split_qname(tr.name);
                     if tname == prop
@@ -4309,43 +4590,88 @@ impl SwfBytecodePlayer {
             }
         }
         if let Avm1Value::MovieClip(mc) = fn_val
-            && args.len() == 1
+            && let Some((c_abc, c_idx)) = parse_avm2_class_token(mc)
         {
-            if let Some((c_abc, c_idx)) = parse_avm2_class_token(mc) {
-                let v = &args[0];
-                return if matches!(v, Avm1Value::Undefined | Avm1Value::Null) {
-                    Avm1Value::Null
-                } else if let Avm1Value::Object(oid) = v
-                    && let Some((va, vc)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
-                    && self.avm2_class_matches_or_extends(va, vc, c_abc, c_idx)
-                {
-                    v.clone()
-                } else {
-                    Avm1Value::Null
-                };
-            }
-            if let Some(tname) = mc.strip_prefix("__avm2_type:") {
-                let v = &args[0];
-                return match tname {
-                    "int" => Avm1Value::Number(f64::from(ecma_f64_to_i32(avm2_to_number(v)))),
-                    "uint" => Avm1Value::Number(f64::from(ecma_f64_to_u32(avm2_to_number(v)))),
-                    "Number" => Avm1Value::Number(avm2_to_number(v)),
-                    "String" => Avm1Value::String(avm2_convert_string(v, &self.avm1_objects)),
-                    "Boolean" => Avm1Value::Bool(v.to_bool(9)),
-                    "Object" => v.clone(),
-                    _ => {
-                        if matches!(v, Avm1Value::Undefined | Avm1Value::Null) {
-                            Avm1Value::Null
-                        } else if self.avm2_is_type_name(0, v, "", tname) {
-                            v.clone()
-                        } else {
-                            Avm1Value::Null
-                        }
+            return self.coerce_avm2_class_cast(c_abc, c_idx, &args);
+        }
+        if let Avm1Value::MovieClip(mc) = fn_val
+            && args.len() == 1
+            && let Some(tname) = mc.strip_prefix("__avm2_type:")
+        {
+            let v = &args[0];
+            return match tname {
+                "int" => Avm1Value::Number(f64::from(ecma_f64_to_i32(avm2_to_number(v)))),
+                "uint" => Avm1Value::Number(f64::from(ecma_f64_to_u32(avm2_to_number(v)))),
+                "Number" => Avm1Value::Number(avm2_to_number(v)),
+                "String" => Avm1Value::String(avm2_convert_string(v, &self.avm1_objects)),
+                "Boolean" => Avm1Value::Bool(v.to_bool(9)),
+                "Object" => v.clone(),
+                _ => {
+                    if matches!(v, Avm1Value::Undefined | Avm1Value::Null) {
+                        Avm1Value::Null
+                    } else if self.avm2_is_type_name(0, v, "", tname) {
+                        v.clone()
+                    } else {
+                        self.throw_avm2_builtin_error(
+                            "TypeError",
+                            1034,
+                            &format!("Type Coercion failed: cannot convert value to {tname}."),
+                        );
+                        Avm1Value::Null
                     }
-                };
-            }
+                }
+            };
         }
         Avm1Value::Undefined
+    }
+
+    pub(super) fn coerce_avm2_class_cast(
+        &mut self,
+        c_abc: usize,
+        c_idx: usize,
+        args: &[Avm1Value],
+    ) -> Avm1Value {
+        if args.len() != 1 {
+            self.throw_avm2_builtin_error(
+                "ArgumentError",
+                1112,
+                &format!(
+                    "Argument count mismatch on class coercion. Expected 1, got {}.",
+                    args.len()
+                ),
+            );
+            return Avm1Value::Null;
+        }
+        let v = &args[0];
+        if matches!(v, Avm1Value::Undefined | Avm1Value::Null) {
+            return Avm1Value::Null;
+        }
+        if let Avm1Value::Object(oid) = v
+            && let Some((va, vc)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+            && self.avm2_class_matches_or_extends(va, vc, c_abc, c_idx)
+        {
+            return v.clone();
+        }
+        let target_q = self
+            .abc_tags
+            .get(c_abc)
+            .and_then(|l| {
+                let inst = l.abc.instances.get(c_idx)?;
+                let (cpkg, cname) = l.abc.split_qname(inst.name);
+                Some(if cpkg.is_empty() {
+                    cname
+                } else {
+                    format!("{cpkg}.{cname}")
+                })
+            })
+            .unwrap_or_else(|| "Object".to_owned());
+        let val_desc = avm2_convert_string(v, &self.avm1_objects);
+        self.throw_avm2_builtin_error(
+            "TypeError",
+            1034,
+            &format!("Type Coercion failed: cannot convert {val_desc} to {target_q}."),
+        );
+        Avm1Value::Null
     }
 
     pub(super) fn has_active_avm2_tick_listeners(&self) -> bool {
@@ -5918,6 +6244,65 @@ pub(super) fn abc_const_to_avm_value(abc: &AbcFile, vindex: usize, vkind: u8) ->
         0x00 => Avm1Value::Undefined,
         _ => Avm1Value::Null,
     }
+}
+
+pub(super) fn parse_avm2_float(s: &str) -> f64 {
+    let t = s.trim();
+    if t.is_empty() {
+        return f64::NAN;
+    }
+    let bytes = t.as_bytes();
+    let mut i = 0usize;
+    let neg = if bytes[0] == b'-' {
+        i = 1;
+        true
+    } else if bytes[0] == b'+' {
+        i = 1;
+        false
+    } else {
+        false
+    };
+    if t[i..].starts_with("Infinity") {
+        return if neg {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+    }
+    let start_digits = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    let has_int_digits = i > start_digits;
+    let mut has_frac_digits = false;
+    if i < bytes.len() && bytes[i] == b'.' {
+        i += 1;
+        let frac_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        has_frac_digits = i > frac_start;
+    }
+    if !has_int_digits && !has_frac_digits {
+        return f64::NAN;
+    }
+    let pre_exp = i;
+    if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+        let mut j = i + 1;
+        if j < bytes.len() && (bytes[j] == b'+' || bytes[j] == b'-') {
+            j += 1;
+        }
+        let exp_start = j;
+        while j < bytes.len() && bytes[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > exp_start {
+            i = j;
+        } else {
+            i = pre_exp;
+        }
+    }
+    t[..i].parse::<f64>().unwrap_or(f64::NAN)
 }
 
 pub(super) fn avm2_string_to_number(s: &str) -> f64 {

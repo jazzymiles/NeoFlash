@@ -31,12 +31,20 @@ impl SwfBytecodePlayer {
             }
         }
 
-        // 2. Run class static initializers (`cinit`) across all ABC tags before constructing root
+        // 2. Run remaining non-interface class static initializers (`cinit`) before constructing root
         let mut total_classes = 0usize;
         for abc_idx in 0..abc_count {
             let class_count = self.abc_tags[abc_idx].abc.classes.len();
             total_classes += class_count;
             for c_idx in 0..class_count {
+                let is_interface = self.abc_tags[abc_idx]
+                    .abc
+                    .instances
+                    .get(c_idx)
+                    .is_some_and(|inst| (inst.flags & 0x04) != 0);
+                if is_interface || !self.avm2_cinit_ran.insert((abc_idx, c_idx)) {
+                    continue;
+                }
                 let cinit = self.abc_tags[abc_idx].abc.classes[c_idx].cinit;
                 let mut cinit_steps = 0usize;
                 let cinit_scopes = self.avm2_captured_class_scopes(abc_idx, c_idx, false);
@@ -863,6 +871,30 @@ impl SwfBytecodePlayer {
                         .unwrap_or(f64::NAN);
                     self.push_avm_stack(&mut stack, Avm1Value::Number(v));
                 }
+                0x31 => {
+                    // pushnamespace
+                    let Some(idx) = r.u30() else { break };
+                    let uri = self.abc_tags[abc_idx].abc.namespace(idx).name.clone();
+                    let pfx = if uri.is_empty() {
+                        Avm1Value::String(String::new())
+                    } else {
+                        Avm1Value::Undefined
+                    };
+                    let mut props = HashMap::new();
+                    props.insert("prefix".to_owned(), pfx);
+                    props.insert("uri".to_owned(), Avm1Value::String(uri.clone()));
+                    props.insert("qname_formatted".to_owned(), Avm1Value::String(uri));
+                    props.insert(
+                        "__avm2_short_class__".to_owned(),
+                        Avm1Value::String("Namespace".to_owned()),
+                    );
+                    let oid = self.avm1_objects.len();
+                    self.avm1_objects.push(Avm1Object {
+                        props,
+                        ..Default::default()
+                    });
+                    self.push_avm_stack(&mut stack, Avm1Value::Object(oid));
+                }
                 0x32 => {
                     // hasnext2
                     let Some(obj_reg) = r.u30() else { break };
@@ -1205,10 +1237,31 @@ impl SwfBytecodePlayer {
                         format!("__avm2_cscope:{abc_idx}:{class_idx}"),
                         Avm1Value::Object(scope_obj_id),
                     );
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::MovieClip(format!("__avm2_class:{abc_idx}:{class_idx}")),
-                    );
+                    let cls_tok =
+                        Avm1Value::MovieClip(format!("__avm2_class:{abc_idx}:{class_idx}"));
+                    self.push_avm_stack(&mut stack, cls_tok.clone());
+                    let non_iface_cinit = self.abc_tags.get(abc_idx).and_then(|l| {
+                        let inst = l.abc.instances.get(class_idx)?;
+                        if (inst.flags & 0x04) != 0 {
+                            return None;
+                        }
+                        l.abc.classes.get(class_idx).map(|c| c.cinit)
+                    });
+                    if let Some(cinit) = non_iface_cinit
+                        && self.avm2_cinit_ran.insert((abc_idx, class_idx))
+                    {
+                        let cinit_scopes =
+                            self.avm2_captured_class_scopes(abc_idx, class_idx, false);
+                        let _ = self.run_avm2_method_with_outer_scopes(
+                            abc_idx,
+                            cinit,
+                            cls_tok,
+                            cinit_scopes,
+                            Vec::new(),
+                            steps,
+                            depth + 1,
+                        );
+                    }
                 }
                 0x59 => {
                     // getdescendants
@@ -1332,6 +1385,7 @@ impl SwfBytecodePlayer {
                     } else if matches!(
                         name.as_str(),
                         "Object"
+                            | "Class"
                             | "Array"
                             | "String"
                             | "Number"
@@ -2023,8 +2077,9 @@ impl SwfBytecodePlayer {
                     let _ = r.u30();
                 }
                 _ => {
+                    let tag_code = self.abc_tags.get(abc_idx).map_or(82, |l| l.tag_code);
                     self.record_unsupported_diagnostic(format!(
-                        "Unsupported AVM2 ABC opcode 0x{op:02X} in abc#{abc_idx} method#{method_idx} offset=0x{insn_start:x}"
+                        "Unsupported AVM2 ABC opcode 0x{op:02X} in #tag={tag_code}:abc#{abc_idx} method#{method_idx} offset=0x{insn_start:x}"
                     ));
                     break;
                 }
