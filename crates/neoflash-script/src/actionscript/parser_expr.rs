@@ -3,7 +3,7 @@
 use super::*;
 
 impl<'a> Frontend<'a> {
-    pub(super) fn is_grouped_qualifier(
+    pub(crate) fn is_grouped_qualifier(
         &self,
         open_pos: usize,
         open: &'static str,
@@ -35,7 +35,7 @@ impl<'a> Frontend<'a> {
         }
         false
     }
-    pub(super) fn xml_part(&mut self, allow_parens: bool) -> Result<(Expr, bool), Diagnostic> {
+    pub(crate) fn xml_part(&mut self, allow_parens: bool) -> Result<(Expr, bool), Diagnostic> {
         if allow_parens && self.eat("(") {
             let prev = self.no_in;
             self.no_in = false;
@@ -56,10 +56,10 @@ impl<'a> Frontend<'a> {
             Ok((Expr::Literal(format!("{:?}", self.ident()?)), false))
         }
     }
-    pub(super) fn xml_name(&mut self) -> Result<Expr, Diagnostic> {
+    pub(crate) fn xml_name(&mut self) -> Result<Expr, Diagnostic> {
         Ok(self.xml_part(false)?.0)
     }
-    pub(super) fn xml_qualified_parts(&mut self) -> Result<(Expr, Option<Box<Expr>>), Diagnostic> {
+    pub(crate) fn xml_qualified_parts(&mut self) -> Result<(Expr, Option<Box<Expr>>), Diagnostic> {
         let (first, computed) = self.xml_part(true)?;
         if self.eat("::") {
             let namespace = if computed {
@@ -79,7 +79,7 @@ impl<'a> Frontend<'a> {
             Ok((first, None))
         }
     }
-    pub(super) fn xml_selector(
+    pub(crate) fn xml_selector(
         &mut self,
         base: Expr,
         descendant: bool,
@@ -97,7 +97,7 @@ impl<'a> Frontend<'a> {
             descendant,
         })
     }
-    pub(super) fn xml_literal(&mut self) -> Result<Expr, Diagnostic> {
+    pub(crate) fn xml_literal(&mut self) -> Result<Expr, Diagnostic> {
         if self.script.language != ScriptLanguage::ActionScript3 {
             return Err(self.error("XML literals require AS3; use the AS2 XML constructor."));
         }
@@ -122,7 +122,7 @@ impl<'a> Frontend<'a> {
         self.pos = position + 1;
         Ok(Expr::XmlLiteral(encoded, holes))
     }
-    pub(super) fn regexp_literal(&mut self) -> Result<Expr, Diagnostic> {
+    pub(crate) fn regexp_literal(&mut self) -> Result<Expr, Diagnostic> {
         if self.script.language != ScriptLanguage::ActionScript3 {
             return Err(self.error(
                 "Regular expression literals require AS3; AS2 has no native RegExp family.",
@@ -180,7 +180,7 @@ impl<'a> Frontend<'a> {
         self.pos += 1;
         Ok(Expr::RegExpLiteral(pattern, flags))
     }
-    pub(super) fn sequence_expression(&mut self) -> Result<Expr, Diagnostic> {
+    pub(crate) fn sequence_expression(&mut self) -> Result<Expr, Diagnostic> {
         let mut value = self.expression(0)?;
         while self.eat(",") {
             if value.depth() >= 128 {
@@ -192,13 +192,13 @@ impl<'a> Frontend<'a> {
         }
         Ok(value)
     }
-    pub(super) fn expression(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
+    pub(crate) fn expression(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         self.enter()?;
         let result = self.expression_inner(min_bp)?;
         self.depth -= 1;
         Ok(result)
     }
-    pub(super) fn expression_inner(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
+    pub(crate) fn expression_inner(&mut self, min_bp: u8) -> Result<Expr, Diagnostic> {
         let mut lhs = if self.is("!")
             || self.is("~")
             || self.is("-")
@@ -452,14 +452,14 @@ impl<'a> Frontend<'a> {
         }
         Ok(lhs)
     }
-    pub(super) fn token_text(&self) -> String {
+    pub(crate) fn token_text(&self) -> String {
         match &self.token().kind {
             Kind::Ident(s) | Kind::Number(s) | Kind::String(s) => s.clone(),
             Kind::Punct(s) => s.to_string(),
             Kind::End | Kind::Invalid(_) => String::new(),
         }
     }
-    pub(super) fn primary(&mut self) -> Result<Expr, Diagnostic> {
+    pub(crate) fn primary(&mut self) -> Result<Expr, Diagnostic> {
         if self.is("/") || self.is("/=") {
             return self.regexp_literal();
         }
@@ -657,7 +657,7 @@ impl<'a> Frontend<'a> {
             _ => Err(self.error("Expected an expression.")),
         }
     }
-    pub(super) fn string_key(&self, source: String) -> Result<PropertyKey, Diagnostic> {
+    pub(crate) fn string_key(&self, source: String) -> Result<PropertyKey, Diagnostic> {
         // Use the same real parser as output validation, including escaped
         // quotes, hexadecimal and Unicode escapes. Never strip quotes by hand.
         let allocator = oxc_allocator::Allocator::default();
@@ -674,7 +674,7 @@ impl<'a> Frontend<'a> {
         let name = literal.value.to_string();
         Ok(PropertyKey { source, name })
     }
-    pub(super) fn builtin_call(callee: &Expr) -> bool {
+    pub(crate) fn builtin_call(callee: &Expr) -> bool {
         match callee {
             Expr::Name(name) => {
                 matches!(

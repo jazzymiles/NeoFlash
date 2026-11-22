@@ -4872,17 +4872,237 @@ pub struct PublishBreakpoint {
     pub align: Option<String>,
 }
 
-/// Portable document-level HTML5 publish settings (`T-307`).
+/// Portable document-level HTML5 & native target publish settings (`T-307`, `T-455`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PublishSettings {
     #[serde(default, skip_serializing_if = "HtmlRenderMode::is_default")]
     pub render_mode: HtmlRenderMode,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub breakpoints: Vec<PublishBreakpoint>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub xcode_swift_target: bool,
 }
 
 impl PublishSettings {
     pub fn is_default(&self) -> bool {
-        self.render_mode.is_default() && self.breakpoints.is_empty()
+        self.render_mode.is_default() && self.breakpoints.is_empty() && !self.xcode_swift_target
+    }
+}
+
+impl Project {
+    /// Create a ready-to-build Xcode / Swift scene preset (`T-455`) with liquid-stage resizing
+    /// on root Frame 0 and a self-documenting `SwiftHost.as` native bridge proxy contract.
+    pub fn new_xcode_swift_scene(
+        width: u32,
+        height: u32,
+        fps: u32,
+        language: ScriptLanguage,
+    ) -> Self {
+        let lang = match language {
+            ScriptLanguage::ActionScript2 => ScriptLanguage::ActionScript2,
+            _ => ScriptLanguage::ActionScript3,
+        };
+        let safe_w = width.clamp(1, 65535);
+        let safe_h = height.clamp(1, 65535);
+        let safe_fps = fps.clamp(1, 1000);
+
+        let mut project = Self::blank();
+        project.name = "Untitled Xcode Scene".into();
+        project.width = safe_w;
+        project.height = safe_h;
+        project.fps = safe_fps;
+        project.script_language = Some(lang);
+        project.set_publish_settings(&PublishSettings {
+            xcode_swift_target: true,
+            ..Default::default()
+        });
+
+        let swift_host_source = match lang {
+            ScriptLanguage::ActionScript2 => [
+                "// SwiftHost.as — Native Xcode / Swift Proxy Contract",
+                "// 1) Static methods in SwiftHost are proxies to native Swift (@MainActor protocol SwiftHostProtocol in Xcode).",
+                "// 2) Bodies inside SwiftHost.as execute as local mocks during Test Movie in NeoFlash and are stripped on Xcode export.",
+                "// 3) Parameters and return types must use portable data types (int, uint, Number, Boolean, String, Array, Object).",
+                "class SwiftHost {",
+                "    public static function notifySceneReady(width:Number, height:Number):Void {",
+                "        trace(\"[SwiftHost Mock] notifySceneReady(\" + width + \", \" + height + \")\");",
+                "    }",
+                "",
+                "    public static function hapticImpact(style:String):Void {",
+                "        trace(\"[SwiftHost Mock] hapticImpact(\" + style + \")\");",
+                "    }",
+                "}",
+                "",
+            ]
+            .join("\n"),
+            _ => [
+                "// SwiftHost.as — Native Xcode / Swift Proxy Contract",
+                "// 1) Static methods in SwiftHost are proxies to native Swift (@MainActor protocol SwiftHostProtocol in Xcode).",
+                "// 2) Bodies inside SwiftHost.as execute as local mocks during Test Movie in NeoFlash and are stripped on Xcode export.",
+                "// 3) Parameters and return types must use portable data types (int, uint, Number, Boolean, String, Array, Object).",
+                "package {",
+                "    public class SwiftHost {",
+                "        public static function notifySceneReady(width:Number, height:Number):void {",
+                "            trace(\"[SwiftHost Mock] notifySceneReady(\" + width + \", \" + height + \")\");",
+                "        }",
+                "",
+                "        public static function hapticImpact(style:String):void {",
+                "            trace(\"[SwiftHost Mock] hapticImpact(\" + style + \")\");",
+                "        }",
+                "    }",
+                "}",
+                "",
+            ]
+            .join("\n"),
+        };
+
+        project.sources.push(SourceUnit {
+            id: new_id("source"),
+            path: "SwiftHost.as".into(),
+            language: lang,
+            source: swift_host_source,
+        });
+
+        let frame0_source = match lang {
+            ScriptLanguage::ActionScript2 => format!(
+                "Stage.scaleMode = \"noScale\";\n\
+Stage.align = \"TL\";\n\
+\n\
+var designWidth:Number = {safe_w};\n\
+var designHeight:Number = {safe_h};\n\
+\n\
+function relayout(w:Number, h:Number):Void {{\n\
+    var scaleFactor:Number = Math.min(w / designWidth, h / designHeight);\n\
+    if (scaleFactor <= 0) {{\n\
+        scaleFactor = 1;\n\
+    }}\n\
+}}\n\
+\n\
+this.onResize = function():Void {{\n\
+    relayout(Stage.width, Stage.height);\n\
+}};\n\
+Stage.addListener(this);\n\
+\n\
+var initialWidth:Number = Stage.width > 0 ? Stage.width : designWidth;\n\
+var initialHeight:Number = Stage.height > 0 ? Stage.height : designHeight;\n\
+relayout(initialWidth, initialHeight);\n\
+SwiftHost.notifySceneReady(initialWidth, initialHeight);\n"
+            ),
+            _ => format!(
+                "import flash.events.Event;\n\
+\n\
+var designWidth:Number = {safe_w};\n\
+var designHeight:Number = {safe_h};\n\
+\n\
+function relayout(w:Number, h:Number):void {{\n\
+    var scaleFactor:Number = Math.min(w / designWidth, h / designHeight);\n\
+    if (scaleFactor <= 0) {{\n\
+        scaleFactor = 1;\n\
+    }}\n\
+}}\n\
+\n\
+function onStageResize(event:Event):void {{\n\
+    if (stage != null) {{\n\
+        relayout(stage.stageWidth, stage.stageHeight);\n\
+    }}\n\
+}}\n\
+\n\
+if (stage != null) {{\n\
+    stage.scaleMode = \"noScale\";\n\
+    stage.align = \"TL\";\n\
+    stage.addEventListener(Event.RESIZE, onStageResize);\n\
+    relayout(stage.stageWidth, stage.stageHeight);\n\
+    SwiftHost.notifySceneReady(stage.stageWidth, stage.stageHeight);\n\
+}} else {{\n\
+    relayout(designWidth, designHeight);\n\
+    SwiftHost.notifySceneReady(designWidth, designHeight);\n\
+}}\n"
+            ),
+        };
+
+        let root_id = project.root.clone();
+        if let Some(root_sym) = project.symbol_mut(&root_id) {
+            let layer0_id = root_sym.timeline.layers.first().map(|l| l.id.clone());
+            root_sym.timeline.scripts.push(FrameScript {
+                layer: layer0_id,
+                frame: 0,
+                script: Script {
+                    language: lang,
+                    source: frame0_source,
+                },
+            });
+        }
+
+        project.enable_program();
+        project.upgrade_format_for_features();
+        project
+    }
+}
+
+#[cfg(test)]
+mod xcode_swift_scene_tests {
+    use super::*;
+
+    #[test]
+    fn default_publish_settings_omit_xcode_swift_target_resource() {
+        let mut p = Project::blank();
+        assert!(!p.publish_settings().xcode_swift_target);
+        assert!(PublishSettings::default().is_default());
+        let before = p.to_json().expect("valid blank project");
+        p.set_publish_settings(&PublishSettings::default());
+        let after = p.to_json().expect("valid blank project");
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn new_xcode_swift_scene_as3_and_as2_validate_and_round_trip() {
+        for (input_lang, expected_lang) in [
+            (ScriptLanguage::ActionScript3, ScriptLanguage::ActionScript3),
+            (ScriptLanguage::ActionScript2, ScriptLanguage::ActionScript2),
+            (ScriptLanguage::JavaScript, ScriptLanguage::ActionScript3),
+        ] {
+            let scene = Project::new_xcode_swift_scene(393, 852, 60, input_lang);
+            scene.validate().expect("xcode swift scene must validate");
+            assert_eq!(scene.name, "Untitled Xcode Scene");
+            assert_eq!(scene.width, 393);
+            assert_eq!(scene.height, 852);
+            assert_eq!(scene.fps, 60);
+            assert_eq!(scene.script_language, Some(expected_lang));
+            assert!(scene.publish_settings().xcode_swift_target);
+
+            let host_unit = scene
+                .sources
+                .iter()
+                .find(|u| u.path == "SwiftHost.as")
+                .expect("SwiftHost.as source unit");
+            assert_eq!(host_unit.language, expected_lang);
+            assert!(
+                host_unit
+                    .source
+                    .contains("@MainActor protocol SwiftHostProtocol")
+            );
+            assert!(host_unit.source.contains("notifySceneReady"));
+            assert!(host_unit.source.contains("hapticImpact"));
+            assert!(host_unit.source.contains("[SwiftHost Mock]"));
+
+            let root = scene.symbol(&scene.root).expect("root symbol");
+            assert_eq!(root.timeline.scripts.len(), 1);
+            let fs = &root.timeline.scripts[0];
+            assert_eq!(fs.frame, 0);
+            assert_eq!(
+                fs.layer.as_deref(),
+                Some(root.timeline.layers[0].id.as_str())
+            );
+            assert_eq!(fs.script.language, expected_lang);
+            assert!(fs.script.source.contains("noScale"));
+            assert!(fs.script.source.contains("TL"));
+            assert!(fs.script.source.contains("function relayout"));
+            assert!(fs.script.source.contains("SwiftHost.notifySceneReady"));
+
+            let json = scene.to_json().expect("serialize");
+            let loaded = Project::from_json(&json).expect("deserialize");
+            assert_eq!(loaded, scene);
+            assert!(loaded.publish_settings().xcode_swift_target);
+        }
     }
 }

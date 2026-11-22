@@ -130,6 +130,7 @@ pub(crate) fn results_for_context(
                 || matches!(
                     command,
                     CommandId::FileNew
+                        | CommandId::FileNewXcodeSwiftScene
                         | CommandId::FileOpen
                         | CommandId::FileImportLegacyFlash
                         | CommandId::EditPreferences

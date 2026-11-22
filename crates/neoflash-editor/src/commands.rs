@@ -636,6 +636,7 @@ fn parse_key(token: &str) -> Option<Key> {
 pub enum CommandId {
     // File
     FileNew,
+    FileNewXcodeSwiftScene,
     FileOpen,
     FileClose,
     FileSave,
@@ -647,6 +648,7 @@ pub enum CommandId {
     FileExportAudio,
     FileExportLottie,
     FileExportAfterEffects,
+    FileExportXcodeSwift,
     FileExportTextureAtlas,
     FileExportSwf,
     FileExportSwfFp8,
@@ -977,6 +979,7 @@ const S_SHIFT_CMD_K: &[Shortcut] = &[Shortcut::shift_cmd(Key::K)];
 impl CommandId {
     pub const ALL: &'static [Self] = &[
         Self::FileNew,
+        Self::FileNewXcodeSwiftScene,
         Self::FileOpen,
         Self::FileClose,
         Self::FileSave,
@@ -988,6 +991,7 @@ impl CommandId {
         Self::FileExportAudio,
         Self::FileExportLottie,
         Self::FileExportAfterEffects,
+        Self::FileExportXcodeSwift,
         Self::FileExportTextureAtlas,
         Self::FileExportSwf,
         Self::FileExportSwfFp8,
@@ -1173,6 +1177,14 @@ impl CommandId {
                 defaults: S_CMD_N,
                 allow_when_typing: true,
             },
+            Self::FileNewXcodeSwiftScene => CommandMeta {
+                id: "file.new.xcode_swift_scene",
+                category: C::File,
+                title: "File ▸ New Xcode / Swift Scene",
+                keywords: "xcode swift ios macos scene proxy swifthost liquid stage",
+                defaults: &[],
+                allow_when_typing: false,
+            },
             Self::FileOpen => CommandMeta {
                 id: "file.open",
                 category: C::File,
@@ -1259,6 +1271,14 @@ impl CommandId {
                 title: "File ▸ Export ▸ Export After Effects (.aep)…",
                 keywords: "aep aepx jsx adobe after effects composition expressions vector interchange",
                 defaults: S_ALT_SHIFT_CMD_A,
+                allow_when_typing: false,
+            },
+            Self::FileExportXcodeSwift => CommandMeta {
+                id: "file.export.xcode_swift",
+                category: C::File,
+                title: "File ▸ Export ▸ Export Xcode Project (Swift)…",
+                keywords: "xcode swift xcodeproj ios macos apple coregraphics swifthost native app",
+                defaults: &[],
                 allow_when_typing: false,
             },
             Self::FileExportTextureAtlas => CommandMeta {
@@ -3136,6 +3156,7 @@ impl Editor {
 
         let enabled = match cmd {
             CommandId::FileNew
+            | CommandId::FileNewXcodeSwiftScene
             | CommandId::FileOpen
             | CommandId::FileImportLegacyFlash
             | CommandId::EditPreferences
@@ -3198,6 +3219,7 @@ impl Editor {
             | CommandId::FileExportAudio
             | CommandId::FileExportLottie
             | CommandId::FileExportAfterEffects
+            | CommandId::FileExportXcodeSwift
             | CommandId::FileExportTextureAtlas
             | CommandId::FileExportSwf
             | CommandId::FileExportSwfFp8
@@ -3440,13 +3462,16 @@ impl Editor {
         }
         match cmd {
             CommandId::FileNew => self.request(Pending::New, ctx),
+            CommandId::FileNewXcodeSwiftScene => {
+                let _ = self.new_xcode_swift_scene_session(ctx);
+            }
             CommandId::FileOpen => self.request(Pending::Open, ctx),
             CommandId::FileClose => self.request(Pending::CloseDocument, ctx),
             CommandId::FileSave => {
                 let _ = self.save(false);
             }
             CommandId::FileSaveAs => {
-                let _ = self.save(true);
+                let _ = self.save_with_ctx(true, Some(ctx));
             }
             CommandId::FileRevert => self.request_revert(),
             CommandId::FileImportGraphics => self.import_graphics_dialog(),
@@ -3456,6 +3481,9 @@ impl Editor {
             CommandId::FileExportLottie => self.export_lottie_dialog(None),
             CommandId::FileExportAfterEffects => {
                 let _ = self.export_aep_dialog(None, None);
+            }
+            CommandId::FileExportXcodeSwift => {
+                let _ = self.export_xcode_dialog(None);
             }
             CommandId::FileExportTextureAtlas => {
                 let _ = self.export_texture_atlas_dialog(None);

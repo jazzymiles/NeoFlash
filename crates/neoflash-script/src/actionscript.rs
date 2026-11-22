@@ -6,18 +6,18 @@ pub(crate) mod semantic;
 use crate::Diagnostic;
 use neoflash_core::{Script, ScriptLanguage};
 use std::collections::HashMap;
-mod ast;
+pub(crate) mod ast;
 mod completion;
 #[cfg(test)]
 mod control_tests;
 pub(crate) mod diagnostics;
 mod emitter;
 mod emitter_expr;
-mod lexer;
-mod parser;
+pub(crate) mod lexer;
+pub(crate) mod parser;
 mod parser_expr;
 pub(crate) mod project;
-mod scope;
+pub(crate) mod scope;
 mod xml_literals;
 
 use self::{
@@ -31,23 +31,23 @@ use self::{
 };
 
 #[derive(Clone, Default)]
-struct CompileContext {
-    legacy_case: bool,
-    mapping_prefix: Option<String>,
-    types: std::collections::BTreeMap<String, String>,
-    intrinsic_types: std::collections::BTreeSet<String>,
-    functions: std::collections::BTreeMap<String, String>,
-    interfaces: std::collections::BTreeSet<String>,
-    namespaces: std::collections::BTreeMap<String, String>,
-    open_namespaces: Vec<String>,
-    namespace_members: std::collections::BTreeSet<(String, String)>,
-    members: std::collections::BTreeMap<String, Option<String>>,
-    static_members: std::collections::BTreeMap<String, String>,
-    as2_private: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
-    static_method: bool,
-    class_name: Option<String>,
-    method_id: Option<usize>,
-    project: bool,
+pub(crate) struct CompileContext {
+    pub(crate) legacy_case: bool,
+    pub(crate) mapping_prefix: Option<String>,
+    pub(crate) types: std::collections::BTreeMap<String, String>,
+    pub(crate) intrinsic_types: std::collections::BTreeSet<String>,
+    pub(crate) functions: std::collections::BTreeMap<String, String>,
+    pub(crate) interfaces: std::collections::BTreeSet<String>,
+    pub(crate) namespaces: std::collections::BTreeMap<String, String>,
+    pub(crate) open_namespaces: Vec<String>,
+    pub(crate) namespace_members: std::collections::BTreeSet<(String, String)>,
+    pub(crate) members: std::collections::BTreeMap<String, Option<String>>,
+    pub(crate) static_members: std::collections::BTreeMap<String, String>,
+    pub(crate) as2_private: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    pub(crate) static_method: bool,
+    pub(crate) class_name: Option<String>,
+    pub(crate) method_id: Option<usize>,
+    pub(crate) project: bool,
 }
 
 impl CompileContext {

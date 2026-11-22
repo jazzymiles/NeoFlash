@@ -6,7 +6,7 @@ use neoflash_core::model::ScriptLanguage;
 use std::cell::{Cell, RefCell};
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     Ident(String),
     Number(String),
     String(String),
@@ -17,30 +17,30 @@ pub(super) enum Kind {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct Token {
-    pub(super) kind: Kind,
-    pub(super) offset: usize,
-    pub(super) end: usize,
+pub(crate) struct Token {
+    pub(crate) kind: Kind,
+    pub(crate) offset: usize,
+    pub(crate) end: usize,
 }
 
-pub(super) struct Lexer<'a> {
-    pub(super) script: &'a Script,
-    pub(super) offset: usize,
+pub(crate) struct Lexer<'a> {
+    pub(crate) script: &'a Script,
+    pub(crate) offset: usize,
 }
 
 impl<'a> Lexer<'a> {
-    pub(super) fn rest(&self) -> &'a str {
+    pub(crate) fn rest(&self) -> &'a str {
         &self.script.source[self.offset..]
     }
-    pub(super) fn bump(&mut self) -> Option<char> {
+    pub(crate) fn bump(&mut self) -> Option<char> {
         let c = self.rest().chars().next()?;
         self.offset += c.len_utf8();
         Some(c)
     }
-    pub(super) fn error(&self, offset: usize, message: impl Into<String>) -> Diagnostic {
+    pub(crate) fn error(&self, offset: usize, message: impl Into<String>) -> Diagnostic {
         Diagnostic::at(self.script, offset, message)
     }
-    pub(super) fn next_token(&mut self) -> Result<Token, Diagnostic> {
+    pub(crate) fn next_token(&mut self) -> Result<Token, Diagnostic> {
         while !self.rest().is_empty() {
             if self.rest().starts_with(char::is_whitespace) {
                 self.bump();
@@ -202,13 +202,13 @@ impl<'a> Lexer<'a> {
 // Buffered on demand: the parser decides when '<' starts an XML literal.
 // XML content is never lexed as ActionScript ahead of that decision.
 #[derive(Clone, Default)]
-pub(super) struct TokenCursor {
-    pub(super) buffer: RefCell<Vec<Token>>,
-    pub(super) offset: Cell<usize>,
-    pub(super) produced: Cell<usize>,
+pub(crate) struct TokenCursor {
+    pub(crate) buffer: RefCell<Vec<Token>>,
+    pub(crate) offset: Cell<usize>,
+    pub(crate) produced: Cell<usize>,
 }
 impl TokenCursor {
-    pub(super) fn get(&self, script: &Script, index: usize) -> Option<Token> {
+    pub(crate) fn get(&self, script: &Script, index: usize) -> Option<Token> {
         let mut buffer = self.buffer.borrow_mut();
         while buffer.len() <= index {
             if buffer
@@ -241,16 +241,16 @@ impl TokenCursor {
         }
         buffer.get(index).cloned()
     }
-    pub(super) fn split(&self, index: usize, kind: Kind) {
+    pub(crate) fn split(&self, index: usize, kind: Kind) {
         let mut buffer = self.buffer.borrow_mut();
         buffer[index].kind = kind;
         buffer[index].offset += 1;
     }
-    pub(super) fn jump(&self, index: usize, offset: usize) {
+    pub(crate) fn jump(&self, index: usize, offset: usize) {
         self.buffer.borrow_mut().truncate(index);
         self.offset.set(offset);
     }
-    pub(super) fn literal(&self, index: usize, start: usize, end: usize) {
+    pub(crate) fn literal(&self, index: usize, start: usize, end: usize) {
         self.jump(index, end);
         self.buffer.borrow_mut().push(Token {
             kind: Kind::String(String::new()),

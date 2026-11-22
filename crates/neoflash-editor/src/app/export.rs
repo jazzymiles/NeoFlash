@@ -1171,4 +1171,114 @@ impl Editor {
             }
         }
     }
+
+    /// Export the active project to a native Apple Xcode + Swift 6 (`@MainActor`) project (`T-455`),
+    /// preserving any developer-authored `App/` Swift files on re-export while regenerating `Generated/`
+    /// and appending newly declared `SwiftHostProtocol` stubs to `App/AppSwiftHost.swift`.
+    pub fn export_xcode_dialog(&mut self, dest_dir: Option<PathBuf>) -> bool {
+        if !self.has_document() || self.is_standalone_script_session() {
+            return false;
+        }
+        self.finish_edits();
+
+        let target_name = neoflash_export::pascal_project_name(&self.project.name);
+        let out_dir = if let Some(explicit_dir) = dest_dir {
+            explicit_dir
+        } else {
+            let mut picker =
+                rfd::FileDialog::new().set_title("Choose output folder for Xcode Project (Swift)");
+            if let Some(doc_dir) = self.path.as_deref().and_then(std::path::Path::parent) {
+                picker = picker.set_directory(doc_dir);
+            }
+            let Some(chosen_folder) = picker.pick_folder() else {
+                return false;
+            };
+            // If the user selected an existing exported Xcode project folder directly (containing
+            // `<Target>.xcodeproj` or `Generated/` + `App/`), update it in-place instead of nesting!
+            let xcodeproj_name = format!("{target_name}.xcodeproj");
+            let looks_like_existing_export = chosen_folder.join(&xcodeproj_name).exists()
+                || (chosen_folder.join("Generated").is_dir() && chosen_folder.join("App").is_dir());
+            if looks_like_existing_export {
+                chosen_folder
+            } else {
+                chosen_folder.join(&target_name)
+            }
+        };
+
+        let opts = neoflash_export::XcodeExportOptions {
+            jpeg_quality: self.workspace.publish.jpeg_quality,
+            base_dir: self
+                .path
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .map(PathBuf::from),
+            ..neoflash_export::XcodeExportOptions::default()
+        };
+
+        let hydrated = self.project_with_hydrated_includes();
+        let resolved_project = hydrated.with_resolved_script_language();
+        match neoflash_export::export_xcode_project(&resolved_project, &out_dir, &opts, None) {
+            Ok(report) => {
+                let proj_loc =
+                    crate::output_pipeline::OutputLocation::for_file(report.xcodeproj_path.clone());
+                for item in &report.preflight_items {
+                    let sev = match item.severity {
+                        neoflash_export::XcodePreflightSeverity::Info => {
+                            crate::output_pipeline::OutputSeverity::Info
+                        }
+                        neoflash_export::XcodePreflightSeverity::Warning => {
+                            crate::output_pipeline::OutputSeverity::Warning
+                        }
+                    };
+                    let _ = self.message_event(
+                        sev,
+                        crate::output_pipeline::OutputSource::Publish,
+                        format!(
+                            "[Xcode {}] ({}): {}",
+                            item.code, item.location, item.message
+                        ),
+                        Some(proj_loc.clone()),
+                    );
+                }
+                let preserved_note = if report.preserved_app_files.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ", {} App/ file(s) preserved",
+                        report.preserved_app_files.len()
+                    )
+                };
+                let appended_note = if report.appended_host_methods.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ", appended SwiftHost stub(s): {}",
+                        report.appended_host_methods.join(", ")
+                    )
+                };
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Info,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!(
+                        "Xcode project exported ({} symbol(s){preserved_note}{appended_note}): {}",
+                        report.symbol_count,
+                        report.xcodeproj_path.display()
+                    ),
+                    Some(proj_loc),
+                );
+                self.show_panel(PanelId::Output);
+                true
+            }
+            Err(err) => {
+                let _ = self.message_event(
+                    crate::output_pipeline::OutputSeverity::Error,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!("Xcode export failed: {err}"),
+                    Some(crate::output_pipeline::OutputLocation::for_file(out_dir)),
+                );
+                self.show_panel(PanelId::Output);
+                false
+            }
+        }
+    }
 }

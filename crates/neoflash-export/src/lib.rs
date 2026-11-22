@@ -23,6 +23,7 @@ pub mod swf;
 pub mod video;
 pub mod video_audio;
 mod video_frames;
+pub mod xcode;
 pub use aep::*;
 pub mod bitmap_encode;
 mod sequence_policy;
@@ -51,6 +52,7 @@ pub use sequence_set::*;
 pub use svg::*;
 pub use swf::*;
 pub use video::*;
+pub use xcode::*;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 pub use bitmap_encode::{

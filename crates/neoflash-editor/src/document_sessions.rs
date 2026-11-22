@@ -486,6 +486,42 @@ impl Editor {
         index
     }
 
+    pub(crate) fn new_xcode_swift_scene_session(&mut self, ctx: &egui::Context) -> usize {
+        let mut defaults = self.workspace.document_defaults.unwrap_or_default();
+        defaults.sanitize();
+        let lang = match defaults.script_language {
+            neoflash_core::ScriptLanguage::ActionScript1
+            | neoflash_core::ScriptLanguage::ActionScript2 => {
+                neoflash_core::ScriptLanguage::ActionScript2
+            }
+            _ => neoflash_core::ScriptLanguage::ActionScript3,
+        };
+        let mut project = neoflash_core::Project::new_xcode_swift_scene(
+            defaults.width,
+            defaults.height,
+            defaults.fps.max(24),
+            lang,
+        );
+        crate::timeline_commands::upgrade_all_format_versions(&mut project);
+        let previous_count = self.session_count();
+        let index = self.open_new_session_tab(ctx, project, None);
+        if self.session_count() > previous_count {
+            if let Some(defaults) = self.workspace.document_defaults {
+                self.stage_view.prefs.units = defaults.units;
+            }
+            let _ = self.message_event(
+                crate::output_pipeline::OutputSeverity::Info,
+                crate::output_pipeline::OutputSource::Publish,
+                format!(
+                    "Created Xcode / Swift Scene ({}): SwiftHost.as proxy contract + liquid Stage onResize ready.",
+                    lang.display_label()
+                ),
+                None,
+            );
+        }
+        index
+    }
+
     pub(crate) fn open_new_session_tab(
         &mut self,
         ctx: &egui::Context,

@@ -6,11 +6,18 @@
 //! ActionScript uses a bounded, explicit frontend; see `docs/COMPATIBILITY.md`.
 
 mod actionscript;
+pub mod convert;
 pub mod language_service;
 pub mod modules;
 pub mod sourcemap;
 pub mod ts_check;
 pub mod warnings;
+
+pub use convert::{
+    ConversionIssue, ConversionIssueKind, ConversionReport, ConversionTarget, SwiftCompiledProject,
+    SwiftCompiledSymbol, SwiftProxyMethod, SwiftProxyParam, compile_project_scripts_to_swift,
+    convert_project_scripts,
+};
 
 pub use modules::{
     CompiledModule, CompiledModuleGraph, ModuleImport, compile_web_modules, jsx_inline_preamble_js,

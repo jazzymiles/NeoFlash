@@ -2,35 +2,35 @@
 
 use super::*;
 
-pub(super) struct Frontend<'a> {
-    pub(super) script: &'a Script,
-    pub(super) tokens: TokenCursor,
-    pub(super) pos: usize,
-    pub(super) depth: usize,
-    pub(super) controls: Vec<ControlTarget>,
-    pub(super) function_depth: usize,
-    pub(super) next_function: usize,
-    pub(super) context: CompileContext,
-    pub(super) no_in: bool,
-    pub(super) with_depth: usize,
-    pub(super) in_initclip: bool,
+pub(crate) struct Frontend<'a> {
+    pub(crate) script: &'a Script,
+    pub(crate) tokens: TokenCursor,
+    pub(crate) pos: usize,
+    pub(crate) depth: usize,
+    pub(crate) controls: Vec<ControlTarget>,
+    pub(crate) function_depth: usize,
+    pub(crate) next_function: usize,
+    pub(crate) context: CompileContext,
+    pub(crate) no_in: bool,
+    pub(crate) with_depth: usize,
+    pub(crate) in_initclip: bool,
 }
 
 impl<'a> Frontend<'a> {
-    pub(super) fn peek(&self, index: usize) -> Option<Token> {
+    pub(crate) fn peek(&self, index: usize) -> Option<Token> {
         self.tokens.get(self.script, index)
     }
-    pub(super) fn token(&self) -> Token {
+    pub(crate) fn token(&self) -> Token {
         self.peek(self.pos).expect("parser does not consume EOF")
     }
-    pub(super) fn is(&self, text: &str) -> bool {
+    pub(crate) fn is(&self, text: &str) -> bool {
         match &self.token().kind {
             Kind::Ident(s) => s == text,
             Kind::Punct(s) => *s == text,
             _ => false,
         }
     }
-    pub(super) fn eat(&mut self, text: &str) -> bool {
+    pub(crate) fn eat(&mut self, text: &str) -> bool {
         if self.is(text) {
             self.pos += 1;
             true
@@ -38,14 +38,14 @@ impl<'a> Frontend<'a> {
             false
         }
     }
-    pub(super) fn expect(&mut self, text: &str) -> Result<(), Diagnostic> {
+    pub(crate) fn expect(&mut self, text: &str) -> Result<(), Diagnostic> {
         if self.eat(text) {
             Ok(())
         } else {
             Err(self.error(format!("Expected '{text}'.")))
         }
     }
-    pub(super) fn error(&self, message: impl Into<String>) -> Diagnostic {
+    pub(crate) fn error(&self, message: impl Into<String>) -> Diagnostic {
         let token = self.token();
         if let Kind::Invalid(error) = token.kind {
             *error
@@ -53,7 +53,7 @@ impl<'a> Frontend<'a> {
             Diagnostic::at(self.script, token.offset, message)
         }
     }
-    pub(super) fn ident(&mut self) -> Result<String, Diagnostic> {
+    pub(crate) fn ident(&mut self) -> Result<String, Diagnostic> {
         if let Kind::Ident(name) = &self.token().kind {
             let name = name.clone();
             self.pos += 1;
@@ -62,14 +62,14 @@ impl<'a> Frontend<'a> {
             Err(self.error("Expected an identifier."))
         }
     }
-    pub(super) fn enter(&mut self) -> Result<(), Diagnostic> {
+    pub(crate) fn enter(&mut self) -> Result<(), Diagnostic> {
         self.depth += 1;
         if self.depth > 48 {
             return Err(self.error("ActionScript nesting exceeds 48 levels."));
         }
         Ok(())
     }
-    pub(super) fn semicolon(&mut self) -> Result<(), Diagnostic> {
+    pub(crate) fn semicolon(&mut self) -> Result<(), Diagnostic> {
         if self.eat(";") || self.is("}") || self.token().kind == Kind::End {
             return Ok(());
         }
@@ -78,12 +78,12 @@ impl<'a> Frontend<'a> {
         }
         Err(self.error("Expected ';' or a line break after the statement."))
     }
-    pub(super) fn line_break_before_token(&self) -> bool {
+    pub(crate) fn line_break_before_token(&self) -> bool {
         self.pos > 0
             && self.script.source[self.peek(self.pos - 1).unwrap().end..self.token().offset]
                 .contains(['\n', '\r', '\u{2028}', '\u{2029}'])
     }
-    pub(super) fn statements(&mut self, block: bool) -> Result<Vec<Stmt>, Diagnostic> {
+    pub(crate) fn statements(&mut self, block: bool) -> Result<Vec<Stmt>, Diagnostic> {
         let mut statements = Vec::new();
         while self.token().kind != Kind::End && !(block && self.is("}")) {
             statements.push(self.statement()?);
@@ -93,7 +93,7 @@ impl<'a> Frontend<'a> {
         }
         Ok(statements)
     }
-    pub(super) fn statement(&mut self) -> Result<Stmt, Diagnostic> {
+    pub(crate) fn statement(&mut self) -> Result<Stmt, Diagnostic> {
         self.enter()?;
         let offset = self.token().offset;
         let statement = self.statement_inner()?;
@@ -101,7 +101,7 @@ impl<'a> Frontend<'a> {
         Ok(Stmt::Located(offset, Box::new(statement)))
     }
     #[inline(never)]
-    pub(super) fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
+    pub(crate) fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
         let mut branches = Vec::new();
         let mut tail = None;
         let mut opened_brace = false;
@@ -150,7 +150,7 @@ impl<'a> Frontend<'a> {
         Ok(*current.unwrap())
     }
     #[inline(never)]
-    pub(super) fn parse_initclip(&mut self) -> Result<Stmt, Diagnostic> {
+    pub(crate) fn parse_initclip(&mut self) -> Result<Stmt, Diagnostic> {
         let offset = self.token().offset;
         if self.script.language != ScriptLanguage::ActionScript2 {
             return Err(self.error("#initclip is supported only in ActionScript 2."));
@@ -198,7 +198,7 @@ impl<'a> Frontend<'a> {
         Ok(Stmt::InitClip(order, body, offset))
     }
     #[inline(never)]
-    pub(super) fn parse_tell_target(&mut self) -> Result<Stmt, Diagnostic> {
+    pub(crate) fn parse_tell_target(&mut self) -> Result<Stmt, Diagnostic> {
         let offset = self.token().offset;
         self.expect("tellTarget")?;
         self.expect("(")?;
@@ -213,7 +213,7 @@ impl<'a> Frontend<'a> {
         Ok(Stmt::TellTarget(target, Box::new(body), offset))
     }
     #[inline(never)]
-    pub(super) fn parse_if_frame_loaded(&mut self) -> Result<Stmt, Diagnostic> {
+    pub(crate) fn parse_if_frame_loaded(&mut self) -> Result<Stmt, Diagnostic> {
         self.expect("ifFrameLoaded")?;
         self.expect("(")?;
         if self.is(")") {
@@ -231,7 +231,7 @@ impl<'a> Frontend<'a> {
         Ok(Stmt::IfFrameLoaded(args, Box::new(body)))
     }
     #[inline(never)]
-    pub(super) fn parse_as3_directive(&mut self) -> Result<Option<Stmt>, Diagnostic> {
+    pub(crate) fn parse_as3_directive(&mut self) -> Result<Option<Stmt>, Diagnostic> {
         if self.is("default")
             && self
                 .peek(self.pos + 1)
@@ -356,7 +356,7 @@ impl<'a> Frontend<'a> {
         }
         Ok(None)
     }
-    pub(super) fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
+    pub(crate) fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
         if self.is("#endinitclip") {
             return Err(self.error("Unexpected #endinitclip without a matching #initclip."));
         }
@@ -842,7 +842,7 @@ impl<'a> Frontend<'a> {
         self.semicolon()?;
         Ok(Stmt::Expr(expression))
     }
-    pub(super) fn variables(&mut self) -> Result<Stmt, Diagnostic> {
+    pub(crate) fn variables(&mut self) -> Result<Stmt, Diagnostic> {
         let mut variables = Vec::new();
         loop {
             let offset = self.token().offset;
@@ -867,7 +867,7 @@ impl<'a> Frontend<'a> {
         }
         Ok(Stmt::Var(variables))
     }
-    pub(super) fn annotation(&mut self, returns: bool) -> Result<Option<String>, Diagnostic> {
+    pub(crate) fn annotation(&mut self, returns: bool) -> Result<Option<String>, Diagnostic> {
         if !self.eat(":") {
             return Ok(None);
         }
@@ -892,7 +892,7 @@ impl<'a> Frontend<'a> {
         }
         Ok(Some(name))
     }
-    pub(super) fn type_name(&mut self) -> Result<String, Diagnostic> {
+    pub(crate) fn type_name(&mut self) -> Result<String, Diagnostic> {
         self.enter()?;
         let mut name = if self.is("*=") {
             // In an annotation, `value:*=...` is wildcard plus initializer,
@@ -939,7 +939,7 @@ impl<'a> Frontend<'a> {
         self.depth -= 1;
         Ok(name)
     }
-    pub(super) fn type_close(&mut self) -> Result<(), Diagnostic> {
+    pub(crate) fn type_close(&mut self) -> Result<(), Diagnostic> {
         if self.eat(">") {
             return Ok(());
         }
@@ -956,7 +956,7 @@ impl<'a> Frontend<'a> {
         self.tokens.split(self.pos, Kind::Punct(rest));
         Ok(())
     }
-    pub(super) fn supported_type(&self, name: &str, returns: bool) -> bool {
+    pub(crate) fn supported_type(&self, name: &str, returns: bool) -> bool {
         let as3 = self.script.language == ScriptLanguage::ActionScript3;
         if let Some(element) = vector_element(name) {
             return as3
@@ -1005,11 +1005,11 @@ impl<'a> Frontend<'a> {
             || (returns && name == if as3 { "void" } else { "Void" });
         supported && !(matches!(name, "JSON" | "Vector") && self.context.intrinsic_type(name, as3))
     }
-    pub(super) fn function(&mut self, declaration: bool) -> Result<Function, Diagnostic> {
+    pub(crate) fn function(&mut self, declaration: bool) -> Result<Function, Diagnostic> {
         self.project_function(declaration, false, false, false)
             .map(|(function, _)| function)
     }
-    pub(super) fn project_function(
+    pub(crate) fn project_function(
         &mut self,
         declaration: bool,
         member: bool,

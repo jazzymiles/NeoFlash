@@ -46,6 +46,7 @@ mod preview;
 mod publish_controller;
 mod recovery;
 mod resources;
+mod save_as_panel;
 mod script_api;
 mod selection;
 mod shell;
@@ -107,6 +108,8 @@ mod selection_tests;
 mod stage_view_tests;
 #[cfg(test)]
 mod symbol_edit_tests;
+#[cfg(test)]
+mod t455_convert_and_xcode_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

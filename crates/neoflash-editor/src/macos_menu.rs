@@ -932,6 +932,7 @@ impl NativeMenuSpec {
             NativeMenuItemSpec::Separator,
             cmd_item(editor, ctx, CommandId::FileExportLottie),
             cmd_item(editor, ctx, CommandId::FileExportAfterEffects),
+            cmd_item(editor, ctx, CommandId::FileExportXcodeSwift),
             cmd_item(editor, ctx, CommandId::FileExportTextureAtlas),
             cmd_item(editor, ctx, CommandId::FileExportSwf),
             NativeMenuItemSpec::Submenu {
@@ -963,6 +964,7 @@ impl NativeMenuSpec {
             enabled: true,
             items: vec![
                 cmd_item(editor, ctx, CommandId::FileNew),
+                cmd_item(editor, ctx, CommandId::FileNewXcodeSwiftScene),
                 cmd_item(editor, ctx, CommandId::FileOpen),
                 NativeMenuItemSpec::Submenu {
                     label: "Open recent".to_owned(),

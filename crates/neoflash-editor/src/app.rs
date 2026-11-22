@@ -1680,6 +1680,10 @@ impl Editor {
     }
 
     pub fn save(&mut self, save_as: bool) -> bool {
+        self.save_with_ctx(save_as, None)
+    }
+
+    pub(crate) fn save_with_ctx(&mut self, save_as: bool, ctx: Option<&egui::Context>) -> bool {
         if !self.has_document() {
             return false;
         }
@@ -1717,24 +1721,209 @@ impl Editor {
         if !needs_save_as && !self.guard_save_on_external_conflict(current_path.as_deref()) {
             return false;
         }
-        let path = if needs_save_as {
+        if needs_save_as {
             let (default_dir, default_name) = self.default_save_dialog_target();
-            let mut dialog = rfd::FileDialog::new()
-                .add_filter("NeoFlash project", &["nflash"])
-                .add_filter("Flash FLA (Animate CC / CS6–CS4 / Flash 8)", &["fla"])
-                .add_filter("Uncompressed XFL directory", &["xfl"])
-                .set_file_name(&default_name);
-            if let Some(dir) = default_dir {
-                dialog = dialog.set_directory(dir);
+            let project_lang = self
+                .project
+                .with_resolved_script_language()
+                .effective_script_language();
+            let Some(choice) = crate::save_as_panel::prompt_save_as_dialog(
+                default_dir.as_deref(),
+                &default_name,
+                project_lang,
+            ) else {
+                return false;
+            };
+            if let Some(conversion) = choice.conversion {
+                return self.save_as_converted_with_ctx(choice.path, conversion, ctx);
             }
-            dialog.save_file()
-        } else {
-            current_path
-        };
-        let Some(path) = path else {
+            return self.save_to_path(choice.path);
+        }
+        let Some(path) = current_path else {
             return false;
         };
         self.save_to_path(path)
+    }
+
+    /// Deterministically converts all project scripts to `target` (`AS2 <-> AS3`, `AS2/AS3 -> JS`),
+    /// writes the converted copy to `path`, logs a full conversion report to `Output`, and opens
+    /// `.nflash` copies in a new session tab without discarding unsaved edits on the source tab (`T-455`).
+    #[allow(dead_code)]
+    pub fn save_as_converted(
+        &mut self,
+        path: PathBuf,
+        target: neoflash_script::ConversionTarget,
+    ) -> bool {
+        self.save_as_converted_with_ctx(path, target, None)
+    }
+
+    pub(crate) fn save_as_converted_with_ctx(
+        &mut self,
+        path: PathBuf,
+        target: neoflash_script::ConversionTarget,
+        ctx: Option<&egui::Context>,
+    ) -> bool {
+        if !self.has_document() || self.is_standalone_script_session() {
+            return false;
+        }
+        let path = if !path.is_dir() && path.extension().is_none() {
+            path.with_extension("nflash")
+        } else {
+            path
+        };
+        let fla_profile = self.resolve_fla_target_profile_for_path(&path);
+        if fla_profile.is_none() && !Self::is_native_nflash_path(&path) {
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                "Save As (converted) failed: choose a .nflash, .fla, or .xfl destination.",
+            );
+            return false;
+        }
+        if self.session_for_path(&path).is_some() {
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                "Save As (converted) failed: destination path is already open in a document tab. Choose a new file name.",
+            );
+            return false;
+        }
+        self.finish_edits();
+
+        let hydrated = self
+            .hydrate_arbitrary_project_with_editor_context(&self.project)
+            .0;
+        let (mut converted_project, conv_report) =
+            match neoflash_script::convert_project_scripts(&hydrated, target) {
+                Ok(pair) => pair,
+                Err(err) => {
+                    self.notify_with_output(
+                        neoflash_ui::components::ToastType::Error,
+                        format!("Script conversion failed: {err}"),
+                    );
+                    self.show_panel(PanelId::Output);
+                    return false;
+                }
+            };
+
+        if self.workspace.code_editor.format_on_save {
+            Self::format_project_scripts(
+                &mut converted_project,
+                self.workspace.code_editor.tab_size,
+            );
+        }
+        crate::timeline_commands::upgrade_all_format_versions(&mut converted_project);
+
+        let file_loc = crate::output_pipeline::OutputLocation::for_file(path.clone());
+        if let Some(profile) = fla_profile {
+            let resolved_fla = converted_project.with_resolved_script_language();
+            match neoflash_export::export_fla_with_profile(
+                resolved_fla.as_ref(),
+                profile,
+                &self.workspace.publish.fla_export_options,
+                &path,
+            ) {
+                Ok(fla_report) => {
+                    self.log_script_conversion_report(&conv_report, &file_loc);
+                    for item in &fla_report.items {
+                        if item.disposition != neoflash_export::FlaFeatureDisposition::Exact {
+                            self.push_output_coalesced(
+                                crate::output_pipeline::OutputEvent::new(
+                                    crate::output_pipeline::OutputSeverity::Warning,
+                                    crate::output_pipeline::OutputSource::Publish,
+                                    format!(
+                                        "[FLA {:?}] {} ({}): {}",
+                                        item.disposition, item.code, item.location, item.message
+                                    ),
+                                )
+                                .with_location(file_loc.clone()),
+                            );
+                        }
+                    }
+                    self.show_panel(PanelId::Output);
+                    return true;
+                }
+                Err(err) => {
+                    self.notify_with_output(
+                        neoflash_ui::components::ToastType::Error,
+                        format!("Save As FLA (converted) failed: {err}"),
+                    );
+                    return false;
+                }
+            }
+        }
+
+        let write_res = converted_project
+            .to_json()
+            .map_err(|e| e.to_string())
+            .and_then(|json| atomic_save_file(&path, json.as_bytes()));
+        if let Err(err) = write_res {
+            self.notify_with_output(
+                neoflash_ui::components::ToastType::Error,
+                format!("Save As (converted) failed: {err}"),
+            );
+            return false;
+        }
+
+        self.workspace.general.push_recent(&path);
+        let fallback_ctx;
+        let effective_ctx = if let Some(c) = ctx {
+            c
+        } else {
+            fallback_ctx = egui::Context::default();
+            &fallback_ctx
+        };
+        let _ = self.open_new_session_tab(effective_ctx, converted_project, Some(path));
+        self.sync_session_tabs_to_prefs();
+        self.log_script_conversion_report(&conv_report, &file_loc);
+        if !conv_report.issues.is_empty() {
+            self.show_panel(PanelId::Output);
+        }
+        true
+    }
+
+    fn log_script_conversion_report(
+        &mut self,
+        report: &neoflash_script::ConversionReport,
+        file_loc: &crate::output_pipeline::OutputLocation,
+    ) {
+        self.push_output_coalesced(
+            crate::output_pipeline::OutputEvent::new(
+                crate::output_pipeline::OutputSeverity::Info,
+                crate::output_pipeline::OutputSource::Publish,
+                format!(
+                    "Converted scripts {} -> {} ({} frame script(s), {} object handler(s), {} source file(s), {} auto-named instance(s), {} note(s)).",
+                    report.source_language.display_label(),
+                    report.target_language.display_label(),
+                    report.converted_frame_scripts,
+                    report.converted_object_scripts,
+                    report.converted_source_units,
+                    report.auto_named_instances,
+                    report.issues.len(),
+                ),
+            )
+            .with_location(file_loc.clone()),
+        );
+        for issue in &report.issues {
+            let sev = match issue.kind {
+                neoflash_script::ConversionIssueKind::ShimInjected => {
+                    crate::output_pipeline::OutputSeverity::Info
+                }
+                neoflash_script::ConversionIssueKind::Approximated
+                | neoflash_script::ConversionIssueKind::ManualAttention => {
+                    crate::output_pipeline::OutputSeverity::Warning
+                }
+            };
+            self.push_output_coalesced(
+                crate::output_pipeline::OutputEvent::new(
+                    sev,
+                    crate::output_pipeline::OutputSource::Publish,
+                    format!(
+                        "[Convert {:?}] {}:{}:{}: {}",
+                        issue.kind, issue.location, issue.line, issue.column, issue.message
+                    ),
+                )
+                .with_location(file_loc.clone()),
+            );
+        }
     }
 
     pub fn resolve_fla_target_profile_for_path(

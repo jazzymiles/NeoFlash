@@ -1,7 +1,7 @@
 //! ActionScript AST nodes and structural predicates.
 
 #[derive(Clone, Debug)]
-pub(super) enum Expr {
+pub(crate) enum Expr {
     Literal(String),
     Name(String),
     Member(Box<Expr>, String),
@@ -43,27 +43,27 @@ pub(super) enum Expr {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct PropertyKey {
+pub(crate) struct PropertyKey {
     /// Preserve the original quoting/escaping when emitting JavaScript.
-    pub(super) source: String,
+    pub(crate) source: String,
     /// Match member access using the decoded property name.
-    pub(super) name: String,
+    pub(crate) name: String,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct Function {
-    pub(super) id: usize,
-    pub(super) offset: usize,
-    pub(super) name: Option<String>,
-    pub(super) params: Vec<(String, Option<String>)>,
-    pub(super) defaults: Vec<Option<Expr>>,
-    pub(super) rest: Option<String>,
-    pub(super) returns: Option<String>,
-    pub(super) body: Vec<Stmt>,
-    pub(super) declaration: bool,
+pub(crate) struct Function {
+    pub(crate) id: usize,
+    pub(crate) offset: usize,
+    pub(crate) name: Option<String>,
+    pub(crate) params: Vec<(String, Option<String>)>,
+    pub(crate) defaults: Vec<Option<Expr>>,
+    pub(crate) rest: Option<String>,
+    pub(crate) returns: Option<String>,
+    pub(crate) body: Vec<Stmt>,
+    pub(crate) declaration: bool,
 }
 
-pub(super) fn constant_default(expr: &Expr) -> bool {
+pub(crate) fn constant_default(expr: &Expr) -> bool {
     fn numeric(expr: &Expr) -> bool {
         match expr {
             Expr::Literal(value) => {
@@ -80,29 +80,29 @@ pub(super) fn constant_default(expr: &Expr) -> bool {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct CatchClause {
-    pub(super) id: usize,
-    pub(super) offset: usize,
-    pub(super) name: String,
-    pub(super) ty: Option<String>,
-    pub(super) body: Vec<Stmt>,
+pub(crate) struct CatchClause {
+    pub(crate) id: usize,
+    pub(crate) offset: usize,
+    pub(crate) name: String,
+    pub(crate) ty: Option<String>,
+    pub(crate) body: Vec<Stmt>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct Case {
-    pub(super) test: Option<Expr>,
-    pub(super) body: Vec<Stmt>,
+pub(crate) struct Case {
+    pub(crate) test: Option<Expr>,
+    pub(crate) body: Vec<Stmt>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ControlTarget {
-    pub(super) label: Option<String>,
-    pub(super) iteration: bool,
-    pub(super) breakable: bool,
+pub(crate) struct ControlTarget {
+    pub(crate) label: Option<String>,
+    pub(crate) iteration: bool,
+    pub(crate) breakable: bool,
 }
 
 impl Expr {
-    pub(super) fn depth(&self) -> usize {
+    pub(crate) fn depth(&self) -> usize {
         1 + match self {
             Self::Literal(_)
             | Self::Name(_)
@@ -147,7 +147,7 @@ impl Expr {
             | Self::NewVector(_, args, _) => args.iter().map(Self::depth).max().unwrap_or(0),
         }
     }
-    pub(super) fn assignable(&self) -> bool {
+    pub(crate) fn assignable(&self) -> bool {
         match self {
             // Writes to globals are checked after lexical scope resolution.
             Self::Name(name) => name != "this",
@@ -161,14 +161,14 @@ impl Expr {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct LegacyTrigger {
-    pub(super) clip_event: bool,
-    pub(super) event: &'static str,
-    pub(super) key_press: Option<String>,
+pub(crate) struct LegacyTrigger {
+    pub(crate) clip_event: bool,
+    pub(crate) event: &'static str,
+    pub(crate) key_press: Option<String>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) enum Stmt {
+pub(crate) enum Stmt {
     Located(usize, Box<Stmt>),
     Empty,
     Expr(Expr),
@@ -196,7 +196,7 @@ pub(super) enum Stmt {
 }
 
 impl Stmt {
-    pub(super) fn unlocated(&self) -> &Self {
+    pub(crate) fn unlocated(&self) -> &Self {
         match self {
             Self::Located(_, statement) => statement.unlocated(),
             _ => self,

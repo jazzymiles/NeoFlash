@@ -185,6 +185,7 @@ const COMMON_BUILTINS: &[&str] = &[
     "addChild",
     "removeChild",
     "getChildByName",
+    "SwiftHost",
     "onEnterFrame",
     "onRelease",
     "onPress",
@@ -343,28 +344,46 @@ pub fn check_warnings(script: &Script) -> Vec<CompilerWarning> {
 /// Analyze all scripts and source units in a `Project` for compiler warnings and quick fixes.
 pub fn check_project_warnings(project: &Project) -> Vec<CompilerWarning> {
     let mut warnings = Vec::new();
+    let xcode_swift = project.publish_settings().xcode_swift_target;
     for unit in &project.sources {
         let script = Script {
             language: unit.language,
             source: unit.source.clone(),
         };
         warnings.extend(check_warnings_with_path(&script, Some(&unit.path)));
+        if xcode_swift {
+            warnings.extend(check_xcode_swift_target_warnings(
+                &script,
+                Some(&unit.path),
+                true,
+            ));
+        }
     }
     for symbol in &project.symbols {
         for entry in &symbol.timeline.scripts {
-            warnings.extend(check_warnings_with_path(
-                &entry.script,
-                Some(&format!("{}[frame {}]", symbol.name, entry.frame + 1)),
-            ));
+            let loc = format!("{}[frame {}]", symbol.name, entry.frame + 1);
+            warnings.extend(check_warnings_with_path(&entry.script, Some(&loc)));
+            if xcode_swift {
+                warnings.extend(check_xcode_swift_target_warnings(
+                    &entry.script,
+                    Some(&loc),
+                    false,
+                ));
+            }
         }
         for layer in &symbol.timeline.layers {
             for kf in &layer.keyframes {
                 for el in &kf.elements {
                     for handler in &el.scripts {
-                        warnings.extend(check_warnings_with_path(
-                            &handler.script,
-                            Some(&format!("{}::{}", symbol.name, el.name)),
-                        ));
+                        let loc = format!("{}::{}", symbol.name, el.name);
+                        warnings.extend(check_warnings_with_path(&handler.script, Some(&loc)));
+                        if xcode_swift {
+                            warnings.extend(check_xcode_swift_target_warnings(
+                                &handler.script,
+                                Some(&loc),
+                                false,
+                            ));
+                        }
                     }
                 }
             }
@@ -1065,6 +1084,30 @@ fn check_actionscript_warnings(script: &Script, path: Option<&str>) -> Vec<Compi
             }),
     );
 
+    // 5. `SwiftHost` native proxy contract validation (`SwiftHost.as` or `class SwiftHost`)
+    let looks_like_swift_host = path.is_some_and(|p| {
+        let norm = p.replace('\\', "/");
+        norm == "SwiftHost.as" || norm.ends_with("/SwiftHost.as")
+    }) || src.contains("class SwiftHost");
+    if looks_like_swift_host {
+        let unit = neoflash_core::SourceUnit {
+            id: "swift-host-lint".into(),
+            path: path.unwrap_or("SwiftHost.as").to_owned(),
+            language: script.language,
+            source: src.clone(),
+        };
+        if let Ok(parsed) = crate::convert::hir::parse_class_unit(&unit, &BTreeMap::new())
+            && crate::convert::swift_contract::is_swift_host_class(path, &parsed)
+        {
+            let (_, host_warnings) = crate::convert::swift_contract::inspect_swift_host_class(
+                &parsed,
+                script.language,
+                path,
+            );
+            warnings.extend(host_warnings);
+        }
+    }
+
     warnings
 }
 
@@ -1594,4 +1637,261 @@ fn extract_assignable_types(msg: &str) -> Option<(String, String)> {
     let end_decl = rest_decl.find('\'')?;
     let declared = rest_decl[..end_decl].to_string();
     Some((actual, declared))
+}
+
+/// Live Xcode/Swift target guardrails emitted when `project.publish_settings().xcode_swift_target` is `true`.
+fn check_xcode_swift_target_warnings(
+    script: &Script,
+    path: Option<&str>,
+    is_class_unit: bool,
+) -> Vec<CompilerWarning> {
+    let mut out = Vec::new();
+    let src = &script.source;
+    if src.trim().is_empty() {
+        return out;
+    }
+    let path_owned = path.map(str::to_owned);
+    let mut reported_offsets = BTreeSet::new();
+
+    // 1. Word-token checks for `ByteArray`, `Stage3D`/`stage3Ds`/`Context3D`, and `eval(...)`
+    let tokens = scan_word_tokens(src);
+    for (idx, (word, start, end)) in tokens.iter().enumerate() {
+        let prev_is_decl = idx > 0
+            && matches!(
+                tokens[idx - 1].0.as_str(),
+                "var" | "let" | "const" | "function"
+            );
+        let before_dot = src[..*start].trim_end().ends_with('.');
+
+        match word.as_str() {
+            "ByteArray" => {
+                if reported_offsets.insert(*start) {
+                    let (line, column) = byte_offset_to_line_col(src, *start);
+                    out.push(CompilerWarning {
+                        code: "xcode-swift-unsupported".into(),
+                        severity: DiagnosticSeverity::Warning,
+                        language: script.language,
+                        path: path_owned.clone(),
+                        line,
+                        column,
+                        span: (*start, *end),
+                        message: "'ByteArray' is not supported on the native Xcode/Swift target. Pass portable data types (int, uint, Number, Boolean, String, Array, Object) through SwiftHost instead.".into(),
+                        quick_fixes: Vec::new(),
+                    });
+                }
+            }
+            "Stage3D" | "Context3D" | "stage3Ds" => {
+                if reported_offsets.insert(*start) {
+                    let (line, column) = byte_offset_to_line_col(src, *start);
+                    out.push(CompilerWarning {
+                        code: "xcode-swift-unsupported".into(),
+                        severity: DiagnosticSeverity::Warning,
+                        language: script.language,
+                        path: path_owned.clone(),
+                        line,
+                        column,
+                        span: (*start, *end),
+                        message: format!(
+                            "'{word}' is not supported on the native Xcode/Swift 2D scene target."
+                        ),
+                        quick_fixes: Vec::new(),
+                    });
+                }
+            }
+            "eval"
+                if !prev_is_decl
+                    && !before_dot
+                    && src[*end..].trim_start().starts_with('(')
+                    && reported_offsets.insert(*start) =>
+            {
+                let (line, column) = byte_offset_to_line_col(src, *start);
+                out.push(CompilerWarning {
+                    code: "xcode-swift-unsupported".into(),
+                    severity: DiagnosticSeverity::Warning,
+                    language: script.language,
+                    path: path_owned.clone(),
+                    line,
+                    column,
+                    span: (*start, *end),
+                    message: "Dynamic 'eval()' is not supported on the native Xcode/Swift ahead-of-time compiled target.".into(),
+                    quick_fixes: Vec::new(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // 2. AST walk for E4X XML operators (`XmlLiteral`, `XmlSelect` `..`/`@`, `XmlFilter` `.(...)`)
+    if matches!(
+        script.language,
+        ScriptLanguage::ActionScript1
+            | ScriptLanguage::ActionScript2
+            | ScriptLanguage::ActionScript3
+    ) {
+        if is_class_unit {
+            let unit = neoflash_core::SourceUnit {
+                id: "xcode-lint".into(),
+                path: path.unwrap_or("Class.as").to_owned(),
+                language: script.language,
+                source: src.clone(),
+            };
+            if let Ok(parsed_cls) = crate::convert::hir::parse_class_unit(&unit, &BTreeMap::new()) {
+                for f in &parsed_cls.fields {
+                    if let Some(val) = &f.value {
+                        collect_e4x_warnings_in_expr(
+                            val,
+                            src,
+                            script.language,
+                            &path_owned,
+                            &mut reported_offsets,
+                            &mut out,
+                        );
+                    }
+                }
+                for m in &parsed_cls.methods {
+                    collect_e4x_warnings_in_stmts(
+                        &m.function.body,
+                        src,
+                        script.language,
+                        &path_owned,
+                        &mut reported_offsets,
+                        &mut out,
+                    );
+                }
+            }
+        } else if let Ok(parsed_script) =
+            crate::convert::hir::parse_timeline_script(script, "", &BTreeMap::new())
+        {
+            collect_e4x_warnings_in_stmts(
+                &parsed_script.statements,
+                src,
+                script.language,
+                &path_owned,
+                &mut reported_offsets,
+                &mut out,
+            );
+        }
+    }
+
+    out
+}
+
+fn collect_e4x_warnings_in_stmts(
+    stmts: &[crate::actionscript::ast::Stmt],
+    src: &str,
+    language: ScriptLanguage,
+    path: &Option<String>,
+    reported_offsets: &mut BTreeSet<usize>,
+    out: &mut Vec<CompilerWarning>,
+) {
+    for stmt in stmts {
+        for expr in crate::actionscript::scope::expressions(stmt) {
+            collect_e4x_warnings_in_expr(expr, src, language, path, reported_offsets, out);
+        }
+        for child in crate::actionscript::scope::statements(stmt) {
+            collect_e4x_warnings_in_stmts(
+                std::slice::from_ref(child),
+                src,
+                language,
+                path,
+                reported_offsets,
+                out,
+            );
+        }
+    }
+}
+
+fn collect_e4x_warnings_in_expr(
+    expr: &crate::actionscript::ast::Expr,
+    src: &str,
+    language: ScriptLanguage,
+    path: &Option<String>,
+    reported_offsets: &mut BTreeSet<usize>,
+    out: &mut Vec<CompilerWarning>,
+) {
+    use crate::actionscript::ast::Expr;
+    match expr {
+        Expr::XmlLiteral(raw, _) => {
+            let start = src.find(raw.as_str()).unwrap_or(0);
+            let end = (start + raw.len()).min(src.len());
+            if reported_offsets.insert(start) {
+                let (line, column) = byte_offset_to_line_col(src, start);
+                out.push(CompilerWarning {
+                    code: "xcode-swift-unsupported".into(),
+                    severity: DiagnosticSeverity::Warning,
+                    language,
+                    path: path.clone(),
+                    line,
+                    column,
+                    span: (start, end),
+                    message: "E4X XML literals are not supported on the native Xcode/Swift target."
+                        .into(),
+                    quick_fixes: Vec::new(),
+                });
+            }
+        }
+        Expr::XmlSelect {
+            local,
+            attribute,
+            descendant,
+            ..
+        }
+        | Expr::XmlWithAttr {
+            local,
+            attribute,
+            descendant,
+            ..
+        } => {
+            let local_name = match local.as_ref() {
+                Expr::Literal(s) => s.trim_matches('"').trim_matches('\'').to_owned(),
+                Expr::Name(n) => n.clone(),
+                _ => "*".into(),
+            };
+            let desc_sym = if *descendant { ".." } else { "." };
+            let attr_sym = if *attribute { "@" } else { "" };
+            let needle = format!("{desc_sym}{attr_sym}{local_name}");
+            let start = src.find(&needle).unwrap_or(0);
+            let end = (start + needle.len()).min(src.len());
+            if reported_offsets.insert(start) {
+                let (line, column) = byte_offset_to_line_col(src, start);
+                out.push(CompilerWarning {
+                    code: "xcode-swift-unsupported".into(),
+                    severity: DiagnosticSeverity::Warning,
+                    language,
+                    path: path.clone(),
+                    line,
+                    column,
+                    span: (start, end),
+                    message: format!(
+                        "E4X XML operator '{desc_sym}{attr_sym}{local_name}' is not supported on the native Xcode/Swift target."
+                    ),
+                    quick_fixes: Vec::new(),
+                });
+            }
+        }
+        Expr::XmlFilter(_, _, offset) => {
+            let start = (*offset).min(src.len());
+            let end = (start + 2).min(src.len());
+            if reported_offsets.insert(start) {
+                let (line, column) = byte_offset_to_line_col(src, start);
+                out.push(CompilerWarning {
+                    code: "xcode-swift-unsupported".into(),
+                    severity: DiagnosticSeverity::Warning,
+                    language,
+                    path: path.clone(),
+                    line,
+                    column,
+                    span: (start, end),
+                    message:
+                        "E4X XML filter operator '.(...)' is not supported on the native Xcode/Swift target."
+                            .into(),
+                    quick_fixes: Vec::new(),
+                });
+            }
+        }
+        _ => {}
+    }
+    for child in crate::actionscript::scope::children(expr) {
+        collect_e4x_warnings_in_expr(child, src, language, path, reported_offsets, out);
+    }
 }

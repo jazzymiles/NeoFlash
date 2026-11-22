@@ -4,7 +4,7 @@ use super::*;
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq)]
-pub(super) enum BindingKind {
+pub(crate) enum BindingKind {
     Variable,
     Parameter,
     Declaration,
@@ -13,12 +13,12 @@ pub(super) enum BindingKind {
     Field,
     Arguments,
 }
-pub(super) struct Binding {
+pub(crate) struct Binding {
     pub canonical: String,
     pub ty: Option<String>,
     pub kind: BindingKind,
 }
-pub(super) struct Scope {
+pub(crate) struct Scope {
     pub parent: Option<usize>,
     pub bindings: BTreeMap<String, Binding>,
     pub returns: Option<String>,
@@ -29,9 +29,9 @@ pub(super) struct Scope {
     pub has_rest: bool,
     members: HashSet<Vec<String>>,
 }
-pub(super) struct Analysis<'a> {
+pub(crate) struct Analysis<'a> {
     pub scopes: HashMap<usize, Scope>,
-    pub(super) script: &'a Script,
+    pub(crate) script: &'a Script,
     as2_catch_names: HashMap<String, usize>,
     pub context: CompileContext,
     with_depth: usize,
@@ -884,7 +884,7 @@ impl<'a> Analysis<'a> {
             || super::is_as2_legacy_instanceof_type(&name)
     }
 }
-pub(super) fn expressions(stmt: &Stmt) -> Vec<&Expr> {
+pub(crate) fn expressions(stmt: &Stmt) -> Vec<&Expr> {
     match stmt.unlocated() {
         Stmt::Expr(e) | Stmt::DefaultXmlNamespace(e) => vec![e],
         Stmt::Var(v) => v.iter().filter_map(|(_, _, v)| v.as_ref()).collect(),
@@ -911,7 +911,7 @@ pub(super) fn expressions(stmt: &Stmt) -> Vec<&Expr> {
         _ => vec![],
     }
 }
-pub(super) fn statements(stmt: &Stmt) -> Vec<&Stmt> {
+pub(crate) fn statements(stmt: &Stmt) -> Vec<&Stmt> {
     match stmt.unlocated() {
         Stmt::Block(b) | Stmt::InitClip(_, b, _) => b.iter().collect(),
         Stmt::LegacyEvent(_, f) => f.body.iter().collect(),
@@ -944,7 +944,7 @@ pub(super) fn statements(stmt: &Stmt) -> Vec<&Stmt> {
         _ => vec![],
     }
 }
-pub(super) fn children(expr: &Expr) -> Vec<&Expr> {
+pub(crate) fn children(expr: &Expr) -> Vec<&Expr> {
     match expr {
         Expr::Member(v, _)
         | Expr::Unary(_, v)
@@ -988,7 +988,7 @@ pub(super) fn children(expr: &Expr) -> Vec<&Expr> {
 
 // The bounded AS2 with lowering preserves direct block scope; closure capture is
 // diagnosed until activation-vs-with ordering is represented explicitly.
-pub(super) fn with_body_supported(stmt: &Stmt) -> bool {
+pub(crate) fn with_body_supported(stmt: &Stmt) -> bool {
     fn supported(expr: &Expr) -> bool {
         !matches!(expr, Expr::Function(_))
             && !matches!(expr,Expr::Name(name) if name == "eval" || name == "set")
@@ -1001,14 +1001,14 @@ pub(super) fn with_body_supported(stmt: &Stmt) -> bool {
         && statements(stmt).into_iter().all(with_body_supported)
 }
 
-pub(super) fn as2_with_body_supported(stmt: &Stmt) -> bool {
+pub(crate) fn as2_with_body_supported(stmt: &Stmt) -> bool {
     !matches!(
         stmt.unlocated(),
         Stmt::Function(_) | Stmt::LegacyEvent(_, _)
     ) && statements(stmt).into_iter().all(as2_with_body_supported)
 }
 
-pub(super) fn tell_target_body_supported(stmt: &Stmt) -> bool {
+pub(crate) fn tell_target_body_supported(stmt: &Stmt) -> bool {
     fn supported(expr: &Expr) -> bool {
         !matches!(expr, Expr::Function(_)) && children(expr).into_iter().all(supported)
     }

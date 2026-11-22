@@ -4,8 +4,9 @@ use neoflash_export::{
     BannerOptions, FontExportPolicy, HtmlPublishConfig, HtmlRenderMode, HtmlScaleMode,
     HtmlStageAlign, ImageExportFormat, ImageExportOptions, ImageExportRange, LottieOptions,
     NetworkPreset, NetworkStartupEstimate, PublishOptions, PublishProfile, SizeLevel, SvgOptions,
-    VideoFormat, VideoOptions, export_profile_json, export_project_with_profile,
-    import_profile_json, load_profiles_from_project, simulate_network_startup,
+    VideoFormat, VideoOptions, XcodeExportOptions, XcodeScriptBundle, export_profile_json,
+    export_project_with_profile, export_xcode_project, import_profile_json,
+    load_profiles_from_project, simulate_network_startup,
 };
 use std::{env, fs, path::PathBuf};
 
@@ -14,6 +15,7 @@ use std::{env, fs, path::PathBuf};
 pub struct CliRunOutput {
     pub exported_index: Option<PathBuf>,
     pub exported_profile_path: Option<PathBuf>,
+    pub exported_xcodeproj: Option<PathBuf>,
     pub active_profile: Option<PublishProfile>,
     pub network_estimate: Option<NetworkStartupEstimate>,
 }
@@ -22,12 +24,114 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     run_with_args(env::args().skip(1)).map(|_| ())
 }
 
+fn run_xcode_subcommand<I>(mut args: I) -> Result<CliRunOutput, Box<dyn std::error::Error>>
+where
+    I: Iterator<Item = String>,
+{
+    let mut source: Option<PathBuf> = None;
+    let mut demo = false;
+    let mut output = PathBuf::from("target/artifacts/xcode");
+    let mut options = XcodeExportOptions::default();
+    let mut scripts_json_path: Option<PathBuf> = None;
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--demo" => demo = true,
+            "--output" | "-o" => {
+                output = PathBuf::from(args.next().ok_or("--output requires a directory")?);
+            }
+            "--bundle-id-prefix" => {
+                options.bundle_identifier_prefix = args
+                    .next()
+                    .ok_or("--bundle-id-prefix requires a reverse-DNS prefix")?;
+            }
+            "--overwrite-app-shell" => {
+                options.overwrite_app_shell = true;
+            }
+            "--jpeg-quality" => {
+                options.jpeg_quality = args
+                    .next()
+                    .ok_or("--jpeg-quality requires an integer 1..=100")?
+                    .parse()?;
+            }
+            "--scripts-json" => {
+                scripts_json_path = Some(PathBuf::from(
+                    args.next()
+                        .ok_or("--scripts-json requires an XcodeScriptBundle JSON path")?,
+                ));
+            }
+            "--help" | "-h" => {
+                println!(
+                    "neoflash-export xcode (<project.nflash> | --demo) [--output DIR] [--bundle-id-prefix PREFIX] [--overwrite-app-shell] [--jpeg-quality 1..100] [--scripts-json FILE.json]"
+                );
+                return Ok(CliRunOutput::default());
+            }
+            _ if arg.starts_with('-') => {
+                return Err(format!("Unknown xcode option: {arg}").into());
+            }
+            _ => {
+                if source.replace(PathBuf::from(arg)).is_some() {
+                    return Err("Supply one source project".into());
+                }
+            }
+        }
+    }
+
+    if demo && source.is_some() {
+        return Err("Choose a project or --demo".into());
+    }
+    if options.base_dir.is_none() {
+        options.base_dir = source
+            .as_ref()
+            .and_then(|p| p.parent())
+            .filter(|p| !p.as_os_str().is_empty())
+            .map(std::path::Path::to_path_buf);
+    }
+    let project = if demo {
+        Project::demo()
+    } else {
+        let path = source.ok_or("Supply a project or --demo")?;
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"))
+        {
+            neoflash_import::import_project(&path)?
+        } else {
+            serde_json::from_str(&fs::read_to_string(&path)?)?
+        }
+    };
+    let scripts: Option<XcodeScriptBundle> = match scripts_json_path {
+        Some(path) => Some(serde_json::from_str(&fs::read_to_string(path)?)?),
+        None => None,
+    };
+    let report = export_xcode_project(&project, &output, &options, scripts.as_ref())?;
+    println!(
+        "Xcode project export: {} (scheme {}, {} symbols, {} resources)",
+        report.xcodeproj_path.display(),
+        report.scheme_name,
+        report.symbol_count,
+        report.resource_files.len()
+    );
+    for item in &report.preflight_items {
+        eprintln!("Note [{} @ {}]: {}", item.code, item.location, item.message);
+    }
+    Ok(CliRunOutput {
+        exported_xcodeproj: Some(report.xcodeproj_path),
+        ..CliRunOutput::default()
+    })
+}
+
 pub fn run_with_args<I, S>(raw_args: I) -> Result<CliRunOutput, Box<dyn std::error::Error>>
 where
     I: IntoIterator<Item = S>,
     S: Into<String>,
 {
-    let mut args = raw_args.into_iter().map(Into::into);
+    let mut args = raw_args.into_iter().map(Into::into).peekable();
+    if args.peek().is_some_and(|first| first == "xcode") {
+        let _ = args.next();
+        return run_xcode_subcommand(args);
+    }
     let mut source = None;
     let mut demo = false;
     let mut clean = false;
@@ -243,7 +347,7 @@ where
             "--assets-folder" => assets_folder = true,
             "--help" | "-h" => {
                 println!(
-                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--export-profile FILE.json] [--import-profile FILE.json] [--profile NAME_OR_ID]\n  [--simulate-network fast-3g|slow-3g|cable|offline-local|<kbps>/<rtt_ms>]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
+                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--export-profile FILE.json] [--import-profile FILE.json] [--profile NAME_OR_ID]\n  [--simulate-network fast-3g|slow-3g|cable|offline-local|<kbps>/<rtt_ms>]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export xcode (<project.nflash> | --demo) [--output DIR] [--bundle-id-prefix PREFIX] [--overwrite-app-shell] [--jpeg-quality 1..100] [--scripts-json FILE.json]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
                 );
                 return Ok(CliRunOutput::default());
             }
@@ -868,6 +972,42 @@ mod tests {
         assert!(!html.contains("<title>Profile:"));
         assert!(!html.contains("<neoflash-stage"));
 
+        let _ = fs::remove_dir_all(tmp);
+    }
+
+    #[test]
+    fn cli_xcode_subcommand_exports_valid_xcodeproj() {
+        let tmp = env::temp_dir().join(format!(
+            "neoflash-cli-xcode-{}-{}",
+            std::process::id(),
+            new_id("cli-xcode")
+        ));
+        let out_dir = tmp.join("XcodeOut");
+        let res = run_with_args([
+            "xcode",
+            "--demo",
+            "--output",
+            out_dir.to_str().unwrap(),
+            "--bundle-id-prefix",
+            "org.neoflash.test",
+            "--jpeg-quality",
+            "90",
+        ])
+        .expect("CLI xcode subcommand");
+        let xcodeproj = res.exported_xcodeproj.expect("exported .xcodeproj path");
+        assert!(xcodeproj.join("project.pbxproj").is_file());
+        assert!(
+            out_dir
+                .join("Generated/NeoFlashKit/NFDisplayList.swift")
+                .is_file()
+        );
+        assert!(
+            out_dir
+                .join("Generated/Scenes/GeneratedScenes.swift")
+                .is_file()
+        );
+        assert!(out_dir.join("App/ContentView.swift").is_file());
+        assert!(out_dir.join("App/AppSwiftHost.swift").is_file());
         let _ = fs::remove_dir_all(tmp);
     }
 }
