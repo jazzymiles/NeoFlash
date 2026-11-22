@@ -82,7 +82,21 @@ pub(super) fn collect_project_font3_usage(project: &Project) -> ProjectFont3Usag
     }
 }
 
+fn is_unmappable_swf_separator_or_control(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{000B}' | '\u{000C}' | '\u{0085}' | '\u{2028}' | '\u{2029}'
+    ) || (ch.is_control() && !matches!(ch, '\r' | '\n' | '\t'))
+}
+
 fn sfnt_slice_covers_chars(raw: &[u8], family: &str, chars: &[char]) -> bool {
+    if chars
+        .iter()
+        .copied()
+        .any(is_unmappable_swf_separator_or_control)
+    {
+        return false;
+    }
     let sample: String = chars.iter().copied().collect();
     if !neoflash_core::TextFormat::validate_text_outlines_for_font_face(
         "SwfFont3", family, &sample, raw, 0,
@@ -95,12 +109,15 @@ fn sfnt_slice_covers_chars(raw: &[u8], family: &str, chars: &[char]) -> bool {
         return false;
     };
     chars.iter().all(|&ch| {
-        if ch.is_whitespace() {
+        if matches!(ch, ' ' | '\t' | '\u{00A0}') {
             return true;
         }
         let gid = font.glyph_id(ch);
         if gid.0 == 0 {
             return false;
+        }
+        if ch.is_whitespace() {
+            return true;
         }
         font.outline_glyph(gid.with_scale(PxScale::from(24.0)))
             .is_some()
@@ -116,6 +133,16 @@ pub(super) fn resolve_swf_font3_sfnt_bytes(
     chars: &[char],
     outline_fonts: &mut SwfOutlineFonts,
 ) -> Result<Vec<u8>, String> {
+    if let Some(bad_sep) = chars
+        .iter()
+        .copied()
+        .find(|&ch| is_unmappable_swf_separator_or_control(ch))
+    {
+        return Err(format!(
+            "character U+{:04X} cannot be represented in SWF DefineFont3/DefineText2",
+            u32::from(bad_sep)
+        ));
+    }
     if let Some(non_bmp) = chars
         .iter()
         .copied()
@@ -306,7 +333,9 @@ fn subdivide_cubic_to_quads(
 }
 
 fn encode_glyph_shape_20480(font: &FontRef<'_>, ch: char, em_scale: f64) -> (Vec<u8>, [i32; 4]) {
-    if ch.is_whitespace() {
+    if matches!(ch, ' ' | '\t' | '\u{00A0}')
+        || (ch.is_whitespace() && !is_unmappable_swf_separator_or_control(ch))
+    {
         return (vec![0x00, 0x00], [0, 0, 0, 0]);
     }
     let gid = font.glyph_id(ch);
