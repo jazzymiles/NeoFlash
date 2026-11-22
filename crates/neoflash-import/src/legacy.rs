@@ -690,3 +690,587 @@ fn validate_ole_property_entry(pid: u32, buf: &[u8], unicode_dict: bool) -> bool
         validate_ole_typed_value(buf, 0).is_some()
     }
 }
+
+/// Extract `[MS-OLEPS]` `PIDSI_CODEPAGE` (`pid == 1`, `VT_I2`) from a validated root
+/// `\x05SummaryInformation` stream when present.
+pub(crate) fn ole_summary_codepage(name: &str, data: &[u8]) -> Option<u16> {
+    let clean = name.strip_prefix('/').unwrap_or(name);
+    if clean != "\u{0005}SummaryInformation" || !validate_ole_property_set_stream(clean, data) {
+        return None;
+    }
+    let u16_at = |buf: &[u8], off: usize| -> Option<u16> {
+        Some(u16::from_le_bytes(buf.get(off..off + 2)?.try_into().ok()?))
+    };
+    let u32_at = |buf: &[u8], off: usize| -> Option<u32> {
+        Some(u32::from_le_bytes(buf.get(off..off + 4)?.try_into().ok()?))
+    };
+    let sec_off = u32_at(data, 44)? as usize;
+    let cb_section = u32_at(data, sec_off)? as usize;
+    let c_props = u32_at(data, sec_off + 4)? as usize;
+    let sec = data.get(sec_off..sec_off.checked_add(cb_section)?)?;
+    let table_end = 8usize.checked_add(c_props.checked_mul(8)?)?;
+    for p in 0..c_props {
+        let pid = u32_at(sec, 8 + p * 8)?;
+        let poff = u32_at(sec, 8 + p * 8 + 4)? as usize;
+        if pid == 1
+            && poff >= table_end
+            && let Some(vt) = u32_at(sec, poff)
+            && (vt & 0xffff) == 0x0002
+        {
+            return u16_at(sec, poff + 4);
+        }
+    }
+    None
+}
+
+pub(crate) fn fnv1a64_bytes(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf29ce484222325u64, |h, b| {
+        (h ^ u64::from(*b)).wrapping_mul(0x100000001b3)
+    })
+}
+
+const DELTA_MAGIC: &[u8; 4] = b"NFD1";
+const DELTA_OP_LITERAL: u8 = 0x00;
+const DELTA_OP_RESOURCE_SLICE: u8 = 0x01;
+const DELTA_OP_END: u8 = 0xff;
+const DELTA_WINDOW: usize = 64;
+const DELTA_MIN_MATCH: usize = 128;
+
+const BUZHASH_TABLE: [u64; 256] = {
+    let mut table = [0u64; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        let mut z = (i as u64)
+            .wrapping_add(1)
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        table[i] = z ^ (z >> 31);
+        i += 1;
+    }
+    table
+};
+
+#[inline]
+fn buzhash_init(window: &[u8]) -> u64 {
+    debug_assert_eq!(window.len(), DELTA_WINDOW);
+    let mut h = 0u64;
+    let mut i = 0usize;
+    while i < DELTA_WINDOW {
+        h ^= BUZHASH_TABLE[window[i] as usize].rotate_left((DELTA_WINDOW - 1 - i) as u32);
+        i += 1;
+    }
+    h
+}
+
+#[derive(Clone, Copy, Default)]
+struct DeltaAnchorSlot {
+    hash: u64,
+    res_idx: u16,
+    offset: u32,
+    occupied: bool,
+}
+
+struct BoundedByteWriter {
+    buf: Vec<u8>,
+    limit: usize,
+}
+
+impl std::io::Write for BoundedByteWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len().saturating_add(data.len()) > self.limit {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "exceeded archive budget",
+            ));
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+pub(crate) type EncodedDeltaArchive = (Vec<u8>, Vec<String>);
+
+/// Losslessly encode `original_bytes` as a gzipped `NFD1` stream referencing exact byte slices
+/// of already-extracted `resources` (`legacy-sound-*`, `legacy-bitmap-*`, `legacy-video-*`, etc.)
+/// so media-heavy CFB `.fla` containers are not stored twice against the 64 MiB resource budget.
+pub(crate) fn encode_resource_delta_gzip(
+    original_bytes: &[u8],
+    resources: &[neoflash_core::ResourceUnit],
+    budget: usize,
+) -> Result<Option<EncodedDeltaArchive>, String> {
+    use std::io::Write;
+    if original_bytes.is_empty() || budget == 0 || resources.is_empty() {
+        return Ok(None);
+    }
+
+    let mut candidate_blobs: Vec<(&str, Vec<u8>)> = Vec::new();
+    for res in resources {
+        if res.id == "fla-provenance"
+            || res.path.starts_with("legacy/source.fla")
+            || candidate_blobs.len() >= usize::from(u16::MAX)
+        {
+            continue;
+        }
+        if let Ok(decoded) = res.decoded_bytes()
+            && decoded.len() >= DELTA_MIN_MATCH
+            && u32::try_from(decoded.len()).is_ok()
+        {
+            candidate_blobs.push((res.id.as_str(), decoded));
+        }
+    }
+    if candidate_blobs.is_empty() {
+        return Ok(None);
+    }
+
+    let total_anchor_candidates: usize = candidate_blobs
+        .iter()
+        .map(|(_, b)| b.len() / DELTA_WINDOW)
+        .sum();
+    let table_len = (total_anchor_candidates.saturating_mul(2))
+        .next_power_of_two()
+        .clamp(1024, 1 << 20);
+    let mask = table_len - 1;
+    let mut table = vec![DeltaAnchorSlot::default(); table_len];
+
+    for (ridx, (_, bytes)) in candidate_blobs.iter().enumerate() {
+        let mut off = 0usize;
+        while off + DELTA_WINDOW <= bytes.len() {
+            let win = &bytes[off..off + DELTA_WINDOW];
+            let first = win[0];
+            if !win.iter().all(|&b| b == first) {
+                let h = buzhash_init(win);
+                let base = (h as usize) & mask;
+                for probe in 0..4 {
+                    let idx = (base + probe) & mask;
+                    if !table[idx].occupied {
+                        table[idx] = DeltaAnchorSlot {
+                            hash: h,
+                            res_idx: ridx as u16,
+                            offset: off as u32,
+                            occupied: true,
+                        };
+                        break;
+                    }
+                }
+            }
+            off += DELTA_WINDOW;
+        }
+    }
+
+    enum TempOp<'a> {
+        Literal(&'a [u8]),
+        Slice {
+            cand_idx: u16,
+            offset: u32,
+            len: u32,
+        },
+    }
+
+    let n = original_bytes.len();
+    let mut ops: Vec<TempOp<'_>> = Vec::new();
+    let mut used_map: std::collections::BTreeMap<u16, u16> = std::collections::BTreeMap::new();
+    let mut used_ids: Vec<String> = Vec::new();
+    let mut matched_total = 0usize;
+    let mut lit_start = 0usize;
+    let mut pos = 0usize;
+
+    if n >= DELTA_WINDOW {
+        let mut h = buzhash_init(&original_bytes[..DELTA_WINDOW]);
+        while pos + DELTA_WINDOW <= n {
+            let mut best: Option<(u16, usize, usize, usize)> = None; // (cand_idx, r_start, s_start, s_end)
+            let base = (h as usize) & mask;
+            for probe in 0..4 {
+                let slot = table[(base + probe) & mask];
+                if !slot.occupied {
+                    break;
+                }
+                if slot.hash != h {
+                    continue;
+                }
+                let rbytes = &candidate_blobs[usize::from(slot.res_idx)].1;
+                let roff = slot.offset as usize;
+                if original_bytes[pos..pos + DELTA_WINDOW] != rbytes[roff..roff + DELTA_WINDOW] {
+                    continue;
+                }
+                let mut s = pos;
+                let mut r0 = roff;
+                while s > lit_start && r0 > 0 && original_bytes[s - 1] == rbytes[r0 - 1] {
+                    s -= 1;
+                    r0 -= 1;
+                }
+                let mut se = pos + DELTA_WINDOW;
+                let mut re = roff + DELTA_WINDOW;
+                let max_se = n.min(s.saturating_add(u32::MAX as usize));
+                while se < max_se && re < rbytes.len() && original_bytes[se] == rbytes[re] {
+                    se += 1;
+                    re += 1;
+                }
+                if se - s >= DELTA_MIN_MATCH
+                    && best.is_none_or(|(_, _, bs, bse)| (se - s) > (bse - bs))
+                {
+                    best = Some((slot.res_idx, r0, s, se));
+                }
+            }
+
+            if let Some((cand_idx, r0, s, se)) = best {
+                if s > lit_start {
+                    ops.push(TempOp::Literal(&original_bytes[lit_start..s]));
+                }
+                if let std::collections::btree_map::Entry::Vacant(e) = used_map.entry(cand_idx) {
+                    let dense = used_ids.len() as u16;
+                    e.insert(dense);
+                    used_ids.push(candidate_blobs[usize::from(cand_idx)].0.to_owned());
+                }
+                let mlen = se - s;
+                ops.push(TempOp::Slice {
+                    cand_idx,
+                    offset: r0 as u32,
+                    len: mlen as u32,
+                });
+                matched_total += mlen;
+                pos = se;
+                lit_start = se;
+                if pos + DELTA_WINDOW <= n {
+                    h = buzhash_init(&original_bytes[pos..pos + DELTA_WINDOW]);
+                }
+                continue;
+            }
+
+            if pos + DELTA_WINDOW < n {
+                h = h.rotate_left(1)
+                    ^ BUZHASH_TABLE[original_bytes[pos] as usize]
+                    ^ BUZHASH_TABLE[original_bytes[pos + DELTA_WINDOW] as usize];
+            }
+            pos += 1;
+        }
+    }
+
+    if matched_total < 64 * 1024 || used_ids.is_empty() {
+        return Ok(None);
+    }
+    if lit_start < n {
+        ops.push(TempOp::Literal(&original_bytes[lit_start..n]));
+    }
+
+    let writer = BoundedByteWriter {
+        buf: Vec::with_capacity(budget.min(4 * 1024 * 1024)),
+        limit: budget,
+    };
+    let mut gz = flate2::write::GzEncoder::new(writer, flate2::Compression::default());
+    let write_res = (|| -> std::io::Result<()> {
+        gz.write_all(DELTA_MAGIC)?;
+        gz.write_all(&(n as u64).to_le_bytes())?;
+        gz.write_all(&(used_ids.len() as u16).to_le_bytes())?;
+        for op in &ops {
+            match *op {
+                TempOp::Literal(mut slice) => {
+                    while !slice.is_empty() {
+                        let chunk_len = slice.len().min(u32::MAX as usize);
+                        gz.write_all(&[DELTA_OP_LITERAL])?;
+                        gz.write_all(&(chunk_len as u32).to_le_bytes())?;
+                        gz.write_all(&slice[..chunk_len])?;
+                        slice = &slice[chunk_len..];
+                    }
+                }
+                TempOp::Slice {
+                    cand_idx,
+                    offset,
+                    len,
+                } => {
+                    let dense = used_map[&cand_idx];
+                    gz.write_all(&[DELTA_OP_RESOURCE_SLICE])?;
+                    gz.write_all(&dense.to_le_bytes())?;
+                    gz.write_all(&offset.to_le_bytes())?;
+                    gz.write_all(&len.to_le_bytes())?;
+                }
+            }
+        }
+        gz.write_all(&[DELTA_OP_END])?;
+        Ok(())
+    })();
+
+    if write_res.is_err() {
+        return Ok(None);
+    }
+    match gz.finish() {
+        Ok(bounded) if bounded.buf.len() <= budget => Ok(Some((bounded.buf, used_ids))),
+        Ok(_) => Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::WriteZero => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Reconstruct the byte-exact original binary `.fla` archive from an imported `Project`'s
+/// `fla-provenance` metadata (supporting Schema 2 raw parts and Schema 3 `"gzip"` or
+/// `"resource-delta-gzip"` streams), verifying exact byte count, FNV-1a, and SHA-256 digests.
+/// Returns `Ok(None)` when the project has no binary FLA provenance or when its source archive
+/// was recorded as `"external"` (`fla_source_not_embedded`).
+pub fn reconstruct_legacy_fla_bytes(
+    project: &neoflash_core::Project,
+) -> Result<Option<Vec<u8>>, ImportError> {
+    use std::io::Read;
+
+    let Some(prov_res) = project
+        .resources
+        .iter()
+        .find(|r| r.id == "fla-provenance" || r.path == "legacy/provenance.json")
+    else {
+        return Ok(None);
+    };
+    let prov_bytes = prov_res
+        .decoded_bytes()
+        .map_err(|e| container(format!("invalid fla-provenance resource: {e}")))?;
+    let meta: serde_json::Value = serde_json::from_slice(&prov_bytes)
+        .map_err(|e| container(format!("invalid fla-provenance JSON: {e}")))?;
+
+    let expected_u64 = meta
+        .get("source_bytes")
+        .or_else(|| meta.get("source_byte_len"))
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| container("fla-provenance missing source_bytes"))?;
+    if expected_u64 > MAX_CONTAINER {
+        return Err(container("declared FLA source_bytes exceeds 512 MiB limit"));
+    }
+    let expected_len = expected_u64 as usize;
+    let expected_fnv = meta
+        .get("source_fnv1a64")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| container("fla-provenance missing source_fnv1a64"))?;
+    let expected_sha256 = meta
+        .get("source_sha256")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            meta.get("source_archive")
+                .and_then(|a| a.get("source_sha256"))
+                .and_then(serde_json::Value::as_str)
+        });
+
+    let raw_ids: Vec<&str> = meta
+        .get("source_resources")
+        .and_then(serde_json::Value::as_array)
+        .map(|arr| arr.iter().filter_map(serde_json::Value::as_str).collect())
+        .unwrap_or_default();
+
+    let restored = if !raw_ids.is_empty() {
+        let mut out = Vec::with_capacity(expected_len.min(16 * 1024 * 1024));
+        for rid in raw_ids {
+            let unit = project
+                .resources
+                .iter()
+                .find(|r| r.id == rid)
+                .ok_or_else(|| container(format!("missing FLA source resource {rid}")))?;
+            let chunk = unit
+                .decoded_bytes()
+                .map_err(|e| container(format!("corrupt FLA source resource {rid}: {e}")))?;
+            if out
+                .len()
+                .checked_add(chunk.len())
+                .is_none_or(|n| n > expected_len || n as u64 > MAX_CONTAINER)
+            {
+                return Err(container(
+                    "raw FLA source parts exceed declared source_bytes",
+                ));
+            }
+            out.extend_from_slice(&chunk);
+        }
+        out
+    } else if let Some(archive) = meta.get("source_archive") {
+        let encoding = archive
+            .get("encoding")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if encoding == "external" {
+            return Ok(None);
+        }
+        let part_ids: Vec<&str> = archive
+            .get("resources")
+            .and_then(serde_json::Value::as_array)
+            .ok_or_else(|| container("source_archive missing resources array"))?
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect();
+        if part_ids.is_empty() {
+            return Ok(None);
+        }
+        let mut compressed = Vec::new();
+        for rid in part_ids {
+            let unit = project
+                .resources
+                .iter()
+                .find(|r| r.id == rid)
+                .ok_or_else(|| container(format!("missing FLA archive part {rid}")))?;
+            let chunk = unit
+                .decoded_bytes()
+                .map_err(|e| container(format!("corrupt FLA archive part {rid}: {e}")))?;
+            if compressed
+                .len()
+                .checked_add(chunk.len())
+                .is_none_or(|n| n > neoflash_core::MAX_RESOURCE_TOTAL_BYTES)
+            {
+                return Err(container(
+                    "compressed FLA archive exceeds 64 MiB resource limit",
+                ));
+            }
+            compressed.extend_from_slice(&chunk);
+        }
+
+        match encoding {
+            "gzip" => {
+                let mut out = Vec::with_capacity(expected_len.min(16 * 1024 * 1024));
+                flate2::read::GzDecoder::new(compressed.as_slice())
+                    .take(expected_u64 + 1)
+                    .read_to_end(&mut out)
+                    .map_err(|e| container(format!("invalid gzip FLA source archive: {e}")))?;
+                out
+            }
+            "resource-delta-gzip" => {
+                let ref_ids: Vec<&str> = archive
+                    .get("reference_resources")
+                    .and_then(serde_json::Value::as_array)
+                    .ok_or_else(|| container("resource-delta-gzip missing reference_resources"))?
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect();
+                if ref_ids.len() > neoflash_core::MAX_RESOURCES {
+                    return Err(container("reference_resources exceeds resource limit"));
+                }
+                let mut ref_blobs: Vec<Vec<u8>> = Vec::with_capacity(ref_ids.len());
+                for rid in ref_ids {
+                    let unit = project
+                        .resources
+                        .iter()
+                        .find(|r| r.id == rid)
+                        .ok_or_else(|| {
+                            container(format!("missing delta reference resource {rid}"))
+                        })?;
+                    let bytes = unit.decoded_bytes().map_err(|e| {
+                        container(format!("corrupt delta reference resource {rid}: {e}"))
+                    })?;
+                    ref_blobs.push(bytes);
+                }
+
+                let max_delta_stream = (expected_u64.saturating_add(16 * 1024 * 1024))
+                    .min(MAX_CONTAINER.saturating_add(16 * 1024 * 1024));
+                let mut dec =
+                    flate2::read::GzDecoder::new(compressed.as_slice()).take(max_delta_stream);
+                let mut header = [0u8; 14];
+                dec.read_exact(&mut header)
+                    .map_err(|e| container(format!("truncated resource-delta-gzip header: {e}")))?;
+                if &header[..4] != DELTA_MAGIC {
+                    return Err(container("invalid resource-delta-gzip magic"));
+                }
+                let declared_len = u64::from_le_bytes(header[4..12].try_into().unwrap());
+                let declared_refs = u16::from_le_bytes([header[12], header[13]]) as usize;
+                if declared_len != expected_u64 || declared_refs != ref_blobs.len() {
+                    return Err(container(
+                        "resource-delta-gzip header disagrees with provenance metadata",
+                    ));
+                }
+
+                let mut out = Vec::with_capacity(expected_len.min(16 * 1024 * 1024));
+                loop {
+                    let mut op = [0u8; 1];
+                    dec.read_exact(&mut op).map_err(|e| {
+                        container(format!("truncated resource-delta-gzip opcode: {e}"))
+                    })?;
+                    match op[0] {
+                        DELTA_OP_END => {
+                            let mut extra = [0u8; 1];
+                            if dec
+                                .read(&mut extra)
+                                .map_err(|e| container(format!("delta trailer read error: {e}")))?
+                                != 0
+                            {
+                                return Err(container(
+                                    "trailing bytes after resource-delta-gzip EOF marker",
+                                ));
+                            }
+                            break;
+                        }
+                        DELTA_OP_LITERAL => {
+                            let mut lb = [0u8; 4];
+                            dec.read_exact(&mut lb).map_err(|e| {
+                                container(format!("truncated delta literal length: {e}"))
+                            })?;
+                            let len = u32::from_le_bytes(lb) as usize;
+                            if len == 0
+                                || out.len().checked_add(len).is_none_or(|n| n > expected_len)
+                            {
+                                return Err(container("invalid or out-of-bounds delta literal"));
+                            }
+                            let start = out.len();
+                            out.resize(start + len, 0);
+                            dec.read_exact(&mut out[start..]).map_err(|e| {
+                                container(format!("truncated delta literal payload: {e}"))
+                            })?;
+                        }
+                        DELTA_OP_RESOURCE_SLICE => {
+                            let mut sb = [0u8; 10];
+                            dec.read_exact(&mut sb).map_err(|e| {
+                                container(format!("truncated delta resource slice header: {e}"))
+                            })?;
+                            let ridx = u16::from_le_bytes([sb[0], sb[1]]) as usize;
+                            let roff = u32::from_le_bytes(sb[2..6].try_into().unwrap()) as usize;
+                            let len = u32::from_le_bytes(sb[6..10].try_into().unwrap()) as usize;
+                            let Some(src_blob) = ref_blobs.get(ridx) else {
+                                return Err(container("delta resource index out of bounds"));
+                            };
+                            let Some(slice) = roff
+                                .checked_add(len)
+                                .and_then(|end| src_blob.get(roff..end))
+                            else {
+                                return Err(container("delta resource slice out of bounds"));
+                            };
+                            if len == 0
+                                || out.len().checked_add(len).is_none_or(|n| n > expected_len)
+                            {
+                                return Err(container("invalid or out-of-bounds delta slice copy"));
+                            }
+                            out.extend_from_slice(slice);
+                        }
+                        other => {
+                            return Err(container(format!(
+                                "unknown resource-delta-gzip opcode 0x{other:02x}"
+                            )));
+                        }
+                    }
+                }
+                out
+            }
+            other => {
+                return Err(container(format!(
+                    "unsupported FLA source_archive encoding {other:?}"
+                )));
+            }
+        }
+    } else {
+        return Ok(None);
+    };
+
+    if restored.len() != expected_len {
+        return Err(container(format!(
+            "reconstructed FLA length {} does not match expected {}",
+            restored.len(),
+            expected_len
+        )));
+    }
+    let actual_fnv = format!("{:016x}", fnv1a64_bytes(&restored));
+    if actual_fnv != expected_fnv {
+        return Err(container(
+            "reconstructed FLA FNV-1a digest does not match provenance",
+        ));
+    }
+    if let Some(exp_sha) = expected_sha256 {
+        let actual_sha = neoflash_core::extensions::sha256_hex(&restored);
+        if !actual_sha.eq_ignore_ascii_case(exp_sha) {
+            return Err(container(
+                "reconstructed FLA SHA-256 digest does not match provenance",
+            ));
+        }
+    }
+    Ok(Some(restored))
+}

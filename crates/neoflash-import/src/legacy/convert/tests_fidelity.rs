@@ -833,6 +833,34 @@ fn component_props_only_attach_to_implemented_avm1_movieclips_and_broken_tweens_
             linkage_id: None,
         },
     ];
+    symbols[1].timeline.layers[0].keyframes.push(Keyframe {
+        frame: 8,
+        elements: vec![
+            Element {
+                id: "sf-over".into(),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-gr".into(),
+                    playback: InstancePlayback::SingleFrame(11),
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "po-over".into(),
+                name: String::new(),
+                transform: Transform::default(),
+                kind: ElementKind::Instance {
+                    symbol_id: "sym-gr".into(),
+                    playback: InstancePlayback::PlayOnceFrom(11),
+                },
+                ..Element::default()
+            },
+        ],
+        tween: None,
+        label: String::new(),
+        ..Default::default()
+    });
     normalize_playback(&mut symbols, &mut rep);
     let ff_warns: Vec<_> = rep
         .diagnostics
@@ -841,8 +869,8 @@ fn component_props_only_attach_to_implemented_avm1_movieclips_and_broken_tweens_
         .collect();
     assert_eq!(
         ff_warns.len(),
-        1,
-        "LoopFrom(11) wraps with fla_graphic_first_frame while LoopFrom(8) normalizes silently: {:?}",
+        2,
+        "LoopFrom(11) and LoopFrom(8) normalize losslessly without fla_graphic_first_frame, while SingleFrame(11) and PlayOnceFrom(11) clamp with fla_graphic_first_frame: {:?}",
         rep.diagnostics
     );
     assert_eq!(
@@ -857,6 +885,20 @@ fn component_props_only_attach_to_implemented_avm1_movieclips_and_broken_tweens_
         ElementKind::Instance {
             symbol_id: "sym-gr".into(),
             playback: InstancePlayback::Loop,
+        }
+    );
+    assert_eq!(
+        symbols[1].timeline.layers[0].keyframes[4].elements[0].kind,
+        ElementKind::Instance {
+            symbol_id: "sym-gr".into(),
+            playback: InstancePlayback::SingleFrame(3),
+        }
+    );
+    assert_eq!(
+        symbols[1].timeline.layers[0].keyframes[4].elements[1].kind,
+        ElementKind::Instance {
+            symbol_id: "sym-gr".into(),
+            playback: InstancePlayback::PlayOnceFrom(3),
         }
     );
 }

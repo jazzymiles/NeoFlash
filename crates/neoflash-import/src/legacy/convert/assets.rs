@@ -48,9 +48,188 @@ pub(super) struct VideoAsset {
 #[derive(Clone, Debug)]
 pub(super) struct CompiledClipAsset {
     pub reconstructed: Option<super::compiled_clip::ReconstructedSwfClip>,
+    pub has_avm1_scripts: bool,
     pub icon_bitmap: Option<BitmapAsset>,
     pub width: f64,
     pub height: f64,
+}
+
+/// Deterministic Windows GDI `LOGFONT.lfCharSet` to WHATWG/`encoding_rs` mapping.
+/// Ambiguous/non-linguistic charsets (`1` `DEFAULT_CHARSET`, `2` `SYMBOL_CHARSET`,
+/// `77` `MAC_CHARSET`, `255` `OEM_CHARSET`) return `None`.
+pub(super) fn encoding_from_gdi_charset(charset: u8) -> Option<&'static encoding_rs::Encoding> {
+    Some(match charset {
+        0 => encoding_rs::WINDOWS_1252,   // ANSI_CHARSET
+        128 => encoding_rs::SHIFT_JIS,    // SHIFTJIS_CHARSET (CP932)
+        129 | 130 => encoding_rs::EUC_KR, // HANGEUL_CHARSET / JOHAB_CHARSET (CP949)
+        134 => encoding_rs::GBK,          // GB2312_CHARSET (CP936)
+        136 => encoding_rs::BIG5,         // CHINESEBIG5_CHARSET (CP950)
+        161 => encoding_rs::WINDOWS_1253, // GREEK_CHARSET
+        162 => encoding_rs::WINDOWS_1254, // TURKISH_CHARSET
+        163 => encoding_rs::WINDOWS_1258, // VIETNAMESE_CHARSET
+        177 => encoding_rs::WINDOWS_1255, // HEBREW_CHARSET
+        178 => encoding_rs::WINDOWS_1256, // ARABIC_CHARSET
+        186 => encoding_rs::WINDOWS_1257, // BALTIC_CHARSET
+        204 => encoding_rs::WINDOWS_1251, // RUSSIAN_CHARSET
+        222 => encoding_rs::WINDOWS_874,  // THAI_CHARSET
+        238 => encoding_rs::WINDOWS_1250, // EASTEUROPE_CHARSET
+        _ => return None,
+    })
+}
+
+pub(super) fn encoding_from_windows_codepage(cp: u16) -> Option<&'static encoding_rs::Encoding> {
+    Some(match cp {
+        874 => encoding_rs::WINDOWS_874,
+        932 => encoding_rs::SHIFT_JIS,
+        936 => encoding_rs::GBK,
+        949 => encoding_rs::EUC_KR,
+        950 => encoding_rs::BIG5,
+        1250 => encoding_rs::WINDOWS_1250,
+        1251 => encoding_rs::WINDOWS_1251,
+        1252 => encoding_rs::WINDOWS_1252,
+        1253 => encoding_rs::WINDOWS_1253,
+        1254 => encoding_rs::WINDOWS_1254,
+        1255 => encoding_rs::WINDOWS_1255,
+        1256 => encoding_rs::WINDOWS_1256,
+        1257 => encoding_rs::WINDOWS_1257,
+        1258 => encoding_rs::WINDOWS_1258,
+        _ => return None,
+    })
+}
+
+/// Infer a single unambiguous legacy 8-bit ANSI/MBCS codepage for the document when
+/// font/text `LOGFONT.lfCharSet` metadata or `[MS-OLEPS]` `PIDSI_CODEPAGE` deterministically
+/// identifies one encoding without conflicts.
+pub(super) fn infer_deterministic_document_encoding(
+    document: &BinaryTimelineDocument,
+) -> Option<&'static encoding_rs::Encoding> {
+    let mut candidates: Vec<&'static encoding_rs::Encoding> = Vec::new();
+    let mut push_unique = |enc: &'static encoding_rs::Encoding| {
+        if !candidates.contains(&enc) {
+            candidates.push(enc);
+        }
+    };
+    let mut has_ambiguous = false;
+
+    let non_ascii_8bit = |bytes: &[u8], span: &ContentsString| -> Option<bool> {
+        if span.utf16 {
+            return Some(false);
+        }
+        let slice = bytes.get(span.data.start..span.data.end)?;
+        Some(!slice.is_ascii())
+    };
+    let valid_in = |enc: &'static encoding_rs::Encoding, bytes: &[u8], span: &ContentsString| {
+        bytes
+            .get(span.data.start..span.data.end)
+            .is_some_and(|raw| !enc.decode_without_bom_handling(raw).1)
+    };
+
+    if let Some(ext) = &document.contents.extensions {
+        for font in &ext.fonts {
+            let cs = font.style.char_set;
+            let any_non_ascii = non_ascii_8bit(&document.contents.original_bytes, &font.name)
+                .unwrap_or(false)
+                || font
+                    .style
+                    .font_family
+                    .as_ref()
+                    .and_then(|s| non_ascii_8bit(&document.contents.original_bytes, s))
+                    .unwrap_or(false)
+                || font
+                    .style
+                    .font_face
+                    .as_ref()
+                    .and_then(|s| non_ascii_8bit(&document.contents.original_bytes, s))
+                    .unwrap_or(false);
+            if any_non_ascii {
+                match cs.and_then(encoding_from_gdi_charset) {
+                    Some(enc) if valid_in(enc, &document.contents.original_bytes, &font.name) => {
+                        push_unique(enc);
+                    }
+                    _ => has_ambiguous = true,
+                }
+            } else if let Some(c) = cs
+                && c >= 128
+                && let Some(enc) = encoding_from_gdi_charset(c)
+            {
+                push_unique(enc);
+            }
+        }
+    }
+
+    for stream in &document.streams {
+        for obj in &stream.objects {
+            let Some(crate::legacy::timeline::TimelinePayload::Text(t)) = &obj.payload else {
+                continue;
+            };
+            if let Some(def_st) = &t.default_style
+                && let Some(c) = def_st.char_set
+                && c >= 128
+                && let Some(enc) = encoding_from_gdi_charset(c)
+            {
+                push_unique(enc);
+            }
+            for run in &t.runs {
+                let cs = run.style.char_set;
+                let chars_non_ascii =
+                    non_ascii_8bit(&stream.original_bytes, &run.characters).unwrap_or(false);
+                let font_non_ascii = run
+                    .style
+                    .font_family
+                    .as_ref()
+                    .and_then(|s| non_ascii_8bit(&stream.original_bytes, s))
+                    .unwrap_or(false)
+                    || run
+                        .style
+                        .font_face
+                        .as_ref()
+                        .and_then(|s| non_ascii_8bit(&stream.original_bytes, s))
+                        .unwrap_or(false);
+                if chars_non_ascii || font_non_ascii {
+                    match cs.and_then(encoding_from_gdi_charset) {
+                        Some(enc)
+                            if (!chars_non_ascii
+                                || valid_in(enc, &stream.original_bytes, &run.characters)) =>
+                        {
+                            push_unique(enc);
+                        }
+                        _ => has_ambiguous = true,
+                    }
+                } else if let Some(c) = cs
+                    && c >= 128
+                    && let Some(enc) = encoding_from_gdi_charset(c)
+                {
+                    push_unique(enc);
+                }
+            }
+        }
+    }
+
+    for raw_stream in &document.raw_streams {
+        if raw_stream.role == crate::legacy::BinaryStreamRole::Other
+            && let Some(cp) =
+                crate::legacy::ole_summary_codepage(&raw_stream.name, &raw_stream.bytes)
+            && let Some(enc) = encoding_from_windows_codepage(cp)
+        {
+            push_unique(enc);
+        }
+    }
+
+    if has_ambiguous || candidates.len() != 1 {
+        return None;
+    }
+    let chosen = candidates[0];
+    // Verify that any non-ASCII 8-bit descriptor/folder names in `Contents` also decode without
+    // replacement errors under `chosen`; if any fails (e.g. invalid multi-byte sequence), keep
+    // document-level inference unset so `fla_ansi_code_page` reports the ambiguity.
+    for d in &document.contents.descriptors {
+        if non_ascii_8bit(&document.contents.original_bytes, &d.name).unwrap_or(false)
+            && !valid_in(chosen, &document.contents.original_bytes, &d.name)
+        {
+            return None;
+        }
+    }
+    Some(chosen)
 }
 
 pub(super) struct ExtractedAssets {
@@ -1298,10 +1477,14 @@ pub(super) fn resources(
                 }
             }
 
+            let has_avm1_scripts = reconstructed
+                .as_ref()
+                .is_some_and(|rec| rec.has_avm1_scripts);
             compiled_clips.insert(
                 id,
                 CompiledClipAsset {
                     reconstructed,
+                    has_avm1_scripts,
                     icon_bitmap,
                     width,
                     height,

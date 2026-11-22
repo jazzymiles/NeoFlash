@@ -17,6 +17,14 @@ use neoflash_core::*;
 use std::collections::BTreeMap;
 
 pub(super) fn read_string(bytes: &[u8], value: &ContentsString) -> Result<String, String> {
+    read_string_with_charset(bytes, value, None)
+}
+
+pub(super) fn read_string_with_charset(
+    bytes: &[u8],
+    value: &ContentsString,
+    char_set: Option<u8>,
+) -> Result<String, String> {
     let raw = bytes
         .get(value.data.start..value.data.end)
         .ok_or("String span outside source")?;
@@ -33,22 +41,45 @@ pub(super) fn read_string(bytes: &[u8], value: &ContentsString) -> Result<String
         )
         .map_err(|_| "Invalid UTF-16 source".into())
     } else {
-        Ok(decode_ansi(raw))
+        Ok(decode_ansi_with_charset(raw, char_set))
     }
 }
 
 thread_local! {
     /// Code pages guessed while converting the current document (bit 0: 1251, bit 1: 1252).
     static ANSI_GUESSES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    /// Deterministic document-level ANSI/MBCS code page inferred from font `lfCharSet` or `[MS-OLEPS]`.
+    static DOC_ANSI_ENCODING: std::cell::Cell<Option<&'static encoding_rs::Encoding>> =
+        const { std::cell::Cell::new(None) };
 }
 
-/// Legacy writers stored 8-bit text in the authoring system's ANSI code page,
-/// which the archive does not record. Cyrillic text (whole words of high bytes)
-/// is decoded as Windows-1251, anything else as Windows-1252. The guess is
-/// reported; the original bytes stay in the embedded source.
-pub(super) fn decode_ansi(raw: &[u8]) -> String {
+struct AnsiDecodeScope;
+impl Drop for AnsiDecodeScope {
+    fn drop(&mut self) {
+        DOC_ANSI_ENCODING.with(|e| e.set(None));
+    }
+}
+
+/// Legacy writers stored 8-bit text in the authoring system's ANSI/MBCS code page.
+/// When a run's `LOGFONT.lfCharSet` or unambiguous document font/summary metadata
+/// identifies a deterministic `encoding_rs` encoding without replacement errors, use
+/// it directly; otherwise fall back to Cyrillic (`Windows-1251`) vs Western
+/// (`Windows-1252`) content heuristics and report `fla_ansi_code_page`.
+fn decode_ansi_with_charset(raw: &[u8], char_set: Option<u8>) -> String {
     if raw.is_ascii() {
         return String::from_utf8(raw.to_vec()).unwrap();
+    }
+    if let Some(enc) = char_set.and_then(assets::encoding_from_gdi_charset) {
+        let (cow, had_errors) = enc.decode_without_bom_handling(raw);
+        if !had_errors {
+            return cow.into_owned();
+        }
+    }
+    if let Some(enc) = DOC_ANSI_ENCODING.with(std::cell::Cell::get) {
+        let (cow, had_errors) = enc.decode_without_bom_handling(raw);
+        if !had_errors {
+            return cow.into_owned();
+        }
     }
     let letters = raw
         .iter()
@@ -58,7 +89,8 @@ pub(super) fn decode_ansi(raw: &[u8]) -> String {
         .iter()
         .filter(|b| **b >= 0xc0 || matches!(**b, 0xa8 | 0xb8))
         .count();
-    let cyrillic = high * 10 >= letters * 3;
+    let has_yo = raw.iter().any(|b| matches!(*b, 0xa8 | 0xb8));
+    let cyrillic = (high >= 2 || has_yo) && high * 10 >= letters * 3;
     ANSI_GUESSES.with(|g| g.set(g.get() | if cyrillic { 1 } else { 2 }));
     let encoding = if cyrillic {
         encoding_rs::WINDOWS_1251
@@ -83,6 +115,15 @@ fn object(stream: &BinaryTimelineStream, id: u32) -> Result<&TimelineObject, Str
 }
 fn optional_text(bytes: &[u8], span: Option<&ContentsString>) -> Result<String, String> {
     span.map(|v| read_string(bytes, v))
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+fn optional_text_with_charset(
+    bytes: &[u8],
+    span: Option<&ContentsString>,
+    char_set: Option<u8>,
+) -> Result<String, String> {
+    span.map(|v| read_string_with_charset(bytes, v, char_set))
         .transpose()
         .map(Option::unwrap_or_default)
 }
@@ -434,6 +475,8 @@ pub(crate) fn convert(
         }
     }
     ANSI_GUESSES.with(|g| g.set(0));
+    DOC_ANSI_ENCODING.with(|e| e.set(assets::infer_deterministic_document_encoding(document)));
+    let _ansi_scope = AnsiDecodeScope;
     let built = build(document, report);
     let guesses = ANSI_GUESSES.with(|g| g.replace(0));
     if guesses != 0 {
@@ -685,8 +728,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
                 Some(TimelinePayload::CompiledClip(cc)) => cc
                     .media_id
                     .and_then(|mid| compiled_clips.get(&mid))
-                    .and_then(|ca| ca.reconstructed.as_ref())
-                    .is_some_and(|rec| rec.has_avm1_scripts),
+                    .is_some_and(|ca| ca.has_avm1_scripts),
                 _ => false,
             });
             if has_implemented_child {
@@ -981,7 +1023,9 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         .iter()
         .flat_map(|ext| &ext.fonts)
         .map(|font| {
-            let label = |s: Option<&ContentsString>| optional_text(&c.original_bytes, s);
+            let cs = font.style.char_set;
+            let label =
+                |s: Option<&ContentsString>| optional_text_with_charset(&c.original_bytes, s, cs);
             Ok::<_, String>(serde_json::json!({
                 "name": label(Some(&font.name))?,
                 "id": font.font_id,
@@ -990,7 +1034,10 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
                 "bold": font.style.bold,
                 "italic": font.style.italic,
                 "flags": font.flags,
-                "linkage": label(font.metadata.linkage.as_ref().map(|l| &l.identifier))?,
+                "linkage": optional_text(
+                    &c.original_bytes,
+                    font.metadata.linkage.as_ref().map(|l| &l.identifier),
+                )?,
                 "record": font.encoded,
             }))
         })
@@ -1002,7 +1049,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     let source_len = document.original_bytes.len();
     let source_digest = format!("{:016x}", fnv1a64(&document.original_bytes));
     let archive_budget =
-        |proj: &Project, placements: &[serde_json::Value]| -> Result<usize, String> {
+        |proj: &Project, placements: &[serde_json::Value]| -> Result<(usize, usize), String> {
             let doc_json = serde_json::to_string(proj)
                 .map_err(|e| e.to_string())?
                 .len();
@@ -1017,42 +1064,104 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             .len();
             // Reserve room for the provenance resource and its scalar fields, the
             // source part IDs, headers and alignment at individual Base64 boundaries.
-            let prov_bytes = prov_len.saturating_add(4096);
+            let prov_bytes = prov_len.saturating_add(8192);
             let json_left = MAX_PROJECT_JSON_BYTES
                 .saturating_sub(doc_json)
                 .saturating_sub(prov_bytes.div_ceil(3) * 4)
                 .saturating_sub(1 << 20);
-            Ok(MAX_RESOURCE_TOTAL_BYTES
+            let res_budget = MAX_RESOURCE_TOTAL_BYTES
                 .saturating_sub(used_bytes)
                 .saturating_sub(prov_bytes)
-                .min(json_left / 4 * 3)
                 .min(
                     MAX_RESOURCES
                         .saturating_sub(proj.resources.len() + 1)
                         .saturating_mul(MAX_RESOURCE_BYTES),
-                ))
+                );
+            let budget = res_budget.min(json_left / 4 * 3);
+            Ok((budget, res_budget))
         };
-    let mut budget = archive_budget(&project, &context.provenance)?;
+    let (mut budget, mut res_budget) = archive_budget(&project, &context.provenance)?;
     if source_len > budget && deduplicate_project_for_budget(&mut project, &mut context.provenance)
     {
-        budget = archive_budget(&project, &context.provenance)?;
+        (budget, res_budget) = archive_budget(&project, &context.provenance)?;
     }
-    let compressed = if source_len > budget && budget > 0 {
-        // Limit speculative compression by available storage, even for incompressible input.
-        use std::io::Read;
-        let mut data = Vec::new();
-        flate2::read::GzEncoder::new(
-            document.original_bytes.as_slice(),
-            flate2::Compression::fast(),
-        )
-        .take(budget as u64 + 1)
-        .read_to_end(&mut data)
-        .map_err(|e| e.to_string())?;
-        (data.len() <= budget).then_some(data)
+    enum SourceArchiveEncoding {
+        Raw,
+        Gzip(Vec<u8>),
+        ResourceDeltaGzip {
+            data: Vec<u8>,
+            reference_resources: Vec<String>,
+        },
+        External,
+    }
+    let compress_within =
+        |cap: usize, resources: &[ResourceUnit]| -> Result<SourceArchiveEncoding, String> {
+            use std::io::Read;
+            let mut data = Vec::new();
+            flate2::read::GzEncoder::new(
+                document.original_bytes.as_slice(),
+                flate2::Compression::fast(),
+            )
+            .take(cap as u64 + 1)
+            .read_to_end(&mut data)
+            .map_err(|e| e.to_string())?;
+            if data.len() <= cap {
+                Ok(SourceArchiveEncoding::Gzip(data))
+            } else if let Some((delta_gz, ref_ids)) =
+                super::encode_resource_delta_gzip(&document.original_bytes, resources, cap)?
+            {
+                Ok(SourceArchiveEncoding::ResourceDeltaGzip {
+                    data: delta_gz,
+                    reference_resources: ref_ids,
+                })
+            } else {
+                Ok(SourceArchiveEncoding::External)
+            }
+        };
+    let archive_encoding = if !document.original_bytes.is_empty() && source_len <= budget {
+        SourceArchiveEncoding::Raw
+    } else if !document.original_bytes.is_empty() && res_budget > 0 {
+        // Limit speculative compression by available resource storage, then run lossless
+        // repeated-shape Graphic compaction only when the 128 MiB JSON cap (not the 64 MiB
+        // resource cap) prevents embedding the archive.
+        let candidate = compress_within(res_budget, &project.resources)?;
+        let cand_len = match &candidate {
+            SourceArchiveEncoding::Gzip(d)
+            | SourceArchiveEncoding::ResourceDeltaGzip { data: d, .. } => Some(d.len()),
+            _ => None,
+        };
+        if cand_len.is_some_and(|len| len <= budget) {
+            candidate
+        } else if (cand_len.is_some() || source_len <= res_budget)
+            && budget < res_budget
+            && deduplicate_repeated_vector_paths_for_budget(
+                &mut project,
+                &mut context.provenance,
+                true,
+            )
+        {
+            project.format_version = 5;
+            project.upgrade_format_for_features();
+            budget = archive_budget(&project, &context.provenance)?.0;
+            if source_len <= budget {
+                SourceArchiveEncoding::Raw
+            } else if cand_len.is_some_and(|len| len <= budget) {
+                candidate
+            } else {
+                SourceArchiveEncoding::External
+            }
+        } else {
+            SourceArchiveEncoding::External
+        }
     } else {
-        None
+        SourceArchiveEncoding::External
     };
-    let source_data = compressed.as_deref().unwrap_or(&document.original_bytes);
+    let source_data: &[u8] = match &archive_encoding {
+        SourceArchiveEncoding::Raw => &document.original_bytes,
+        SourceArchiveEncoding::Gzip(data) => data.as_slice(),
+        SourceArchiveEncoding::ResourceDeltaGzip { data, .. } => data.as_slice(),
+        SourceArchiveEncoding::External => &[],
+    };
     let parts = source_data.chunks(MAX_RESOURCE_BYTES);
     let part_ids: Vec<_> = (0..parts.len())
         .map(|i| {
@@ -1063,14 +1172,24 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             }
         })
         .collect();
-    let mut embedded = !source_data.is_empty() && source_data.len() <= budget;
-    let provenance = |embedded: bool, detail: ProvenanceDetail| {
+    let mut embedded = !matches!(archive_encoding, SourceArchiveEncoding::External)
+        && !source_data.is_empty()
+        && source_data.len() <= budget;
+    let lazy_sha256: std::cell::OnceCell<String> = std::cell::OnceCell::new();
+    let get_source_sha256 = || -> &str {
+        lazy_sha256
+            .get_or_init(|| neoflash_core::extensions::sha256_hex(&document.original_bytes))
+            .as_str()
+    };
+    let provenance = |embedded: bool,
+                      detail: ProvenanceDetail,
+                      placements_slice: &[serde_json::Value]| {
         let (descriptors, folders, placements) = match detail {
             ProvenanceDetail::Full => (
                 serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
                 serde_json::to_value(c.extensions.as_ref().map(|e| &e.folders))
                     .unwrap_or(serde_json::Value::Null),
-                serde_json::Value::Array(context.provenance.clone()),
+                serde_json::Value::Array(placements_slice.to_vec()),
             ),
             ProvenanceDetail::NoPlacements => (
                 serde_json::to_value(&c.descriptors).unwrap_or(serde_json::Value::Null),
@@ -1084,7 +1203,11 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
                 serde_json::Value::Array(vec![]),
             ),
         };
-        let archived = embedded && compressed.is_some();
+        let is_compressed = matches!(
+            archive_encoding,
+            SourceArchiveEncoding::Gzip(_) | SourceArchiveEncoding::ResourceDeltaGzip { .. }
+        );
+        let archived = embedded && is_compressed;
         let mut result = serde_json::json!({
             "schema": if archived { 3 } else { 2 },
             "source_resources": if embedded && !archived { &part_ids[..] } else { &[] },
@@ -1104,19 +1227,58 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             result["library_fonts"] = serde_json::json!(library_fonts);
         }
         if archived {
-            result["source_archive"] =
-                serde_json::json!({"encoding": "gzip", "resources": part_ids});
+            let sha256 = get_source_sha256();
+            result["source_sha256"] = serde_json::json!(sha256);
+            match &archive_encoding {
+                SourceArchiveEncoding::Gzip(_) => {
+                    result["source_archive"] = serde_json::json!({
+                        "encoding": "gzip",
+                        "resources": part_ids,
+                        "source_sha256": sha256,
+                        "source_byte_len": source_len,
+                    });
+                    result["note"] = serde_json::json!(
+                        "Concatenate source_archive.resources in order and decompress the gzip stream to recover the original FLA. Offsets refer to the original logical streams."
+                    );
+                }
+                SourceArchiveEncoding::ResourceDeltaGzip {
+                    reference_resources,
+                    ..
+                } => {
+                    result["source_archive"] = serde_json::json!({
+                        "encoding": "resource-delta-gzip",
+                        "resources": part_ids,
+                        "reference_resources": reference_resources,
+                        "source_sha256": sha256,
+                        "source_byte_len": source_len,
+                    });
+                    result["note"] = serde_json::json!(
+                        "Use neoflash_import::reconstruct_legacy_fla_bytes (decompressing source_archive.resources and resolving reference_resources slices) to recover the byte-exact original FLA."
+                    );
+                }
+                _ => {}
+            }
+        } else if !embedded {
+            let sha256 = get_source_sha256();
+            result["source_sha256"] = serde_json::json!(sha256);
+            result["source_byte_len"] = serde_json::json!(source_len);
+            result["source_archive"] = serde_json::json!({
+                "encoding": "external",
+                "resources": [],
+                "source_sha256": sha256,
+                "source_byte_len": source_len,
+            });
             result["note"] = serde_json::json!(
-                "Concatenate source_archive.resources in order and decompress the gzip stream to recover the original FLA. Offsets refer to the original logical streams."
+                "Original FLA exceeded project resource/JSON limits and remains external; source_sha256 and source_byte_len identify the exact source archive."
             );
         }
         result
     };
     if embedded {
-        let (base, mime) = if compressed.is_some() {
-            ("legacy/source.fla.gz", "application/gzip")
-        } else {
+        let (base, mime) = if matches!(archive_encoding, SourceArchiveEncoding::Raw) {
             ("legacy/source.fla", "application/x-neoflash-fla-source")
+        } else {
+            ("legacy/source.fla.gz", "application/gzip")
         };
         for (i, (part, id)) in parts.zip(&part_ids).enumerate() {
             let path = if part_ids.len() == 1 {
@@ -1129,7 +1291,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
                 .push(ResourceUnit::from_bytes(id, path, mime, part).map_err(|e| e.to_string())?);
         }
     } else {
-        context.report.warning("fla_source_not_embedded","Original FLA",format!("The original FLA ({} MiB) does not fit the project's limits next to the converted document (64 MiB of resources, 128 MiB in total), so it is not embedded. Keep the original file; provenance records its size and FNV-1a digest.",document.original_bytes.len()/(1024*1024)));
+        context.report.warning("fla_source_not_embedded","Original FLA",format!("The original FLA ({} MiB) does not fit the project's limits next to the converted document (64 MiB of resources, 128 MiB in total), so it is not embedded. Keep the original file; provenance records its size, SHA-256 digest, and FNV-1a digest.",document.original_bytes.len()/(1024*1024)));
     }
     let mut prov_detail = ProvenanceDetail::Full;
     let mut prov_warned = false;
@@ -1138,7 +1300,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         &mut prov_detail,
         &mut prov_warned,
         embedded,
-        !context.provenance.is_empty(),
+        &context.provenance,
         context.report,
         &provenance,
     )?;
@@ -1152,7 +1314,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             &mut prov_detail,
             &mut prov_warned,
             document.original_bytes.len(),
-            !context.provenance.is_empty(),
+            &mut context.provenance,
             context.report,
             &provenance,
         )?;
@@ -1630,7 +1792,40 @@ impl Context<'_> {
                 Some([_, hidden, locked]) => (*hidden == 0, *locked != 0),
                 _ => (l.legacy_flag != Some(0), l.legacy_flag == Some(1)),
             };
-            let role = match l.layer_type.unwrap_or(0) {
+            let layer_primary_related = |layer_obj_id: u32| -> Option<u32> {
+                s.pointers
+                    .iter()
+                    .find(|p| {
+                        p.source == Some(layer_obj_id)
+                            && p.relation == TimelineRelation::RelatedLayer
+                    })
+                    .and_then(|p| p.target)
+            };
+            let is_pre_r9_legacy_mask = |layer_obj_id: u32, layer: &TimelineLayer| -> bool {
+                let rev = layer.revision.unwrap_or(13);
+                if rev >= 9
+                    || !matches!(layer.layer_type, Some(0 | 1) | None)
+                    || layer.mask_or_open.unwrap_or(0) == 0
+                {
+                    return false;
+                }
+                !layer_primary_related(layer_obj_id).is_some_and(|t| {
+                    t != layer_obj_id
+                        && matches!(
+                            object(s, t).map(|obj| &obj.payload),
+                            Ok(Some(TimelinePayload::Layer(parent)))
+                                if matches!(parent.layer_type, Some(1 | 3 | 4))
+                        )
+                })
+            };
+            let effective_layer_type = |layer_obj_id: u32, layer: &TimelineLayer| -> Option<u8> {
+                if is_pre_r9_legacy_mask(layer_obj_id, layer) {
+                    Some(4)
+                } else {
+                    layer.layer_type
+                }
+            };
+            let role = match effective_layer_type(*id, l).unwrap_or(0) {
                 0 | 2 | 5 => LayerRole::Normal,
                 1 => LayerRole::Guide,
                 3 => LayerRole::Folder,
@@ -1644,17 +1839,37 @@ impl Context<'_> {
                     LayerRole::Normal
                 }
             };
-            let related = s
+            let rev = l.revision.unwrap_or(13);
+            let primary_related = layer_primary_related(*id);
+            let legacy_related = s
                 .pointers
                 .iter()
                 .find(|p| {
-                    p.source == Some(*id)
-                        && matches!(
-                            p.relation,
-                            TimelineRelation::RelatedLayer | TimelineRelation::LegacyRelatedLayer
-                        )
+                    p.source == Some(*id) && p.relation == TimelineRelation::LegacyRelatedLayer
                 })
                 .and_then(|p| p.target);
+            let is_legacy_downward_child_link = |target_id: u32| -> bool {
+                target_id != *id
+                    && page.children.contains(&target_id)
+                    && matches!(
+                        object(s, target_id).map(|obj| &obj.payload),
+                        Ok(Some(TimelinePayload::Layer(child)))
+                            if !is_pre_r9_legacy_mask(target_id, child)
+                                && matches!(child.layer_type, Some(0 | 2) | None)
+                    )
+            };
+            let related = if (7..=8).contains(&rev) && legacy_related.is_some() {
+                legacy_related
+            } else if rev < 9
+                && (l.layer_type == Some(1) || is_pre_r9_legacy_mask(*id, l))
+                && primary_related.is_some_and(is_legacy_downward_child_link)
+            {
+                // Pre-R9 Guide and Mask layers store a historical downward pointer to
+                // their guided/masked child layer; the child's own RelatedLayer links back.
+                None
+            } else {
+                primary_related
+            };
             let mut properties = LayerProperties {
                 role,
                 outline: l.outline.unwrap_or(0) != 0,
@@ -1662,13 +1877,15 @@ impl Context<'_> {
                     let b = v.to_le_bytes();
                     [b[0], b[1], b[2]]
                 }),
-                collapsed: role == LayerRole::Folder && l.mask_or_open == Some(0),
+                collapsed: role == LayerRole::Folder && rev >= 9 && l.mask_or_open == Some(0),
                 ..Default::default()
             };
             if let Some(parent) = related {
                 let parent_type = match object(s, parent).map(|o| &o.payload) {
-                    Ok(Some(TimelinePayload::Layer(p))) if page.children.contains(&parent) => {
-                        p.layer_type
+                    Ok(Some(TimelinePayload::Layer(p)))
+                        if parent != *id && page.children.contains(&parent) =>
+                    {
+                        effective_layer_type(parent, p)
                     }
                     _ => None,
                 };
@@ -2901,8 +3118,7 @@ impl Context<'_> {
                 let cc_supports_avm1_props = c
                     .media_id
                     .and_then(|mid| self.compiled_clips.get(&mid))
-                    .and_then(|cc| cc.reconstructed.as_ref())
-                    .is_some_and(|rec| rec.has_avm1_scripts);
+                    .is_some_and(|cc| cc.has_avm1_scripts);
                 let (prop_script, prop_lossy) = instance_props::translate_component_properties(
                     &s.original_bytes,
                     c.properties.as_ref(),
@@ -3175,14 +3391,18 @@ fn normalize_playback(symbols: &mut [Symbol], report: &mut ImportReport) {
             }
             if let InstancePlayback::LoopFrom(f) = *playback
                 && f >= len
-                && f % len == 0
             {
-                // Exact multiples of the symbol's loop length normalize cleanly in Flash.
-                *playback = InstancePlayback::Loop;
+                // Looping graphic instances advance as `(first_frame + elapsed) % len`
+                // in Flash (including Sync classic tweens where cumulative `first_frame`
+                // exceeds `len`), so wrapping modulo `len` is exact and lossless.
+                *playback = if f % len == 0 {
+                    InstancePlayback::Loop
+                } else {
+                    InstancePlayback::LoopFrom(f % len)
+                };
                 continue;
             }
             let fixed = match *playback {
-                InstancePlayback::LoopFrom(f) if f >= len => InstancePlayback::LoopFrom(f % len),
                 InstancePlayback::SingleFrame(f) if f >= len => {
                     InstancePlayback::SingleFrame(len - 1)
                 }
@@ -3430,9 +3650,7 @@ fn attach_companion_includes(
 }
 /// Stable content digest for provenance; not a security hash.
 fn fnv1a64(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| {
-        (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3)
-    })
+    super::fnv1a64_bytes(bytes)
 }
 fn group_symbol(id: &str, name: String, elements: Vec<Element>) -> Symbol {
     group_symbol_with_effects(id, name, elements, Vec::new(), Vec::new(), Vec::new())
@@ -4505,10 +4723,11 @@ fn update_provenance_resource(
     detail: &mut ProvenanceDetail,
     warned: &mut bool,
     embedded: bool,
-    has_placements: bool,
+    placements: &[serde_json::Value],
     report: &mut ImportReport,
-    make_provenance: &dyn Fn(bool, ProvenanceDetail) -> serde_json::Value,
+    make_provenance: &dyn Fn(bool, ProvenanceDetail, &[serde_json::Value]) -> serde_json::Value,
 ) -> Result<(), String> {
+    let has_placements = !placements.is_empty();
     let other_decoded: usize = project
         .resources
         .iter()
@@ -4528,8 +4747,8 @@ fn update_provenance_resource(
     };
     let mut chosen = None;
     for &candidate in candidates {
-        let bytes =
-            serde_json::to_vec(&make_provenance(embedded, candidate)).map_err(|e| e.to_string())?;
+        let bytes = serde_json::to_vec(&make_provenance(embedded, candidate, placements))
+            .map_err(|e| e.to_string())?;
         if bytes.len() <= MAX_RESOURCE_BYTES
             && other_decoded.saturating_add(bytes.len()) <= MAX_RESOURCE_TOTAL_BYTES
         {
@@ -4767,8 +4986,19 @@ fn deduplicate_repeated_vector_paths_for_budget(
         }
     };
 
-    // Part A: Under authored-element pressure (> 100,000 elements), collapse identical
-    // multi-element pure-vector static keyframes into shared 1-frame Graphic symbols.
+    // Part A: Under authored-element pressure (> 100,000 elements) or JSON budget
+    // pressure (`include_single_shapes`), collapse identical multi-element pure-vector
+    // static keyframes into shared 1-frame Graphic symbols.
+    let pre_max_expanded = if include_single_shapes {
+        max_expanded_display_nodes(&project.symbols)
+    } else {
+        0
+    };
+    let saved_state = if include_single_shapes && pre_max_expanded > MAX_EXPANDED_NODES / 2 {
+        Some((project.symbols.clone(), provenance.to_vec()))
+    } else {
+        None
+    };
     let total_authored: usize = project
         .symbols
         .iter()
@@ -4776,7 +5006,7 @@ fn deduplicate_repeated_vector_paths_for_budget(
         .flat_map(|l| &l.keyframes)
         .map(|k| k.elements.len())
         .sum();
-    if total_authored > MAX_AUTHORED_ELEMENTS {
+    if total_authored > MAX_AUTHORED_ELEMENTS || include_single_shapes {
         let allowed_leaf = symbols_allowing_leaf_instance(&project.symbols);
         let mut kf_buckets: std::collections::HashMap<String, Vec<(usize, usize, usize)>> =
             std::collections::HashMap::new();
@@ -4853,7 +5083,14 @@ fn deduplicate_repeated_vector_paths_for_budget(
             let k_len = project.symbols[si0].timeline.layers[li0].keyframes[ki0]
                 .elements
                 .len();
-            if locs.len() * k_len <= k_len + locs.len() + 2 {
+            let saves_elements = locs.len() * k_len > k_len + locs.len() + 2;
+            let saves_json =
+                sig.len() > 260 && (locs.len() - 1) * (sig.len() - 220) > sig.len() + 600;
+            if total_authored > MAX_AUTHORED_ELEMENTS {
+                if !saves_elements {
+                    continue;
+                }
+            } else if !saves_elements || !saves_json {
                 continue;
             }
             let sym_id = alloc_sym_id("fla-shared-artwork");
@@ -4904,6 +5141,19 @@ fn deduplicate_repeated_vector_paths_for_budget(
     if !include_single_shapes {
         return changed;
     }
+
+    let post_part_a_snapshot = if saved_state.is_some() {
+        if max_expanded_display_nodes(&project.symbols) > MAX_EXPANDED_NODES {
+            if let Some((orig_syms, orig_prov)) = saved_state {
+                project.symbols = orig_syms;
+                provenance.clone_from_slice(&orig_prov);
+            }
+            return false;
+        }
+        Some((project.symbols.clone(), changed))
+    } else {
+        None
+    };
 
     // Part B: Deduplicate repeated complex PaintedPath / Path shapes (>= 6 commands)
     // across static normal-layer keyframes into shared 1-frame Graphic symbols.
@@ -5010,8 +5260,64 @@ fn deduplicate_repeated_vector_paths_for_budget(
     if !new_shape_symbols.is_empty() {
         project.symbols.extend(new_shape_symbols);
     }
+    if let Some((part_a_syms, part_a_changed)) = post_part_a_snapshot
+        && max_expanded_display_nodes(&project.symbols) > MAX_EXPANDED_NODES
+    {
+        project.symbols = part_a_syms;
+        return part_a_changed;
+    }
 
     changed
+}
+
+fn max_expanded_display_nodes(symbols: &[Symbol]) -> usize {
+    const CAP: usize = 100_001;
+    let by_id: std::collections::HashMap<&str, &Symbol> =
+        symbols.iter().map(|s| (s.id.as_str(), s)).collect();
+    let mut memo = std::collections::HashMap::<String, usize>::new();
+    let mut active = std::collections::HashSet::<String>::new();
+    fn eval(
+        id: &str,
+        by_id: &std::collections::HashMap<&str, &Symbol>,
+        active: &mut std::collections::HashSet<String>,
+        memo: &mut std::collections::HashMap<String, usize>,
+    ) -> usize {
+        if let Some(&v) = memo.get(id) {
+            return v;
+        }
+        let Some(&sym) = by_id.get(id) else {
+            return 1;
+        };
+        if !active.insert(id.to_owned()) {
+            return 1;
+        }
+        let mut count = 1usize;
+        for layer in &sym.timeline.layers {
+            let mut max_key = 0usize;
+            for key in &layer.keyframes {
+                let mut key_count = 0usize;
+                for elem in &key.elements {
+                    let nodes = match &elem.kind {
+                        ElementKind::Instance { symbol_id, .. } => {
+                            eval(symbol_id, by_id, active, memo)
+                        }
+                        _ => 1,
+                    };
+                    key_count = key_count.saturating_add(nodes).min(CAP);
+                }
+                max_key = max_key.max(key_count);
+            }
+            count = count.saturating_add(max_key).min(CAP);
+        }
+        active.remove(id);
+        memo.insert(id.to_owned(), count);
+        count
+    }
+    symbols
+        .iter()
+        .map(|s| eval(&s.id, &by_id, &mut active, &mut memo))
+        .max()
+        .unwrap_or(0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -5022,10 +5328,34 @@ fn fit_project_json_budget(
     prov_detail: &mut ProvenanceDetail,
     prov_warned: &mut bool,
     original_len: usize,
-    has_placements: bool,
+    placements: &mut [serde_json::Value],
     report: &mut ImportReport,
-    make_provenance: &dyn Fn(bool, ProvenanceDetail) -> serde_json::Value,
+    make_provenance: &dyn Fn(bool, ProvenanceDetail, &[serde_json::Value]) -> serde_json::Value,
 ) -> Result<(), String> {
+    // 0a. Run lossless group/media and repeated-shape Graphic deduplication BEFORE
+    //     dropping the embedded source FLA archive or shedding any media.
+    let mut deduped = deduplicate_project_for_budget(project, placements);
+    if deduplicate_repeated_vector_paths_for_budget(project, placements, true) {
+        deduped = true;
+    }
+    if deduped {
+        project.format_version = 5;
+        project.upgrade_format_for_features();
+        update_provenance_resource(
+            project,
+            prov_detail,
+            prov_warned,
+            *embedded,
+            placements,
+            report,
+            make_provenance,
+        )?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
+    }
+    if json.len() <= MAX_PROJECT_JSON_BYTES {
+        return Ok(());
+    }
+
     if *embedded {
         project.resources.retain(|r| {
             r.media_type != "application/x-neoflash-fla-source"
@@ -5038,7 +5368,7 @@ fn fit_project_json_budget(
             "fla_source_not_embedded",
             "Original FLA",
             format!(
-                "The original FLA ({} MiB) does not fit the project's limits next to the converted document (64 MiB of resources, 128 MiB in total), so it is not embedded. Keep the original file; provenance records its size and FNV-1a digest.",
+                "The original FLA ({} MiB) does not fit the project's limits next to the converted document (64 MiB of resources, 128 MiB in total), so it is not embedded. Keep the original file; provenance records its size, SHA-256 digest, and FNV-1a digest.",
                 original_len / (1024 * 1024)
             ),
         );
@@ -5047,7 +5377,7 @@ fn fit_project_json_budget(
             prov_detail,
             prov_warned,
             false,
-            has_placements,
+            placements,
             report,
             make_provenance,
         )?;
@@ -5107,19 +5437,10 @@ fn fit_project_json_budget(
             prov_detail,
             prov_warned,
             *embedded,
-            has_placements,
+            placements,
             report,
             make_provenance,
         )?;
-        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
-    }
-
-    // 2b. Deduplicate repeated PaintedPath/Path shapes into shared Graphic symbols before degrading.
-    if json.len() > MAX_PROJECT_JSON_BYTES
-        && deduplicate_repeated_vector_paths_for_budget(project, &mut [], true)
-    {
-        project.format_version = 5;
-        project.upgrade_format_for_features();
         *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
@@ -5141,7 +5462,7 @@ fn fit_project_json_budget(
             prov_detail,
             prov_warned,
             *embedded,
-            has_placements,
+            placements,
             report,
             make_provenance,
         )?;
@@ -6797,8 +7118,16 @@ fn decode_cpic_text_style(
     if style.rotation.unwrap_or(0) != 0 {
         lossy.push("rotated characters are laid out horizontally");
     }
-    let face = optional_text(&stream.original_bytes, style.font_face.as_ref())?;
-    let family = optional_text(&stream.original_bytes, style.font_family.as_ref())?;
+    let face = optional_text_with_charset(
+        &stream.original_bytes,
+        style.font_face.as_ref(),
+        style.char_set,
+    )?;
+    let family = optional_text_with_charset(
+        &stream.original_bytes,
+        style.font_family.as_ref(),
+        style.char_set,
+    )?;
     let [red, green, blue, alpha] = style
         .color_rgba
         .ok_or("Text style has no archived color")?
@@ -6955,7 +7284,8 @@ pub(super) fn convert_timeline_text(
         }
         // A Flash paragraph break can end one style run and continue with LF
         // in the next. Count UTF-16 offsets after normalizing that boundary.
-        let raw_chars = read_string(&stream.original_bytes, &run.characters)?;
+        let raw_chars =
+            read_string_with_charset(&stream.original_bytes, &run.characters, run.style.char_set)?;
         let trimmed = if prev_ended_cr {
             raw_chars.strip_prefix('\n').unwrap_or(&raw_chars)
         } else {

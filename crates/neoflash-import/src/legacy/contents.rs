@@ -4,6 +4,7 @@
 mod extensions;
 mod payload;
 
+pub use super::reconstruct_legacy_fla_bytes;
 use super::{BinaryStreamInspection, BinaryStreamRole};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
