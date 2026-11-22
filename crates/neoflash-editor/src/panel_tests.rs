@@ -752,10 +752,14 @@ fn active_and_inactive_script_keys_are_readable_in_all_timeline_densities() {
     let layer = &mut timeline.layers[0];
     let id = layer.id.clone();
     layer.keyframes.truncate(1);
-    let mut blank = layer.keyframes[0].clone();
-    blank.frame = 3;
-    blank.elements.clear();
-    layer.keyframes.push(blank);
+    for (frame, empty) in [(3, true), (6, false), (9, true)] {
+        let mut key = layer.keyframes[0].clone();
+        key.frame = frame;
+        if empty {
+            key.elements.clear();
+        }
+        layer.keyframes.push(key);
+    }
     timeline.scripts = [0, 3]
         .map(|frame| FrameScript {
             layer: Some(id.clone()),
@@ -773,7 +777,8 @@ fn active_and_inactive_script_keys_are_readable_in_all_timeline_densities() {
         DensityPref::ClassicFlash,
     ] {
         editor.set_density(&ctx, density);
-        for current in [0, 3] {
+        let mut baseline = None;
+        for current in [0, 3, 6, 9] {
             editor.frame = current;
             editor.select_frame_range(FrameRange {
                 layers: vec![id.clone()],
@@ -788,6 +793,55 @@ fn active_and_inactive_script_keys_are_readable_in_all_timeline_densities() {
                 &s.shape, Shape::LineSegment { points, stroke }
                    if stroke.color == palette.timeline_playhead && points[0].x == points[1].x
             )).expect("playhead stem");
+            let row = out
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    Shape::Text(text) if text.galley.job.text == "a" => Some(s.clip_rect),
+                    _ => None,
+                })
+                .expect("scripted layer row");
+            let mut dots: Vec<_> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    Shape::Circle(c)
+                        if s.clip_rect == row
+                            && (c.radius + c.stroke.width / 2. - 3.).abs() < 0.01 =>
+                    {
+                        Some(c)
+                    }
+                    _ => None,
+                })
+                .collect();
+            dots.sort_by(|a, b| a.center.x.total_cmp(&b.center.x));
+            assert_eq!(dots.len(), 4, "{density:?}: all four keys must be visible");
+            for (dot, (frame, empty)) in
+                dots.iter()
+                    .zip([(0, false), (3, true), (6, false), (9, true)])
+            {
+                assert_eq!(dot.stroke.width > 0., empty, "{density:?}: frame {frame}");
+                let tone = if empty { dot.stroke.color } else { dot.fill };
+                assert_eq!(
+                    tone,
+                    if frame == current {
+                        palette.timeline_marker_inverse
+                    } else {
+                        palette.timeline_marker
+                    },
+                    "{density:?}: frame {frame}, playhead {current}"
+                );
+                let offset = dot.center.y - row.center().y;
+                assert!(
+                    offset > 0.,
+                    "{density:?}: frame {frame} dot must sit below centre"
+                );
+                assert_eq!(
+                    offset,
+                    *baseline.get_or_insert(offset),
+                    "{density:?}: frame {frame} dot must keep the layer baseline under playhead {current}"
+                );
+            }
             let mut markers = 0;
             for (idx, shape) in out.shapes.iter().enumerate() {
                 let Shape::Text(text) = &shape.shape else {
@@ -801,19 +855,9 @@ fn active_and_inactive_script_keys_are_readable_in_all_timeline_densities() {
                     shape.clip_rect.contains_rect(ink),
                     "{density:?}: clipped letter"
                 );
-                let dot = out
-                    .shapes
+                let dot = dots
                     .iter()
-                    .find_map(|s| match &s.shape {
-                        Shape::Circle(c)
-                            if (c.center.x - ink.center().x).abs() < 1.
-                                && shape.clip_rect.contains(c.center)
-                                && (c.radius + c.stroke.width / 2. - 3.).abs() < 0.01 =>
-                        {
-                            Some(c)
-                        }
-                        _ => None,
-                    })
+                    .find(|c| (c.center.x - ink.center().x).abs() < 1.)
                     .expect("keyframe dot below the letter");
                 let outer_radius = dot.radius + dot.stroke.width / 2.;
                 let top = dot.center.y - outer_radius;

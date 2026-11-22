@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Timeline script indicators remain visible under the playhead. Short and Compact rows centre the letter and keyframe dot together so the top of the letter clears the row divider.
+- Timeline keyframe dots share a baseline below the row centre, with or without a frame script. Short and Compact rows leave room for the script letter above the dot, including under the playhead.
 - Switching categories in Preferences shows the first setting on the newly selected page, even after scrolling the previous page.
 - In Color, use the keyboard to select, move, add or delete gradient stops. Actions preserves the script when focus enters the editor. History rows, script pins and shortcut assignments show keyboard focus, and panel scrolling reveals the focused control.
 

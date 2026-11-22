@@ -247,7 +247,7 @@ their `Grab` cursor feedback (`T-365`).
 
 **TL-09 · Frame view ▸ Compact / Short rows** — `timeline_frame_view_menu` · done
 - Preferences ▸ Timeline, the Frame view menu and individual layer properties use the v3 row heights of 24 pt (Normal), 20 pt (Short) and 18 pt (Compact).
-- The layer list, grid, frame hits and drag targets share the effective row height. The script indicator sits above its key and remains visible under the playhead in all three heights.
+- The layer list, grid, frame hits and drag targets share the effective row height. Filled and hollow keyframe dots sit on the same line below the row centre. Adding a frame script places its letter above the dot and preserves the dot’s position, including under the playhead.
 - The row-height preference persists with the workspace.
 
 **TL-10 · Frame view ▸ Preview** — `timeline_frame_view_menu` · done

@@ -2446,9 +2446,11 @@ impl Editor {
                     marker,
                     MarkerKind::ActionKeyframe | MarkerKind::ActionBlankKeyframe
                 );
-                if script_key && cell.height() <= neoflash_ui::metrics::LAYER_ROW_SHORT {
-                    // The short marker starts its letter at the cell's upper edge. Centre the
-                    // letter and dot together inside the real row, clear of both grid lines.
+                if key.keyed_properties.is_none()
+                    && cell.height() <= neoflash_ui::metrics::LAYER_ROW_SHORT
+                {
+                    // Reserve the same space for the script letter on every circular key,
+                    // so adding a script never moves the dot off its row's baseline.
                     let dot_bottom = tl::glyph_line_y(cell) + tl::MARKER_DOT * 0.5;
                     cell = cell.translate(Vec2::DOWN * ((cell.bottom() - dot_bottom) * 0.5));
                 }
