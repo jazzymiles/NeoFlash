@@ -38,6 +38,7 @@ pub enum TimelineClass {
     TempClipboardObj,
     Object,
     SoundCreator,
+    QtAudioSettings,
     Ole,
     OleClient,
     DocumentPage,
@@ -72,6 +73,7 @@ impl TimelineClass {
             b"CPicTempClipboardObj" => Self::TempClipboardObj,
             b"CPicObj" => Self::Object,
             b"CPicSoundCreator" => Self::SoundCreator,
+            b"CQTAudioSettings" => Self::QtAudioSettings,
             b"CPicOle" => Self::Ole,
             b"CSketchCntrItem" => Self::OleClient,
             b"CDocumentPage" => Self::DocumentPage,
@@ -106,6 +108,7 @@ impl TimelineClass {
             Self::TempClipboardObj => "CPicTempClipboardObj",
             Self::Object => "CPicObj",
             Self::SoundCreator => "CPicSoundCreator",
+            Self::QtAudioSettings => "CQTAudioSettings",
             Self::Ole => "CPicOle",
             Self::OleClient => "CSketchCntrItem",
             Self::DocumentPage => "CDocumentPage",
@@ -821,6 +824,9 @@ pub enum TimelinePayload {
     SoundCreator {
         revision: u8,
         media_id: u16,
+    },
+    QtAudioSettings {
+        data: TimelineByteSpan,
     },
     OleClient {
         item: super::contents::OleClientItem,

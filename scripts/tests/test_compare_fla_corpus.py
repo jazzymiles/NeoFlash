@@ -46,7 +46,7 @@ class CaptureProvenanceTests(unittest.TestCase):
             }
             (root / "inputs.json").write_text(json.dumps([source]))
 
-            def replace_helper(*_args):
+            def replace_helper(*_args, **_kwargs):
                 tool.write_text("second build")
                 return {"id": "case"}
 
@@ -168,10 +168,15 @@ class CaptureProvenanceTests(unittest.TestCase):
             self.assertEqual(rc, 0)
 
             report = json.loads((root / "comparison.json").read_text())
+            self.assertEqual(report["frame_mode"], "sampled")
             self.assertEqual(report["summary"]["editable_stage"], {"exact": 1})
             self.assertEqual(
                 report["summary"]["scripted_playback"],
                 {"diverges_from_editable_stage": 1},
+            )
+            self.assertEqual(
+                report["summary"]["behavioral_parity"],
+                {"authored_scripted_only": 1},
             )
             self.assertEqual(report["counts"]["editable_stage_exact_documents"], 1)
             self.assertEqual(report["counts"]["scripted_playback_divergent_documents"], 1)
@@ -249,6 +254,205 @@ class CaptureProvenanceTests(unittest.TestCase):
             self.assertEqual(row["editable_stage"]["status"], "native only")
             self.assertEqual(row["scripted_playback"]["status"], "trace_match")
             self.assertTrue(row["scripted_playback"]["explains_editable_vs_runtime_gap"])
+            self.assertEqual(row["behavioral_parity"]["status"], "parity_match")
+
+    def test_keyframes_and_midpoints_sweep_planner_and_bounding(self):
+        # Default sampled mode keeps exact [0, last // 2, last] deduplicated compatibility.
+        self.assertEqual(corpus.plan_scene_frames(1, frame_mode="sampled"), [0])
+        self.assertEqual(corpus.plan_scene_frames(2, frame_mode="sampled"), [0, 1])
+        self.assertEqual(corpus.plan_scene_frames(48, frame_mode="sampled"), [0, 23, 47])
+
+        # Keyframes-and-midpoints collects unique keyframe starts, tween midpoints, scripts, and last.
+        swept = corpus.plan_scene_frames(
+            41,
+            keyframes=(0, 10, 30),
+            tween_spans=((0, 10), (10, 30)),
+            frame_scripts=(35,),
+            frame_mode="keyframes-and-midpoints",
+            max_frames_per_scene=64,
+        )
+        self.assertEqual(swept, [0, 5, 10, 20, 30, 35, 40])
+
+        # Dense timelines are deterministically subsampled to max_frames_per_scene while keeping 0 and last.
+        dense = corpus.plan_scene_frames(
+            100,
+            keyframes=range(100),
+            frame_mode="keyframes-and-midpoints",
+            max_frames_per_scene=6,
+        )
+        self.assertEqual(len(dense), 6)
+        self.assertEqual(dense[0], 0)
+        self.assertEqual(dense[-1], 99)
+        self.assertEqual(dense, sorted(set(dense)))
+
+    def test_compare_keyframes_and_midpoints_and_companion_behavioral_parity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tool = root / "helper"
+            tool.write_text("stable helper v3")
+            recipe = root / "corpus.jsfl"
+            recipe.write_text("t.currentFrame = f; doc.exportPNG(out, true, true);")
+
+            case = root / "motion-arc-case"
+            (case / "source").mkdir(parents=True)
+            staged = case / "source/input.fla"
+            staged.write_bytes(b"synthetic motion arc fla")
+            companion = case / "companion.swf"
+            companion.write_bytes(b"FWS\x0a\x10\x00\x00\x00")
+            src_sha = corpus.digest(staged)
+            swf_sha = corpus.digest(companion)
+            token = f"motion-arc-case:{src_sha}:{corpus.digest(recipe)}"
+
+            (case / "complete.txt").write_text(token)
+            (case / "host.txt").write_text("Adobe Animate 24.0")
+            (case / "stage.tsv").write_text("400\t300\t24\t#ffffff\n")
+            (case / "scenes.tsv").write_text("21\t1\t3\t2\t1\n")
+            for f in (0, 10, 20):
+                (case / f"adobe-s0-f{f}.png").write_bytes(f"adobe-{f}".encode())
+
+            source = {
+                "id": "motion-arc-case",
+                "staged": "source/input.fla",
+                "source_sha256": src_sha,
+                "capture_token": token,
+                "companion_swf": {
+                    "movie": "companion.swf",
+                    "movie_sha256": swf_sha,
+                },
+            }
+            (root / "inputs.json").write_text(json.dumps([source]))
+
+            planned = [0, 5, 10, 15, 20]
+            recorded_authored_args = []
+
+            def fake_helper(_cli, mode, *rest):
+                if mode == "authored":
+                    recorded_authored_args.append(list(map(str, rest)))
+                    out_dir = Path(rest[1])
+                    for f in planned:
+                        (out_dir / f"native-s0-f{f}.png").write_bytes(f"native-{f}".encode())
+                    return {
+                        "evaluation_mode": "editable_stage",
+                        "frame_mode": "keyframes-and-midpoints",
+                        "max_frames_per_scene": 8,
+                        "planned_scene_frames": [planned],
+                        "stage": [400.0, 300.0, 24.0],
+                        "background": "#ffffff",
+                        "scenes": [[21, 1, 3, 2, 1]],
+                        "symbols": 2,
+                        "render_errors": [],
+                        "scripted_playback": {
+                            "engine": "AuthoredPlayback",
+                            "has_scripts": True,
+                            "has_independent_movie_clips": False,
+                            "divergent_frames": 0,
+                            "traces": ["intro", "outro"],
+                            "diagnostics": [],
+                            "scenes": [
+                                {
+                                    "scene": 0,
+                                    "planned_frames": planned,
+                                    "frames": [
+                                        {
+                                            "step": f,
+                                            "playhead_frame": f,
+                                            "label": "start" if f == 0 else ("end" if f == 20 else None),
+                                            "display_node_count": 3,
+                                            "root_halted_by_script": False,
+                                            "advancing_clip_count": 0,
+                                            "diverges_from_editable_stage": False,
+                                            "different_rgba_pixels_vs_editable": 0,
+                                            "different_visible_pixels_vs_editable": 0,
+                                            "divergence_causes": [],
+                                        }
+                                        for f in planned
+                                    ],
+                                }
+                            ],
+                        },
+                        "behavioral_parity": {
+                            "status": "parity_match",
+                            "has_companion_swf": True,
+                            "has_scripts": True,
+                            "frame_count_equal": True,
+                            "labels_equal": True,
+                            "display_presence_equal": True,
+                            "display_node_counts_equal": True,
+                            "trace_equal": True,
+                            "authored": {
+                                "scene_count": 1,
+                                "total_frames": 21,
+                                "labels": [
+                                    {"scene": 0, "scene_frame": 0, "global_frame": 0, "label": "start"},
+                                    {"scene": 0, "scene_frame": 20, "global_frame": 20, "label": "end"},
+                                ],
+                                "traces": ["intro", "outro"],
+                                "diagnostics": [],
+                            },
+                            "swf": {
+                                "swf_version": 10,
+                                "vm_kind": "avm2",
+                                "total_frames": 21,
+                                "labels": [
+                                    {"frame": 0, "label": "start"},
+                                    {"frame": 20, "label": "end"},
+                                ],
+                                "traces": ["intro", "outro"],
+                                "diagnostics": [],
+                            },
+                        },
+                    }
+                if mode == "pixels":
+                    return {
+                        "pixels": 120000,
+                        "different_rgba_pixels": 0,
+                        "different_visible_pixels": 0,
+                        "rgba_mae": 0.0,
+                    }
+                raise AssertionError(f"unexpected helper mode {mode}")
+
+            with patch.object(corpus, "helper", side_effect=fake_helper):
+                rc = corpus.compare(
+                    root,
+                    tool,
+                    frame_mode="keyframes-and-midpoints",
+                    max_frames_per_scene=8,
+                )
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(recorded_authored_args), 1)
+            self.assertIn("--frame-mode", recorded_authored_args[0])
+            self.assertIn("keyframes-and-midpoints", recorded_authored_args[0])
+            self.assertIn("--max-frames-per-scene", recorded_authored_args[0])
+            self.assertIn("8", recorded_authored_args[0])
+            self.assertIn("--companion-swf", recorded_authored_args[0])
+
+            report = json.loads((root / "comparison.json").read_text())
+            self.assertEqual(report["frame_mode"], "keyframes-and-midpoints")
+            self.assertEqual(report["max_frames_per_scene"], 8)
+            self.assertEqual(report["summary"]["editable_stage"], {"exact": 1})
+            self.assertEqual(report["summary"]["behavioral_parity"], {"parity_match": 1})
+            self.assertEqual(report["counts"]["sampled_frames"], 5)
+            self.assertEqual(report["counts"]["compared_frames"], 3)
+            self.assertEqual(report["counts"]["exact_frames"], 3)
+            self.assertEqual(report["counts"]["behavioral_parity_compared"], 1)
+            self.assertEqual(report["counts"]["behavioral_parity_matches"], 1)
+
+            case_row = report["cases"][0]
+            self.assertEqual(
+                [f["frame"] for f in case_row["editable_stage"]["frames"]],
+                planned,
+            )
+            self.assertEqual(
+                case_row["editable_stage"]["frames"][1]["status"],
+                "native_sweep_only",
+            )
+            self.assertEqual(
+                case_row["editable_stage"]["frames"][1]["display_node_count"],
+                3,
+            )
+            self.assertEqual(case_row["behavioral_parity"]["status"], "parity_match")
+            self.assertTrue(case_row["behavioral_parity"]["trace_equal"])
+            self.assertTrue(case_row["behavioral_parity"]["labels_equal"])
 
 
 if __name__ == "__main__":

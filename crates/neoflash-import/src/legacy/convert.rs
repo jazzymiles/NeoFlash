@@ -45,6 +45,54 @@ pub(super) fn read_string_with_charset(
     }
 }
 
+fn read_text_run_string(
+    bytes: &[u8],
+    value: &ContentsString,
+    char_set: Option<u8>,
+) -> Result<String, String> {
+    let raw = bytes
+        .get(value.data.start..value.data.end)
+        .ok_or("String span outside source")?;
+    if value.utf16 {
+        if raw.len() % 2 != 0 {
+            return Err("Odd UTF-16 byte count".into());
+        }
+        Ok(char::decode_utf16(
+            raw.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| u16::from_le_bytes([b[0], b[1]])),
+        )
+        .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect())
+    } else {
+        Ok(decode_ansi_with_charset(raw, char_set))
+    }
+}
+
+fn read_action_source_string(
+    bytes: &[u8],
+    revision: Option<u32>,
+    value: &ContentsString,
+) -> Result<String, String> {
+    if revision == Some(3) && value.utf16 {
+        let raw = bytes
+            .get(value.data.start..value.data.end)
+            .ok_or("String span outside source")?;
+        let even_raw = &raw[..raw.len() & !1];
+        return Ok(char::decode_utf16(
+            even_raw
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|b| u16::from_le_bytes([b[0], b[1]])),
+        )
+        .map(|r| r.unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect());
+    }
+    read_string(bytes, value)
+}
+
 thread_local! {
     /// Code pages guessed while converting the current document (bit 0: 1251, bit 1: 1252).
     static ANSI_GUESSES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
@@ -1643,14 +1691,16 @@ impl Context<'_> {
             TimelineActionPresence::Empty => Ok(None),
             TimelineActionPresence::Source if a.complete => Ok(Some(Script {
                 language: self.language,
-                source: read_string(
+                source: read_action_source_string(
                     &stream.original_bytes,
+                    a.revision,
                     a.source.as_ref().ok_or("Missing action source")?,
                 )?,
             })),
             TimelineActionPresence::Source => {
                 if let Some(span) = a.source.as_ref()
-                    && let Ok(source) = read_string(&stream.original_bytes, span)
+                    && let Ok(source) =
+                        read_action_source_string(&stream.original_bytes, a.revision, span)
                 {
                     self.report.warning(
                         "fla_actions_partial",
@@ -7447,30 +7497,42 @@ pub(super) fn convert_timeline_text(
         .ok_or("Text has no run or default style")?;
 
     let raw_has_newlines = text.runs.iter().any(|run| {
-        read_string_with_charset(&stream.original_bytes, &run.characters, run.style.char_set)
+        read_text_run_string(&stream.original_bytes, &run.characters, run.style.char_set)
             .is_ok_and(|s| s.contains(['\r', '\n']))
     });
     let single_line_inert_leading =
         !is_dynamic_or_input && text.auto_expand.unwrap_or(0) != 0 && !raw_has_newlines;
 
-    let (mut format, alpha) =
-        decode_cpic_text_style(stream, style, single_line_inert_leading, &mut lossy)?;
+    let (mut format, mut alpha) =
+        decode_cpic_text_style(stream, style, single_line_inert_leading, &mut Vec::new())?;
     let html = is_dynamic_or_input && (flags & (0x8000 | 0x0080)) != 0;
     let mut characters = String::new();
     let mut format_runs: Vec<TextFormatRun> = Vec::new();
     let mut nonempty_styles: Vec<&TimelineTextStyle> = Vec::new();
+    let mut visible_alphas: Vec<f64> = Vec::new();
+    let mut nonempty_alphas: Vec<f64> = Vec::new();
+    let mut nonempty_style_lossy: Vec<&'static str> = Vec::new();
+    let mut fallback_style_lossy: Vec<&'static str> = Vec::new();
+    let _ = decode_cpic_text_style(
+        stream,
+        style,
+        single_line_inert_leading,
+        &mut fallback_style_lossy,
+    )?;
     let mut utf16_cursor = 0u32;
     let mut prev_ended_cr = false;
     for run in &text.runs {
-        let (run_format, run_alpha) =
-            decode_cpic_text_style(stream, &run.style, single_line_inert_leading, &mut lossy)?;
-        if (run_alpha - alpha).abs() > 1e-4 {
-            lossy.push("per-run alpha uses the first run's alpha");
-        }
+        let mut run_lossy = Vec::new();
+        let (run_format, run_alpha) = decode_cpic_text_style(
+            stream,
+            &run.style,
+            single_line_inert_leading,
+            &mut run_lossy,
+        )?;
         // A Flash paragraph break can end one style run and continue with LF
         // in the next. Count UTF-16 offsets after normalizing that boundary.
         let raw_chars =
-            read_string_with_charset(&stream.original_bytes, &run.characters, run.style.char_set)?;
+            read_text_run_string(&stream.original_bytes, &run.characters, run.style.char_set)?;
         let trimmed = if prev_ended_cr {
             raw_chars.strip_prefix('\n').unwrap_or(&raw_chars)
         } else {
@@ -7483,6 +7545,11 @@ pub(super) fn convert_timeline_text(
         let run_units = run_chars.encode_utf16().count() as u32;
         if run_units > 0 {
             nonempty_styles.push(&run.style);
+            nonempty_alphas.push(run_alpha);
+            nonempty_style_lossy.extend(run_lossy);
+            if run_chars.chars().any(|c| !c.is_whitespace()) {
+                visible_alphas.push(run_alpha);
+            }
             if let Some(last) = format_runs.last_mut()
                 && last.end == utf16_cursor
                 && last.format == run_format
@@ -7498,6 +7565,22 @@ pub(super) fn convert_timeline_text(
             utf16_cursor += run_units;
         }
         characters.push_str(&run_chars);
+    }
+    if nonempty_styles.is_empty() {
+        lossy.extend(fallback_style_lossy);
+    } else {
+        lossy.extend(nonempty_style_lossy);
+    }
+    if let Some(&first_vis_alpha) = visible_alphas.first() {
+        alpha = first_vis_alpha;
+        if visible_alphas
+            .iter()
+            .any(|&a| (a - first_vis_alpha).abs() > 1e-4)
+        {
+            lossy.push("per-run alpha uses the first run's alpha");
+        }
+    } else if let Some(&first_nonempty_alpha) = nonempty_alphas.first() {
+        alpha = first_nonempty_alpha;
     }
     if format_runs.len() > 1 {
         format = format_runs[0].format.clone();

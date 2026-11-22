@@ -36,6 +36,26 @@ impl Reader<'_> {
             utf16,
         })
     }
+    fn text_run_string(
+        &mut self,
+        count: usize,
+        utf16: bool,
+        start: usize,
+    ) -> Result<TimelineString> {
+        let width = if utf16 { 2 } else { 1 };
+        if count > MAX_STRING / width {
+            return stop("fla_string_limit", "Text string exceeds 1 MiB.");
+        }
+        let data = self.span(count * width)?;
+        Ok(TimelineString {
+            encoded: TimelineByteSpan {
+                start,
+                end: self.pos,
+            },
+            data,
+            utf16,
+        })
+    }
     fn style_string(&mut self, revision: u8) -> Result<TimelineString> {
         if revision >= 15 {
             return self.string();
@@ -180,7 +200,7 @@ impl Reader<'_> {
                 }
                 let style = self.text_style()?;
                 let start = self.pos;
-                let characters = self.raw_text_string(count, style.revision >= 10, start)?;
+                let characters = self.text_run_string(count, style.revision >= 10, start)?;
                 self.retain_budget()?;
                 text.runs.push(TimelineTextRun { characters, style });
             }

@@ -67,6 +67,23 @@ impl DecodedBinaryBitmap {
             .map_err(|_| error("fla_bitmap_encode", 0, "PNG encoding failed."))?;
         Ok(bytes)
     }
+
+    pub(crate) fn png_bytes_fast(&self) -> Result<Vec<u8>, BinaryMediaError> {
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new_with_quality(
+            &mut bytes,
+            image::codecs::png::CompressionType::Fast,
+            image::codecs::png::FilterType::Sub,
+        )
+        .write_image(
+            &self.rgba,
+            self.width,
+            self.height,
+            ExtendedColorType::Rgba8,
+        )
+        .map_err(|_| error("fla_bitmap_encode", 0, "PNG encoding failed."))?;
+        Ok(bytes)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -538,11 +555,12 @@ impl<'a> MsbBitReader<'a> {
     }
 }
 
-fn wrap_pcm_wav(
+fn wrap_pcm_wav_with_limit(
     pcm: &[u8],
     channels: u16,
     sample_rate_hz: u32,
     bits_per_sample: u16,
+    max_output_bytes: usize,
 ) -> Result<Vec<u8>> {
     let block_align = channels * (bits_per_sample / 8);
     let count = pcm.len();
@@ -550,7 +568,7 @@ fn wrap_pcm_wav(
     let wav_len = 44usize
         .checked_add(count)
         .and_then(|n| n.checked_add(pad))
-        .filter(|&n| n <= neoflash_core::MAX_RESOURCE_BYTES)
+        .filter(|&n| n <= max_output_bytes && u32::try_from(36usize.saturating_add(n - 44)).is_ok())
         .ok_or_else(|| {
             error(
                 "fla_sound_limit",
@@ -587,6 +605,7 @@ fn decode_flash_adpcm(
     scale_44: u64,
     sample_count: u32,
     short_read: bool,
+    max_output_bytes: usize,
 ) -> Result<DecodedBinarySound> {
     let ch_count = usize::from(channels);
     let mut bits = MsbBitReader::new(primary);
@@ -608,7 +627,7 @@ fn decode_flash_adpcm(
     let sign_mask = 1usize << (adpcm_bits - 1);
     let mag_mask = sign_mask - 1;
     let frame_pcm_bytes = ch_count * 2;
-    let max_pcm_bytes = neoflash_core::MAX_RESOURCE_BYTES - 44;
+    let max_pcm_bytes = max_output_bytes.saturating_sub(44);
     let bounded_hint = primary.len().saturating_mul(10).min(max_pcm_bytes);
     let reserve = if sample_count > 0 {
         (sample_count as usize)
@@ -632,7 +651,7 @@ fn decode_flash_adpcm(
             }
             break 'blocks;
         }
-        if 44 + pcm.len() + frame_pcm_bytes > neoflash_core::MAX_RESOURCE_BYTES {
+        if 44 + pcm.len() + frame_pcm_bytes > max_output_bytes {
             return Err(error(
                 "fla_sound_budget",
                 0,
@@ -660,7 +679,7 @@ fn decode_flash_adpcm(
                 }
                 break 'blocks;
             }
-            if 44 + pcm.len() + frame_pcm_bytes > neoflash_core::MAX_RESOURCE_BYTES {
+            if 44 + pcm.len() + frame_pcm_bytes > max_output_bytes {
                 return Err(error(
                     "fla_sound_budget",
                     0,
@@ -689,7 +708,7 @@ fn decode_flash_adpcm(
         }
     }
 
-    let wav = wrap_pcm_wav(&pcm, channels, sample_rate_hz, 16)?;
+    let wav = wrap_pcm_wav_with_limit(&pcm, channels, sample_rate_hz, 16, max_output_bytes)?;
     let duration_44 = (decoded_frames as u64)
         .saturating_mul(scale_44)
         .min(u64::from(u32::MAX)) as u32;
@@ -712,7 +731,22 @@ pub fn decode_binary_sound(
     subtype_revision: u8,
     settings: &ContentsSoundSettings,
 ) -> Result<DecodedBinarySound> {
-    if bytes.len() > neoflash_core::MAX_RESOURCE_TOTAL_BYTES {
+    decode_binary_sound_with_limit(
+        bytes,
+        subtype_revision,
+        settings,
+        neoflash_core::MAX_RESOURCE_BYTES,
+    )
+}
+
+pub(crate) fn decode_binary_sound_with_limit(
+    bytes: &[u8],
+    subtype_revision: u8,
+    settings: &ContentsSoundSettings,
+    max_output_bytes: usize,
+) -> Result<DecodedBinarySound> {
+    let stream_cap = neoflash_core::MAX_RESOURCE_TOTAL_BYTES.max(max_output_bytes);
+    if bytes.len() > stream_cap {
         return Err(error(
             "fla_sound_limit",
             0,
@@ -788,7 +822,13 @@ pub fn decode_binary_sound(
                     "Sound media stream contains no complete PCM sample frames.",
                 ));
             }
-            let wav = wrap_pcm_wav(&primary[..count], channels, sample_rate_hz, bits_per_sample)?;
+            let wav = wrap_pcm_wav_with_limit(
+                &primary[..count],
+                channels,
+                sample_rate_hz,
+                bits_per_sample,
+                max_output_bytes,
+            )?;
             let actual_samples = (count / block) as u64;
             let duration_44 = (actual_samples * scale_44).min(u64::from(u32::MAX)) as u32;
             Ok(DecodedBinarySound {
@@ -806,12 +846,13 @@ pub fn decode_binary_sound(
             scale_44,
             settings.sample_count,
             short_read,
+            max_output_bytes,
         ),
         2 => {
             if primary.is_empty() {
                 return Err(error("fla_sound_empty", 0, "MP3 media stream is empty."));
             }
-            if primary.len() > neoflash_core::MAX_RESOURCE_BYTES {
+            if primary.len() > max_output_bytes {
                 return Err(error(
                     "fla_sound_limit",
                     0,

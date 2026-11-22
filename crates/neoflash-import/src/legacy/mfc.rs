@@ -287,6 +287,40 @@ impl<'a> Reader<'a> {
             utf16,
         })
     }
+    /// Action-source `revision == 3, mode == 1` writes a standard `CString` length header
+    /// (with or without the `FF FE FF` Unicode marker), while its payload bytes are always
+    /// packed UTF-16LE code units (retaining any trailing odd byte in the wire span).
+    fn packed_utf16_source_string(&mut self) -> Result<TimelineString> {
+        let start = self.pos;
+        let first = self.string_length()?;
+        let unicode_marker = first.is_none();
+        let length = if let Some(n) = first {
+            n
+        } else {
+            match self.string_length()? {
+                Some(n) => n,
+                None => return stop("fla_string_limit", "Repeated CString Unicode marker."),
+            }
+        };
+        let length = if length == u32::MAX {
+            0
+        } else {
+            length as usize
+        };
+        let width = if unicode_marker { 2 } else { 1 };
+        if length > MAX_STRING / width {
+            return stop("fla_string_limit", "String exceeds 1 MiB.");
+        }
+        let data = self.span(length * width)?;
+        Ok(TimelineString {
+            encoded: TimelineByteSpan {
+                start,
+                end: self.pos,
+            },
+            data,
+            utf16: true,
+        })
+    }
     fn object_index(&self, id: u32) -> usize {
         match self.refs[id as usize] {
             TimelineReference::Object { object_index } => object_index,
@@ -505,12 +539,25 @@ impl<'a> Reader<'a> {
                     format!("MFC schema {schema} is not implemented."),
                 );
             }
-            // These three records are not CPicObj subclasses; they have no shared base.
+            // Non-CPicObj records have no shared CPicObj base header.
             if class == Class::SoundCreator {
                 let revision = self.byte()?;
                 let media_id = self.word()?;
                 self.objects[object_index].payload =
                     Some(TimelinePayload::SoundCreator { revision, media_id });
+                return Ok(());
+            }
+            if class == Class::QtAudioSettings {
+                let byte_count = self.dword()? as usize;
+                if byte_count > MAX_STRING {
+                    return stop(
+                        "fla_record_limit",
+                        "CQTAudioSettings payload exceeds 1 MiB budget.",
+                    );
+                }
+                let data = self.span(byte_count)?;
+                self.objects[object_index].payload =
+                    Some(TimelinePayload::QtAudioSettings { data });
                 return Ok(());
             }
             if class == Class::OleClient && relation == TimelineRelation::OleItem {
@@ -1046,9 +1093,18 @@ impl<'a> Reader<'a> {
                 actions.collapse_words = Some(self.collection(count as usize, 4)?);
             }
             match mode {
-                1 if rev != 3 => {
-                    let source = self.string()?;
-                    actions.presence = if source.data.start == source.data.end {
+                1 => {
+                    let source = if rev == 3 {
+                        self.packed_utf16_source_string()?
+                    } else {
+                        self.string()?
+                    };
+                    let unit_bytes = if rev == 3 {
+                        (source.data.end - source.data.start) & !1
+                    } else {
+                        source.data.end - source.data.start
+                    };
+                    actions.presence = if unit_bytes == 0 {
                         TimelineActionPresence::Empty
                     } else {
                         TimelineActionPresence::Source
