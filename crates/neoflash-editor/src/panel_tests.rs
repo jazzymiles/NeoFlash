@@ -1619,6 +1619,59 @@ fn bounded_timeline_footer_preserves_stage_at_minimum_root_window() {
     assert!(!editor.dirty());
 }
 
+#[test]
+fn insert_menu_creates_an_undoable_motion_tween_that_animates_after_reopen() {
+    let mut project = Project::blank();
+    project.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: new_id("rectangle"),
+            kind: ElementKind::Rectangle {
+                width: 40.0,
+                height: 20.0,
+                fill: [40, 80, 160, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Default::default()
+        });
+    let mut d = T319Driver::new(project);
+    let before = d.editor.project.clone();
+    let undo_before = d.editor.history.undo_len();
+
+    d.click("Insert");
+    d.click("Motion tween");
+    assert_eq!(d.editor.current_tween(), Some(TweenKind::Motion));
+    assert_eq!(d.editor.history.undo_len(), undo_before + 1);
+    d.editor.undo();
+    assert_eq!(d.editor.project, before);
+    d.editor.redo();
+
+    d.editor.frame = 10;
+    d.editor.make_key(false);
+    d.editor.select_all();
+    assert!(d.editor.nudge_selection(100.0, 0.0));
+    let path = std::env::temp_dir().join(format!(
+        "neoflash-insert-menu-motion-{}.nflash",
+        std::process::id()
+    ));
+    assert!(d.editor.save_to_path(path.clone()));
+    let ctx = egui::Context::default();
+    let mut reopened = Editor::from_project(&ctx, Project::blank());
+    assert!(reopened.try_open_path(path.clone(), &ctx));
+    std::fs::remove_file(path).unwrap();
+
+    reopened.project.validate().unwrap();
+    assert_eq!(reopened.project, d.editor.project);
+    let layer = &reopened.symbol().timeline.layers[0];
+    assert_eq!(layer.keyframes[0].tween_kind, TweenKind::Motion);
+    for (frame, x) in [(0, 0.0), (5, 50.0), (10, 100.0)] {
+        let pose = sample_layer(layer, frame);
+        assert_eq!(pose.len(), 1);
+        assert!((pose[0].transform.x - x).abs() < 1e-6, "frame {frame}");
+    }
+}
+
 /// Design §8: all main menus open, their live toggles change the editor both ways, and view/workspace
 /// changes leave authored content and Undo untouched. Preview/unsupported rows stay distinguishable.
 #[test]
@@ -2631,6 +2684,85 @@ fn history_panel_lists_named_steps_jumps_back_and_forward_clears_and_updates_edi
     assert!(!d.editor.history.can_undo());
     assert!(!d.editor.history.can_redo());
     assert_eq!(d.editor.project, after_three);
+}
+
+#[test]
+fn focused_gradient_stop_uses_document_undo_once_per_keypress() {
+    use crate::authoring_modify::PaintFillType;
+    use crate::commands::{CommandId, Shortcut};
+    use egui::{Key, Modifiers, accesskit};
+
+    let mut d = T319Driver::new(Project::blank());
+    d.editor.add_element(
+        ElementKind::Rectangle {
+            width: 60.0,
+            height: 40.0,
+            fill: [50, 90, 180, 255],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+        },
+        100.0,
+        80.0,
+    );
+    d.editor
+        .set_selection_fill_type(false, PaintFillType::LinearGradient);
+    let before = d.editor.project.clone();
+    let undo = Shortcut::alt_cmd(Key::F11);
+    d.editor
+        .workspace
+        .shortcuts
+        .set_shortcuts(CommandId::EditUndo, vec![undo]);
+    d.editor.show_panel(PanelId::Color);
+    d.settle();
+    let stop = d
+        .out
+        .platform_output
+        .accesskit_update
+        .as_ref()
+        .unwrap()
+        .nodes
+        .iter()
+        .find(|(_, node)| node.label() == Some("Gradient stop 1"))
+        .expect("Color exposes the first gradient stop")
+        .0;
+    d.step(vec![Event::AccessKitActionRequest(
+        accesskit::ActionRequest {
+            action: accesskit::Action::Focus,
+            target: stop,
+            data: None,
+        },
+    )]);
+    d.settle();
+    assert_eq!(
+        d.out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .focus,
+        stop
+    );
+
+    d.key_tap(Key::ArrowRight, Modifiers::NONE);
+    let after = d.editor.project.clone();
+    assert_ne!(after, before);
+    let key = |pressed, repeat| Event::Key {
+        key: undo.key,
+        physical_key: Some(undo.key),
+        modifiers: undo.modifiers,
+        pressed,
+        repeat,
+    };
+    d.step(vec![key(true, false)]);
+    assert_eq!(d.editor.project, before);
+    d.step(vec![key(true, true)]);
+    assert_eq!(
+        d.editor.project, before,
+        "holding Undo must preserve the preceding edit"
+    );
+    d.step(vec![key(false, false)]);
+    d.key_tap(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT);
+    assert_eq!(d.editor.project, after);
 }
 
 #[test]
