@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Timeline script indicators remain visible above keys and beneath the playhead at Normal, Short and Compact row heights.
+- Timeline script indicators remain visible under the playhead. Short and Compact rows centre the letter and keyframe dot together so the top of the letter clears the row divider.
 - Switching categories in Preferences shows the first setting on the newly selected page, even after scrolling the previous page.
 - In Color, use the keyboard to select, move, add or delete gradient stops. Actions preserves the script when focus enters the editor. History rows, script pins and shortcut assignments show keyboard focus, and panel scrolling reveals the focused control.
 

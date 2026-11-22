@@ -815,7 +815,16 @@ fn active_and_inactive_script_keys_are_readable_in_all_timeline_densities() {
                         _ => None,
                     })
                     .expect("keyframe dot below the letter");
-                let top = dot.center.y - dot.radius - dot.stroke.width / 2.;
+                let outer_radius = dot.radius + dot.stroke.width / 2.;
+                let top = dot.center.y - outer_radius;
+                if shape.clip_rect.height() <= neoflash_ui::metrics::LAYER_ROW_SHORT {
+                    let above_letter = ink.top() - shape.clip_rect.top();
+                    let below_dot = shape.clip_rect.bottom() - (dot.center.y + outer_radius);
+                    assert!(
+                        above_letter >= 1.0 && (above_letter - below_dot).abs() < 0.1,
+                        "{density:?}: uneven script marker margins {above_letter} / {below_dot}"
+                    );
+                }
                 assert!(
                     ink.bottom() <= top + 0.01,
                     "{density:?}: action letter {ink:?} crosses marker at {top}"

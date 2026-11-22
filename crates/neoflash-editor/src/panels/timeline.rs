@@ -2441,13 +2441,18 @@ impl Editor {
                     (false, true) => MarkerKind::ActionKeyframe,
                     (false, false) => MarkerKind::Keyframe,
                 };
-                let cell = geo.cell(row, start + 1);
-                if start == self.frame
-                    && matches!(
-                        marker,
-                        MarkerKind::ActionKeyframe | MarkerKind::ActionBlankKeyframe
-                    )
-                {
+                let mut cell = geo.cell(row, start + 1);
+                let script_key = matches!(
+                    marker,
+                    MarkerKind::ActionKeyframe | MarkerKind::ActionBlankKeyframe
+                );
+                if script_key && cell.height() <= neoflash_ui::metrics::LAYER_ROW_SHORT {
+                    // The short marker starts its letter at the cell's upper edge. Centre the
+                    // letter and dot together inside the real row, clear of both grid lines.
+                    let dot_bottom = tl::glyph_line_y(cell) + tl::MARKER_DOT * 0.5;
+                    cell = cell.translate(Vec2::DOWN * ((cell.bottom() - dot_bottom) * 0.5));
+                }
+                if start == self.frame && script_key {
                     let mut painter = rp.clone();
                     if any_solo && !self.is_layer_id_effectively_soloed(&layer_id) {
                         painter.multiply_opacity(0.45);
