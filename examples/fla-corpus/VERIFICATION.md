@@ -1,111 +1,90 @@
-# FLA corpus verification — 2026-10-27
+# FLA corpus verification
 
-## Real downloaded FLA: import through HTML5
+## Per-file multi-frame visual and behavioral verification (21 / 21)
 
-The unchanged Adobe Flash CS6
-[Ruffle frame-labels source](upstream/ruffle/avm1-frame-labels/test.fla) now imports
-to [this native project](imported/ruffle-avm1-frame-labels.nflash). The exact FLA
-bytes remain pinned by the manifest. This is a real upstream source file, not a
-synthetic or stripped replacement.
+Every entry in [manifest.json](manifest.json) (8 binary `.fla` files, 7 upstream `.fla`/XFL archives,
+and 3 authored examples in both `.fla` and `xfl/` directory form) imports into a validated native
+`.nflash` project (`python3 scripts/check-fla-corpus.py`) and is verified against the checked-in
+per-file visual and behavioral contract in [behavioral-oracles.json](behavioral-oracles.json) by
+`cargo test -p neoflash-export --test t471_corpus_21_visual_behavioral_parity`:
 
-| Current check | Result |
-| --- | --- |
-| Importer suite | 80 Rust tests passed, including the unchanged public FLA, metadata rejection, bounded geometry and eight semantic-preservation tests; importer Clippy with all targets passed. |
-| Imported content | 550 × 400, 24 fps; 2 symbols, 3 layers, 11 keys, 3 authored elements, all 9 AS2 frame scripts retained verbatim. |
-| Source geometry | Local square bounds ±21.25 px, opaque red fill, 1 px opaque black round stroke; dimensions/styles independently checked against the original SWF data. |
-| Corpus | 21/21 cases passed: 9 successful imports and 12 explicit refusals. 72 hashed files, 1,007,040 bytes, including the native projects. |
-| Binary MX fixtures | Public button and static-text sources import directly. Rust checks cover Up/Over/Down/Hit state geometry, invisible Hit artwork, text/font/style/bounds/alpha, source-byte retention and document roundtrip. Both contain zero scripts; no browser trace comparison is claimed. |
-| Real WASM and host | `web/tests/real-fla-frame-labels.test.cjs` imports the original FLA, compiles all nine scripts, compares all 17 trace lines with upstream `output.txt`, checks eight more stable ticks and repeats after reset. Passed. |
-| Actual HTML5 | Current exporter generated the bundle now archived under `target/artifacts/dist-history-2026-11-12/fla-corpus/ruffle-avm1-frame-labels/`; opened in the in-app browser. The original red square and black stroke rendered. |
-| Browser trace | Exactly 17 upstream trace lines on initial playback; Restart produced the same 17 again (34 total). No console errors. Root remained on UI frame 3 / 7. |
+- **Multi-frame authoring stage (`editable_stage`):** enumerates every scene (`21` scenes), keyframe
+  start, tween midpoint, span terminal frame, frame-script frame, and synchronized `Graphic` cycle
+  boundary (`99` scene frames) plus multi-frame library symbol timelines (`143` library frames across
+  `Button` states and nested/Flump `MovieClip` animations). Evaluates
+  `AuthoredScene::evaluate_editable_stage_with_filters` and renders stage RGBA bitmaps via
+  `neoflash_export::render_project_frame_rgba`, verifying draw counts, world-space geometry bounding
+  boxes, non-background RGBA coverage, pixel bounding boxes, perceptual hashes, exact RGBA checksums
+  on pure vector/bitmap frames, and 0-pixel identity across all three `.fla` ↔ `xfl/` pairs.
+- **Multi-frame runtime playback (`AuthoredPlayback` & `SwfBytecodePlayer`):** steps
+  `AuthoredPlayback::with_live_scripts` across multi-frame trajectories on all 21 entries (`9`
+  explicitly marked `editable_vs_playback_diverges` where independent `MovieClip` timelines or
+  `stop()`/`gotoAndPlay` scripts diverge from static authoring stage, and `12` matching static
+  stage), and executes all `8` companion `.swf` files in `SwfBytecodePlayer` (`5 / 5` upstream
+  `output.txt` Flash Player trace suites matching `82 / 82` lines with `0` unsupported diagnostics,
+  plus `DefineMorphShape-MX.swf` morph-ratio progression, `DefineButton-MX.swf`, and
+  `DefineText2-MX.swf`).
+- **Pinned Adobe Animate 27.0.1.5 (`MAC 27,0,1,5`) reference bounds:** records stage dimensions,
+  frame rates, background colors (`21 / 21` exact matches), and `42` captured authoring-frame SHA-256
+  digests and RGBA MAE ceilings. Live pixel comparison against `target/artifacts/t463/pinned-final`
+  runs automatically whenever the local capture directory is present and skips only the disk-only PNG
+  diff in clean CI while enforcing all checked-in visual, geometry, and behavioral contracts.
 
-The original source uses missing-label no-ops, ASCII-only case-insensitive labels,
-the earliest duplicate label and a root-captured function called by the child.
-Those behaviors are tested separately from the strict JavaScript/AS3 controls.
-Native goto function aliases and unsupported numeric frame ranges remain explicit
-diagnostic boundaries; this is not a general AS2 compatibility claim.
+| Case ID | Format | Sampled frames (`scene` + `lib`) | `AuthoredPlayback` vs `editable_stage` | Companion `.swf` (`SwfBytecodePlayer`) | Pinned Adobe MAE ceiling |
+| --- | --- | --- | --- | --- | ---: |
+| `ruffle-mx-button` | `legacy_binary_fla` | `1` + `4` (`TestButton` states) | matches stage | `avm1` (`1`f, `1` display) | `≤ 0.0502` |
+| `ruffle-mx-static-text` | `legacy_binary_fla` | `1` + `0` | matches stage | `avm1` (`1`f, `1` display) | `≤ 0.1632` |
+| `ruffle-mx-shape-tween` | `legacy_binary_fla` | `4` + `0` (`30`f morph) | matches stage | `avm1` (`30`f, `28` morph ratios) | `≤ 0.9595` |
+| `ruffle-avm1-frame-labels` | `xfl_archive` | `7` + `2` | diverges (`8` preview traces, `stop()` @ f3) | `avm1` (`17 / 17` `output.txt` lines) | `≤ 0.0567` |
+| `ruffle-avm1-clip-events` | `xfl_archive` | `4` + `0` | diverges (`12` preview traces, `stop()` @ f3) | `avm1` (`19 / 19` `output.txt` lines) | `0.0000` |
+| `ruffle-avm1-nested-button-text` | `legacy_binary_fla` | `1` + `0` | matches stage | `avm1` (`0 / 0` `output.txt` lines) | `≤ 0.2422` |
+| `ruffle-avm2-button-frame-scripts` | `xfl_archive` | `2` + `4` (`MyButton` states) | matches stage | `avm2` (`28 / 28` `output.txt` lines) | `≤ 0.0837` |
+| `ruffle-avm2-nested-construction` | `xfl_archive` | `1` + `2` (`FirstChild`) | diverges (independent `MovieClip`) | `avm2` (`18 / 18` `output.txt` lines) | `≤ 0.2042` |
+| `flump-rotate-test2` | `xfl_archive` | `1` + `8` (`villager_01_dance` `25`f) | matches stage | — | `0.0000` |
+| `flump-potion-simple` | `xfl_archive` | `1` + `41` (`potion` `110`f + `5` clips) | diverges (independent `MovieClip`) | — | `≤ 0.6580` |
+| `flump-flump` | `xfl_archive` | `1` + `56` (`attack`, `defeat`, `explode`, …) | matches stage | — | `0.0000` |
+| `flacomdoc-flash5-shapes` | `legacy_binary_fla` | `1` + `0` | matches stage | — | `≤ 0.1424` |
+| `flacomdoc-mx-layers` | `legacy_binary_fla` | `1` + `0` (`37` layers) | matches stage | — | `0.0000` |
+| `flacomdoc-flash8-scripts` | `legacy_binary_fla` | `1` + `0` | diverges (`2` AS2 traces) | — | `≤ 0.1424` |
+| `flacomdoc-cs4-motion-tween` | `legacy_binary_fla` | `30` + `0` (`30`f motion arc) | matches stage | — | `≤ 0.1757` |
+| `primitives-and-holds-fla` | `xfl_archive` | `9` + `0` (`72`f holds/blank) | matches stage | — | `≤ 2.6584` |
+| `primitives-and-holds-xfl` | `xfl_directory` | `9` + `0` (`0`-px diff vs `.fla`) | matches stage | — | `≤ 2.6584` |
+| `nested-playback-as2-fla` | `xfl_archive` | `5` + `13` (`Orb` `24`f, `Pair` `48`f) | diverges (`4` traces + child `MovieClip`) | — | `≤ 4.6129` |
+| `nested-playback-as2-xfl` | `xfl_directory` | `5` + `13` (`0`-px diff vs `.fla`) | diverges (`4` traces + child `MovieClip`) | — | `≤ 4.6129` |
+| `frame-scripts-as3-fla` | `xfl_archive` | `7` + `0` (`36`f labeled) | diverges (`3` traces, `stop()` @ f24) | — | `≤ 3.5991` |
+| `frame-scripts-as3-xfl` | `xfl_directory` | `7` + `0` (`0`-px diff vs `.fla`) | diverges (`3` traces, `stop()` @ f24) | — | `≤ 3.5991` |
 
-Only the bounded ordinary-shape subset is added: a single strictly convex closed
-straight polygon with integer twip coordinates, one solid fill and an optional
-uniform normal round stroke. Curves, holes, concave/self-intersecting paths,
-multiple paints and ambiguous stroke coverage still block conversion. Inactive
-AS3 publish fields are warned about only for unambiguous AS2; active, malformed,
-nested and namespaced script settings remain blocked. Unknown semantic XML is
-not silently discarded. Script/static text includes every immediate XML text or
-CDATA fragment, even after comments. Namespaced attributes cannot shadow plain
-XFL attributes. Folder/swatch containers accept only audited empty markers;
-nonempty contents produce blocking diagnostics.
+## Browser and WASM runtime checks
 
-New evidence is in ignored `target/real-fla/browser/`: first/restart console JSON,
-exact comparison result and screenshots. Original SWF bytecode was not executed;
-its retained trace is the independent upstream oracle. The actual browser runs
-the imported AS2 source after NeoFlash compilation. The native editor bundle was
-left to the main chat's separate UI verification.
+- **Ruffle `avm1-frame-labels` (`web/tests/real-fla-frame-labels.test.cjs`):** imports the unchanged
+  Adobe Flash CS6 [source FLA](upstream/ruffle/avm1-frame-labels/test.fla) to
+  [imported/ruffle-avm1-frame-labels.nflash](imported/ruffle-avm1-frame-labels.nflash), compiles all
+  nine AS2 frame scripts, verifies all 17 trace lines against upstream `output.txt` (missing-label
+  no-ops, ASCII-only case-insensitive labels, earliest duplicate label, and root-captured child
+  callback), checks eight additional stable ticks, and repeats on Restart (`34` total lines, root
+  parked on UI frame `3 / 7`).
+- **Primitives and holds (`scripts/check-fla-examples.cjs`):** real-WASM checks cover boundary frames
+  `0`, `23`, `24`, `47`, `48`, `59`, `60`, and `71`, verifying shape positions, blank spans,
+  persistent captions, frame labels, and alpha `204`.
+- **Nested playback AS2 (`scripts/check-fla-examples.cjs`):** verifies independent `MovieClip` vs
+  synchronized `Graphic` (`Loop`, `PlayOnce`, `SingleFrame`) advancement at and beyond frame `24`,
+  alpha `0.55`, and `AS2: root frame 1` / `AS2: nested Pair frame 1` traces.
+- **Frame scripts AS3 (`scripts/check-fla-examples.cjs`):** verifies preserved AS3 typed locals,
+  dispatch at frames `0` / `12` / `24`, traces `AS3: start`, `AS3: middle 5`, `AS3: done`, and
+  `stop()` halting the root timeline on display frame `25 / 36` (zero-based frame `24`).
 
-## Initial authored-example verification
+## Known boundaries and local evidence
 
-The following records the earlier collection pass, before the real FLA support
-above. Its original 15-refusal boundary and 69-file count are historical; the
-current corpus counts and compatibility are given above.
-
-Checked locally in the NeoFlash working tree. Importer/exporter and the shared
-browser WASM runtime were rebuilt from the working tree; this is a development
-verification record, not an Adobe interoperability certification.
-
-| Check | Result |
-| --- | --- |
-| Source integrity | 69 payload/companion/license files, 941,558 bytes; every SHA-256 and length matched. |
-| Current importer | `python3 scripts/check-fla-corpus.py`: 21/21 cases passed after a locked importer build. |
-| External FLA | 15/15 recognized: 8 binary FLA and 7 ZIP/XFL; all 15 explicitly refused editable conversion. |
-| Original examples | 3 synthetic FLA plus 3 XFL-directory inputs successfully imported and exactly matched the stored native projects. |
-| Refusal behavior | Blocked inputs returned exit status 1 with `Import blocked:` and created no partial output. Crashes do not count as expected refusals. |
-| Overwrite/input preservation | Successful-import destinations could not be overwritten; every source hash matched again after all checks. |
-| Reproducible fixtures | The authored generator was run twice; ZIP, XFL, native project and metadata bytes matched. |
-| Actual WASM runtime | `node --test scripts/check-fla-examples.cjs`: 3/3 passed after `./scripts/build-web.sh`. |
-| HTML5 exporter | Current exporter successfully produced all three original examples, now archived under `target/artifacts/dist-history-2026-11-12/fla-corpus/`. |
-| Browser | All three exports opened and rendered in the in-app browser; no console errors were observed. |
-
-## Runtime evidence
-
-- **Primitives and holds:** real-WASM checks cover frames 0, 23, 24, 47, 48, 59,
-  60 and 71; shape positions, blank spans, persistent captions, labels and alpha
-  204 are checked. The browser showed the rectangle, translucent circle and
-  captions. Precise boundary frames were verified in WASM rather than inferred
-  from the timing of a browser screenshot.
-- **Nested playback AS2:** checks cover live, looping, play-once and frozen
-  instances at and beyond frame 24, including alpha 0.55. After stopping the
-  parent, the independent child advances while the Graphic instance follows its
-  stopped parent. Browser logs included `AS2: root frame 1` and
-  `AS2: nested Pair frame 1`; all five visible Orb placements rendered.
-- **Frame scripts AS3:** exact source strings and dispatch frames 0/12/24 are
-  checked, including typed locals and `stop()`. WASM only queues the script:
-  the isolated runtime test continues to frame 25 without executing it. The
-  actual browser host printed `AS3: start`, `AS3: middle 5`, `AS3: done` and
-  stayed on display frame **25 / 36** (zero-based frame 24), showing that the
-  host executed the final `stop()`.
-
-The browser correctly warns that Arial is referenced by name and not embedded.
-The toolbar's global playback button can still say Pause when a frame script
-has stopped the root MovieClip; the stable frame counter and script trace were
-used to verify the timeline stop.
-
-## Local evidence and boundaries
-
-- Full inspection reports and summary: `target/fla-corpus/reports/`.
-- Collection research and import-refusal logs: `target/fla-corpus-research/`.
-- Browser screenshots and console evidence: `target/fla-corpus/screenshots/`.
-- HTML5 output: `target/artifacts/fla-corpus/<example>/index.html`.
-
-At that initial collection pass, those paths were ignored build/check outputs.
-Source fixtures are kept in this
-folder; no private user FLA was copied into this public corpus. External FLA/SWF
-scripts were not executed during that initial pass. The upstream reference outputs are not NeoFlash
-results. Full Flash compatibility, visual comparison against Adobe playback,
-desktop-editor interaction and the full workspace test suite were not checked
-as part of this fixture-only change. The three authored examples exercise the
-listed supported subset; they do not convert or substitute for the 15 external
-projects that were blocked at that time. The real FLA verification above
-supersedes that historical boundary for one of those projects.
-
-The main development chat was given the corpus paths, commands, current blockers
-and verification results for integration with the shared development records.
+- Non-zero MAE residuals on device-text and anti-aliased edge frames reflect rasterizer anti-aliasing,
+  host font metrics when fonts are referenced by name rather than embedded, and bitmap resampling;
+  pure vector/bitmap frames enforce exact pixel counts, bounding boxes, perceptual hashes, and FNV-1a
+  RGBA checksums, while device-text frames enforce exact scene geometry plus bounded pixel/hash
+  tolerances across hosts.
+- Bounded native stage preview (`AuthoredPlayback`) reports explicit diagnostics when scripts use
+  construct/unload clip events or dynamic method assignment (`ruffle-avm1-clip-events`,
+  `ruffle-avm1-frame-labels`) and defers full bytecode/compiled execution to `SwfBytecodePlayer` and
+  HTML5 `Test Movie`.
+- Generated inspection reports (`target/fla-corpus/reports/`), HTML5 exports
+  (`target/artifacts/fla-corpus/`), and optional local Adobe Animate captures
+  (`target/artifacts/t463/pinned-final/`) stay under ignored `target/`. No private FLA files or
+  bytes derived from private collections are stored or referenced in this corpus.

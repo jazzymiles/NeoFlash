@@ -53,7 +53,13 @@ def main():
     # Every source/companion/license belongs to the manifest. Local prose and
     # provenance metadata are exempt; generated build/report files belong in target/.
     for path in CORPUS.rglob("*"):
-        if path.is_file() and path.name not in {"README.md", "metadata.json", "manifest.json", "VERIFICATION.md"}:
+        if path.is_file() and path.name not in {
+            "README.md",
+            "metadata.json",
+            "manifest.json",
+            "behavioral-oracles.json",
+            "VERIFICATION.md",
+        }:
             if path.relative_to(CORPUS).as_posix() not in seen:
                 raise ValueError(f"Unlisted corpus file: {path.relative_to(CORPUS)}")
     print(f"Integrity: {len(seen)} pinned files, {total:,} bytes", flush=True)
