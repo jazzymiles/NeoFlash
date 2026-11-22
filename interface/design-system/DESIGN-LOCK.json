@@ -26,7 +26,7 @@
   "crates/neoflash-ui/src/components/headers.rs": "a178f41259cf5022aa9f937e55c0dd9e2c9c9566dd401bb8896f013133fbcdae",
   "crates/neoflash-ui/src/components/icon_group_items.rs": "477d340bca962474199ad643f166534fe3723170609badab2c806384119b21eb",
   "crates/neoflash-ui/src/components/inspector.rs": "0e467ad510dfae8e9614cbbd943fafab699f0ea2c070c5ca8bc1369113860741",
-  "crates/neoflash-ui/src/components/menu.rs": "b7f92a40e4fb82f411ab8a35019e8d0ca5906b997db8172c26f05450a5a8050c",
+  "crates/neoflash-ui/src/components/menu.rs": "74c32755d25e7557d4d1969399dbc1b4cd6127a84a7ecacb93df80b4ee2e08b7",
   "crates/neoflash-ui/src/components/mod.rs": "1eb100e6384566b368a06040c73532c852c454638d1a83540a0fff97a864c5ea",
   "crates/neoflash-ui/src/components/motion.rs": "1e40afb3c34fc4583af444be70e92a5b73bced36314a54dd37ce8b9c54071e94",
   "crates/neoflash-ui/src/components/segmented.rs": "2147eb88e366f2dc50659def139a41a1107ac53a45c709ce81c98c8c85bbd6f7",

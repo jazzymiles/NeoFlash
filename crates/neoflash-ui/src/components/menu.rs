@@ -174,6 +174,7 @@ impl Widget for MenuItem<'_> {
         } else {
             egui::WidgetType::Button
         };
+        crate::theme::focus_ring_inside(ui, &response, radius::sm());
         a11y(&response, kind, self.label, self.checked.then_some(true));
         if response.clicked() && !self.submenu {
             ui.close();
