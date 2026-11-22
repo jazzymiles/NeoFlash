@@ -283,6 +283,13 @@ pub(super) fn prepare_layer(
     timeline_frames: u32,
     ctx: &ExportContext,
 ) -> Vec<PreparedLayer> {
+    // XFL can include all hidden layers or exclude all of them. A layer with a
+    // per-layer override needs its eye on when the document profile excludes them.
+    let visible = if ctx.include_hidden_layers {
+        layer.visible
+    } else {
+        layer.published_visible()
+    };
     if layer.properties.role == LayerRole::Folder {
         return vec![PreparedLayer {
             original_id: Some(layer.id.clone()),
@@ -292,7 +299,7 @@ pub(super) fn prepare_layer(
             } else {
                 layer.name.clone()
             },
-            visible: layer.visible,
+            visible,
             locked: layer.locked,
             properties: layer.properties.clone(),
             frames: Vec::new(),
@@ -316,7 +323,7 @@ pub(super) fn prepare_layer(
             } else {
                 format!("{} ({})", layer.name, sub_idx + 1)
             },
-            visible: layer.visible,
+            visible,
             locked: layer.locked,
             properties: layer.properties.clone(),
             frames,

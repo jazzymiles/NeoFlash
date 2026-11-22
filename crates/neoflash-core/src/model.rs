@@ -261,6 +261,9 @@ pub struct LayerProperties {
     pub end_frame: Option<u32>,
     #[serde(default)]
     pub role: LayerRole,
+    /// The source Flash publish profile includes this layer even with its authoring eye off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub publish_when_hidden: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<Id>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -627,6 +630,28 @@ impl Project {
         }
         if self.uses_format_14() {
             self.format_version = self.format_version.max(14);
+        }
+        if self.uses_format_15() {
+            self.format_version = self.format_version.max(15);
+        }
+    }
+
+    pub fn uses_format_15(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .any(|layer| layer.properties.publish_when_hidden)
+    }
+
+    /// Resolve publish visibility on a disposable export copy for formats without an editor eye.
+    pub fn apply_publish_layer_visibility(&mut self) {
+        for layer in self
+            .symbols
+            .iter_mut()
+            .flat_map(|symbol| &mut symbol.timeline.layers)
+        {
+            layer.visible = layer.published_visible();
+            layer.properties.publish_when_hidden = false;
         }
     }
 
@@ -4661,6 +4686,10 @@ impl Project {
 }
 
 impl Layer {
+    pub fn published_visible(&self) -> bool {
+        self.visible || self.properties.publish_when_hidden
+    }
+
     /// Property keyframes left outside a motion tween by an edit become ordinary
     /// keyframes holding their stored pose (they then start their own span).
     pub fn normalize_motion_keys(&mut self) {

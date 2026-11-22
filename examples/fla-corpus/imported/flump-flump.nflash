@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 15,
   "name": "Imported XFL",
   "width": 211,
   "height": 264,
@@ -22,7 +22,7 @@
           {
             "id": "layer-31",
             "name": "Walk",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -53,6 +53,7 @@
             ],
             "properties": {
               "role": "guide",
+              "publish_when_hidden": true,
               "outline": false,
               "collapsed": false
             }
@@ -98,7 +99,7 @@
           {
             "id": "layer-29",
             "name": "Defeat",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -129,6 +130,7 @@
             ],
             "properties": {
               "role": "guide",
+              "publish_when_hidden": true,
               "outline": false,
               "collapsed": false
             }
@@ -7250,7 +7252,7 @@
           {
             "id": "layer-96",
             "name": "Shadow",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -7303,12 +7305,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-95",
             "name": "Foot_L",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -7413,12 +7421,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-94",
             "name": "Calf_L",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -7549,12 +7563,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-93",
             "name": "Thigh_L",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -7737,12 +7757,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-92",
             "name": "Body",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -7887,12 +7913,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-91",
             "name": "Flap_L",
-            "visible": true,
+            "visible": false,
             "locked": false,
             "keyframes": [
               {
@@ -8033,7 +8065,13 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-90",
@@ -8192,7 +8230,7 @@
           {
             "id": "layer-89",
             "name": "Flap_R",
-            "visible": true,
+            "visible": false,
             "locked": false,
             "keyframes": [
               {
@@ -8333,12 +8371,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-88",
             "name": "Foot_R",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -8516,12 +8560,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-87",
             "name": "Calf_R",
-            "visible": true,
+            "visible": false,
             "locked": true,
             "keyframes": [
               {
@@ -8730,12 +8780,18 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           },
           {
             "id": "layer-86",
             "name": "Thigh_R",
-            "visible": true,
+            "visible": false,
             "locked": false,
             "keyframes": [
               {
@@ -8917,7 +8973,13 @@
                 "tween": null,
                 "label": ""
               }
-            ]
+            ],
+            "properties": {
+              "role": "normal",
+              "publish_when_hidden": true,
+              "outline": false,
+              "collapsed": false
+            }
           }
         ],
         "scripts": []

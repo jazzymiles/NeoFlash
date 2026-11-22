@@ -201,7 +201,7 @@ impl Parser<'_> {
                     if excluded {
                         "InvisibleLayer disables publishing hidden layers. Artwork is retained on a hidden NeoFlash layer and excluded from playback; hidden-layer actions/labels require unsupported layer-owned script/label semantics."
                     } else {
-                        "Flash includes hidden layers in publishing (the default). This layer is made visible in NeoFlash to preserve published artwork/playback; the original authoring eye-toggle state is not retained."
+                        "The layer stays hidden while editing and is included in playback by the Flash publish profile."
                     },
                 );
             }
@@ -209,11 +209,12 @@ impl Parser<'_> {
                 properties: LayerProperties {
                     role,
                     collapsed: role == LayerRole::Folder && !open,
+                    publish_when_hidden: !authoring_visible && self.include_hidden_layers,
                     ..Default::default()
                 },
                 id: new_id("layer"),
                 name: layer_node.attribute("name").unwrap_or("Layer").into(),
-                visible: !excluded,
+                visible: authoring_visible,
                 locked: self.boolean(layer_node, "locked", false, file),
                 keyframes: vec![],
             };

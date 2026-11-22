@@ -2767,7 +2767,18 @@ pub(crate) fn snapshot(
     clock: &dyn Fn(&[Id]) -> Option<u32>,
     patch: &dyn Fn(&[Id]) -> Option<DisplayPatch>,
 ) -> Evaluation {
-    snapshot_mode(project, symbol_id, frame, clock, patch, false)
+    snapshot_mode_with_overrides(
+        project,
+        None,
+        symbol_id,
+        frame,
+        clock,
+        patch,
+        EvaluationMode {
+            publishing: true,
+            ..Default::default()
+        },
+    )
 }
 
 pub(crate) fn snapshot_mode(
@@ -2785,8 +2796,18 @@ pub(crate) fn snapshot_mode(
         frame,
         clock,
         patch,
-        include_guides,
+        EvaluationMode {
+            include_guides,
+            ..Default::default()
+        },
     )
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct EvaluationMode {
+    pub include_guides: bool,
+    pub publishing: bool,
+    pub show_masking: bool,
 }
 
 pub(crate) fn snapshot_mode_with_overrides(
@@ -2796,7 +2817,7 @@ pub(crate) fn snapshot_mode_with_overrides(
     frame: u32,
     clock: &dyn Fn(&[Id]) -> Option<u32>,
     patch: &dyn Fn(&[Id]) -> Option<DisplayPatch>,
-    include_guides: bool,
+    mode: EvaluationMode,
 ) -> Evaluation {
     let mut result = Evaluation::default();
     let Some(root) = symbol_overrides
@@ -2837,7 +2858,7 @@ pub(crate) fn snapshot_mode_with_overrides(
         clock,
         patch,
         result: &mut result,
-        include_guides,
+        mode,
     };
     walker.walk(
         root,
@@ -3053,7 +3074,7 @@ struct Walker<'a> {
     clock: &'a dyn Fn(&[Id]) -> Option<u32>,
     patch: &'a dyn Fn(&[Id]) -> Option<DisplayPatch>,
     result: &'a mut Evaluation,
-    include_guides: bool,
+    mode: EvaluationMode,
 }
 
 #[derive(Clone, Copy)]
@@ -3078,6 +3099,19 @@ impl Walker<'_> {
         if depth >= MAX_DEPTH || self.result.nodes.len() >= MAX_NODES {
             return;
         }
+        // The eye toggle belongs to the timeline being edited. Placed symbols use their
+        // retained Flash publish visibility, including when viewed from the parent stage.
+        let published_layers = self.mode.publishing || depth > 0;
+        let show_masking = self.mode.show_masking;
+        let visible_layer = |layer: &Layer| {
+            // A mask hidden on the edited timeline can still clip its visible targets.
+            let mask_coverage = show_masking && layer.properties.role == LayerRole::Mask;
+            crate::authored_layers::layer_visible_in(
+                &symbol.timeline,
+                layer,
+                published_layers || mask_coverage,
+            )
+        };
         self.result
             .masks
             .extend(crate::authored_layers::layer_mask_plans(
@@ -3085,6 +3119,7 @@ impl Walker<'_> {
                 frame,
                 parent,
                 f64::from(self.project.fps),
+                visible_layer,
             ));
         self.result
             .blend_groups
@@ -3092,8 +3127,9 @@ impl Walker<'_> {
                 &symbol.timeline,
                 frame,
                 parent,
-                self.include_guides,
+                self.mode.include_guides,
                 f64::from(self.project.fps),
+                published_layers,
             ));
         // Layer zero is the backmost layer; list order is painter order everywhere.
         let active_camera = sample_timeline_camera(&symbol.timeline, frame);
@@ -3102,9 +3138,9 @@ impl Walker<'_> {
             self.project.height as f64 * 0.5,
         ];
         for layer in &symbol.timeline.layers {
-            if !layer_effectively_visible(&symbol.timeline, layer)
+            if !visible_layer(layer)
                 || layer.properties.role == LayerRole::Folder
-                || (!self.include_guides && layer.properties.role == LayerRole::Guide)
+                || (!self.mode.include_guides && layer.properties.role == LayerRole::Guide)
             {
                 continue;
             }
@@ -3141,7 +3177,7 @@ impl Walker<'_> {
             for mut e in
                 sample_layer_in_at_fps(&symbol.timeline, layer, frame, f64::from(self.project.fps))
             {
-                if !self.include_guides && active_controllers.iter().any(|cid| cid == &e.id) {
+                if !self.mode.include_guides && active_controllers.iter().any(|cid| cid == &e.id) {
                     continue;
                 }
                 if self.result.nodes.len() >= MAX_NODES {

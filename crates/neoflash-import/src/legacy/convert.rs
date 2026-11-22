@@ -1624,10 +1624,12 @@ impl Context<'_> {
             let state = l
                 .state_flags
                 .and_then(|v| s.original_bytes.get(v.start..v.end));
-            let editor_visible = state.map_or(l.legacy_flag != Some(0), |v| v.get(1) == Some(&0));
-            let locked = state.map_or(l.legacy_flag == Some(1), |v| {
-                v.get(2).is_some_and(|v| *v != 0)
-            });
+            let (editor_visible, locked) = match state {
+                // Older CPicLayer revisions encode hidden, locked, normal and current in one byte.
+                Some([legacy]) => (*legacy != 0, *legacy == 1),
+                Some([_, hidden, locked]) => (*hidden == 0, *locked != 0),
+                _ => (l.legacy_flag != Some(0), l.legacy_flag == Some(1)),
+            };
             let role = match l.layer_type.unwrap_or(0) {
                 0 | 2 | 5 => LayerRole::Normal,
                 1 => LayerRole::Guide,
@@ -2255,32 +2257,22 @@ impl Context<'_> {
                 }
             }
             if !editor_visible && self.include_hidden {
-                match layer.properties.role {
-                    LayerRole::Guide | LayerRole::Folder => {}
-                    LayerRole::Mask => {
-                        layer.visible = true;
-                        self.report.warning(
-                            "fla_publish_hidden_layer",
-                            format!("stream #{} layer {}", s.index, layer.name),
-                            "Layer is visible according to the source publish profile; its original editor eye toggle is retained in provenance.",
-                        );
-                    }
-                    LayerRole::Normal => {
-                        let has_layer_published_payload = layer.keyframes.iter().any(|k| {
-                            !k.elements.is_empty()
-                                || !k.label.is_empty()
-                                || k.sound.is_some()
-                                || k.video.is_some()
-                        });
-                        if has_layer_published_payload {
-                            layer.visible = true;
-                            self.report.warning(
-                                "fla_publish_hidden_layer",
-                                format!("stream #{} layer {}", s.index, layer.name),
-                                "Layer is visible according to the source publish profile; its original editor eye toggle is retained in provenance.",
-                            );
-                        }
-                    }
+                layer.properties.publish_when_hidden = match layer.properties.role {
+                    LayerRole::Guide | LayerRole::Folder => false,
+                    LayerRole::Mask => true,
+                    LayerRole::Normal => layer.keyframes.iter().any(|key| {
+                        !key.elements.is_empty()
+                            || !key.label.is_empty()
+                            || key.sound.is_some()
+                            || key.video.is_some()
+                    }),
+                };
+                if layer.properties.publish_when_hidden {
+                    self.report.warning(
+                        "fla_publish_hidden_layer",
+                        format!("stream #{} layer {}", s.index, layer.name),
+                        "The layer stays hidden while editing and is included in playback by the Flash publish profile.",
+                    );
                 }
             }
             timeline.frame_count = timeline.frame_count.max(cursor);

@@ -54,11 +54,6 @@ pub use self::{
     },
 };
 
-const FONT_INTER_REGULAR: &[u8] =
-    include_bytes!("../../neoflash-ui/assets/fonts/Inter-Regular.ttf");
-const FONT_INTER_BOLD: &[u8] = include_bytes!("../../neoflash-ui/assets/fonts/Inter-SemiBold.ttf");
-const FONT_MONO: &[u8] = include_bytes!("../../neoflash-ui/assets/fonts/RobotoMono-Regular.ttf");
-
 /// Target container/sequence format for `Dialog / Export video` (`DL-05`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

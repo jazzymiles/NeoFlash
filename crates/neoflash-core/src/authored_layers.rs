@@ -82,12 +82,16 @@ pub fn layer_effective_outline_color(timeline: &Timeline, layer: &Layer) -> Opti
 }
 
 pub fn layer_effectively_visible(timeline: &Timeline, layer: &Layer) -> bool {
+    layer_visible_in(timeline, layer, false)
+}
+
+pub(crate) fn layer_visible_in(timeline: &Timeline, layer: &Layer, publishing: bool) -> bool {
     let mut current = Some(layer);
     for _ in 0..=timeline.layers.len() {
         let Some(node) = current else {
             return true;
         };
-        if !node.visible {
+        if !(node.visible || publishing && node.properties.publish_when_hidden) {
             return false;
         }
         current = node
@@ -231,9 +235,10 @@ pub(crate) fn layer_mask_plans(
     frame: u32,
     parent: &[Id],
     fps: f64,
+    visible: impl Fn(&Layer) -> bool,
 ) -> Vec<LayerMaskPlan> {
     let paths = |layer: &Layer| -> Vec<Vec<Id>> {
-        if !layer_effectively_visible(timeline, layer) {
+        if !visible(layer) {
             return vec![];
         }
         crate::evaluate::sample_layer_at_fps(layer, frame, fps)
@@ -306,6 +311,7 @@ pub(crate) fn layer_blend_plans(
     parent: &[Id],
     include_guides: bool,
     fps: f64,
+    publishing: bool,
 ) -> Vec<AuthoredBlendGroupPlan> {
     let is_descendant = |layer: &Layer, folder_id: &str| -> bool {
         let mut current = layer.properties.parent.as_deref();
@@ -344,13 +350,13 @@ pub(crate) fn layer_blend_plans(
     for folder in &timeline.layers {
         if folder.properties.role != LayerRole::Folder
             || folder.properties.blend_mode != BlendMode::Layer
-            || !layer_effectively_visible(timeline, folder)
+            || !layer_visible_in(timeline, folder, publishing)
         {
             continue;
         }
         let mut roots = Vec::new();
         for child in &timeline.layers {
-            if !layer_effectively_visible(timeline, child)
+            if !layer_visible_in(timeline, child, publishing)
                 || child.properties.role == LayerRole::Folder
                 || child.properties.role == LayerRole::Mask
                 || (!include_guides && child.properties.role == LayerRole::Guide)
@@ -380,7 +386,7 @@ pub(crate) fn layer_blend_plans(
         }
     }
     for layer in &timeline.layers {
-        if !layer_effectively_visible(timeline, layer)
+        if !layer_visible_in(timeline, layer, publishing)
             || layer.properties.role == LayerRole::Folder
             || layer.properties.role == LayerRole::Mask
             || (!include_guides && layer.properties.role == LayerRole::Guide)
@@ -450,13 +456,18 @@ pub fn evaluate_scene_with_frozen_clips(
     include_guides: bool,
     show_masking: bool,
 ) -> (AuthoredScene, Vec<String>) {
-    let evaluation = crate::evaluate::snapshot_mode(
+    let evaluation = crate::evaluate::snapshot_mode_with_overrides(
         project,
+        None,
         symbol,
         frame,
         &|path| clip_frames.get(path).copied(),
         &|_| None,
-        include_guides,
+        crate::evaluate::EvaluationMode {
+            include_guides,
+            show_masking,
+            ..Default::default()
+        },
     );
     let mut target_clip_ids = Vec::new();
     if show_masking {
@@ -485,8 +496,9 @@ pub fn evaluate_scene_with_buttons(
     show_masking: bool,
     button_frame: &dyn Fn(&[Id]) -> Option<u32>,
 ) -> AuthoredScene {
-    let evaluation = crate::evaluate::snapshot_mode(
+    let evaluation = crate::evaluate::snapshot_mode_with_overrides(
         project,
+        None,
         symbol,
         frame,
         &|_| None,
@@ -496,7 +508,11 @@ pub fn evaluate_scene_with_buttons(
                 ..Default::default()
             })
         },
-        include_guides,
+        crate::evaluate::EvaluationMode {
+            include_guides,
+            show_masking,
+            ..Default::default()
+        },
     );
     scene_from_evaluation(project, evaluation, show_masking, Some(symbol))
 }
@@ -519,7 +535,11 @@ pub fn evaluate_scene_with_symbol_overrides(
         frame,
         &|_| None,
         &|_| None,
-        include_guides,
+        crate::evaluate::EvaluationMode {
+            include_guides,
+            show_masking,
+            ..Default::default()
+        },
     );
     scene_from_evaluation_with_overrides(
         project,

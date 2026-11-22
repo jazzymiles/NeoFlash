@@ -1485,6 +1485,7 @@ pub(crate) fn prepare_with_config(
     let (published, scenes) = neoflash_core::flatten_scenes_with_ranges(project);
     let (bindings, wasm) = read_runtime(runtime_dir)?;
     let mut published = publishable(&published).unwrap_or(published);
+    published.apply_publish_layer_visibility();
     let (avi_warnings, resource_aliases) = transcode_avi_resources_for_html5(&mut published);
     let mut seq_warnings = Vec::new();
     let mut sequence_pack_atlas = false;

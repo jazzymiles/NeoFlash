@@ -1,11 +1,11 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 
 use crate::ExportError;
-use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
+use ab_glyph::{Font, FontArc, FontVec, PxScale, ScaleFont};
 use neoflash_core::{
     AuthoredBitmapFill, AuthoredDraw, AuthoredPlayback, AuthoredScene, Color, ColorTransform,
     DecodedImage, DrawItem, ElementKind, FillRule, GradientKind, GradientPaint, MaskCoverage,
@@ -301,30 +301,45 @@ impl SequentialVideoFrameSession {
     }
 }
 
-struct BundledFonts {
-    regular: FontRef<'static>,
-    bold: FontRef<'static>,
-    mono: FontRef<'static>,
-}
+#[derive(Default)]
+struct RasterFonts(HashMap<(String, bool, bool), FontArc>);
 
-fn bundled_fonts() -> &'static BundledFonts {
-    static FONTS: OnceLock<BundledFonts> = OnceLock::new();
-    FONTS.get_or_init(|| BundledFonts {
-        regular: FontRef::try_from_slice(FONT_INTER_REGULAR).expect("valid Inter-Regular.ttf"),
-        bold: FontRef::try_from_slice(FONT_INTER_BOLD).expect("valid Inter-SemiBold.ttf"),
-        mono: FontRef::try_from_slice(FONT_MONO).expect("valid RobotoMono-Regular.ttf"),
-    })
-}
-
-fn select_font(family: &str, bold: bool) -> &'static FontRef<'static> {
-    let fonts = bundled_fonts();
-    let lower = family.to_ascii_lowercase();
-    if lower.contains("mono") || lower.contains("courier") || lower.contains("code") {
-        &fonts.mono
-    } else if bold {
-        &fonts.bold
-    } else {
-        &fonts.regular
+impl RasterFonts {
+    fn get(&mut self, project: &Project, family: &str, bold: bool, italic: bool) -> FontArc {
+        self.0
+            .entry((family.to_owned(), bold, italic))
+            .or_insert_with(|| {
+                use crate::fonts::{
+                    fallback_font, matching_system_faces, resolve_project_font_bytes,
+                    system_font_db,
+                };
+                let embedded =
+                    resolve_project_font_bytes(project, family, bold, italic).and_then(|raw| {
+                        let bytes = neoflash_core::sfnt_view_bytes(&raw)
+                            .map(std::borrow::Cow::into_owned)
+                            .unwrap_or(raw);
+                        let index = neoflash_core::select_best_sfnt_face_index(
+                            &bytes, family, bold, italic,
+                        );
+                        FontVec::try_from_vec_and_index(bytes, index).ok()
+                    });
+                let face = embedded.or_else(|| {
+                    matching_system_faces(family, bold, italic)
+                        .into_iter()
+                        .find_map(|face| {
+                            system_font_db()
+                                .with_face_data(face.id, |bytes, index| {
+                                    FontVec::try_from_vec_and_index(bytes.to_vec(), index).ok()
+                                })
+                                .flatten()
+                        })
+                });
+                face.map(FontArc::new).unwrap_or_else(|| {
+                    FontArc::try_from_slice(fallback_font(family, bold))
+                        .expect("valid bundled fallback font")
+                })
+            })
+            .clone()
     }
 }
 
@@ -407,6 +422,7 @@ pub fn render_authored_scene_with_video_rgba(
         .map(|(&id, clip)| (id, clip_pixel_bounds(clip, stage_scale, viewport)))
         .collect();
     let mut bitmap_brush = BitmapBrushCache::default();
+    let mut fonts = RasterFonts::default();
     // Adjacent placements share a mask. Bound its allocation to the intersection of the
     // artboards in this run, and release it before drawing the next run in stacking order.
     for draws in scene.draws.chunk_by(|a, b| a.clip_ids == b.clip_ids) {
@@ -447,6 +463,7 @@ pub fn render_authored_scene_with_video_rgba(
                 mask.as_ref(),
                 bitmap_cache,
                 &mut bitmap_brush,
+                &mut fonts,
                 video_cache,
                 video_placements,
             );
@@ -601,17 +618,6 @@ fn to_skia_fill_rule(rule: FillRule) -> SkiaFillRule {
     }
 }
 
-fn apply_color(base: Color, ct: ColorTransform, alpha: f64) -> Color {
-    let mut c = ct.apply(base);
-    let safe_alpha = if alpha.is_finite() {
-        alpha.clamp(0.0, 1.0)
-    } else {
-        1.0
-    };
-    c[3] = (f64::from(c[3]) * safe_alpha).round().clamp(0.0, 255.0) as u8;
-    c
-}
-
 fn build_skia_path(commands: &[PathCommand]) -> Option<SkiaPath> {
     let mut pb = PathBuilder::new();
     for cmd in commands {
@@ -661,7 +667,6 @@ fn configure_paint_shader<'a>(
     solid: Color,
     gradient: Option<&GradientPaint>,
     ct: ColorTransform,
-    alpha: f64,
 ) -> SkiaPaint<'a> {
     let mut paint = SkiaPaint {
         anti_alias: true,
@@ -671,13 +676,13 @@ fn configure_paint_shader<'a>(
         && !grad.stops.is_empty()
     {
         if grad.stops.len() == 1 {
-            let c = apply_color(grad.stops[0].color, ct, alpha);
+            let c = ct.apply(grad.stops[0].color);
             paint.set_color_rgba8(c[0], c[1], c[2], c[3]);
             return paint;
         }
         let mut stops = Vec::with_capacity(grad.stops.len());
         let mut push_stop = |ratio: u8, color: Color| {
-            let c = apply_color(color, ct, alpha);
+            let c = ct.apply(color);
             stops.push(SkiaGradientStop::new(
                 f32::from(ratio) / 255.0,
                 SkiaColor::from_rgba8(c[0], c[1], c[2], c[3]),
@@ -730,7 +735,7 @@ fn configure_paint_shader<'a>(
             return paint;
         }
     }
-    let c = apply_color(solid, ct, alpha);
+    let c = ct.apply(solid);
     paint.set_color_rgba8(c[0], c[1], c[2], c[3]);
     paint
 }
@@ -783,7 +788,7 @@ impl BitmapBrushCache {
             self.entries.swap(0, index);
         } else {
             let image = decoded_bitmap(project, cache, &fill.resource_id)?;
-            let pixels = bitmap_pixmap(&image, ct, 1.0)?;
+            let pixels = bitmap_pixmap(&image, ct)?;
             const CACHE_BYTES: usize = 160 * 1024 * 1024;
             while self.bytes + pixels.data().len() > CACHE_BYTES {
                 let Some((_, _, old)) = self.entries.pop_back() else {
@@ -860,14 +865,12 @@ fn draw_authored_item(
     mask: Option<&SkiaMask>,
     bitmap_cache: &mut HashMap<String, Option<Arc<DecodedImage>>>,
     bitmap_brush: &mut BitmapBrushCache,
+    fonts: &mut RasterFonts,
     video_cache: &mut HashMap<String, Option<Arc<DecodedVideoStream>>>,
     video_placements: &HashMap<Vec<String>, ResolvedVideoPlacement>,
 ) {
     let item: &DrawItem = &draw.item;
-    let alpha = item.alpha.clamp(0.0, 1.0);
-    if alpha <= 0.0 {
-        return;
-    }
+    // The evaluated transform includes both placement and ancestor opacity.
     let ct = item.color_transform;
     let xf = stage_scale.pre_concat(affine_to_skia(item.transform));
 
@@ -896,7 +899,6 @@ fn draw_authored_item(
                 (*stroke, None, *stroke_width),
                 bitmap_paint.as_ref(),
                 ct,
-                alpha,
                 xf,
                 mask,
             );
@@ -920,7 +922,6 @@ fn draw_authored_item(
                 (*stroke, None, *stroke_width),
                 bitmap_paint.as_ref(),
                 ct,
-                alpha,
                 xf,
                 mask,
             );
@@ -940,7 +941,6 @@ fn draw_authored_item(
                 (*stroke, None, *stroke_width),
                 bitmap_paint.as_ref(),
                 ct,
-                alpha,
                 xf,
                 mask,
             );
@@ -962,7 +962,6 @@ fn draw_authored_item(
                 (*stroke, stroke_gradient.as_ref(), *stroke_width),
                 bitmap_paint.as_ref(),
                 ct,
-                alpha,
                 xf,
                 mask,
             );
@@ -977,9 +976,7 @@ fn draw_authored_item(
                 return;
             }
             if let Some(img) = decoded_bitmap(project, bitmap_cache, resource_id) {
-                draw_bitmap(
-                    pixmap, &img, *width, *height, *smoothing, ct, alpha, xf, mask,
-                );
+                draw_bitmap(pixmap, &img, *width, *height, *smoothing, ct, xf, mask);
             }
         }
         ElementKind::Text {
@@ -988,11 +985,11 @@ fn draw_authored_item(
             font_size,
             color,
         } => {
-            let c = apply_color(*color, ct, alpha);
+            let c = ct.apply(*color);
             draw_plain_text(
                 pixmap,
                 text,
-                select_font(font_family, false),
+                &fonts.get(project, font_family, false, false),
                 *font_size as f32,
                 0.,
                 c,
@@ -1002,7 +999,7 @@ fn draw_authored_item(
         }
         ElementKind::TextBox { .. } => {
             if let Some(field) = neoflash_core::TextFieldState::from_kind(&item.kind) {
-                draw_text_box(pixmap, project, &field, ct, alpha, xf, mask);
+                draw_text_box(pixmap, project, &field, fonts, ct, xf, mask);
             }
         }
         ElementKind::Video { width, height } => {
@@ -1018,17 +1015,7 @@ fn draw_authored_item(
                     .and_then(|s| s.as_ref())
                 && let Some((_, frame)) = stream.frame_at_placement(placement)
             {
-                draw_bitmap(
-                    pixmap,
-                    &frame.image,
-                    target_w,
-                    target_h,
-                    true,
-                    ct,
-                    alpha,
-                    xf,
-                    mask,
-                );
+                draw_bitmap(pixmap, &frame.image, target_w, target_h, true, ct, xf, mask);
             }
         }
         ElementKind::Instance { .. } => {}
@@ -1044,27 +1031,24 @@ fn draw_vector_commands(
     stroke: (Color, Option<&GradientPaint>, f64),
     bitmap_paint: Option<&SkiaPaint<'_>>,
     ct: ColorTransform,
-    alpha: f64,
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
 ) {
-    // The evaluated image color transform already includes ancestor and placement opacity.
-    let alpha = if bitmap_paint.is_some() { 1.0 } else { alpha };
     let Some(path) = build_skia_path(commands) else {
         return;
     };
-    let fill_visible = fill.1.is_some() || apply_color(fill.0, ct, alpha)[3] > 0;
+    let fill_visible = fill.1.is_some() || ct.apply(fill.0)[3] > 0;
     if let Some(paint) = bitmap_paint {
         pixmap.fill_path(&path, paint, to_skia_fill_rule(fill_rule), xf, mask);
     } else if fill_visible {
-        let paint = configure_paint_shader(fill.0, fill.1, ct, alpha);
+        let paint = configure_paint_shader(fill.0, fill.1, ct);
         pixmap.fill_path(&path, &paint, to_skia_fill_rule(fill_rule), xf, mask);
     }
     let (stroke_color, stroke_grad, stroke_width) = stroke;
-    let stroke_visible = stroke_width > 0.0
-        && (stroke_grad.is_some() || apply_color(stroke_color, ct, alpha)[3] > 0);
+    let stroke_visible =
+        stroke_width > 0.0 && (stroke_grad.is_some() || ct.apply(stroke_color)[3] > 0);
     if stroke_visible {
-        let paint = configure_paint_shader(stroke_color, stroke_grad, ct, alpha);
+        let paint = configure_paint_shader(stroke_color, stroke_grad, ct);
         let skia_stroke = SkiaStroke {
             width: stroke_width as f32,
             line_cap: LineCap::Round,
@@ -1083,11 +1067,10 @@ fn draw_bitmap(
     target_h: u32,
     smoothing: bool,
     ct: ColorTransform,
-    alpha: f64,
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
 ) {
-    let Some(src_pixmap) = bitmap_pixmap(img, ct, alpha) else {
+    let Some(src_pixmap) = bitmap_pixmap(img, ct) else {
         return;
     };
     let scale_x = target_w as f32 / img.width as f32;
@@ -1109,9 +1092,9 @@ fn bitmap_quality(smoothing: bool) -> FilterQuality {
     }
 }
 
-fn bitmap_pixmap(img: &DecodedImage, ct: ColorTransform, alpha: f64) -> Option<Pixmap> {
+fn bitmap_pixmap(img: &DecodedImage, ct: ColorTransform) -> Option<Pixmap> {
     let mut src_pixmap = Pixmap::new(img.width, img.height)?;
-    let unchanged = ct.is_identity() && alpha == 1.0;
+    let unchanged = ct.is_identity();
     for (dst, src) in src_pixmap
         .data_mut()
         .as_chunks_mut::<4>()
@@ -1123,7 +1106,7 @@ fn bitmap_pixmap(img: &DecodedImage, ct: ColorTransform, alpha: f64) -> Option<P
             *dst = *src;
             continue;
         }
-        let c = apply_color(*src, ct, alpha);
+        let c = ct.apply(*src);
         let af = f32::from(c[3]) / 255.0;
         dst[0] = (f32::from(c[0]) * af).round() as u8;
         dst[1] = (f32::from(c[1]) * af).round() as u8;
@@ -1137,22 +1120,17 @@ fn draw_text_box(
     pixmap: &mut Pixmap,
     project: &Project,
     field: &neoflash_core::TextFieldState,
+    fonts: &mut RasterFonts,
     ct: ColorTransform,
-    alpha: f64,
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
 ) {
     let Some(box_size) = field.box_size else {
         return;
     };
-    let fmt = &field.format;
-    let embedded =
-        crate::fonts::resolve_project_font_bytes(project, &fmt.font, fmt.bold, fmt.italic);
-    let fallback = crate::fonts::fallback_font(&fmt.font, fmt.bold);
-    let bytes = embedded.as_deref().unwrap_or(fallback);
-    let Ok(runs) = crate::fonts::positioned_text_runs(field, bytes)
-        .or_else(|_| crate::fonts::positioned_text_runs(field, fallback))
-    else {
+    let Ok(runs) = crate::fonts::positioned_text_runs_with_fonts(field, |fmt| {
+        fonts.get(project, &fmt.font, fmt.bold, fmt.italic)
+    }) else {
         return;
     };
     let Some(mut local) = Pixmap::new(
@@ -1161,21 +1139,14 @@ fn draw_text_box(
     ) else {
         return;
     };
-    let sfnt = neoflash_core::sfnt_view_bytes(bytes);
-    let font = FontRef::try_from_slice(sfnt.as_deref().unwrap_or(bytes)).ok();
     for run in runs {
         let fmt = run.format.as_ref().unwrap_or(&field.format);
         let rgb = fmt.color.to_be_bytes();
-        let color = apply_color([rgb[1], rgb[2], rgb[3], 255], ct, alpha);
+        let color = ct.apply([rgb[1], rgb[2], rgb[3], 255]);
         draw_plain_text(
             &mut local,
             &run.text,
-            if fmt.font == field.format.font && fmt.bold == field.format.bold {
-                font.as_ref()
-                    .unwrap_or_else(|| select_font(&fmt.font, fmt.bold))
-            } else {
-                select_font(&fmt.font, fmt.bold)
-            },
+            &fonts.get(project, &fmt.font, fmt.bold, fmt.italic),
             fmt.size.max(4.0) as f32,
             fmt.letter_spacing as f32,
             color,
@@ -1190,7 +1161,7 @@ fn draw_text_box(
 fn draw_plain_text(
     pixmap: &mut Pixmap,
     text: &str,
-    font: &FontRef<'_>,
+    font: &FontArc,
     size_px: f32,
     letter_spacing: f32,
     color: Color,

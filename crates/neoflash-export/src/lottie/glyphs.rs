@@ -13,17 +13,6 @@ use neoflash_core::{
     TextFieldState, TextFieldType, TextFormat, Timeline, Transform,
 };
 use serde_json::{Value, json};
-use std::sync::OnceLock;
-
-static SYSTEM_FONT_DB: OnceLock<fontdb::Database> = OnceLock::new();
-
-fn system_font_db() -> &'static fontdb::Database {
-    SYSTEM_FONT_DB.get_or_init(|| {
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        db
-    })
-}
 
 struct ResolvedOutlineFace {
     bytes: Vec<u8>,
@@ -87,33 +76,8 @@ fn resolve_outline_face_for_text(
     }
 
     // 2. System font via cached `fontdb::Database` (including large CJK `.ttc` collections via `face.index`).
-    let db = system_font_db();
-    let target_weight = if bold {
-        fontdb::Weight::BOLD
-    } else {
-        fontdb::Weight::NORMAL
-    };
-    let clean_family = family.trim();
-    let mut matching_faces: Vec<_> = db
-        .faces()
-        .filter(|face| {
-            !clean_family.is_empty()
-                && (face
-                    .families
-                    .iter()
-                    .any(|(name, _)| name.eq_ignore_ascii_case(clean_family))
-                    || face.post_script_name.eq_ignore_ascii_case(clean_family))
-        })
-        .collect();
-    matching_faces.sort_by_key(|face| {
-        (
-            (face.style != fontdb::Style::Normal) != italic,
-            face.weight.0.abs_diff(target_weight.0),
-            face.index,
-            face.post_script_name.as_str(),
-        )
-    });
-    for face in matching_faces {
+    let db = crate::fonts::system_font_db();
+    for face in crate::fonts::matching_system_faces(family, bold, italic) {
         let idx = face.index;
         if let Some(Some((bytes, out_idx))) = db.with_face_data(face.id, |data, _| {
             if data.len() > 512 * 1024 * 1024 {

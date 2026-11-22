@@ -150,6 +150,37 @@ fn convert_timeline_reporting(
 }
 
 #[test]
+fn legacy_single_byte_layer_state_keeps_editing_and_publishing_separate() {
+    for (state, visible, locked) in [
+        (0, false, false),
+        (1, true, true),
+        (2, true, false),
+        (3, true, false),
+    ] {
+        let mut source = timeline_fixture();
+        source.original_bytes = vec![state];
+        let Some(TimelinePayload::Layer(fields)) = &mut source.objects[1].payload else {
+            panic!("fixture layer missing");
+        };
+        fields.revision = Some(3);
+        fields.state_flags = Some(TimelineByteSpan { start: 0, end: 1 });
+        // This separate field is unrelated to the authoring eye and lock.
+        fields.legacy_flag = Some(0);
+        let (timeline, report) = convert_timeline_reporting(&source).unwrap();
+        let layer = &timeline.layers[0];
+        assert_eq!((layer.visible, layer.locked), (visible, locked));
+        assert!(layer.published_visible());
+        assert_eq!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.code == "fla_publish_hidden_layer"),
+            !visible,
+        );
+    }
+}
+
+#[test]
 fn synthetic_timeline_preserves_tween_identity_and_ends_lifetimes_at_blanks() {
     let source = timeline_fixture();
     let timeline = convert_timeline(&source).unwrap();

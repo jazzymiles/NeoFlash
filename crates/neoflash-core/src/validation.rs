@@ -131,11 +131,11 @@ fn validate_with_options(
 ) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=14) {
+    if !matches!(project.format_version, 1..=15) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 14",
+                "unsupported version {}; supported versions are 1 through 15",
                 project.format_version
             ),
         );
@@ -199,6 +199,12 @@ fn validate_with_options(
             "format_version".into(),
             "per-instance symbol behavior overrides and frame label types require document version 14"
                 .into(),
+        );
+    }
+    if project.uses_format_15() && project.format_version < 15 {
+        add(
+            "format_version".into(),
+            "publishing hidden layers requires document version 15".into(),
         );
     }
     let mut scene_ids = HashSet::new();

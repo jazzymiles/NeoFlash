@@ -9,6 +9,7 @@ use neoflash_core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 const FONT_EMBEDDING_METADATA_PATH: &str = "fonts/embedding.json";
 
@@ -338,6 +339,50 @@ pub(super) fn fallback_font(family: &str, bold: bool) -> &'static [u8] {
     }
 }
 
+pub(super) fn system_font_db() -> &'static fontdb::Database {
+    static DATABASE: OnceLock<fontdb::Database> = OnceLock::new();
+    DATABASE.get_or_init(|| {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        db
+    })
+}
+
+pub(super) fn matching_system_faces(
+    family: &str,
+    bold: bool,
+    italic: bool,
+) -> Vec<&'static fontdb::FaceInfo> {
+    let family = family.trim();
+    if family.is_empty() {
+        return Vec::new();
+    }
+    let weight = if bold {
+        fontdb::Weight::BOLD
+    } else {
+        fontdb::Weight::NORMAL
+    };
+    let mut faces: Vec<_> = system_font_db()
+        .faces()
+        .filter(|face| {
+            face.post_script_name.eq_ignore_ascii_case(family)
+                || face
+                    .families
+                    .iter()
+                    .any(|(name, _)| name.eq_ignore_ascii_case(family))
+        })
+        .collect();
+    faces.sort_by_key(|face| {
+        (
+            (face.style != fontdb::Style::Normal) != italic,
+            face.weight.0.abs_diff(weight.0),
+            face.index,
+            face.post_script_name.as_str(),
+        )
+    });
+    faces
+}
+
 pub(super) fn positioned_text_runs(
     field: &TextFieldState,
     bytes: &[u8],
@@ -345,7 +390,15 @@ pub(super) fn positioned_text_runs(
     let sfnt = neoflash_core::sfnt_view_bytes(bytes);
     let font =
         FontRef::try_from_slice(sfnt.as_deref().unwrap_or(bytes)).map_err(|e| e.to_string())?;
+    positioned_text_runs_with_fonts(field, |_| &font)
+}
+
+pub(super) fn positioned_text_runs_with_fonts<F: Font>(
+    field: &TextFieldState,
+    mut font_for: impl FnMut(&TextFormat) -> F,
+) -> Result<Vec<neoflash_core::TextRun>, String> {
     let layout = neoflash_core::layout_text(field, |strings, fmt| {
+        let font = font_for(fmt);
         let units = font.units_per_em().unwrap_or(1000.0);
         Ok(strings
             .iter()

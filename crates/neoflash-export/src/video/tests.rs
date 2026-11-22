@@ -124,6 +124,36 @@ fn raster_output_samples_authored_bitmap_inside_transformed_shape() {
     let rgba = render_project_frame_rgba(&project, None, 0, 20, 16, true, false).unwrap();
     let at = |x: usize, y: usize| rgba.as_chunks::<4>().0[y * 20 + x];
     assert_eq!(at(12, 8), [255, 0, 0, 128]);
+
+    let frame = &mut project.symbols[0].timeline.layers[0].keyframes[0];
+    frame.bitmap_fills.clear();
+    frame.elements[0].kind = ElementKind::Rectangle {
+        width: 12.,
+        height: 12.,
+        fill: [255, 0, 0, 255],
+        stroke: [0; 4],
+        stroke_width: 0.,
+    };
+    frame.elements.push(Element {
+        id: "bitmap".into(),
+        transform: Transform {
+            x: 16.,
+            y: 2.,
+            alpha: 0.5,
+            ..Default::default()
+        },
+        kind: ElementKind::Bitmap {
+            resource_id: "stripes".into(),
+            width: 2,
+            height: 1,
+            smoothing: false,
+        },
+        ..Default::default()
+    });
+    let rgba = render_project_frame_rgba(&project, None, 0, 20, 16, true, false).unwrap();
+    let at = |x: usize, y: usize| rgba.as_chunks::<4>().0[y * 20 + x];
+    assert_eq!(at(8, 8), [255, 0, 0, 128]);
+    assert_eq!(at(16, 2), [255, 0, 0, 128]);
 }
 
 #[test]

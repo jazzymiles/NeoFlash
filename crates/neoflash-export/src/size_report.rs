@@ -191,7 +191,8 @@ pub(crate) fn size_report_from(
     use std::fmt::Write as _;
 
     let (published, flattened_ranges) = neoflash_core::flatten_scenes_with_ranges(project);
-    let published = publishable(&published).unwrap_or(published);
+    let mut published = publishable(&published).unwrap_or(published);
+    published.apply_publish_layer_visibility();
     let published_project_bytes = serde_json::to_string(&published)?.len();
 
     let scene_ids: Vec<&str> = if project.scenes.is_empty() {

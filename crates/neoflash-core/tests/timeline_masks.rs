@@ -90,6 +90,27 @@ fn coverage(project: &Project, frame: u32, points: &[[f64; 2]]) -> Vec<f64> {
         .map(|point| masks.alpha(&scene.draws[0].clip_ids, *point))
         .collect()
 }
+
+#[test]
+fn hidden_imported_mask_clips_the_visible_art_without_showing_its_geometry() {
+    let mut project = masked(vec![rect("mask", 100., 100.)], MaskMode::Geometry);
+    let mask = &mut project.symbols[0].timeline.layers[1];
+    mask.visible = false;
+    mask.properties.publish_when_hidden = true;
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    assert_eq!(
+        coverage(&project, 0, &[[50., 50.], [150., 50.]]),
+        vec![1., 0.]
+    );
+    for show_masking in [false, true] {
+        let scene = evaluate_scene(&project, &project.root, 0, false, show_masking);
+        assert_eq!(scene.draws.len(), 2);
+        assert!(scene.draws.iter().all(|draw| draw.item.name != "mask"));
+    }
+}
+
 #[test]
 fn explicit_alpha_mode_roundtrips_without_changing_legacy_geometry_and_tweens() {
     let old = masked(vec![gradient("gradient")], MaskMode::Geometry);

@@ -1117,7 +1117,19 @@ mod tags;
 mod tests_t414;
 
 pub(crate) use avm1::compile_avm1_actions;
-pub use preflight::preflight_swf_publish;
+/// Preflight the layers that will appear in the published SWF.
+pub fn preflight_swf_publish(
+    project: &Project,
+    options: &SwfPublishOptions,
+) -> FlaCompatibilityReport {
+    if project.uses_format_15() {
+        let mut published = project.clone();
+        published.apply_publish_layer_visibility();
+        preflight::preflight_swf_publish(&published, options)
+    } else {
+        preflight::preflight_swf_publish(project, options)
+    }
+}
 pub(crate) use tags::SwfBitWriter;
 use {
     abc::*, avm1::*, avm1_events::*, avm2::*, avm2_emit::*, dictionary::*, font_table::*,
@@ -1161,6 +1173,9 @@ fn compile_swf_document(
     }
 
     let mut project_cow = crate::strip_skipped_foreign_scripts(project);
+    if project_cow.uses_format_15() {
+        project_cow.to_mut().apply_publish_layer_visibility();
+    }
     if crate::video_frames::has_layers(&project_cow) {
         crate::video_frames::prepare(project_cow.to_mut(), None)?;
     }

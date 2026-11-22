@@ -802,8 +802,9 @@ impl AuthoredPlayback {
         show_masking: bool,
     ) -> AuthoredScene {
         let live = self.live_scripts;
-        let evaluation = crate::evaluate::snapshot_mode(
+        let evaluation = crate::evaluate::snapshot_mode_with_overrides(
             project,
+            None,
             &self.symbol,
             self.frame(),
             &|path| self.player.clip_frame(path),
@@ -814,7 +815,11 @@ impl AuthoredPlayback {
                     None
                 }
             },
-            include_guides,
+            crate::evaluate::EvaluationMode {
+                include_guides,
+                publishing: live,
+                show_masking,
+            },
         );
         // Outline is an editor display preference. Playback shows the authored
         // fills/effects while leaving both the document and static scrub intact.

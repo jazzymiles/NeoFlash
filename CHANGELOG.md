@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- FLA/XFL import retains the timeline eye and lock states, including classic binary FLA layers. Placed symbols and playback use the source publish visibility, and hidden imported masks can still clip visible artwork. Raster exports use embedded or installed font faces where available and apply inherited opacity once to fills, strokes, images and text.
+
 - Timeline keyframe dots share a baseline below the row centre, with or without a frame script. Short and Compact rows leave room for the script letter above the dot, including under the playhead.
 - Switching categories in Preferences shows the first setting on the newly selected page, even after scrolling the previous page.
 - In Color, use the keyboard to select, move, add or delete gradient stops. Actions preserves the script when focus enters the editor. History rows, script pins and shortcut assignments show keyboard focus, and panel scrolling reveals the focused control.

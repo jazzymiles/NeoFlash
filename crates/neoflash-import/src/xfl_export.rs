@@ -542,10 +542,11 @@ fn can_exclude_hidden_layers(project: &Project) -> bool {
         let mut excluded_end = 0u32;
         for layer in &timeline.layers {
             if layer.properties.role == LayerRole::Folder {
+                saw_hidden |= !layer.published_visible();
                 continue;
             }
             let layer_end = layer_effective_end(layer, timeline_end);
-            if layer.visible {
+            if layer.published_visible() {
                 published_end = published_end.max(layer_end);
             } else {
                 saw_hidden = true;

@@ -1,4 +1,4 @@
-use neoflash_core::{PlaybackCommand, Player, ScriptLanguage, evaluate};
+use neoflash_core::{AuthoredPlayback, PlaybackCommand, Player, ScriptLanguage, evaluate};
 use neoflash_import::{Severity, import_project, inspect};
 use std::{
     fs,
@@ -107,15 +107,46 @@ fn root_and_nested_hidden_layers_follow_publish_policy_and_preserve_all_artwork(
                 .iter()
                 .find(|l| l.name.starts_with("Hidden"))
                 .unwrap();
-            assert_eq!(hidden.visible, includes);
+            assert!(!hidden.visible);
+            assert_eq!(hidden.properties.publish_when_hidden, includes);
         }
         let authored = evaluate(&project, &project.root, 0);
         let mut player = Player::new(&project);
-        assert_eq!(authored.len(), if includes { 4 } else { 2 });
-        assert_eq!(player.evaluate(&project).len(), authored.len());
-        assert_eq!(authored.iter().any(|e| e.name == "rootRed"), includes);
-        assert_eq!(authored.iter().any(|e| e.name == "nestedBlue"), includes);
+        let published = player.evaluate(&project);
+        assert_eq!(authored.len(), if includes { 3 } else { 2 });
+        assert_eq!(published.len(), if includes { 4 } else { 2 });
+        for name in ["rootRed", "nestedBlue"] {
+            assert_eq!(
+                authored.iter().any(|e| e.name == name),
+                name == "nestedBlue" && includes
+            );
+            assert_eq!(published.iter().any(|e| e.name == name), includes);
+        }
+        let nested = project
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == "Nested")
+            .unwrap();
+        assert!(
+            evaluate(&project, &nested.id, 0)
+                .iter()
+                .all(|e| e.name != "nestedBlue")
+        );
         assert_eq!(player.drain_scripts().len(), 2); // Only the two visible-layer scripts exist.
+        for (live, expected) in [(false, authored.len()), (true, published.len())] {
+            let preview = AuthoredPlayback::with_live_scripts(&project, &project.root, 0, live);
+            assert_eq!(preview.scene(&project, false, true).draws.len(), expected);
+        }
+
+        let path = source.0.join("roundtrip.fla");
+        neoflash_import::export_fla(&project, &path).unwrap();
+        let reopened = import_project(&path).unwrap();
+        assert_eq!(reopened.format_version, project.format_version);
+        assert_eq!(evaluate(&reopened, &reopened.root, 0).len(), authored.len());
+        assert_eq!(
+            Player::new(&reopened).evaluate(&reopened).len(),
+            published.len()
+        );
     }
 }
 
@@ -198,7 +229,8 @@ fn current_publish_profile_selects_language_and_visibility_together() {
             &format!("<flash_profiles>{joined}</flash_profiles>"),
         );
         let project = import_project(&source.0).unwrap();
-        assert_eq!(evaluate(&project, &project.root, 0).len(), 4);
+        assert_eq!(evaluate(&project, &project.root, 0).len(), 3);
+        assert_eq!(Player::new(&project).evaluate(&project).len(), 4);
         assert!(
             project
                 .symbols
@@ -418,7 +450,7 @@ fn canonical_adobe_element_prefix_is_allowed_alongside_unnamespaced_original_fix
     );
     source.replace("DOMDocument.xml", "</DOMDocument>", "</x:DOMDocument>");
     let project = import_project(&source.0).unwrap();
-    assert_eq!(evaluate(&project, &project.root, 0).len(), 4);
+    assert_eq!(Player::new(&project).evaluate(&project).len(), 4);
 }
 
 #[test]
@@ -483,6 +515,6 @@ fn empty_media_and_font_markers_do_not_allow_unexamined_attributes_or_text() {
             &format!("<{tag}> <!-- empty --> </{tag}></DOMDocument>"),
         );
         let project = import_project(&source.0).unwrap();
-        assert_eq!(evaluate(&project, &project.root, 0).len(), 4);
+        assert_eq!(Player::new(&project).evaluate(&project).len(), 4);
     }
 }
