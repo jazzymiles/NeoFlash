@@ -1291,13 +1291,19 @@ pub(crate) fn apply_screen_video_packet(
     let mut pos = 4usize;
     if codec_id == 6 {
         let flags = pkt[4];
+        if (flags & 0xFC) != 0 {
+            return false;
+        }
         pos = 5;
         if (flags & 0x01) != 0 {
             if pos + 2 > pkt.len() {
                 return false;
             }
             let pal_size = usize::from(u16::from_be_bytes([pkt[pos], pkt[pos + 1]]));
-            pos = pos + 2 + pal_size;
+            let Some(next_pos) = pos.checked_add(2).and_then(|p| p.checked_add(pal_size)) else {
+                return false;
+            };
+            pos = next_pos;
             if pos > pkt.len() {
                 return false;
             }
@@ -1331,52 +1337,41 @@ pub(crate) fn apply_screen_video_packet(
                 if block_slice.len() < 2 {
                     return false;
                 }
+                // SWF19 §13 IMAGEBLOCKV2 header byte:
+                // UB[3] Reserved (0), UB[2] ColorDepth (0 = 24-bit BGR),
+                // UB[1] HasDiffBlocks, UB[1] ZlibPrimeCompressCurrent, UB[1] ZlibPrimeCompressPrevious.
+                let block_flags = block_slice[0];
+                let reserved = (block_flags >> 5) & 0x07;
+                let color_depth = (block_flags >> 3) & 0x03;
+                let has_diff_or_zlib_prime = (block_flags & 0x07) != 0;
+                if reserved != 0 || color_depth != 0 || has_diff_or_zlib_prime {
+                    return false;
+                }
                 &block_slice[1..]
             } else {
                 block_slice
             };
 
             let expected_bgr = cur_w * cur_h * 3;
-            let expected_rgb15 = cur_w * cur_h * 2;
             let Ok(raw_block) = decompress_bounded_zlib(zslice, expected_bgr) else {
                 return false;
             };
-            if raw_block.len() >= expected_bgr {
-                decoded_ok = true;
-                for by in 0..cur_h {
-                    let bottom_y = br * block_h + by;
-                    let top_y = h - 1 - bottom_y;
-                    for bx in 0..cur_w {
-                        let si = (by * cur_w + bx) * 3;
-                        let dst_x = bc * block_w + bx;
-                        let di = (top_y * w + dst_x) * 4;
-                        canvas_rgba[di] = raw_block[si + 2];
-                        canvas_rgba[di + 1] = raw_block[si + 1];
-                        canvas_rgba[di + 2] = raw_block[si];
-                        canvas_rgba[di + 3] = 255;
-                    }
-                }
-            } else if codec_id == 6 && raw_block.len() == expected_rgb15 {
-                decoded_ok = true;
-                for by in 0..cur_h {
-                    let bottom_y = br * block_h + by;
-                    let top_y = h - 1 - bottom_y;
-                    for bx in 0..cur_w {
-                        let si = (by * cur_w + bx) * 2;
-                        let pix = u16::from_be_bytes([raw_block[si], raw_block[si + 1]]);
-                        let r5 = ((pix >> 10) & 0x1F) as u8;
-                        let g5 = ((pix >> 5) & 0x1F) as u8;
-                        let b5 = (pix & 0x1F) as u8;
-                        let dst_x = bc * block_w + bx;
-                        let di = (top_y * w + dst_x) * 4;
-                        canvas_rgba[di] = (r5 << 3) | (r5 >> 2);
-                        canvas_rgba[di + 1] = (g5 << 3) | (g5 >> 2);
-                        canvas_rgba[di + 2] = (b5 << 3) | (b5 >> 2);
-                        canvas_rgba[di + 3] = 255;
-                    }
-                }
-            } else {
+            if raw_block.len() != expected_bgr {
                 return false;
+            }
+            decoded_ok = true;
+            for by in 0..cur_h {
+                let bottom_y = br * block_h + by;
+                let top_y = h - 1 - bottom_y;
+                for bx in 0..cur_w {
+                    let si = (by * cur_w + bx) * 3;
+                    let dst_x = bc * block_w + bx;
+                    let di = (top_y * w + dst_x) * 4;
+                    canvas_rgba[di] = raw_block[si + 2];
+                    canvas_rgba[di + 1] = raw_block[si + 1];
+                    canvas_rgba[di + 2] = raw_block[si];
+                    canvas_rgba[di + 3] = 255;
+                }
             }
         }
     }

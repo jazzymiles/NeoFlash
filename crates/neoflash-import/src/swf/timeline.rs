@@ -1257,7 +1257,7 @@ impl SwfBuilder<'_> {
                             }
                         }
                         _ => {
-                            if (raw_w > 0 || raw_h > 0 || num_frames > 0 || codec_id != 0)
+                            if (num_frames > 0 || codec_id != 0)
                                 && self.video_stream_warned.insert(vid)
                             {
                                 let reason = if codec_id != 0 && !matches!(codec_id, 2..=7) {

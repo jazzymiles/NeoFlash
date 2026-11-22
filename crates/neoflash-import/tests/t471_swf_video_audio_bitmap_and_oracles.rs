@@ -292,6 +292,19 @@ fn sample_rgba(buf: &[u8], stride_w: u32, x: u32, y: u32) -> [u8; 4] {
     [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
 }
 
+fn place_char(depth: u16, cid: u16, tx_px: i32, ty_px: i32, ratio: Option<u16>) -> Vec<u8> {
+    let mut p = SwfWriter::new();
+    let flags = 0x06 | if ratio.is_some() { 0x10 } else { 0 };
+    p.u8(flags);
+    p.u16(depth);
+    p.u16(cid);
+    p.translate_matrix(tx_px * 20, ty_px * 20);
+    if let Some(r) = ratio {
+        p.u16(r);
+    }
+    p.buf
+}
+
 #[test]
 fn t471_embedded_screen_video_flv_mux_stage_projection_seek_restart_and_honest_warnings() {
     // 1. Build a 5-frame 32x32 ScreenVideo SWF (2x2 = 4 blocks of 16x16):
@@ -367,19 +380,6 @@ fn t471_embedded_screen_video_flv_mux_stage_projection_seek_restart_and_honest_w
     };
 
     // Place #10 at (10, 10) depth 1, #11 at (50, 10) depth 2, #12 at (80, 10) depth 3
-    let place_char =
-        |depth: u16, cid: u16, tx_px: i32, ty_px: i32, ratio: Option<u16>| -> Vec<u8> {
-            let mut p = SwfWriter::new();
-            let flags = 0x06 | if ratio.is_some() { 0x10 } else { 0 };
-            p.u8(flags);
-            p.u16(depth);
-            p.u16(cid);
-            p.translate_matrix(tx_px * 20, ty_px * 20);
-            if let Some(r) = ratio {
-                p.u16(r);
-            }
-            p.buf
-        };
     let move_ratio = |depth: u16, ratio: u16| -> Vec<u8> {
         let mut p = SwfWriter::new();
         p.u8(0x11); // HasRatio(0x10) | Move(0x01)
@@ -583,15 +583,39 @@ fn t471_embedded_screen_video_flv_mux_stage_projection_seek_restart_and_honest_w
     assert_eq!(s0.frame, 0);
     check_stage_at(&player, 0);
 
-    // 2. Verify honest located warning on 0-frame external NetStream DefineVideoStream & unknown codec_id
+    // 2a. Pure ActionScript `new Video(w, h)` / `FLVPlayback` viewport (`num_frames == 0 && codec_id == 0`)
+    // is losslessly represented by `ElementKind::Video { width, height }` and must emit 0 warnings!
+    let mut pure_vp_swf = SwfWriter::new();
+    let mut pure_vp_def = SwfWriter::new();
+    pure_vp_def.u16(29);
+    pure_vp_def.u16(0); // num_frames = 0
+    pure_vp_def.u16(320);
+    pure_vp_def.u16(180);
+    pure_vp_def.u8(0);
+    pure_vp_def.u8(0); // codec_id = 0
+    pure_vp_swf.tag(60, &pure_vp_def.buf);
+    pure_vp_swf.tag(26, &place_char(1, 29, 0, 0, None));
+    pure_vp_swf.tag(1, &[]);
+    let pure_vp_tmp = TempSwfFile::write("pure-video-vp", &pure_vp_swf.into_swf(8, 320, 180, 1));
+    let pure_vp_report = inspect(pure_vp_tmp.path()).expect("inspect pure AS Video viewport SWF");
+    assert!(
+        pure_vp_report
+            .diagnostics
+            .iter()
+            .all(|d| d.code != "swf_video_viewport"),
+        "pure AS Video(w, h) / FLVPlayback viewport (num_frames=0, codec_id=0) must emit 0 swf_video_viewport warnings, got: {:?}",
+        pure_vp_report.diagnostics
+    );
+
+    // 2b. Verify honest located warning on 0-VideoFrame DefineVideoStream with codec_id != 0 (external/unembedded stream)
     let mut ext_swf = SwfWriter::new();
     let mut ext_def = SwfWriter::new();
     ext_def.u16(30);
-    ext_def.u16(0); // 0 embedded frames (external NetStream viewport)
+    ext_def.u16(0); // 0 embedded VideoFrame tags
     ext_def.u16(320);
     ext_def.u16(180);
     ext_def.u8(0);
-    ext_def.u8(0);
+    ext_def.u8(2); // Sorenson H.263 declared, 0 VideoFrame tags present
     ext_swf.tag(60, &ext_def.buf);
     ext_swf.tag(26, &place_char(1, 30, 0, 0, None));
     ext_swf.tag(1, &[]);
@@ -609,7 +633,7 @@ fn t471_embedded_screen_video_flv_mux_stage_projection_seek_restart_and_honest_w
     assert_eq!(
         vp_warns.len(),
         1,
-        "0-frame external NetStream DefineVideoStream must emit exactly 1 honest located warning: {vp_warns:?}"
+        "0-frame codec_id!=0 DefineVideoStream must emit exactly 1 honest located warning: {vp_warns:?}"
     );
     assert!(
         vp_warns[0].location.contains("#tag=60@") && vp_warns[0].location.contains("swf-sym-30"),
@@ -652,6 +676,121 @@ fn t471_embedded_screen_video_flv_mux_stage_projection_seek_restart_and_honest_w
         "unknown codec_id must emit honest located swf_video_viewport warning: {:?}",
         unk_report.diagnostics
     );
+}
+
+#[test]
+fn t471_large_320x240_screen_video_stage_scene_downsampling_and_sv2_flags() {
+    // 1. 320x240 (76,800 px > 16,384 MAX_SCANLINE_VIDEO_PIXELS):
+    //    20 cols x 15 rows of 16x16 blocks: top half Emerald [16, 185, 129], bottom half Coral [244, 63, 94].
+    let emerald = [16u8, 185, 129];
+    let coral = [244u8, 63, 94];
+    let mut blocks = Vec::with_capacity(20 * 15);
+    for br in 0..15 {
+        // br = 0..7 is bottom half (Coral); br = 7..15 is top half (Emerald)
+        let color = if br < 7 { coral } else { emerald };
+        for _ in 0..20 {
+            blocks.push(Some(color));
+        }
+    }
+    let pkt_320x240 = encode_screen_video_solid_blocks_packet(320, 240, &blocks);
+
+    let mut swf = SwfWriter::new();
+    let mut def = SwfWriter::new();
+    def.u16(40);
+    def.u16(1);
+    def.u16(320);
+    def.u16(240);
+    def.u8(0);
+    def.u8(3); // ScreenVideo v1
+    swf.tag(60, &def.buf);
+
+    let mut vf = SwfWriter::new();
+    vf.u16(40);
+    vf.u16(0);
+    vf.bytes(&pkt_320x240);
+    swf.tag(61, &vf.buf);
+    swf.tag(26, &place_char(1, 40, 0, 0, None));
+    swf.tag(1, &[]);
+
+    let swf_bytes = swf.into_swf(8, 320, 240, 1);
+    let tmp = TempSwfFile::write("sv-320x240", &swf_bytes);
+    let project = import_project(tmp.path()).expect("import 320x240 ScreenVideo");
+    project.validate().expect("320x240 project validates");
+
+    let mut player = SwfBytecodePlayer::from_bytes(&swf_bytes).expect("player");
+    player.step_frame();
+    let (vw, vh, vrgba) = player.video_frame_rgba(40).expect("320x240 RGBA decoded");
+    assert_eq!((vw, vh), (320, 240));
+    assert_eq!(&sample_rgba(vrgba, 320, 160, 40)[..3], &emerald);
+    assert_eq!(&sample_rgba(vrgba, 320, 160, 200)[..3], &coral);
+
+    // Live Editor Stage path (`evaluate_stage_scene`) must downsample into <= 16,384 non-empty runs!
+    let scene = player.evaluate_stage_scene(&project, &project.root, 0, true);
+    assert!(
+        !scene.draws.is_empty() && scene.draws.len() <= 16_384,
+        "expected non-empty bounded Stage draws for 320x240 ScreenVideo, got {} draws",
+        scene.draws.len()
+    );
+
+    // 2. ScreenVideo v2 (`codec_id == 6`) IMAGEBLOCKV2 flags byte validation:
+    //    `0x00` (BGR24, no diff, no zlib prime) must decode; unsupported diff/prime/color-depth/reserved bits must reject cleanly!
+    let make_sv2_swf_with_block_flags = |block_flags: u8| -> Vec<u8> {
+        let mut pkt = Vec::new();
+        pkt.extend_from_slice(&16u16.to_be_bytes());
+        pkt.extend_from_slice(&16u16.to_be_bytes());
+        pkt.push(0x02); // HasIframeImage = 1, HasPaletteInfo = 0
+        let mut bgr = Vec::with_capacity(16 * 16 * 3);
+        for _ in 0..(16 * 16) {
+            bgr.extend_from_slice(&[200, 100, 50]);
+        }
+        let z = zlib_compress(&bgr);
+        let block_len = (1 + z.len()) as u16;
+        pkt.extend_from_slice(&block_len.to_be_bytes());
+        pkt.push(block_flags);
+        pkt.extend_from_slice(&z);
+
+        let mut s = SwfWriter::new();
+        let mut d = SwfWriter::new();
+        d.u16(50);
+        d.u16(1);
+        d.u16(16);
+        d.u16(16);
+        d.u8(0);
+        d.u8(6); // ScreenVideo v2
+        s.tag(60, &d.buf);
+        let mut v = SwfWriter::new();
+        v.u16(50);
+        v.u16(0);
+        v.bytes(&pkt);
+        s.tag(61, &v.buf);
+        s.tag(26, &place_char(1, 50, 0, 0, None));
+        s.tag(1, &[]);
+        s.into_swf(8, 16, 16, 1)
+    };
+
+    let mut ok_p = SwfBytecodePlayer::from_bytes(&make_sv2_swf_with_block_flags(0x00)).unwrap();
+    ok_p.step_frame();
+    let (_, _, ok_rgba) = ok_p
+        .video_frame_rgba(50)
+        .expect("BGR24 0x00 ScreenVideo v2 block must decode");
+    assert_eq!(&sample_rgba(ok_rgba, 16, 8, 8)[..3], &[50, 100, 200]);
+
+    for bad_flag in [
+        0x01u8, // ZlibPrimeCompressPrevious
+        0x02,   // ZlibPrimeCompressCurrent
+        0x04,   // HasDiffBlocks
+        0x08,   // ColorDepth = 1 (non-BGR24)
+        0x10,   // ColorDepth = 2 (non-BGR24)
+        0x20,   // Reserved bit
+    ] {
+        let mut bad_p =
+            SwfBytecodePlayer::from_bytes(&make_sv2_swf_with_block_flags(bad_flag)).unwrap();
+        bad_p.step_frame();
+        assert!(
+            bad_p.video_frame_rgba(50).is_none(),
+            "ScreenVideo v2 block with unsupported IMAGEBLOCKV2 flag 0x{bad_flag:02X} must fail closed"
+        );
+    }
 }
 
 #[test]

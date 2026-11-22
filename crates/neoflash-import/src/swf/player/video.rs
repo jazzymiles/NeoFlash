@@ -121,13 +121,12 @@ fn decode_stream_to_target(
             .packets
             .range((Excluded(cur), Included(effective_frame)))
         {
-            let _ = apply_screen_video_packet(
-                def.codec_id,
-                pkt,
-                def.width,
-                def.height,
-                &mut state.rgba,
-            );
+            if !apply_screen_video_packet(def.codec_id, pkt, def.width, def.height, &mut state.rgba)
+            {
+                state.decoded_frame = None;
+                state.rgba.clear();
+                return;
+            }
         }
         state.decoded_frame = Some(effective_frame);
         return;
@@ -140,9 +139,12 @@ fn decode_stream_to_target(
     let replay_start = nearest_kf.unwrap_or(0);
     let mut any_applied = false;
     for (_, pkt) in def.packets.range(replay_start..=effective_frame) {
-        if apply_screen_video_packet(def.codec_id, pkt, def.width, def.height, &mut state.rgba) {
-            any_applied = true;
+        if !apply_screen_video_packet(def.codec_id, pkt, def.width, def.height, &mut state.rgba) {
+            state.decoded_frame = None;
+            state.rgba.clear();
+            return;
         }
+        any_applied = true;
     }
     if any_applied {
         state.decoded_frame = Some(effective_frame);
@@ -155,25 +157,46 @@ fn decode_stream_to_target(
 fn rgba_to_scanline_rectangles(sym_id: &str, width: u16, height: u16, rgba: &[u8]) -> Vec<Element> {
     let w = usize::from(width);
     let h = usize::from(height);
-    if w == 0 || h == 0 || w.saturating_mul(h) > MAX_SCANLINE_VIDEO_PIXELS || rgba.len() < w * h * 4
-    {
+    let total_px = w.saturating_mul(h);
+    if w == 0 || h == 0 || rgba.len() < total_px.saturating_mul(4) {
         return Vec::new();
     }
+    let mut step = if total_px <= MAX_SCANLINE_VIDEO_PIXELS {
+        1usize
+    } else {
+        total_px.div_ceil(MAX_SCANLINE_VIDEO_PIXELS).isqrt().max(1)
+    };
+    while w.div_ceil(step).saturating_mul(h.div_ceil(step)) > MAX_SCANLINE_VIDEO_PIXELS {
+        step += 1;
+    }
+
+    let grid_cols = w.div_ceil(step);
+    let grid_rows = h.div_ceil(step);
+    let sample_cell = |col: usize, row: usize| -> [u8; 4] {
+        let x = col * step;
+        let y = row * step;
+        let cw = (w - x).min(step);
+        let ch = (h - y).min(step);
+        let sx = x + cw / 2;
+        let sy = y + ch / 2;
+        let base = (sy * w + sx) * 4;
+        [rgba[base], rgba[base + 1], rgba[base + 2], rgba[base + 3]]
+    };
+
     let mut elements = Vec::new();
     let mut seq = 0usize;
-    for y in 0..h {
-        let mut x = 0usize;
-        while x < w {
-            let base = (y * w + x) * 4;
-            let color = [rgba[base], rgba[base + 1], rgba[base + 2], rgba[base + 3]];
-            let mut end_x = x + 1;
-            while end_x < w {
-                let nb = (y * w + end_x) * 4;
-                if [rgba[nb], rgba[nb + 1], rgba[nb + 2], rgba[nb + 3]] != color {
-                    break;
-                }
-                end_x += 1;
+    for row in 0..grid_rows {
+        let y = row * step;
+        let row_h = (h - y).min(step);
+        let mut col = 0usize;
+        while col < grid_cols {
+            let color = sample_cell(col, row);
+            let mut end_col = col + 1;
+            while end_col < grid_cols && sample_cell(end_col, row) == color {
+                end_col += 1;
             }
+            let x = col * step;
+            let end_x = (end_col * step).min(w);
             seq += 1;
             let tf = Transform {
                 x: x as f64,
@@ -186,14 +209,14 @@ fn rgba_to_scanline_rectangles(sym_id: &str, width: u16, height: u16, rgba: &[u8
                 transform: tf,
                 kind: ElementKind::Rectangle {
                     width: (end_x - x) as f64,
-                    height: 1.0,
+                    height: row_h as f64,
                     fill: color,
                     stroke: [0, 0, 0, 0],
                     stroke_width: 0.0,
                 },
                 ..Element::default()
             });
-            x = end_x;
+            col = end_col;
         }
     }
     elements
