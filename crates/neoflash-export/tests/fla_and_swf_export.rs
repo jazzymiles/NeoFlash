@@ -1040,18 +1040,6 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
     assert!(unsupported_report.items.iter().any(|item| {
         item.code == "swf_avm2_frame_script_unsupported_syntax"
             && item.location.contains("frame[0]")
-    }));
-
-    unsupported
-        .symbol_mut(&root_id)
-        .expect("demo root")
-        .timeline
-        .scripts[0]
-        .script
-        .source = "do { trace(\"no\"); } while (false);".to_owned();
-    let lossy_subset = preflight_swf_publish(&unsupported, &avm2_opts);
-    assert!(lossy_subset.items.iter().any(|item| {
-        item.code == "swf_avm2_frame_script_unsupported_syntax"
             && item.message.contains("bounded SWF compiler")
     }));
     assert!(publish_swf_bytes(&unsupported, &avm2_opts).is_err());
@@ -1063,7 +1051,7 @@ fn t192_swf_preflight_blocks_incompatible_scripts_unless_scriptless_mode() {
         .scripts[0]
         .script
         .source =
-        "var x:Number = 1.5; if (x > 1) { x = 2; trace(x); } stop(); gotoAndStop(1);".to_owned();
+        "var x:Number = 1.5; do { if (x > 1) { x = 2; trace(x); } } while (false); stop(); gotoAndStop(1);".to_owned();
     let supported_report = preflight_swf_publish(&unsupported, &avm2_opts);
     assert!(
         supported_report.can_proceed(),
