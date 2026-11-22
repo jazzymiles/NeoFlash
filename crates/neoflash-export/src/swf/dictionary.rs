@@ -136,7 +136,7 @@ impl<'a> SwfDictionaryCompiler<'a> {
     pub(super) fn ensure_media_resources(&mut self) -> Result<(), ExportError> {
         let (used_bitmaps, used_sounds) = used_swf_media_resources(self.project);
         for res in &self.project.resources {
-            if !used_bitmaps.contains(&res.id) && !used_sounds.contains(&res.id) {
+            if !used_bitmaps.contains(&res.id) && !used_sounds.contains_key(&res.id) {
                 continue;
             }
             let Ok(raw) = res.decoded_bytes() else {
@@ -172,52 +172,38 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     ),
                 );
             }
-            if used_sounds.contains(&res.id) {
-                let mut needs_event_def = false;
-                let mut needs_stream_def = false;
-                for sym in &self.project.symbols {
-                    for layer in &sym.timeline.layers {
-                        for kf in &layer.keyframes {
-                            if let Some(snd) = &kf.sound
-                                && snd.resource == res.id
-                            {
-                                if snd.sync == SoundSync::Stream {
-                                    needs_stream_def = true;
-                                } else {
-                                    needs_event_def = true;
-                                }
-                            }
-                        }
+            if let Some(usage) = used_sounds.get(&res.id) {
+                let mut mp3_frames = Vec::new();
+                let info = inspect_swf_sound_resource(&res.media_type, &raw, |frame| {
+                    if usage.stream {
+                        mp3_frames.push(frame);
                     }
-                }
-                let info = analyze_swf_sound_resource(&res.media_type, &raw).map_err(|issue| {
+                })
+                .map_err(|issue| {
                     ExportError::Options(format!(
                         "Frame sound '{}' cannot be encoded as SWF audio: {issue}",
                         res.path
                     ))
                 })?;
-                if needs_stream_def {
-                    let prepared =
-                        prepare_swf_stream_sound(&res.media_type, &raw).map_err(|issue| {
-                            ExportError::Options(format!(
-                                "Stream sound '{}' cannot be encoded as SoundStreamBlock: {issue}",
-                                res.path
-                            ))
-                        })?;
-                    self.stream_sounds.insert(res.id.clone(), prepared);
+                if usage.stream {
+                    self.stream_sounds.insert(
+                        res.id.clone(),
+                        PreparedSwfStreamSound {
+                            info,
+                            audio_bytes: raw[info.data_start..info.data_end].to_vec(),
+                            mp3_frames,
+                        },
+                    );
                 }
-                if needs_event_def || !needs_stream_def {
+                if usage.event {
                     let duration_44 = u64::from(info.sample_count).saturating_mul(44_100)
                         / u64::from(info.sample_rate.max(1));
                     let sid = self.alloc_char_id();
-                    let payload = build_define_sound_payload(sid, &res.media_type, &raw).map_err(
-                        |issue| {
-                            ExportError::Options(format!(
-                                "Frame sound '{}' cannot be encoded as DefineSound: {issue}",
-                                res.path
-                            ))
-                        },
-                    )?;
+                    let payload = build_define_sound_payload(
+                        sid,
+                        &info,
+                        &raw[info.data_start..info.data_end],
+                    );
                     self.root_tags.write_tag(14, &payload);
                     self.sound_ids.insert(res.id.clone(), sid);
                     self.sound_durations_44
@@ -796,21 +782,17 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 .and_then(|l| l.keyframes.iter().find(|k| k.frame == f_idx))
                 .and_then(|k| k.sound.as_ref())
                 && !self.sound_ids.contains_key(&snd.resource)
-                && let Some(res) = self.project.resources.iter().find(|r| r.id == snd.resource)
-                && let Ok(raw) = res.decoded_bytes()
-                && let Ok(info) = analyze_swf_sound_resource(&res.media_type, &raw)
-                && let Ok(payload) =
-                    build_define_sound_payload(self.next_char_id as u16, &res.media_type, &raw)
             {
                 let sid = self.alloc_char_id();
-                let fixed_payload =
-                    build_define_sound_payload(sid, &res.media_type, &raw).unwrap_or(payload);
-                self.root_tags.write_tag(14, &fixed_payload);
+                let stream = &self.stream_sounds[&snd.resource];
+                let info = stream.info;
+                let payload = build_define_sound_payload(sid, &info, &stream.audio_bytes);
+                self.root_tags.write_tag(14, &payload);
                 let duration_44 = u64::from(info.sample_count).saturating_mul(44_100)
                     / u64::from(info.sample_rate.max(1));
-                self.sound_ids.insert(res.id.clone(), sid);
+                self.sound_ids.insert(snd.resource.clone(), sid);
                 self.sound_durations_44
-                    .insert(res.id.clone(), duration_44.max(1));
+                    .insert(snd.resource.clone(), duration_44.max(1));
             }
         }
 

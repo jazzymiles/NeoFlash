@@ -11,6 +11,13 @@ use neoflash_core::{
 use std::path::PathBuf;
 use std::process::Command;
 
+fn node_binary() -> &'static str {
+    ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
+        .into_iter()
+        .find(|path| std::path::Path::new(path).exists())
+        .unwrap_or("node")
+}
+
 fn load_example(name: &str) -> Project {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let path = manifest_dir.join("../../examples").join(name);
@@ -128,12 +135,7 @@ console.log("NODE_TETRIS_OK:" + clip.scoreText.text + ":" + clip.statusText.text
         handler_json = serde_json::to_string(&compiled_handler).unwrap()
     );
 
-    let node_bin = ["/opt/homebrew/bin/node", "/usr/local/bin/node", "node"]
-        .into_iter()
-        .find(|p| *p == "node" || std::path::Path::new(p).exists())
-        .unwrap_or("node");
-
-    let output = Command::new(node_bin)
+    let output = Command::new(node_binary())
         .arg("-e")
         .arg(&harness)
         .output()
@@ -469,6 +471,184 @@ canvas.endFill();
 }
 
 #[test]
+fn layered_conversion_binds_each_display_object_once_and_keeps_authored_names() {
+    let mut project = Project::blank();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let timeline = &mut project.symbols[0].timeline;
+    timeline.frame_count = 2;
+    let mut second = timeline.layers[0].clone();
+    second.id = "actions-2".into();
+    timeline.layers.push(second);
+    let mut child = Element {
+        id: "play-button".into(),
+        scripts: vec![ObjectScript {
+            event: ObjectEvent::Click,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "on(release) { trace(123); } onClipEvent(mouseMove) { trace(456); } onClipEvent(unload) { trace(678); } onClipEvent(data) { trace(789); }".into(),
+            },
+        }],
+        ..Element::default()
+    };
+    timeline.layers[0].keyframes[0].elements.push(child.clone());
+    child.name = "Play - 2".into();
+    child.scripts.clear();
+    timeline.layers[0].keyframes.push(Keyframe {
+        frame: 1,
+        elements: vec![child],
+        ..Default::default()
+    });
+    for layer in &timeline.layers {
+        timeline.scripts.push(FrameScript {
+            layer: Some(layer.id.clone()),
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace(42);".into(),
+            },
+        });
+    }
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+    for target in [
+        ConversionTarget::ActionScript3,
+        ConversionTarget::JavaScript,
+    ] {
+        let (converted, report) = convert_project_scripts(&project, target).unwrap();
+        assert_eq!(report.auto_named_instances, 1);
+        assert_eq!(report.converted_object_scripts, 1);
+        let timeline = &converted.symbols[0].timeline;
+        assert!(
+            timeline.layers[0]
+                .keyframes
+                .iter()
+                .all(|key| key.elements[0].name == "Play - 2")
+        );
+        let scripts = timeline
+            .scripts
+            .iter()
+            .map(|frame| frame.script.source.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(scripts.matches("123").count(), 1, "{scripts}");
+        assert_eq!(scripts.matches("42").count(), 2, "{scripts}");
+        assert!(scripts.contains(r#"this["Play - 2"]"#), "{scripts}");
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.kind == ConversionIssueKind::ManualAttention
+                    && issue.message.contains("data")
+                    && issue.location.contains("frame")),
+            "{report:?}"
+        );
+        assert!(
+            scripts.contains("789"),
+            "manual data handler must remain editable"
+        );
+        let program =
+            check_project(&converted).unwrap_or_else(|e| panic!("{target:?}: {e:?}\n{scripts}"));
+        let handlers: Vec<_> = timeline
+            .scripts
+            .iter()
+            .map(|f| compile_with_program(&f.script, &program).unwrap())
+            .collect();
+        if target == ConversionTarget::JavaScript {
+            let runner = r#"
+                const assert = require('node:assert/strict');
+                const listeners = {};
+                const traces = [];
+                globalThis.trace = value => traces.push(value);
+                const target = name => ({ addEventListener(event, callback) {
+                    if (listeners[name + event]) throw Error('duplicate handler ' + event);
+                    listeners[name + event] = callback;
+                } });
+                const clip = { "Play - 2": target("child"), stage: target("stage"), trace };
+                for (const source of JSON.parse(process.argv[1])) new Function(source).call(clip);
+                assert.deepEqual(traces,[42,42]);
+                listeners.childclick({});
+                listeners.stagemouseMove({});
+                listeners.childremovedFromStage({});
+                assert.deepEqual(traces,[42,42,123,456,678]);
+            "#;
+            let result = Command::new(node_binary())
+                .args(["-e", runner, &serde_json::to_string(&handlers).unwrap()])
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}\n{scripts}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+    }
+}
+
+#[test]
+fn mixed_actionscript_and_web_conversion_handles_object_and_frame_languages() {
+    let mut project = Project::blank();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    let timeline = &mut project.symbols[0].timeline;
+    let typed = ObjectScript {
+        event: ObjectEvent::Load,
+        script: Script {
+            language: ScriptLanguage::TypeScript,
+            source: "const x: number = 4; this.answer = x;".into(),
+        },
+    };
+    let converted = ObjectScript {
+        event: ObjectEvent::Click,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "trace(246);".into(),
+        },
+    };
+    timeline.layers[0].keyframes[0].elements.push(Element {
+        id: "mixed-button".into(),
+        name: "button".into(),
+        scripts: vec![typed, converted],
+        ..Element::default()
+    });
+    let mut copy = project.clone();
+    copy.symbols[0].timeline.scripts.clear();
+    for target in [
+        ConversionTarget::ActionScript3,
+        ConversionTarget::ActionScript2,
+    ] {
+        let error =
+            convert_project_scripts(&copy, target).expect_err("unsupported web object language");
+        assert!(
+            error.contains("TypeScript") && error.contains("not supported"),
+            "{error}"
+        );
+    }
+    project.symbols[0].timeline.scripts.push(FrameScript {
+        frame: 0,
+        layer: None,
+        script: Script {
+            language: ScriptLanguage::JavaScript,
+            source: "this.existing = 'web';".into(),
+        },
+    });
+    let (js, report) = convert_project_scripts(&project, ConversionTarget::JavaScript).unwrap();
+    let timeline = &js.symbols[0].timeline;
+    assert_eq!(report.converted_object_scripts, 2);
+    let frame = &timeline.scripts[0].script.source;
+    assert!(
+        frame.contains("this.existing = 'web';") && frame.contains("246"),
+        "{frame}"
+    );
+    let objects = &timeline.layers[0].keyframes[0].elements[0].scripts;
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].script.language, ScriptLanguage::JavaScript);
+    assert!(
+        objects[0].script.source.contains("this.answer")
+            && !objects[0].script.source.contains(": number")
+    );
+    check_project(&js).unwrap_or_else(|errors| panic!("{errors:?}\n{frame}"));
+}
+
+#[test]
 fn expands_include_units_cleanly_across_as3_as2_and_js() {
     let mut proj = Project::blank();
     proj.script_language = Some(ScriptLanguage::ActionScript2);
@@ -477,6 +657,12 @@ fn expands_include_units_cleanly_across_as3_as2_and_js() {
         path: "shared/constants.as".into(),
         language: ScriptLanguage::ActionScript2,
         source: "var GRAVITY:Number = 9.8;\nthis._alpha = 50;\n".into(),
+    });
+    proj.sources.push(SourceUnit {
+        id: "unused-source".into(),
+        path: "shared/draft.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "// Authored for a future frame.\nvar note = 'draft';".into(),
     });
     let lid = proj.symbols[0].timeline.layers[0].id.clone();
     proj.symbols[0].timeline.scripts.push(FrameScript {
@@ -490,9 +676,9 @@ fn expands_include_units_cleanly_across_as3_as2_and_js() {
 
     let (as3_proj, _) =
         convert_project_scripts(&proj, ConversionTarget::ActionScript3).expect("include -> AS3");
-    assert!(
-        as3_proj.sources.is_empty(),
-        "include-only snippet unit should be expanded inline"
+    assert_eq!(
+        as3_proj.sources, proj.sources,
+        "include and unused source remain editable"
     );
     assert!(
         as3_proj.symbols[0].timeline.scripts[0]
@@ -510,7 +696,7 @@ fn expands_include_units_cleanly_across_as3_as2_and_js() {
 
     let (js_proj, _) =
         convert_project_scripts(&proj, ConversionTarget::JavaScript).expect("include -> JS");
-    assert!(js_proj.sources.is_empty());
+    assert_eq!(js_proj.sources, proj.sources);
     assert!(
         js_proj.symbols[0].timeline.scripts[0]
             .script

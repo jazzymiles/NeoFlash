@@ -6,85 +6,13 @@ use super::*;
 pub(super) struct PreparedSwfStreamSound {
     pub(super) info: SwfSoundInfo,
     pub(super) audio_bytes: Vec<u8>,
-    pub(super) mp3_frames: Vec<(usize, usize, u16)>,
+    pub(super) mp3_frames: Vec<Mp3Frame>,
 }
 
 pub(super) struct TimelineStreamPlan {
     pub(super) head_by_frame: BTreeMap<u32, Vec<u8>>,
     pub(super) block_by_frame: BTreeMap<u32, Vec<u8>>,
-    pub(super) fallback_event_frames: HashSet<(usize, u32)>,
-}
-
-fn parse_mp3_frame_slices(audio_bytes: &[u8]) -> Vec<(usize, usize, u16)> {
-    const BITRATES_V1_L3: [u32; 16] = [
-        0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
-    ];
-    const BITRATES_V2_L3: [u32; 16] = [
-        0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0,
-    ];
-
-    let mut frames = Vec::new();
-    let mut pos = 0usize;
-    let end = audio_bytes.len();
-    while pos + 4 <= end {
-        if audio_bytes[pos] != 0xff || (audio_bytes[pos + 1] & 0xe0) != 0xe0 {
-            break;
-        }
-        let b1 = audio_bytes[pos + 1];
-        let b2 = audio_bytes[pos + 2];
-        let version_bits = (b1 >> 3) & 0x03;
-        let layer_bits = (b1 >> 1) & 0x03;
-        let bitrate_index = usize::from((b2 >> 4) & 0x0f);
-        let sample_rate_index = usize::from((b2 >> 2) & 0x03);
-        let padding = usize::from((b2 >> 1) & 0x01);
-        if version_bits == 1 || layer_bits != 1 || bitrate_index == 0 || bitrate_index == 15 {
-            break;
-        }
-        let rate = match (version_bits, sample_rate_index) {
-            (3, 0) => 44_100usize,
-            (3, 1) => 48_000,
-            (3, 2) => 32_000,
-            (2, 0) => 22_050,
-            (2, 1) => 24_000,
-            (2, 2) => 16_000,
-            (0, 0) => 11_025,
-            (0, 1) => 12_000,
-            (0, 2) => 8_000,
-            _ => break,
-        };
-        let bitrate_kbps = if version_bits == 3 {
-            BITRATES_V1_L3[bitrate_index] as usize
-        } else {
-            BITRATES_V2_L3[bitrate_index] as usize
-        };
-        let samples: u16 = if version_bits == 3 { 1152 } else { 576 };
-        let coeff = if version_bits == 3 { 144usize } else { 72usize };
-        let frame_len = (coeff * bitrate_kbps * 1000) / rate + padding;
-        if frame_len < 4 || pos + frame_len > end {
-            break;
-        }
-        frames.push((pos, pos + frame_len, samples));
-        pos += frame_len;
-    }
-    frames
-}
-
-pub(super) fn prepare_swf_stream_sound(
-    media_type: &str,
-    raw: &[u8],
-) -> Result<PreparedSwfStreamSound, String> {
-    let info = analyze_swf_sound_resource(media_type, raw)?;
-    let audio_bytes = raw[info.data_start..info.data_end].to_vec();
-    let mp3_frames = if info.mp3 {
-        parse_mp3_frame_slices(&audio_bytes)
-    } else {
-        Vec::new()
-    };
-    Ok(PreparedSwfStreamSound {
-        info,
-        audio_bytes,
-        mp3_frames,
-    })
+    pub(super) fallback_event_frames: BTreeSet<(usize, u32)>,
 }
 
 pub(super) fn build_sound_stream_head2_payload(info: &SwfSoundInfo, fps: u32) -> Vec<u8> {
@@ -114,7 +42,7 @@ pub(super) fn plan_timeline_stream_sounds(
 ) -> TimelineStreamPlan {
     let mut head_by_frame = BTreeMap::new();
     let mut block_by_frame = BTreeMap::new();
-    let mut fallback_event_frames = HashSet::new();
+    let mut fallback_event_frames = BTreeSet::new();
     let mut occupied_frames: HashSet<u32> = HashSet::new();
     let eff_fps = u64::from(fps.max(1));
 
@@ -167,63 +95,50 @@ pub(super) fn plan_timeline_stream_sounds(
                     ((t * (rate as f64)).round().max(0.0) as usize).min(info.sample_count as usize)
                 })
                 .max(in_sample);
-            let repeat_count: usize = if snd.loop_forever {
-                (span_end - kf.frame) as usize + 1
-            } else {
-                snd.loops.clamp(1, 32767) as usize
-            };
+            let span_samples = u64::from(span_end - kf.frame) * rate / eff_fps;
+            let repeats = u64::from(snd.loops.max(1));
 
             let mut produced_any = false;
             if info.mp3 {
-                // Collect trimmed single-pass MPEG frames
-                let mut single_pass: Vec<(usize, usize, u16)> = Vec::new();
-                let mut cur_s = 0usize;
-                for &(bs, be, f_samples) in &stream_res.mp3_frames {
-                    let next_s = cur_s + usize::from(f_samples);
-                    if next_s > in_sample && cur_s < out_sample {
-                        single_pass.push((bs, be, f_samples));
-                    }
-                    cur_s = next_s;
-                }
-                if !single_pass.is_empty() {
-                    let max_total_frames =
-                        ((span_end - kf.frame) as usize).saturating_mul(8).max(8);
-                    let mut all_frames: Vec<(usize, usize, u16)> = Vec::new();
-                    for _ in 0..repeat_count {
-                        for item in &single_pass {
-                            all_frames.push(*item);
-                            if all_frames.len() >= max_total_frames {
-                                break;
-                            }
-                        }
-                        if all_frames.len() >= max_total_frames {
-                            break;
-                        }
-                    }
-
-                    let mut m_idx = 0usize;
+                // MPEG frames are indivisible. Select the frames intersecting the trim once,
+                // then cycle their descriptors on demand until the sound or timeline ends.
+                let frames = &stream_res.mp3_frames;
+                let first = frames.partition_point(|frame| frame.end_sample as usize <= in_sample);
+                let end = frames.partition_point(|frame| {
+                    (frame.end_sample - u32::from(frame.samples)) < out_sample as u32
+                });
+                let pass = &frames[first..end];
+                if !pass.is_empty() && in_sample < out_sample {
+                    let frame_limit = if snd.loop_forever {
+                        u64::MAX
+                    } else {
+                        repeats * pass.len() as u64
+                    };
+                    let mut cursor = 0u64;
                     let mut emitted_samples = 0u64;
                     for f in kf.frame..span_end {
-                        if m_idx >= all_frames.len() {
+                        if cursor >= frame_limit {
                             break;
                         }
                         let offset = u64::from(f - kf.frame + 1);
                         let target_samples = (offset * rate) / eff_fps;
                         let mut block_samples: u32 = 0;
                         let mut block_mp3 = Vec::new();
-                        while m_idx < all_frames.len()
+                        while cursor < frame_limit
                             && (emitted_samples < target_samples
                                 || block_samples == 0 && offset == 1)
                         {
-                            let (bs, be, fsamp) = all_frames[m_idx];
-                            if block_samples.saturating_add(u32::from(fsamp)) > u32::from(u16::MAX)
+                            let frame = pass[(cursor % pass.len() as u64) as usize];
+                            if block_samples.saturating_add(u32::from(frame.samples))
+                                > u32::from(u16::MAX)
                             {
                                 break;
                             }
-                            block_samples += u32::from(fsamp);
-                            emitted_samples += u64::from(fsamp);
-                            block_mp3.extend_from_slice(&stream_res.audio_bytes[bs..be]);
-                            m_idx += 1;
+                            block_samples += u32::from(frame.samples);
+                            emitted_samples += u64::from(frame.samples);
+                            block_mp3
+                                .extend_from_slice(&stream_res.audio_bytes[frame.start..frame.end]);
+                            cursor += 1;
                         }
                         if block_samples > 0 && !block_mp3.is_empty() {
                             let mut bw = SwfBitWriter::new();
@@ -244,11 +159,11 @@ pub(super) fn plan_timeline_stream_sounds(
                 let s_end = out_sample.min(total_avail_samples).max(s_start);
                 let pass_samples = s_end - s_start;
                 if pass_samples > 0 {
-                    let max_needed_samples =
-                        (((u64::from(span_end - kf.frame) + 1) * rate) / eff_fps) as usize + 16;
-                    let total_virtual_samples = pass_samples
-                        .saturating_mul(repeat_count)
-                        .min(max_needed_samples);
+                    let total_virtual_samples = if snd.loop_forever {
+                        span_samples
+                    } else {
+                        (pass_samples as u64 * repeats).min(span_samples)
+                    } as usize;
                     for f in kf.frame..span_end {
                         let off0 = u64::from(f - kf.frame);
                         let off1 = off0 + 1;

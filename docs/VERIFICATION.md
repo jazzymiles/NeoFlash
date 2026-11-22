@@ -66,6 +66,8 @@ the cartoon tests with the real browser runtime. Requested artifacts go under
 `target/artifacts/generated-examples/`. The top-level `dist/` directory is reserved for current platform
 applications/installers and their checksums, not verification output.
 
+The preview Output tests count each emitted line in a browser burst, including lines reported as suppressed. A controlled-clock test separately verifies the 5,000-lines-per-second limit and delivery in the next time window.
+
 ### Safari HTML5 deployment checks
 
 On a Mac with Safari Remote Automation enabled, run `node scripts/verify-beta1-browser-matrix.mjs --require-safari`. The command exports the same interactive movie in four configurations. Safari and Chrome open Full, Balanced and Compact directly from disk and Shared over loopback HTTP. The report under `target/beta1-browser-matrix/report.json` records individual results for each browser and profile.

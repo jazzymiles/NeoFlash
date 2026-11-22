@@ -247,7 +247,7 @@ impl Editor {
                 } else if action == 1 {
                     self.continue_confirmation(ctx);
                 } else if action == 0 {
-                    let saved = self.save(false);
+                    let saved = self.save_with_ctx(false, Some(ctx));
                     self.resolve_confirmation_save(ctx, saved);
                 }
             }

@@ -4,8 +4,8 @@ use super::hir::{
     AccessorKind, HirType, LiftedObjectHandler, LiftedTriggerKind, MemberAccess, ParsedClass,
     ParsedScript, ProjectStageIndex, TypeEnv, decode_string_literal, fold_100_to_01,
     is_atomic_expr, key_press_spec_to_code, map_as2_direct_prop_to_modern, map_as2_key_constant,
-    map_as2_percent_prop_to_modern, rewrite_lifted_clip_scope_stmts, sanitize_as_class_ident,
-    short_type_name, stmts_use_key_is_down,
+    map_as2_percent_prop_to_modern, sanitize_as_class_ident, short_type_name,
+    stmts_use_key_is_down,
 };
 use super::{ConversionIssue, ConversionIssueKind};
 use crate::actionscript::ast::{Case, CatchClause, Expr, Function, PropertyKey, Stmt};
@@ -615,7 +615,7 @@ impl<'a> As3Emitter<'a> {
                 for trig in trigs {
                     if let Some(kind) = LiftedTriggerKind::from_legacy(trig) {
                         let handler = LiftedObjectHandler {
-                            instance_name: "this".into(),
+                            instance_name: None,
                             parent_is_this: true,
                             trigger: kind,
                             body: func.body.clone(),
@@ -976,58 +976,82 @@ impl<'a> As3Emitter<'a> {
 
     fn emit_lifted_handler(&mut self, handler: &LiftedObjectHandler) -> String {
         let pad = self.pad();
-        let inst = &handler.instance_name;
-        let rewritten_body = if handler.parent_is_this {
-            handler.body.clone()
-        } else {
-            rewrite_lifted_clip_scope_stmts(&handler.body, inst)
-        };
+        let target = self.emit_expr(&handler.target());
+        let rewritten_body = handler.scoped_body();
 
         match &handler.trigger {
+            LiftedTriggerKind::NeedsBinding(event) => {
+                let function = self.next_helper("bind_legacy_event");
+                let note = format!(
+                    "Connect {function} to the data source or event corresponding to legacy '{event}'."
+                );
+                self.record_issue(ConversionIssueKind::ManualAttention, 0, &note);
+                self.push_fn_scope();
+                self.indent += 1;
+                let body = self.emit_stmt_list(&rewritten_body);
+                self.indent -= 1;
+                self.pop_fn_scope();
+                format!(
+                    "{pad}/* FIXME [NeoFlash Convert]: {note} */\n{pad}function {function}() {{\n{body}\n{pad}}}"
+                )
+            }
             LiftedTriggerKind::Load => self.emit_stmt_list(&rewritten_body),
-            LiftedTriggerKind::EnterFrame => {
+            LiftedTriggerKind::EnterFrame | LiftedTriggerKind::Unload => {
+                let event = if handler.trigger == LiftedTriggerKind::Unload {
+                    "Event.REMOVED_FROM_STAGE"
+                } else {
+                    "Event.ENTER_FRAME"
+                };
                 self.imports.insert("flash.events.Event".into());
-                let fn_name = self.next_helper(&format!("on_{inst}_enterFrame"));
+                let fn_name = self.next_helper("on_object_event");
                 self.push_fn_scope();
                 self.indent += 1;
                 let b = self.emit_stmt_list(&rewritten_body);
                 self.indent -= 1;
                 self.pop_fn_scope();
-                let target = if inst == "this" {
-                    String::new()
-                } else {
-                    format!("this.{inst}.")
-                };
                 format!(
-                    "{pad}function {fn_name}(event:Event):void {{\n{b}\n{pad}}}\n{pad}{target}addEventListener(Event.ENTER_FRAME, {fn_name});"
+                    "{pad}function {fn_name}(event:Event):void {{\n{b}\n{pad}}}\n{pad}{target}.addEventListener({event}, {fn_name});"
                 )
             }
             LiftedTriggerKind::MouseClick
             | LiftedTriggerKind::MouseDown
             | LiftedTriggerKind::MouseUp
+            | LiftedTriggerKind::StageMouseDown
+            | LiftedTriggerKind::StageMouseUp
+            | LiftedTriggerKind::StageMouseMove
             | LiftedTriggerKind::RollOver
             | LiftedTriggerKind::RollOut => {
                 self.imports.insert("flash.events.MouseEvent".into());
                 let ev_const = match handler.trigger {
                     LiftedTriggerKind::MouseClick => "MouseEvent.CLICK",
-                    LiftedTriggerKind::MouseDown => "MouseEvent.MOUSE_DOWN",
-                    LiftedTriggerKind::MouseUp => "MouseEvent.MOUSE_UP",
+                    LiftedTriggerKind::MouseDown | LiftedTriggerKind::StageMouseDown => {
+                        "MouseEvent.MOUSE_DOWN"
+                    }
+                    LiftedTriggerKind::MouseUp | LiftedTriggerKind::StageMouseUp => {
+                        "MouseEvent.MOUSE_UP"
+                    }
+                    LiftedTriggerKind::StageMouseMove => "MouseEvent.MOUSE_MOVE",
                     LiftedTriggerKind::RollOver => "MouseEvent.ROLL_OVER",
                     _ => "MouseEvent.ROLL_OUT",
                 };
-                let fn_name = self.next_helper(&format!("on_{inst}_mouse"));
+                let target = if matches!(
+                    handler.trigger,
+                    LiftedTriggerKind::StageMouseDown
+                        | LiftedTriggerKind::StageMouseUp
+                        | LiftedTriggerKind::StageMouseMove
+                ) {
+                    "stage"
+                } else {
+                    &target
+                };
+                let fn_name = self.next_helper("on_object_mouse");
                 self.push_fn_scope();
                 self.indent += 1;
                 let b = self.emit_stmt_list(&rewritten_body);
                 self.indent -= 1;
                 self.pop_fn_scope();
-                let target = if inst == "this" {
-                    String::new()
-                } else {
-                    format!("this.{inst}.")
-                };
                 format!(
-                    "{pad}function {fn_name}(event:MouseEvent):void {{\n{b}\n{pad}}}\n{pad}{target}addEventListener({ev_const}, {fn_name});"
+                    "{pad}function {fn_name}(event:MouseEvent):void {{\n{b}\n{pad}}}\n{pad}if ({target} != null) {{ {target}.addEventListener({ev_const}, {fn_name}); }}"
                 )
             }
             LiftedTriggerKind::KeyPress(spec) => {
@@ -1042,7 +1066,7 @@ impl<'a> As3Emitter<'a> {
                 } else {
                     "true".into()
                 };
-                let fn_name = self.next_helper(&format!("on_{inst}_keyPress"));
+                let fn_name = self.next_helper("on_object_keyPress");
                 self.push_fn_scope();
                 self.indent += 2;
                 let b = self.emit_stmt_list(&rewritten_body);
@@ -1059,7 +1083,7 @@ impl<'a> As3Emitter<'a> {
                 } else {
                     "KeyboardEvent.KEY_UP"
                 };
-                let fn_name = self.next_helper(&format!("on_{inst}_key"));
+                let fn_name = self.next_helper("on_object_key");
                 let prev = self.in_key_handler_event.replace("event".into());
                 self.push_fn_scope();
                 self.indent += 1;

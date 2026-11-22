@@ -9,8 +9,8 @@ use super::hir::{
     AccessorKind, HirType, LiftedObjectHandler, LiftedTriggerKind, ParsedClass, ParsedScript,
     ProjectStageIndex, TypeEnv, decode_string_literal, fold_100_to_01, is_atomic_expr,
     key_press_spec_to_code, map_as2_direct_prop_to_modern, map_as2_key_constant,
-    map_as2_percent_prop_to_modern, map_as3_keyboard_constant, rewrite_lifted_clip_scope_stmts,
-    sanitize_as_class_ident, short_type_name, stmts_use_key_is_down,
+    map_as2_percent_prop_to_modern, map_as3_keyboard_constant, sanitize_as_class_ident,
+    short_type_name, stmts_use_key_is_down,
 };
 use super::{ConversionIssue, ConversionIssueKind};
 use crate::actionscript::ast::{Case, CatchClause, Expr, Function, PropertyKey, Stmt};
@@ -656,7 +656,19 @@ impl<'a> JsEmitter<'a> {
             }
             Stmt::IfFrameLoaded(_, body) => self.emit_stmt(body),
             Stmt::InitClip(_, body, _) => self.emit_stmt_list(body),
-            Stmt::LegacyEvent(_, _) => String::new(),
+            Stmt::LegacyEvent(triggers, handler) => triggers
+                .iter()
+                .filter_map(LiftedTriggerKind::from_legacy)
+                .map(|trigger| {
+                    self.emit_lifted_handler(&LiftedObjectHandler {
+                        instance_name: None,
+                        parent_is_this: true,
+                        trigger,
+                        body: handler.body.clone(),
+                    })
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
         }
     }
 
@@ -1914,14 +1926,25 @@ impl<'a> JsEmitter<'a> {
 
     fn emit_lifted_handler(&mut self, handler: &LiftedObjectHandler) -> String {
         let pad = self.pad();
-        let inst = &handler.instance_name;
-        let rewritten_body = if handler.parent_is_this {
-            handler.body.clone()
-        } else {
-            rewrite_lifted_clip_scope_stmts(&handler.body, inst)
-        };
+        let target = self.emit_expr_with_offset(&handler.target(), 0);
+        let rewritten_body = handler.scoped_body();
 
         match &handler.trigger {
+            LiftedTriggerKind::NeedsBinding(event) => {
+                let function = self.next_helper("bind_legacy_event");
+                let note = format!(
+                    "Connect {function} to the data source or event corresponding to legacy '{event}'."
+                );
+                self.record_issue(ConversionIssueKind::ManualAttention, 0, &note);
+                self.push_fn_scope();
+                self.indent += 1;
+                let body = self.emit_stmt_list(&rewritten_body);
+                self.indent -= 1;
+                self.pop_fn_scope();
+                format!(
+                    "{pad}/* FIXME [NeoFlash Convert]: {note} */\n{pad}function {function}() {{\n{body}\n{pad}}}"
+                )
+            }
             LiftedTriggerKind::Load => {
                 self.push_block_scope();
                 self.indent += 1;
@@ -1931,11 +1954,11 @@ impl<'a> JsEmitter<'a> {
                 if inner.trim().is_empty() {
                     String::new()
                 } else {
-                    format!("{pad}if (this.{inst}) {{\n{inner}\n{pad}}}")
+                    format!("{pad}if ({target}) {{\n{inner}\n{pad}}}")
                 }
             }
             LiftedTriggerKind::KeyPress(spec) => {
-                let fn_name = self.next_helper(&format!("on_{inst}_key"));
+                let fn_name = self.next_helper("on_object_key");
                 let saved_ke = self.in_key_handler_event.clone();
                 self.in_key_handler_event = Some("event".into());
                 self.push_fn_scope();
@@ -1964,6 +1987,10 @@ impl<'a> JsEmitter<'a> {
             }
             other => {
                 let (is_stage_key, ev_str, suffix) = match other {
+                    LiftedTriggerKind::Unload => (false, "removedFromStage", "unload"),
+                    LiftedTriggerKind::StageMouseMove => (false, "mouseMove", "stageMouseMove"),
+                    LiftedTriggerKind::StageMouseDown => (false, "mouseDown", "stageMouseDown"),
+                    LiftedTriggerKind::StageMouseUp => (false, "mouseUp", "stageMouseUp"),
                     LiftedTriggerKind::EnterFrame => (false, "enterFrame", "enterFrame"),
                     LiftedTriggerKind::MouseClick => (false, "click", "click"),
                     LiftedTriggerKind::MouseDown => (false, "mouseDown", "mouseDown"),
@@ -1972,9 +1999,21 @@ impl<'a> JsEmitter<'a> {
                     LiftedTriggerKind::RollOut => (false, "rollOut", "rollOut"),
                     LiftedTriggerKind::KeyDown => (true, "keyDown", "keyDown"),
                     LiftedTriggerKind::KeyUp => (true, "keyUp", "keyUp"),
-                    LiftedTriggerKind::Load | LiftedTriggerKind::KeyPress(_) => unreachable!(),
+                    LiftedTriggerKind::Load
+                    | LiftedTriggerKind::KeyPress(_)
+                    | LiftedTriggerKind::NeedsBinding(_) => unreachable!(),
                 };
-                let fn_name = self.next_helper(&format!("on_{inst}_{suffix}"));
+                let target = if matches!(
+                    other,
+                    LiftedTriggerKind::StageMouseDown
+                        | LiftedTriggerKind::StageMouseUp
+                        | LiftedTriggerKind::StageMouseMove
+                ) {
+                    "this.stage"
+                } else {
+                    &target
+                };
+                let fn_name = self.next_helper(&format!("on_object_{suffix}"));
                 let saved_ke = self.in_key_handler_event.clone();
                 if is_stage_key {
                     self.in_key_handler_event = Some("event".into());
@@ -1998,8 +2037,8 @@ impl<'a> JsEmitter<'a> {
                 } else {
                     format!(
                         "{pad}const {fn_name} = (event) => {{\n{inner}\n{pad}}};\n\
-                         {pad}if (this.{inst}) {{\n\
-                         {pad}    this.{inst}.addEventListener(\"{ev_str}\", {fn_name});\n\
+                         {pad}if ({target}) {{\n\
+                         {pad}    {target}.addEventListener(\"{ev_str}\", {fn_name});\n\
                          {pad}}}"
                     )
                 }

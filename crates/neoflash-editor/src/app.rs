@@ -1679,6 +1679,7 @@ impl Editor {
         (None, format!("{}.nflash", clean_stem(&self.project.name)))
     }
 
+    #[cfg(test)]
     pub fn save(&mut self, save_as: bool) -> bool {
         self.save_with_ctx(save_as, None)
     }
@@ -1779,11 +1780,15 @@ impl Editor {
             );
             return false;
         }
-        if self.session_for_path(&path).is_some() {
+        if self.save_destination_in_use(&path, false) {
             self.notify_with_output(
                 neoflash_ui::components::ToastType::Error,
-                "Save As (converted) failed: destination path is already open in a document tab. Choose a new file name.",
+                "Save As (converted) failed: this destination would replace an open document or its source. Choose a different path.",
             );
+            return false;
+        }
+        if fla_profile.is_none() && self.timeline_edit.dragging() {
+            self.message("Finish the timeline drag before opening a converted copy.");
             return false;
         }
         self.finish_edits();
@@ -1871,8 +1876,11 @@ impl Editor {
             fallback_ctx = egui::Context::default();
             &fallback_ctx
         };
-        let _ = self.open_new_session_tab(effective_ctx, converted_project, Some(path));
-        self.sync_session_tabs_to_prefs();
+        // Choosing a converted copy in the unsaved-changes dialog keeps the source open.
+        if self.confirm.is_some() || self.close_origin.is_some() {
+            self.cancel_confirmation(effective_ctx);
+        }
+        self.open_new_session_tab(effective_ctx, converted_project, Some(path));
         self.log_script_conversion_report(&conv_report, &file_loc);
         if !conv_report.issues.is_empty() {
             self.show_panel(PanelId::Output);
@@ -2058,11 +2066,8 @@ impl Editor {
             );
             return false;
         }
-        if self
-            .session_for_path(&path)
-            .is_some_and(|index| index != self.active_session)
-        {
-            self.notify_with_output(neoflash_ui::components::ToastType::Error, "Save failed: this file is already open in another document. Choose a different path.");
+        if self.save_destination_in_use(&path, true) {
+            self.notify_with_output(neoflash_ui::components::ToastType::Error, "Save failed: this destination would replace an open document or its source. Choose a different path.");
             return false;
         }
         if !self.guard_save_on_external_conflict(Some(&path)) {

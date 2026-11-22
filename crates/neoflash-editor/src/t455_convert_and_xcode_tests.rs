@@ -2,7 +2,7 @@ use crate::{
     app::Editor,
     commands::CommandId,
     macos_menu::{NativeMenuItemSpec, NativeMenuSpec},
-    save_as_panel::{SaveAsFormat, available_script_options, update_save_as_filename},
+    save_as_panel::{SaveAsFilename, SaveAsFormat, available_script_options},
 };
 use eframe::egui;
 use neoflash_core::{
@@ -136,7 +136,7 @@ fn t455_save_as_converted_preserves_dirty_source_tab_and_opens_converted_as3_js_
     let js_opts = available_script_options(ScriptLanguage::JavaScript);
     assert_eq!(js_opts.len(), 1, "JS/TS -> AS* must remain skipped");
     assert_eq!(
-        update_save_as_filename("RetroArcade.nflash", SaveAsFormat::NeoFlash, true),
+        SaveAsFilename::default().update("RetroArcade.nflash", SaveAsFormat::NeoFlash, true),
         "RetroArcade (converted).nflash"
     );
 
@@ -247,6 +247,88 @@ fn t455_save_as_converted_preserves_dirty_source_tab_and_opens_converted_as3_js_
         orig_src.contains("hero._xscale = 150;"),
         "original AS2 script must remain untouched: {orig_src}"
     );
+}
+
+#[test]
+fn save_as_protects_import_sources_and_open_documents_inside_xfl_destinations() {
+    let ctx = egui::Context::default();
+    let dir = TempTestDir::new("imported-destination");
+    let original = dir.path().join("animation.fla");
+    let folder = dir.path().join("animation.xfl");
+    let mut source = Project::blank();
+    source.script_language = Some(ScriptLanguage::ActionScript2);
+    let mut editor = Editor::from_project(&ctx, source);
+    assert!(editor.save_to_path(original.clone()));
+    assert!(editor.save_to_path(folder.clone()));
+    let original_bytes = std::fs::read(&original).unwrap();
+    let dom = folder.join("DOMDocument.xml");
+    let xml = std::fs::read(&dom).unwrap();
+    let marker = folder.join("animation.xfl");
+    let marker_bytes = std::fs::read(&marker).unwrap();
+    assert!(editor.try_open_path(original.clone(), &ctx));
+    editor.transact(|ed| ed.project.name = "Unsaved import".into());
+    let imported_tab = editor.active_session;
+    let conversion = ConversionTarget::ActionScript2;
+    assert!(!editor.save_as_converted_with_ctx(original.clone(), conversion, Some(&ctx)));
+    assert_eq!(std::fs::read(&original).unwrap(), original_bytes);
+    assert!(editor.try_open_path(dom.clone(), &ctx));
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert!(!editor.save_to_path(original.clone()));
+    assert!(!editor.save_as_converted_with_ctx(
+        folder.clone(),
+        ConversionTarget::ActionScript3,
+        Some(&ctx)
+    ));
+    assert!(!editor.save_as_converted_with_ctx(
+        marker.clone(),
+        ConversionTarget::ActionScript3,
+        Some(&ctx)
+    ));
+    assert_eq!(std::fs::read(&dom).unwrap(), xml);
+    assert_eq!(std::fs::read(&marker).unwrap(), marker_bytes);
+    assert!(editor.switch_session_tab(&ctx, imported_tab));
+    assert_eq!(editor.project.name, "Unsaved import");
+    assert!(editor.dirty());
+    assert!(editor.history.can_undo());
+
+    // A different .xfl directory can still contain an open script which a directory swap would delete.
+    let nested = dir.path().join("artwork.xfl");
+    std::fs::create_dir(&nested).unwrap();
+    let script = nested.join("logic.as");
+    std::fs::write(&script, "trace(1);").unwrap();
+    assert!(editor.try_open_path(script.clone(), &ctx));
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert!(!editor.save_to_path(nested.clone()));
+    assert!(!editor.save_as_converted_with_ctx(
+        nested,
+        ConversionTarget::ActionScript3,
+        Some(&ctx)
+    ));
+    assert_eq!(std::fs::read_to_string(script).unwrap(), "trace(1);");
+
+    // Save from the close prompt may create a converted copy. Both documents stay open.
+    assert!(editor.switch_session_tab(&ctx, imported_tab));
+    let tab_count = editor.session_count();
+    assert!(editor.close_session_tab(&ctx, imported_tab));
+    assert!(editor.confirm.is_some());
+    let approved = dir.path().join("previous-copy.nflash");
+    std::fs::write(&approved, Project::blank().to_json().unwrap()).unwrap();
+    let saved = editor.save_as_converted_with_ctx(
+        approved.clone(),
+        ConversionTarget::JavaScript,
+        Some(&ctx),
+    );
+    assert!(saved);
+    editor.resolve_confirmation_save(&ctx, saved);
+    assert!(editor.confirm.is_none());
+    assert_eq!(editor.session_count(), tab_count + 1);
+    assert_eq!(editor.path.as_deref(), Some(approved.as_path()));
+    assert!(!editor.dirty());
+    assert!(editor.switch_session_tab(&ctx, imported_tab));
+    assert!(editor.dirty());
+    assert_eq!(editor.project.name, "Unsaved import");
+    assert!(editor.history.can_undo());
+    assert_eq!(std::fs::read(&original).unwrap(), original_bytes);
 }
 
 #[test]

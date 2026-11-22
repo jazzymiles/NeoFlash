@@ -2573,6 +2573,70 @@ fn t451_stream_sound_head2_and_per_frame_wav_pcm_and_mp3_blocks_and_strict_prefl
     let mp3_play = play_swf_bytes(&mp3_swf, 4).expect("play MP3 stream SWF");
     assert!(mp3_play.audio_events.iter().any(|e| e.sync == "stream"));
 
+    // A short trimmed PCM loop can repeat many times within a single movie frame.
+    let wav = make_wav_pcm_bytes(22_050, 48);
+    let mut trimmed = make_stream_project("audio/wav", "loop.wav", wav.clone(), 2);
+    for (forever, expected_samples) in [(false, 24usize), (true, 1_837)] {
+        let root = trimmed.root.clone();
+        let sound = trimmed.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap();
+        sound.in_point = Some(4.0 / 22_050.0);
+        sound.out_point = Some(16.0 / 22_050.0);
+        sound.loops = 2;
+        sound.loop_forever = forever;
+        let (bytes, _) = publish_swf_bytes(&trimmed, &opts).unwrap();
+        let pcm: Vec<u8> = collect_swf_tags_raw(&bytes)
+            .into_iter()
+            .filter(|(tag, _)| *tag == 19)
+            .flat_map(|(_, block)| block)
+            .collect();
+        let pass = &wav[44 + 4 * 2..44 + 16 * 2];
+        let expected: Vec<_> = pass
+            .iter()
+            .copied()
+            .cycle()
+            .take(expected_samples * 2)
+            .collect();
+        assert_eq!(
+            pcm.len(),
+            expected.len(),
+            "PCM span length with loop_forever={forever}"
+        );
+        assert_eq!(pcm, expected);
+    }
+
+    // At 2 fps a single movie frame needs about twenty MPEG frames.
+    // Repeat a short clip, or read a longer clip once, to cover the same interval.
+    for (frame_count, forever) in [(50, false), (1, true)] {
+        let mut mp3 = b"ID3\x04\x00\x00\x00\x00\x00\x00".to_vec();
+        mp3.extend(make_mp3_44k_frames(frame_count));
+        let mut slow = make_stream_project("audio/mpeg", "slow.mp3", mp3, 2);
+        slow.fps = 2;
+        let root = slow.root.clone();
+        slow.symbol_mut(&root).unwrap().timeline.layers[0].keyframes[0]
+            .sound
+            .as_mut()
+            .unwrap()
+            .loop_forever = forever;
+        let (bytes, _) = publish_swf_bytes(&slow, &opts).unwrap();
+        let mut samples = Vec::new();
+        for (_, block) in collect_swf_tags_raw(&bytes)
+            .into_iter()
+            .filter(|(tag, _)| *tag == 19)
+        {
+            let count = u16::from_le_bytes([block[0], block[1]]);
+            assert_eq!(block[4..], make_mp3_44k_frames(usize::from(count) / 1_152));
+            samples.push(count);
+        }
+        assert_eq!(
+            samples,
+            [20 * 1_152, 19 * 1_152],
+            "MP3 cadence with loop_forever={forever}"
+        );
+    }
+
     // 3. Strict preflight rejection on unsupported codec (audio/ogg) and non-SWF 48000 Hz WAV
     let ogg_proj = make_stream_project("audio/ogg", "bad.ogg", b"OggS\x00\x02dummy".to_vec(), 3);
     assert!(

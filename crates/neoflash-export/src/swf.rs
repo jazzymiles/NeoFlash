@@ -471,9 +471,17 @@ pub(super) fn timeline_depth_bands(timeline: &Timeline) -> Option<Vec<(u16, u16)
         .map(|layout| layout.depth_bands)
 }
 
-pub(super) fn used_swf_media_resources(project: &Project) -> (BTreeSet<String>, BTreeSet<String>) {
+#[derive(Default)]
+struct SwfSoundUsage {
+    stream: bool,
+    event: bool,
+}
+
+fn used_swf_media_resources(
+    project: &Project,
+) -> (BTreeSet<String>, BTreeMap<String, SwfSoundUsage>) {
     let mut bitmaps = BTreeSet::new();
-    let mut sounds = BTreeSet::new();
+    let mut sounds = BTreeMap::<String, SwfSoundUsage>::new();
     for keyframe in project
         .symbols
         .iter()
@@ -492,7 +500,12 @@ pub(super) fn used_swf_media_resources(project: &Project) -> (BTreeSet<String>, 
                 .map(|fill| fill.resource_id.clone()),
         );
         if let Some(sound) = &keyframe.sound {
-            sounds.insert(sound.resource.clone());
+            let usage = sounds.entry(sound.resource.clone()).or_default();
+            if sound.sync == SoundSync::Stream {
+                usage.stream = true;
+            } else {
+                usage.event = true;
+            }
         }
     }
     (bitmaps, sounds)

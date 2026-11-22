@@ -1809,11 +1809,29 @@ fn rewrite_lifted_clip_scope_stmt(stmt: &Stmt, inst: &str) -> Stmt {
     }
 }
 
+/// A display-list name can contain spaces and punctuation. Keep its exact key
+/// when accessing the child from converted ActionScript or JavaScript.
+fn lifted_instance(name: &str) -> Expr {
+    let parent = Box::new(Expr::Name("this".into()));
+    let mut chars = name.chars();
+    if name != "this"
+        && chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    {
+        Expr::Member(parent, name.to_owned())
+    } else {
+        Expr::Index(
+            parent,
+            Box::new(Expr::Literal(serde_json::Value::from(name).to_string())),
+        )
+    }
+}
+
 fn rewrite_lifted_clip_scope_expr(expr: &Expr, inst: &str) -> Expr {
     match expr {
-        Expr::Name(n) if n == "this" => {
-            Expr::Member(Box::new(Expr::Name("this".into())), inst.to_owned())
-        }
+        Expr::Name(n) if n == "this" => lifted_instance(inst),
         Expr::Name(n) if n == "_parent" => Expr::Name("this".into()),
         Expr::Member(base, prop)
             if matches!(base.as_ref(), Expr::Name(n) if n == "this") && prop == "_parent" =>
@@ -1843,13 +1861,7 @@ fn rewrite_lifted_clip_scope_expr(expr: &Expr, inst: &str) -> Expr {
                     | "rotation"
             ) =>
         {
-            Expr::Member(
-                Box::new(Expr::Member(
-                    Box::new(Expr::Name("this".into())),
-                    inst.to_owned(),
-                )),
-                n.clone(),
-            )
+            Expr::Member(Box::new(lifted_instance(inst)), n.clone())
         }
         Expr::Call(callee, args, off) => {
             let new_args: Vec<Expr> = args
@@ -1864,10 +1876,7 @@ fn rewrite_lifted_clip_scope_expr(expr: &Expr, inst: &str) -> Expr {
             {
                 return Expr::Call(
                     Box::new(Expr::Member(
-                        Box::new(Expr::Member(
-                            Box::new(Expr::Name("this".into())),
-                            inst.to_owned(),
-                        )),
+                        Box::new(lifted_instance(inst)),
                         fn_name.clone(),
                     )),
                     new_args,
@@ -1956,16 +1965,40 @@ fn rewrite_lifted_clip_scope_expr(expr: &Expr, inst: &str) -> Expr {
 /// Represent a lifted object event ready to be emitted on the parent timeline's `FrameScript`.
 #[derive(Clone, Debug)]
 pub(crate) struct LiftedObjectHandler {
-    pub(crate) instance_name: String,
+    pub(crate) instance_name: Option<String>,
     /// True when `this` inside `body` refers to the parent timeline (e.g. Button `on(release)` / `Click`).
     pub(crate) parent_is_this: bool,
     pub(crate) trigger: LiftedTriggerKind,
     pub(crate) body: Vec<Stmt>,
 }
 
+impl LiftedObjectHandler {
+    pub(crate) fn target(&self) -> Expr {
+        self.instance_name
+            .as_deref()
+            .map(lifted_instance)
+            .unwrap_or_else(|| Expr::Name("this".into()))
+    }
+
+    pub(crate) fn scoped_body(&self) -> Vec<Stmt> {
+        if !self.parent_is_this
+            && let Some(name) = &self.instance_name
+        {
+            rewrite_lifted_clip_scope_stmts(&self.body, name)
+        } else {
+            self.body.clone()
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum LiftedTriggerKind {
     Load,
+    Unload,
+    StageMouseDown,
+    StageMouseMove,
+    StageMouseUp,
+    NeedsBinding(&'static str),
     EnterFrame,
     MouseClick,
     MouseDown,
@@ -1983,11 +2016,13 @@ impl LiftedTriggerKind {
             match trig.event {
                 "load" => Some(Self::Load),
                 "enterFrame" => Some(Self::EnterFrame),
-                "mouseDown" => Some(Self::MouseDown),
-                "mouseUp" => Some(Self::MouseUp),
+                "unload" => Some(Self::Unload),
+                "mouseDown" => Some(Self::StageMouseDown),
+                "mouseMove" => Some(Self::StageMouseMove),
+                "mouseUp" => Some(Self::StageMouseUp),
                 "keyDown" => Some(Self::KeyDown),
                 "keyUp" => Some(Self::KeyUp),
-                _ => Some(Self::Load),
+                _ => Some(Self::NeedsBinding(trig.event)),
             }
         } else {
             match trig.event {
@@ -1997,7 +2032,7 @@ impl LiftedTriggerKind {
                 "rollOver" | "dragOver" => Some(Self::RollOver),
                 "rollOut" | "dragOut" => Some(Self::RollOut),
                 "keyPress" => trig.key_press.clone().map(Self::KeyPress),
-                _ => Some(Self::MouseClick),
+                _ => Some(Self::NeedsBinding(trig.event)),
             }
         }
     }

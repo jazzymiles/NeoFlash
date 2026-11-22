@@ -487,6 +487,27 @@ async function waitForCondition(predicate, description, timeoutMs = 10000) {
   throw new Error(`Timed out waiting for: ${description}`);
 }
 
+test('preview relay reports exactly the excess traces in one second and resumes in the next', async () => {
+  const { installOutputRelay } = require('../preview.js');
+  const messages = [];
+  let now = 1000;
+  const relay = installOutputRelay({
+    location: new URL('http://localhost/preview/'),
+    document: { body: { dataset: { neoflashOutputEndpoint: '/__neoflash/output' } } },
+    performance: { now: () => now },
+    fetch: async (_url, request) => {
+      messages.push(...JSON.parse(request.body).events.map(event => event.message));
+      return { ok: true };
+    },
+  });
+  for (let i = 0; i < 5250; i++) relay.record('trace', String(i));
+  now += 1000;
+  relay.record('trace', 'resumed');
+  await waitForCondition(() => messages.at(-1) === 'resumed', 'next trace window');
+  assert.deepEqual(messages.slice(0, 5000), Array.from({ length: 5000 }, (_, i) => String(i)));
+  assert.deepEqual(messages.slice(5000), ['[trace] ... suppressed 250 lines ...', 'resumed']);
+});
+
 test('T-356: preview HTML relays Frame-1 trace, onEnterFrame, button click, mapped runtime errors, and Restart while normal Publish emits 0 output requests', async t => {
   const chromeBin = findChromeBinary();
   if (!chromeBin) {
@@ -693,10 +714,19 @@ test('T-356: preview HTML relays Frame-1 trace, onEnterFrame, button click, mapp
       'burst cap + AFTER_BURST recovery',
       10000,
     );
-    const suppressedNotice = serverInfo.state.events.find(e =>
-      /^\[trace\] \.\.\. suppressed \d+ lines \.\.\.$/.test(e.message),
-    );
-    assert.ok(suppressedNotice, 'runaway >5,000 lines/sec loop must emit suppression notice');
+    // The real browser may spread the burst over several rate windows on a busy Mac.
+    // Every authored line must arrive in order or be accounted for by the relay.
+    let nextLine = 0;
+    for (const { message } of serverInfo.state.events) {
+      if (message.startsWith('BURST:')) {
+        assert.equal(message, `BURST:${nextLine}`);
+        nextLine++;
+      } else {
+        const notice = /^\[trace\] \.\.\. suppressed (\d+) lines \.\.\.$/.exec(message);
+        if (notice) nextLine += Number(notice[1]);
+      }
+    }
+    assert.equal(nextLine, 5250, 'all lines in the burst are accounted for');
     assert.equal(serverInfo.state.events.at(-1).message, 'AFTER_BURST');
     assert.deepEqual(cdp.consoleErrors, []);
     assert.deepEqual(cdp.uncaughtExceptions, []);

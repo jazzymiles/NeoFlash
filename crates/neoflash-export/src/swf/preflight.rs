@@ -165,7 +165,7 @@ pub fn preflight_swf_publish(
             ),
         }
     }
-    for resource_id in used_sounds {
+    for resource_id in used_sounds.into_keys() {
         let location = format!("resource:{resource_id}");
         let Some(resource) = project.resource(&resource_id) else {
             report.push(

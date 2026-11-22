@@ -649,11 +649,20 @@ pub(super) fn analyze_swf_wav(raw: &[u8]) -> Result<SwfSoundInfo, String> {
     })
 }
 
-pub(super) fn analyze_swf_mp3(raw: &[u8]) -> Result<SwfSoundInfo, String> {
-    pub(super) const BITRATES_V1_L3: [u32; 16] = [
+/// Byte offsets are relative to the audio payload, excluding any ID3 tag.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Mp3Frame {
+    pub(super) start: usize,
+    pub(super) end: usize,
+    pub(super) samples: u16,
+    pub(super) end_sample: u32,
+}
+
+fn analyze_swf_mp3(raw: &[u8], mut on_frame: impl FnMut(Mp3Frame)) -> Result<SwfSoundInfo, String> {
+    const BITRATES_V1_L3: [u32; 16] = [
         0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
     ];
-    pub(super) const BITRATES_V2_L3: [u32; 16] = [
+    const BITRATES_V2_L3: [u32; 16] = [
         0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0,
     ];
 
@@ -721,7 +730,7 @@ pub(super) fn analyze_swf_mp3(raw: &[u8]) -> Result<SwfSoundInfo, String> {
                 ));
             }
         };
-        let rate_code = swf_sound_rate_code(rate).ok_or_else(|| {
+        swf_sound_rate_code(rate).ok_or_else(|| {
             format!(
                 "MP3 sample rate {rate} Hz is not one of the rates representable by SWF DefineSound and is not resampled"
             )
@@ -731,7 +740,7 @@ pub(super) fn analyze_swf_mp3(raw: &[u8]) -> Result<SwfSoundInfo, String> {
         } else {
             BITRATES_V2_L3[bitrate_index]
         };
-        let samples_in_frame = if version_bits == 3 { 1152u32 } else { 576u32 };
+        let samples_in_frame = if version_bits == 3 { 1152u16 } else { 576u16 };
         let coefficient = if version_bits == 3 { 144usize } else { 72usize };
         let frame_len = coefficient
             .checked_mul(usize::try_from(bitrate_kbps).unwrap())
@@ -757,11 +766,16 @@ pub(super) fn analyze_swf_mp3(raw: &[u8]) -> Result<SwfSoundInfo, String> {
         sample_rate = Some(rate);
         stereo = Some(frame_stereo);
         sample_count = sample_count
-            .checked_add(samples_in_frame)
+            .checked_add(u32::from(samples_in_frame))
             .ok_or_else(|| "MP3 sample count exceeds the SWF UI32 field".to_owned())?;
+        on_frame(Mp3Frame {
+            start: position - start,
+            end: position - start + frame_len,
+            samples: samples_in_frame,
+            end_sample: sample_count,
+        });
         frame_count += 1;
         position += frame_len;
-        let _ = rate_code;
     }
     let sample_rate = sample_rate.ok_or_else(|| "the MP3 has no audio frames".to_owned())?;
     Ok(SwfSoundInfo {
@@ -781,6 +795,14 @@ pub(super) fn analyze_swf_sound_resource(
     media_type: &str,
     raw: &[u8],
 ) -> Result<SwfSoundInfo, String> {
+    inspect_swf_sound_resource(media_type, raw, |_| {})
+}
+
+pub(super) fn inspect_swf_sound_resource(
+    media_type: &str,
+    raw: &[u8],
+    on_mp3_frame: impl FnMut(Mp3Frame),
+) -> Result<SwfSoundInfo, String> {
     if media_type.eq_ignore_ascii_case("audio/wav")
         || media_type.eq_ignore_ascii_case("audio/x-wav")
         || media_type.eq_ignore_ascii_case("audio/wave")
@@ -789,7 +811,7 @@ pub(super) fn analyze_swf_sound_resource(
     } else if media_type.eq_ignore_ascii_case("audio/mpeg")
         || media_type.eq_ignore_ascii_case("audio/mp3")
     {
-        analyze_swf_mp3(raw)
+        analyze_swf_mp3(raw, on_mp3_frame)
     } else {
         Err(format!("audio codec '{media_type}' is not supported"))
     }
@@ -798,10 +820,9 @@ pub(super) fn analyze_swf_sound_resource(
 /// Build a `DefineSound` (tag 14) payload after proving the source layout is representable.
 pub(super) fn build_define_sound_payload(
     sound_id: u16,
-    media_type: &str,
-    raw: &[u8],
-) -> Result<Vec<u8>, String> {
-    let info = analyze_swf_sound_resource(media_type, raw)?;
+    info: &SwfSoundInfo,
+    audio_bytes: &[u8],
+) -> Vec<u8> {
     let flags = (info.sound_format << 4)
         | (info.rate_code << 2)
         | (u8::from(info.is_16_bit) << 1)
@@ -813,8 +834,8 @@ pub(super) fn build_define_sound_payload(
     if info.mp3 {
         writer.i16(0); // seek_samples = 0; no encoder delay is introduced by this passthrough.
     }
-    writer.bytes(&raw[info.data_start..info.data_end]);
-    Ok(writer.buf)
+    writer.bytes(audio_bytes);
+    writer.buf
 }
 
 /// Build a `StartSound` (tag 15) payload for a `FrameSound`.

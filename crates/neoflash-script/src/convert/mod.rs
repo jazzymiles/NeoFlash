@@ -95,35 +95,23 @@ pub fn convert_project_scripts(
         .unwrap_or_else(|| project.infer_script_language());
     let target_language = target.script_language();
 
-    // 1. Reject unsupported JS/TS -> ActionScript conversions with a clear actionable error.
-    let has_web_scripts = matches!(
-        source_language,
-        ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
-    ) || project.sources.iter().any(|u| {
-        !u.source.trim().is_empty()
-            && matches!(
-                u.language,
-                ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
-            )
-    }) || project.symbols.iter().any(|s| {
-        s.timeline.scripts.iter().any(|fs| {
-            !fs.script.source.trim().is_empty()
-                && matches!(
-                    fs.script.language,
-                    ScriptLanguage::JavaScript | ScriptLanguage::TypeScript
-                )
-        })
-    });
-
-    if has_web_scripts
-        && matches!(
-            target,
-            ConversionTarget::ActionScript3 | ConversionTarget::ActionScript2
-        )
+    let mut has_actionscript = false;
+    let mut web_language = None;
+    for (language, source) in script_entries(project) {
+        if !source.trim().is_empty() {
+            if language.is_actionscript() {
+                has_actionscript = true;
+            } else {
+                web_language = Some(language);
+            }
+        }
+    }
+    if target_language.is_actionscript()
+        && let Some(language) =
+            web_language.or_else(|| (!source_language.is_actionscript()).then_some(source_language))
     {
         return Err(format!(
-            "Converting {:?} scripts to {:?} is not supported: NeoFlash's deterministic script converter translates ActionScript 1.0/2.0 <-> ActionScript 3.0 and ActionScript 1.0/2.0/3.0 -> JavaScript.",
-            source_language, target_language
+            "Converting {language:?} scripts to {target_language:?} is not supported: NeoFlash's deterministic script converter translates ActionScript 1.0/2.0 <-> ActionScript 3.0 and ActionScript 1.0/2.0/3.0 -> JavaScript."
         ));
     }
 
@@ -138,33 +126,20 @@ pub fn convert_project_scripts(
         issues: Vec::new(),
     };
 
-    // 2. Handle JS/TS -> JS normalization cleanly when already in web script family.
-    if has_web_scripts && target == ConversionTarget::JavaScript {
+    if target == ConversionTarget::JavaScript
+        && (web_language.is_some() || !source_language.is_actionscript())
+    {
         normalize_web_to_js(&mut out, &mut report)?;
-        out.script_language = Some(ScriptLanguage::JavaScript);
-        out.upgrade_format_for_features();
-        validate_converted_project(&out)?;
-        return Ok((out, report));
+        if !has_actionscript {
+            out.script_language = Some(target_language);
+            out.upgrade_format_for_features();
+            validate_converted_project(&out)?;
+            return Ok((out, report));
+        }
     }
 
-    // 3. Handle same-language no-op normalization (`AS3 -> AS3` or pure `AS2 -> AS2` with no legacy AS1).
-    let has_any_different_lang = out.sources.iter().any(|u| u.language != target_language)
-        || out.symbols.iter().any(|s| {
-            s.timeline
-                .scripts
-                .iter()
-                .any(|f| f.script.language != target_language)
-                || s.timeline.layers.iter().any(|l| {
-                    l.keyframes.iter().any(|kf| {
-                        kf.elements.iter().any(|el| {
-                            el.scripts
-                                .iter()
-                                .any(|os| os.script.language != target_language)
-                        })
-                    })
-                })
-        });
-
+    let has_any_different_lang =
+        script_entries(&out).any(|(language, _)| language != target_language);
     if source_language == target_language && !has_any_different_lang {
         out.script_language = Some(target_language);
         out.upgrade_format_for_features();
@@ -185,6 +160,29 @@ pub fn convert_project_scripts(
     out.upgrade_format_for_features();
     validate_converted_project(&out)?;
     Ok((out, report))
+}
+
+fn script_entries(project: &Project) -> impl Iterator<Item = (ScriptLanguage, &str)> {
+    project
+        .sources
+        .iter()
+        .map(|unit| (unit.language, unit.source.as_str()))
+        .chain(project.symbols.iter().flat_map(|symbol| {
+            let timeline = &symbol.timeline;
+            timeline
+                .scripts
+                .iter()
+                .map(|frame| &frame.script)
+                .chain(
+                    timeline
+                        .layers
+                        .iter()
+                        .flat_map(|layer| &layer.keyframes)
+                        .flat_map(|frame| &frame.elements)
+                        .flat_map(|element| element.scripts.iter().map(|object| &object.script)),
+                )
+                .map(|script| (script.language, script.source.as_str()))
+        }))
 }
 
 fn validate_converted_project(project: &Project) -> Result<(), String> {
@@ -249,7 +247,7 @@ fn normalize_web_to_js(project: &mut Project, report: &mut ConversionReport) -> 
         for fs in &mut sym.timeline.scripts {
             if fs.script.language == ScriptLanguage::TypeScript {
                 let (code, _) =
-                    crate::compile_web_mapped(&fs.script, false, &sym.name).map_err(|errs| {
+                    crate::compile_web_mapped(&fs.script, true, &sym.name).map_err(|errs| {
                         errs.into_iter()
                             .map(|e| e.to_string())
                             .collect::<Vec<_>>()
@@ -265,13 +263,13 @@ fn normalize_web_to_js(project: &mut Project, report: &mut ConversionReport) -> 
                 for el in &mut kf.elements {
                     for os in &mut el.scripts {
                         if os.script.language == ScriptLanguage::TypeScript {
-                            let (code, _) = crate::compile_web_mapped(&os.script, false, &el.name)
+                            let (code, _) = crate::compile_web_mapped(&os.script, true, &el.name)
                                 .map_err(|errs| {
-                                    errs.into_iter()
-                                        .map(|e| e.to_string())
-                                        .collect::<Vec<_>>()
-                                        .join("; ")
-                                })?;
+                                errs.into_iter()
+                                    .map(|e| e.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join("; ")
+                            })?;
                             os.script.source = code;
                             os.script.language = ScriptLanguage::JavaScript;
                             report.converted_object_scripts += 1;
@@ -299,10 +297,21 @@ fn lift_symbol_object_scripts(
     report: &mut ConversionReport,
 ) -> Result<BTreeMap<u32, Vec<LiftedObjectHandler>>, String> {
     let mut used_names = BTreeSet::new();
+    let mut names_by_element = BTreeMap::<_, BTreeSet<_>>::new();
+    let mut owners_by_name = BTreeMap::<_, BTreeSet<_>>::new();
     for layer in &out_project.symbols[sym_idx].timeline.layers {
         for kf in &layer.keyframes {
             for el in &kf.elements {
                 if !el.name.is_empty() {
+                    let key = (layer.id.as_str(), el.id.as_str());
+                    names_by_element
+                        .entry(key)
+                        .or_default()
+                        .insert(el.name.as_str());
+                    owners_by_name
+                        .entry(el.name.as_str())
+                        .or_default()
+                        .insert(key);
                     used_names.insert(el.name.clone());
                 }
             }
@@ -317,11 +326,25 @@ fn lift_symbol_object_scripts(
     for layer in &out_project.symbols[sym_idx].timeline.layers {
         for kf in &layer.keyframes {
             for el in &kf.elements {
-                if el.scripts.is_empty() || !el.name.is_empty() {
+                if !el.scripts.iter().any(|os| {
+                    os.script.language.is_actionscript() && !os.script.source.trim().is_empty()
+                }) || !el.name.is_empty()
+                {
                     continue;
                 }
                 let key = (layer.id.clone(), el.id.clone());
                 if auto_names_by_layer_el.contains_key(&key) {
+                    continue;
+                }
+                // An authored name on another keyframe belongs to the same instance
+                // when that identity and name are unambiguous throughout the symbol.
+                if let Some(names) = names_by_element.get(&(layer.id.as_str(), el.id.as_str()))
+                    && names.len() == 1
+                    && let Some(name) = names.first()
+                    && owners_by_name[name].len() == 1
+                {
+                    auto_names_by_layer_el.insert(key, (*name).to_owned());
+                    report.auto_named_instances += 1;
                     continue;
                 }
                 let is_btn = el.effective_symbol_kind(project_snapshot) == Some(SymbolKind::Button)
@@ -379,6 +402,12 @@ fn lift_symbol_object_scripts(
                 let drained: Vec<_> = std::mem::take(&mut el.scripts);
 
                 for os in drained {
+                    if !os.script.language.is_actionscript()
+                        && report.target_language == ScriptLanguage::JavaScript
+                    {
+                        el.scripts.push(os);
+                        continue;
+                    }
                     if os.script.source.trim().is_empty() {
                         continue;
                     }
@@ -396,7 +425,7 @@ fn lift_symbol_object_scripts(
                                     let parent_is_this = !trig.clip_event;
                                     lifted_by_frame.entry(frame_no).or_default().push(
                                         LiftedObjectHandler {
-                                            instance_name: inst_name.clone(),
+                                            instance_name: Some(inst_name.clone()),
                                             parent_is_this,
                                             trigger: kind,
                                             body: fn_box.body.clone(),
@@ -419,7 +448,7 @@ fn lift_symbol_object_scripts(
                             .entry(frame_no)
                             .or_default()
                             .push(LiftedObjectHandler {
-                                instance_name: inst_name.clone(),
+                                instance_name: Some(inst_name.clone()),
                                 parent_is_this,
                                 trigger,
                                 body: plain_stmts,
@@ -435,6 +464,36 @@ fn lift_symbol_object_scripts(
     Ok(lifted_by_frame)
 }
 
+/// A layered frame can contain several independently authored scripts. Attach each
+/// set of lifted handlers to the first script exactly once, retaining script order.
+fn ensure_handler_frames(
+    timeline: &mut neoflash_core::Timeline,
+    handlers: &BTreeMap<u32, Vec<LiftedObjectHandler>>,
+) {
+    let existing: BTreeSet<_> = timeline.scripts.iter().map(|fs| fs.frame).collect();
+    for &frame in handlers.keys().filter(|f| !existing.contains(f)) {
+        timeline.scripts.push(FrameScript {
+            layer: timeline.layers.first().map(|l| l.id.clone()),
+            frame,
+            script: Script {
+                language: ScriptLanguage::ActionScript2,
+                source: String::new(),
+            },
+        });
+    }
+    timeline.scripts.sort_by_key(|fs| fs.frame);
+}
+
+fn retain_action_source(unit: &SourceUnit, report: &mut ConversionReport) {
+    report.issues.push(ConversionIssue {
+        kind: ConversionIssueKind::ManualAttention,
+        location: unit.path.clone(),
+        line: 1,
+        column: 1,
+        message: "Retained the original ActionScript source as an editable project file. Referenced includes are expanded in their converted callers; this file is not a target-language class.".into(),
+    });
+}
+
 /// Split any top-level `Stmt::LegacyEvent` blocks that were placed inside a `FrameScript` itself.
 fn extract_frame_legacy_events(stmts: &[Stmt]) -> (Vec<Stmt>, Vec<LiftedObjectHandler>) {
     let mut kept = Vec::new();
@@ -444,7 +503,7 @@ fn extract_frame_legacy_events(stmts: &[Stmt]) -> (Vec<Stmt>, Vec<LiftedObjectHa
             for trig in triggers {
                 if let Some(kind) = LiftedTriggerKind::from_legacy(trig) {
                     lifted.push(LiftedObjectHandler {
-                        instance_name: "this".into(),
+                        instance_name: None,
                         parent_is_this: true,
                         trigger: kind,
                         body: fn_box.body.clone(),
@@ -510,48 +569,23 @@ fn convert_to_as3(
                 if unit.source.contains("class ") || unit.source.contains("interface ") {
                     return Err(format!("{}: {err}", unit.path));
                 }
-                // `#include`-only snippet file: already expanded inline into timeline/class scripts.
-                report.converted_source_units += 1;
+                retain_action_source(unit, report);
+                converted_sources.push(unit.clone());
             }
         }
     }
     out.sources = converted_sources;
 
     // 2. Convert each Symbol's timeline `FrameScript`s (and merge lifted `ObjectScript`s)
-    for (sym_idx, lifted_map) in lifted_per_symbol.into_iter().enumerate() {
+    for (sym_idx, mut lifted_map) in lifted_per_symbol.into_iter().enumerate() {
         let sym_id = out.symbols[sym_idx].id.clone();
         let sym_name = out.symbols[sym_idx].name.clone();
 
         // Ensure every frame with lifted object handlers has a `FrameScript` slot
-        for &frame_no in lifted_map.keys() {
-            let exists = out.symbols[sym_idx]
-                .timeline
-                .scripts
-                .iter()
-                .any(|fs| fs.frame == frame_no);
-            if !exists {
-                let layer = out.symbols[sym_idx]
-                    .timeline
-                    .layers
-                    .first()
-                    .map(|l| l.id.clone());
-                out.symbols[sym_idx].timeline.scripts.push(FrameScript {
-                    layer,
-                    frame: frame_no,
-                    script: Script {
-                        language: ScriptLanguage::ActionScript2,
-                        source: String::new(),
-                    },
-                });
-            }
-        }
-        out.symbols[sym_idx]
-            .timeline
-            .scripts
-            .sort_by_key(|fs| fs.frame);
+        ensure_handler_frames(&mut out.symbols[sym_idx].timeline, &lifted_map);
 
         for fs in &mut out.symbols[sym_idx].timeline.scripts {
-            let mut frame_lifted = lifted_map.get(&fs.frame).cloned().unwrap_or_default();
+            let mut frame_lifted = lifted_map.remove(&fs.frame).unwrap_or_default();
             if fs.script.source.trim().is_empty() && frame_lifted.is_empty() {
                 fs.script.language = ScriptLanguage::ActionScript3;
                 continue;
@@ -813,6 +847,9 @@ fn convert_to_js(
     let mut parsed_classes: Vec<(usize, ParsedClass)> = Vec::new();
     let mut module_paths_by_short: BTreeMap<String, String> = BTreeMap::new();
     for (idx, unit) in out.sources.iter().enumerate() {
+        if !unit.language.is_actionscript() {
+            continue;
+        }
         match parse_class_unit(unit, includes) {
             Ok(cls) => {
                 let mod_path = to_js_module_path(&unit.path, &cls.qualified_name);
@@ -861,55 +898,38 @@ fn convert_to_js(
         report.converted_source_units += 1;
     }
 
-    // Count any `#include`-only snippet files that were expanded inline
     let class_indices: BTreeSet<usize> = parsed_classes.iter().map(|(i, _)| *i).collect();
-    for (idx, _) in out.sources.iter().enumerate() {
+    for (idx, unit) in out.sources.iter().enumerate() {
         if !class_indices.contains(&idx) {
-            report.converted_source_units += 1;
+            if unit.language.is_actionscript() {
+                retain_action_source(unit, report);
+            }
+            new_sources.push(unit.clone());
         }
     }
     out.sources = new_sources;
 
     // Convert each Symbol's timeline `FrameScript`s (and merge lifted `ObjectScript`s)
-    for (sym_idx, lifted_map) in lifted_per_symbol.into_iter().enumerate() {
+    for (sym_idx, mut lifted_map) in lifted_per_symbol.into_iter().enumerate() {
         let sym_id = out.symbols[sym_idx].id.clone();
         let sym_name = out.symbols[sym_idx].name.clone();
 
-        for &frame_no in lifted_map.keys() {
-            let exists = out.symbols[sym_idx]
-                .timeline
-                .scripts
-                .iter()
-                .any(|fs| fs.frame == frame_no);
-            if !exists {
-                let layer = out.symbols[sym_idx]
-                    .timeline
-                    .layers
-                    .first()
-                    .map(|l| l.id.clone());
-                out.symbols[sym_idx].timeline.scripts.push(FrameScript {
-                    layer,
-                    frame: frame_no,
-                    script: Script {
-                        language: ScriptLanguage::ActionScript2,
-                        source: String::new(),
-                    },
-                });
-            }
-        }
-        out.symbols[sym_idx]
-            .timeline
-            .scripts
-            .sort_by_key(|fs| fs.frame);
+        ensure_handler_frames(&mut out.symbols[sym_idx].timeline, &lifted_map);
 
         for fs in &mut out.symbols[sym_idx].timeline.scripts {
-            let mut frame_lifted = lifted_map.get(&fs.frame).cloned().unwrap_or_default();
+            let mut frame_lifted = lifted_map.remove(&fs.frame).unwrap_or_default();
+            // Native web frame code is already normalized. Only translate the object
+            // handlers being added to this frame; retain its original JavaScript.
+            let web_frame = fs.script.language == ScriptLanguage::JavaScript;
+            if web_frame && frame_lifted.is_empty() {
+                continue;
+            }
             if fs.script.source.trim().is_empty() && frame_lifted.is_empty() {
                 fs.script.language = ScriptLanguage::JavaScript;
                 continue;
             }
             let loc = format!("{sym_name}[frame {}]", fs.frame + 1);
-            let mut parsed = if fs.script.source.trim().is_empty() {
+            let mut parsed = if web_frame || fs.script.source.trim().is_empty() {
                 hir::ParsedScript {
                     expanded_source: String::new(),
                     language: ScriptLanguage::ActionScript2,
@@ -936,7 +956,12 @@ fn convert_to_js(
             for syn in emitted.synthesized_linkages {
                 all_synthesized.insert(syn.linkage_id.clone(), syn);
             }
-            fs.script.source = emitted.source;
+            if web_frame {
+                fs.script.source.push('\n');
+                fs.script.source.push_str(&emitted.source);
+            } else {
+                fs.script.source = emitted.source;
+            }
             fs.script.language = ScriptLanguage::JavaScript;
             report.converted_frame_scripts += 1;
         }

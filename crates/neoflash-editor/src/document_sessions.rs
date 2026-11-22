@@ -620,8 +620,30 @@ impl Editor {
         })
     }
 
-    /// Open/Import recognizes the source of an imported document without treating it as a save
-    /// destination. Save conflicts and recovery continue to use only `session_for_path`.
+    /// Check every open file that replacing this destination could affect, including an
+    /// imported XFL opened through its marker or DOM, and files inside an XFL directory.
+    pub(crate) fn save_destination_in_use(&self, path: &Path, allow_active_file: bool) -> bool {
+        let target = canonical_open_identity(path);
+        let replaces_directory = path.is_dir();
+        let overlaps = |active: bool, native: Option<&Path>, imported: Option<&Path>| {
+            [native, imported].into_iter().flatten().any(|open| {
+                let open = canonical_open_identity(open);
+                if open == target {
+                    !active || !allow_active_file
+                } else {
+                    replaces_directory && open.starts_with(&target)
+                }
+            })
+        };
+        overlaps(true, self.path.as_deref(), self.import_source.as_deref())
+            || self
+                .sessions
+                .iter()
+                .flatten()
+                .any(|s| overlaps(false, s.path.as_deref(), s.import_source.as_deref()))
+    }
+
+    /// An imported document can be reopened from its source as well as its native save path.
     pub(crate) fn session_for_open_path(&self, path: &Path) -> Option<usize> {
         self.session_for_path(path).or_else(|| {
             let target = canonical_open_identity(path);

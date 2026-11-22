@@ -31,12 +31,12 @@ same-file = "1.0.6"
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { version = "27", default-features = false, features = ["metal"] }
 objc2 = "0.6.3"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSScreen", "NSEvent", "NSApplication", "NSWindow", "NSView", "block2"] }
 block2 = "0.6.2"
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSPasteboard"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 wgpu = { version = "27", default-features = false, features = ["dx12", "vulkan"] }

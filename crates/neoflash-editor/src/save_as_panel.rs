@@ -122,73 +122,52 @@ pub fn available_script_options(project_lang: ScriptLanguage) -> Vec<(SaveAsScri
     }
 }
 
-/// Computes the updated filename in the `Save As` text field when the user switches `Format` or
-/// `Script` (appending/removing `" (converted)"` like After Effects / Illustrator without losing
-/// custom stem edits).
-pub fn update_save_as_filename(
-    current_filename: &str,
-    format: SaveAsFormat,
-    converting: bool,
-) -> String {
-    let trimmed = current_filename.trim();
-    let raw_stem = strip_save_as_extension(trimmed);
-    let base_stem = if raw_stem.is_empty() {
-        "Untitled"
-    } else {
-        raw_stem
-    };
-
-    let clean_stem = strip_converted_suffix(base_stem);
-    let next_stem = if converting {
-        format!("{clean_stem} (converted)")
-    } else {
-        clean_stem.to_owned()
-    };
-
-    format!("{next_stem}.{}", format.extension())
+/// Only remove a suffix that this dialog added. A document may already be named
+/// `Scene (converted).nflash` before the dialog opens.
+#[derive(Default)]
+pub(crate) struct SaveAsFilename {
+    added_suffix: bool,
 }
 
-/// Ensures `path` carries the extension matching `format` if no supported extension is present.
-pub fn normalize_save_as_result_path(path: PathBuf, format: SaveAsFormat) -> PathBuf {
-    let matches_known = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|ext| {
-            ext.eq_ignore_ascii_case("nflash")
-                || ext.eq_ignore_ascii_case("fla")
-                || ext.eq_ignore_ascii_case("xfl")
-        });
-    if matches_known {
-        let current_ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or_default();
-        if current_ext.eq_ignore_ascii_case(format.extension()) {
-            path
+impl SaveAsFilename {
+    pub(crate) fn update(
+        &mut self,
+        current_filename: &str,
+        format: SaveAsFormat,
+        converting: bool,
+    ) -> String {
+        let name = current_filename.trim();
+        let stem = [".nflash", ".fla", ".xfl", ".json"]
+            .iter()
+            .find_map(|ext| strip_ascii_suffix(name, ext))
+            .unwrap_or(name);
+        let stem = if stem.is_empty() { "Untitled" } else { stem };
+        const SUFFIX: &str = " (converted)";
+        let unsuffixed = strip_ascii_suffix(stem, SUFFIX);
+        if converting && unsuffixed.is_none() {
+            self.added_suffix = true;
+            format!("{stem}{SUFFIX}.{}", format.extension())
         } else {
-            path.with_extension(format.extension())
+            let stem = if !converting && std::mem::take(&mut self.added_suffix) {
+                unsuffixed.unwrap_or(stem)
+            } else {
+                stem
+            };
+            format!("{stem}.{}", format.extension())
         }
-    } else {
-        path.with_extension(format.extension())
     }
 }
 
-fn strip_save_as_extension(name: &str) -> &str {
-    for ext in [".nflash", ".fla", ".xfl", ".json"] {
-        if name.len() > ext.len() && name[name.len() - ext.len()..].eq_ignore_ascii_case(ext) {
-            return &name[..name.len() - ext.len()];
-        }
-    }
-    name
+fn strip_ascii_suffix<'a>(text: &'a str, suffix: &str) -> Option<&'a str> {
+    let (stem, tail) = text.split_at_checked(text.len().checked_sub(suffix.len())?)?;
+    (!stem.is_empty() && tail.eq_ignore_ascii_case(suffix)).then_some(stem)
 }
 
-fn strip_converted_suffix(stem: &str) -> &str {
-    const SUFFIX: &str = " (converted)";
-    if stem.len() > SUFFIX.len() && stem[stem.len() - SUFFIX.len()..].eq_ignore_ascii_case(SUFFIX) {
-        &stem[..stem.len() - SUFFIX.len()]
-    } else {
-        stem
-    }
+/// The returned URL is the destination for which AppKit checked overwrite consent.
+fn confirmed_save_as_path(path: PathBuf, format: SaveAsFormat) -> Option<PathBuf> {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(format.extension()))
+        .then_some(path)
 }
 
 /// Opens the platform `Save As` dialog with `Format` and `Script` selectors.
@@ -241,7 +220,7 @@ mod macos {
         runtime::{AnyClass, AnyObject, Bool, Imp, Sel},
         sel,
     };
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString};
     use std::cell::RefCell;
     use std::ffi::{CStr, CString, c_char};
     use std::sync::OnceLock;
@@ -249,11 +228,19 @@ mod macos {
     const NS_MODAL_RESPONSE_OK: isize = 1;
     const NS_TEXT_ALIGNMENT_RIGHT: isize = 2;
 
+    struct PanelRename {
+        name: String,
+        directory: Option<Retained<AnyObject>>,
+        tags: Option<Retained<AnyObject>>,
+    }
+
     struct ActivePanelRefs {
         panel: *mut AnyObject,
         format_popup: *mut AnyObject,
         script_popup: *mut AnyObject,
         script_options: Vec<SaveAsScriptOption>,
+        filename: SaveAsFilename,
+        rename: Option<PanelRename>,
     }
 
     thread_local! {
@@ -274,11 +261,11 @@ mod macos {
     unsafe extern "C-unwind" fn popup_changed(
         _target: &AnyObject,
         _sel: Sel,
-        _sender: Option<&AnyObject>,
+        sender: Option<&AnyObject>,
     ) {
         ACTIVE_PANEL.with(|cell| {
-            let borrow = cell.borrow();
-            let Some(refs) = borrow.as_ref() else {
+            let mut borrow = cell.borrow_mut();
+            let Some(refs) = borrow.as_mut() else {
                 return;
             };
             if refs.panel.is_null() || refs.format_popup.is_null() || refs.script_popup.is_null() {
@@ -300,10 +287,26 @@ mod macos {
             } else {
                 unsafe { ns_string_to_rust(&*current_ns) }.unwrap_or_default()
             };
-            let next_name =
-                update_save_as_filename(&current_name, format, script_opt.is_converting());
-            if let Some(ns_next) = ns_string(&next_name) {
-                let _: () = unsafe { msg_send![refs.panel, setNameFieldStringValue: &*ns_next] };
+            let next_name = refs
+                .filename
+                .update(&current_name, format, script_opt.is_converting());
+            if sender.is_some_and(|popup| std::ptr::eq(popup, refs.format_popup)) {
+                unsafe { set_allowed_format(&*refs.panel, format) };
+            }
+            // The file-type filter updates the extension live. AppKit only accepts a new
+            // nameFieldStringValue during configuration, before runModal.
+            if next_name != current_name
+                && Path::new(&current_name).with_extension(format.extension())
+                    != Path::new(&next_name)
+            {
+                let directory: *mut AnyObject = unsafe { msg_send![refs.panel, directoryURL] };
+                let tags: *mut AnyObject = unsafe { msg_send![refs.panel, tagNames] };
+                refs.rename = Some(PanelRename {
+                    name: next_name,
+                    directory: unsafe { Retained::retain(directory) },
+                    tags: unsafe { Retained::retain(tags) },
+                });
+                let _: () = unsafe { msg_send![refs.panel, cancel: refs.panel] };
             }
         });
     }
@@ -334,6 +337,11 @@ mod macos {
             unsafe { ffi::objc_registerClassPair(cls) };
             AnyClass::get(c"NeoFlashSavePanelAccessoryTarget")
         })
+    }
+
+    unsafe fn set_allowed_format(panel: &AnyObject, format: SaveAsFormat) {
+        let extensions = NSArray::from_retained_slice(&[NSString::from_str(format.extension())]);
+        let _: () = unsafe { msg_send![panel, setAllowedFileTypes: &*extensions] };
     }
 
     fn ns_string(text: &str) -> Option<Retained<AnyObject>> {
@@ -420,33 +428,12 @@ mod macos {
             Retained::from_raw(raw)?
         };
 
-        let panel: Retained<AnyObject> = unsafe {
-            let raw: *mut AnyObject = msg_send![panel_cls, savePanel];
-            Retained::retain(raw)?
-        };
-
-        if let Some(ns_title) = ns_string("Save As") {
-            let _: () = unsafe { msg_send![&*panel, setTitle: &*ns_title] };
-        }
-        let _: () = unsafe { msg_send![&*panel, setCanCreateDirectories: Bool::YES] };
-        let _: () = unsafe { msg_send![&*panel, setExtensionHidden: Bool::NO] };
-
-        let initial_name = update_save_as_filename(default_name, SaveAsFormat::NeoFlash, false);
-        if let Some(ns_name) = ns_string(&initial_name) {
-            let _: () = unsafe { msg_send![&*panel, setNameFieldStringValue: &*ns_name] };
-        }
-
-        if let Some(dir) = default_dir
-            && let Some(dir_str) = dir.to_str()
-            && let Some(ns_dir) = ns_string(dir_str)
-            && let Some(url_cls) = AnyClass::get(c"NSURL")
-        {
-            let dir_url: *mut AnyObject =
-                unsafe { msg_send![url_cls, fileURLWithPath: &*ns_dir, isDirectory: Bool::YES] };
-            if !dir_url.is_null() {
-                let _: () = unsafe { msg_send![&*panel, setDirectoryURL: &*dir_url] };
-            }
-        }
+        let default_directory = default_dir.and_then(|dir| {
+            let path = ns_string(dir.to_str()?)?;
+            let class = AnyClass::get(c"NSURL")?;
+            let url = unsafe { msg_send![class, fileURLWithPath: &*path, isDirectory: Bool::YES] };
+            unsafe { Retained::retain(url) }
+        });
 
         let accessory: Retained<AnyObject> = unsafe {
             let raw: *mut AnyObject = msg_send![view_cls, alloc];
@@ -493,23 +480,61 @@ mod macos {
             let _: () = msg_send![&*accessory, addSubview: &*fmt_popup];
             let _: () = msg_send![&*accessory, addSubview: &*scr_label];
             let _: () = msg_send![&*accessory, addSubview: &*scr_popup];
-            let _: () = msg_send![&*panel, setAccessoryView: &*accessory];
         }
 
         let _guard = ActivePanelGuard;
         ACTIVE_PANEL.with(|cell| {
             *cell.borrow_mut() = Some(ActivePanelRefs {
-                panel: Retained::as_ptr(&panel) as *mut AnyObject,
+                panel: std::ptr::null_mut(),
                 format_popup: Retained::as_ptr(&fmt_popup) as *mut AnyObject,
                 script_popup: Retained::as_ptr(&scr_popup) as *mut AnyObject,
                 script_options: script_opts.clone(),
+                filename: SaveAsFilename::default(),
+                rename: None,
             });
         });
 
-        let response: isize = unsafe { msg_send![&*panel, runModal] };
-        if response != NS_MODAL_RESPONSE_OK {
-            return Some(None);
-        }
+        let mut configuration = PanelRename {
+            name: default_name.to_owned(),
+            directory: default_directory,
+            tags: None,
+        };
+        let panel = loop {
+            let raw: *mut AnyObject = unsafe { msg_send![panel_cls, savePanel] };
+            let panel = unsafe { Retained::retain(raw)? };
+            let title = ns_string("Save As")?;
+            let name = ns_string(&configuration.name)?;
+            let fmt_idx: isize = unsafe { msg_send![&*fmt_popup, indexOfSelectedItem] };
+            unsafe {
+                let _: () = msg_send![&*panel, setTitle: &*title];
+                let _: () = msg_send![&*panel, setCanCreateDirectories: Bool::YES];
+                let _: () = msg_send![&*panel, setExtensionHidden: Bool::NO];
+                set_allowed_format(&panel, SaveAsFormat::from_index(fmt_idx.max(0) as usize));
+                let _: () = msg_send![&*panel, setAllowsOtherFileTypes: Bool::NO];
+                let _: () = msg_send![&*panel, setNameFieldStringValue: &*name];
+                if let Some(dir) = &configuration.directory {
+                    let _: () = msg_send![&*panel, setDirectoryURL: &**dir];
+                }
+                if let Some(tags) = &configuration.tags {
+                    let _: () = msg_send![&*panel, setTagNames: &**tags];
+                }
+                let _: () = msg_send![&*panel, setAccessoryView: &*accessory];
+            }
+            ACTIVE_PANEL.with(|cell| {
+                cell.borrow_mut().as_mut().unwrap().panel = raw;
+            });
+            let response: isize = unsafe { msg_send![&*panel, runModal] };
+            let rename = ACTIVE_PANEL.with(|cell| cell.borrow_mut().as_mut()?.rename.take());
+            if let Some(rename) = rename {
+                configuration = rename;
+                let _: () =
+                    unsafe { msg_send![&*panel, setAccessoryView: std::ptr::null::<AnyObject>()] };
+            } else if response == NS_MODAL_RESPONSE_OK {
+                break panel;
+            } else {
+                return Some(None);
+            }
+        };
 
         let fmt_idx: isize = unsafe { msg_send![&*fmt_popup, indexOfSelectedItem] };
         let scr_idx: isize = unsafe { msg_send![&*scr_popup, indexOfSelectedItem] };
@@ -531,12 +556,15 @@ mod macos {
         if raw_path.is_empty() {
             return Some(None);
         }
-        let normalized = normalize_save_as_result_path(PathBuf::from(raw_path), format);
-        Some(Some(SaveAsDialogResult {
-            path: normalized,
-            format,
-            conversion,
-        }))
+        Some(
+            confirmed_save_as_path(PathBuf::from(raw_path), format).map(|path| {
+                SaveAsDialogResult {
+                    path,
+                    format,
+                    conversion,
+                }
+            }),
+        )
     }
 }
 
@@ -577,36 +605,49 @@ mod tests {
 
     #[test]
     fn filename_transitions_append_and_strip_converted_and_switch_extensions() {
-        let f1 = update_save_as_filename("Arcade.nflash", SaveAsFormat::NeoFlash, true);
+        let mut name = SaveAsFilename::default();
+        assert_eq!(
+            name.update("ёжик.fla", SaveAsFormat::NeoFlash, true),
+            "ёжик (converted).nflash"
+        );
+        assert_eq!(
+            name.update("🌅🌅🌅🌅.nflash", SaveAsFormat::FlashFla, false),
+            "🌅🌅🌅🌅.fla"
+        );
+        let f1 = name.update("Arcade.nflash", SaveAsFormat::NeoFlash, true);
         assert_eq!(f1, "Arcade (converted).nflash");
 
         // Switching to another conversion target must not double-append ` (converted)`.
-        let f2 = update_save_as_filename(&f1, SaveAsFormat::FlashFla, true);
+        let f2 = name.update(&f1, SaveAsFormat::FlashFla, true);
         assert_eq!(f2, "Arcade (converted).fla");
 
         // Switching back to `Keep current` removes ` (converted)` while keeping chosen format.
-        let f3 = update_save_as_filename(&f2, SaveAsFormat::FlashFla, false);
+        let f3 = name.update(&f2, SaveAsFormat::FlashFla, false);
         assert_eq!(f3, "Arcade.fla");
 
-        let f4 = update_save_as_filename(&f3, SaveAsFormat::UncompressedXfl, false);
+        let f4 = name.update(&f3, SaveAsFormat::UncompressedXfl, false);
         assert_eq!(f4, "Arcade.xfl");
     }
 
     #[test]
-    fn normalize_save_as_result_path_enforces_selected_format_extension() {
+    fn save_as_only_returns_the_filename_confirmed_by_the_system() {
+        let confirmed = PathBuf::from("Scene.FLA");
         assert_eq!(
-            normalize_save_as_result_path(
-                PathBuf::from("/tmp/Demo (converted)"),
-                SaveAsFormat::NeoFlash
-            ),
-            PathBuf::from("/tmp/Demo (converted).nflash")
+            confirmed_save_as_path(confirmed.clone(), SaveAsFormat::FlashFla),
+            Some(confirmed.clone())
+        );
+        assert!(confirmed_save_as_path(confirmed, SaveAsFormat::NeoFlash).is_none());
+        assert!(confirmed_save_as_path(PathBuf::from("Scene"), SaveAsFormat::NeoFlash).is_none());
+
+        let mut name = SaveAsFilename::default();
+        let existing = "Scene (converted).nflash";
+        assert_eq!(
+            name.update(existing, SaveAsFormat::NeoFlash, true),
+            existing
         );
         assert_eq!(
-            normalize_save_as_result_path(
-                PathBuf::from("/tmp/Demo (converted).nflash"),
-                SaveAsFormat::FlashFla
-            ),
-            PathBuf::from("/tmp/Demo (converted).fla")
+            name.update(existing, SaveAsFormat::FlashFla, false),
+            "Scene (converted).fla"
         );
     }
 }

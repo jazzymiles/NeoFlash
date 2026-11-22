@@ -188,7 +188,8 @@ fn swf_sound_layouts_are_proven_instead_of_clamped_or_guessed() {
     assert_eq!(mp3_info.sample_count, 1152);
     assert_eq!(mp3_info.sample_rate, 44_100);
     assert!(mp3_info.stereo);
-    let mp3_payload = build_define_sound_payload(7, "audio/mpeg", &mp3).unwrap();
+    let mp3_payload =
+        build_define_sound_payload(7, &mp3_info, &mp3[mp3_info.data_start..mp3_info.data_end]);
     assert_eq!(
         u32::from_le_bytes(mp3_payload[3..7].try_into().unwrap()),
         1152

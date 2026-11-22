@@ -123,10 +123,10 @@ impl Editor {
 
         // Global commands allowed even while a text field has focus (when bound to a non-typing chord).
         if self.take_command_shortcut(ctx, C::FileSaveAs) {
-            self.save(true);
+            self.save_with_ctx(true, Some(ctx));
         }
         if self.take_command_shortcut(ctx, C::FileSave) {
-            self.save(false);
+            self.save_with_ctx(false, Some(ctx));
         }
         if self.take_command_shortcut(ctx, C::FileOpen) {
             self.request(Pending::Open, ctx);

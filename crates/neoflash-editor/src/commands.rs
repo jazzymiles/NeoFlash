@@ -3468,7 +3468,7 @@ impl Editor {
             CommandId::FileOpen => self.request(Pending::Open, ctx),
             CommandId::FileClose => self.request(Pending::CloseDocument, ctx),
             CommandId::FileSave => {
-                let _ = self.save(false);
+                let _ = self.save_with_ctx(false, Some(ctx));
             }
             CommandId::FileSaveAs => {
                 let _ = self.save_with_ctx(true, Some(ctx));
