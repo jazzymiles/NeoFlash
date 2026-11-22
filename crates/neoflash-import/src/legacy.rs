@@ -1065,7 +1065,7 @@ pub(crate) fn decode_nfd1_delta_gzip(
         ));
     }
 
-    let mut out = Vec::with_capacity(expected_len.min(16 * 1024 * 1024));
+    let mut out = Vec::with_capacity(expected_len.min(64 * 1024));
     loop {
         let mut op = [0u8; 1];
         dec.read_exact(&mut op)
@@ -1092,10 +1092,19 @@ pub(crate) fn decode_nfd1_delta_gzip(
                 if len == 0 || out.len().checked_add(len).is_none_or(|n| n > expected_len) {
                     return Err(container("invalid or out-of-bounds delta literal"));
                 }
-                let start = out.len();
-                out.resize(start + len, 0);
-                dec.read_exact(&mut out[start..])
-                    .map_err(|e| container(format!("truncated delta literal payload: {e}")))?;
+                let mut limited = dec.by_ref().take(len as u64);
+                let mut copied = 0usize;
+                let mut buf = [0u8; 64 * 1024];
+                while copied < len {
+                    let n_read = limited
+                        .read(&mut buf)
+                        .map_err(|e| container(format!("truncated delta literal payload: {e}")))?;
+                    if n_read == 0 {
+                        return Err(container("truncated delta literal payload: unexpected EOF"));
+                    }
+                    out.extend_from_slice(&buf[..n_read]);
+                    copied += n_read;
+                }
             }
             DELTA_OP_RESOURCE_SLICE => {
                 let mut sb = [0u8; 10];

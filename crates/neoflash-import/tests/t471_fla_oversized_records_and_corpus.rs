@@ -987,3 +987,163 @@ fn private_corpus_all_nonempty_flas_reconstruct_sha256_byte_for_byte_when_presen
         );
     }
 }
+
+#[test]
+fn f09_truncated_40_byte_nfd1_claiming_500mb_literal_and_inline_manifest_invariants_fail_fast() {
+    let tmp = TempDir::new();
+
+    // Build a valid minimal FLA so we have a clean base bundle (`InlineProject`).
+    let contents = build_contents_v3f_with_bitmap_and_sounds(None, &[]);
+    let page = page_minimal();
+    let fla_path = tmp.0.join("small_valid.fla");
+    write_cfb_fla(&fla_path, &[("Contents", &contents), ("Page 1", &page)]);
+
+    let base_bundle = import_legacy_fla_oversized_bundle(&fla_path).expect("import small bundle");
+    let bundle_dir = tmp.0.join("small-bundle-dir");
+    base_bundle
+        .save_to_dir(&bundle_dir)
+        .expect("save small bundle");
+
+    // 1. Craft a tiny (< 50 byte) gzipped `NFD1` stream declaring `expected_len = 500 MiB`
+    //    and a `DELTA_OP_LITERAL` header with `len = 500 MiB` followed by only 4 bytes (EOF).
+    let claimed_len: u32 = 500 * 1024 * 1024;
+    let mut raw_nfd1 = Vec::new();
+    raw_nfd1.extend_from_slice(b"NFD1");
+    raw_nfd1.extend_from_slice(&u64::from(claimed_len).to_le_bytes());
+    raw_nfd1.extend_from_slice(&0_u16.to_le_bytes()); // 0 reference blobs
+    raw_nfd1.push(0x00); // DELTA_OP_LITERAL
+    raw_nfd1.extend_from_slice(&claimed_len.to_le_bytes()); // claims 500 MiB literal!
+    raw_nfd1.extend_from_slice(&[0xde, 0xad, 0xbe, 0xef]); // truncated after 4 bytes!
+
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    gz.write_all(&raw_nfd1).unwrap();
+    let tiny_gz = gz.finish().unwrap();
+    assert!(
+        tiny_gz.len() <= 48,
+        "crafted truncated NFD1 gzip payload should be <= 48 bytes, got {}",
+        tiny_gz.len()
+    );
+
+    let tiny_sha = sha256_hex(&tiny_gz);
+    let mut bomb_bundle = base_bundle.clone();
+    bomb_bundle.chunks = vec![OversizedMediaChunk {
+        sha256: tiny_sha.clone(),
+        byte_len: tiny_gz.len(),
+        media_type: "application/x-neoflash-nfd1+gzip".to_owned(),
+        role: OversizedChunkRole::SourceDeltaGzip,
+        data: tiny_gz.clone(),
+    }];
+    bomb_bundle.source_archive = OversizedSourceArchive::BundleDeltaGzip {
+        source_bytes: u64::from(claimed_len),
+        source_fnv1a64: "0000000000000000".to_owned(),
+        source_sha256: "a".repeat(64),
+        delta_chunk_sha256s: vec![tiny_sha],
+        references: Vec::new(),
+    };
+
+    let t0 = std::time::Instant::now();
+    let err = bomb_bundle.reconstruct_fla_bytes().unwrap_err();
+    assert!(
+        t0.elapsed().as_secs() < 2,
+        "truncated 500 MiB literal header must fail immediately without huge allocation"
+    );
+    assert!(
+        err.to_string().contains("truncated delta literal payload"),
+        "expected truncated delta literal payload error, got {err}"
+    );
+
+    // Also verify inline `reconstruct_legacy_fla_bytes` rejects the same 40-byte truncated stream fast.
+    let mut bomb_proj = base_bundle.project.clone();
+    bomb_proj
+        .resources
+        .retain(|r| !r.id.starts_with("fla-original"));
+    bomb_proj.resources.push(
+        ResourceUnit::from_bytes(
+            "fla-original",
+            "legacy/source.fla.delta.gz",
+            "application/octet-stream",
+            &tiny_gz,
+        )
+        .unwrap(),
+    );
+    let prov = serde_json::json!({
+        "schema": 3,
+        "source_bytes": u64::from(claimed_len),
+        "source_fnv1a64": "0000000000000000",
+        "source_sha256": "a".repeat(64),
+        "source_archive": {
+            "encoding": "resource-delta-gzip",
+            "resources": ["fla-original"],
+            "reference_resources": [],
+            "source_byte_len": u64::from(claimed_len),
+            "source_sha256": "a".repeat(64),
+        }
+    });
+    *bomb_proj
+        .resources
+        .iter_mut()
+        .find(|r| r.id == "fla-provenance")
+        .unwrap() = ResourceUnit::from_bytes(
+        "fla-provenance",
+        "legacy/provenance.json",
+        "application/json",
+        &serde_json::to_vec(&prov).unwrap(),
+    )
+    .unwrap();
+    let inline_err = reconstruct_legacy_fla_bytes(&bomb_proj).unwrap_err();
+    assert!(
+        inline_err
+            .to_string()
+            .contains("truncated delta literal payload"),
+        "expected truncated delta literal payload error on inline project, got {inline_err}"
+    );
+
+    // 2. Verify `InlineProject` source_bytes (> 512 MiB) & source_sha256 invariants are enforced
+    //    unconditionally on `load_from_dir` and `save_to_dir`, plus `':'` chunk segment rejection!
+    let manifest_path = bundle_dir.join("bundle-manifest.json");
+    let valid_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+
+    let mut bad_inline_size = valid_manifest.clone();
+    bad_inline_size["source_archive"]["source_bytes"] =
+        serde_json::json!(MAX_OVERSIZED_BUNDLE_SOURCE_CONTAINER_BYTES + 1);
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&bad_inline_size).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        OversizedFlaBundle::load_from_dir(&bundle_dir).is_err(),
+        "InlineProject with source_bytes > 512 MiB must be rejected"
+    );
+
+    let mut bad_inline_sha = valid_manifest.clone();
+    bad_inline_sha["source_archive"]["source_sha256"] = serde_json::json!("not-a-valid-sha256");
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&bad_inline_sha).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        OversizedFlaBundle::load_from_dir(&bundle_dir).is_err(),
+        "InlineProject with invalid source_sha256 must be rejected"
+    );
+
+    let mut colon_chunk_manifest = valid_manifest;
+    colon_chunk_manifest["chunks"] = serde_json::json!([{
+        "sha256": "C:windows_drive_injection",
+        "byte_len": 4,
+        "media_type": "application/octet-stream",
+        "role": "omitted_media"
+    }]);
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&colon_chunk_manifest).unwrap(),
+    )
+    .unwrap();
+    let colon_err = OversizedFlaBundle::load_from_dir(&bundle_dir).unwrap_err();
+    assert!(
+        colon_err.to_string().contains("traversal") || colon_err.to_string().contains("unsafe"),
+        "expected colon path rejection error, got {colon_err}"
+    );
+}

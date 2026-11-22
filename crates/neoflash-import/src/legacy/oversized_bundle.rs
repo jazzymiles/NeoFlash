@@ -34,6 +34,8 @@ use std::{
 pub const MAX_OVERSIZED_BUNDLE_CHUNK_BYTES: usize = 256 * 1024 * 1024;
 /// Maximum combined byte length across all sidecar chunks in an [`OversizedFlaBundle`] (`1 GiB`).
 pub const MAX_OVERSIZED_BUNDLE_TOTAL_BYTES: usize = 1024 * 1024 * 1024;
+/// Maximum reconstructed `.fla` container byte length supported by [`OversizedFlaBundle`] (`512 MiB`).
+pub const MAX_OVERSIZED_BUNDLE_SOURCE_CONTAINER_BYTES: u64 = MAX_CONTAINER;
 /// Deterministic slice size used when splitting oversized Schema 3 `NFD1` delta streams (`64 MiB`).
 const BUNDLE_DELTA_PART_BYTES: usize = 64 * 1024 * 1024;
 const BUNDLE_SCHEMA_VERSION: u32 = 1;
@@ -619,7 +621,7 @@ fn read_regular_file_bounded(
 ) -> Result<Vec<u8>, ImportError> {
     let mut cur = base_dir.to_path_buf();
     for (idx, seg) in segments.iter().enumerate() {
-        if seg.is_empty() || *seg == "." || *seg == ".." || seg.contains(['/', '\\', '\0']) {
+        if seg.is_empty() || *seg == "." || *seg == ".." || seg.contains(['/', '\\', ':', '\0']) {
             return Err(container(format!(
                 "rejected unsafe path segment in oversized bundle: {seg:?}"
             )));
@@ -821,6 +823,36 @@ impl OversizedFlaBundle {
     }
 
     fn validate_invariants(&self) -> Result<String, ImportError> {
+        let (declared_source_bytes, declared_source_fnv, declared_source_sha) =
+            match &self.source_archive {
+                OversizedSourceArchive::InlineProject {
+                    source_bytes,
+                    source_fnv1a64,
+                    source_sha256,
+                }
+                | OversizedSourceArchive::BundleDeltaGzip {
+                    source_bytes,
+                    source_fnv1a64,
+                    source_sha256,
+                    ..
+                } => (
+                    *source_bytes,
+                    source_fnv1a64.as_str(),
+                    source_sha256.as_str(),
+                ),
+            };
+        if declared_source_bytes > MAX_OVERSIZED_BUNDLE_SOURCE_CONTAINER_BYTES {
+            return Err(container("bundle source_bytes exceeds 512 MiB limit"));
+        }
+        if declared_source_fnv.len() != 16
+            || !declared_source_fnv.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(container("invalid source_fnv1a64 in bundle source_archive"));
+        }
+        if !is_valid_sha256_hex(declared_source_sha) {
+            return Err(container("invalid source_sha256 in bundle source_archive"));
+        }
+
         self.project
             .validate()
             .map_err(|e| container(format!("invalid bundle project: {e}")))?;
@@ -1094,7 +1126,7 @@ impl OversizedFlaBundle {
         let mut seen = BTreeSet::new();
         let mut total_bytes = 0usize;
         for entry in manifest.chunks {
-            if entry.sha256.contains(['/', '\\', '\0']) || entry.sha256.contains("..") {
+            if entry.sha256.contains(['/', '\\', ':', '\0']) || entry.sha256.contains("..") {
                 return Err(container(format!(
                     "rejected path traversal in bundle chunk identifier: {:?}",
                     entry.sha256

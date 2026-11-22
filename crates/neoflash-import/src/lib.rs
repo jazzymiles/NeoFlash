@@ -49,10 +49,11 @@ pub use legacy::timeline::*;
 pub use legacy::{
     BinaryContentsDocument, BinaryFlaInspection, BinaryGeometryDocument, BinaryStreamGeometry,
     BinaryStreamInspection, BinaryStreamRole, BinaryTimelineDocument,
-    MAX_OVERSIZED_BUNDLE_CHUNK_BYTES, MAX_OVERSIZED_BUNDLE_TOTAL_BYTES, OversizedChunkRole,
-    OversizedDeltaReference, OversizedFlaBundle, OversizedMediaChunk, OversizedResourceEntry,
-    OversizedSourceArchive, RecordCounts, import_legacy_fla_oversized_bundle, read_binary_contents,
-    read_binary_geometry, read_binary_timeline,
+    MAX_OVERSIZED_BUNDLE_CHUNK_BYTES, MAX_OVERSIZED_BUNDLE_SOURCE_CONTAINER_BYTES,
+    MAX_OVERSIZED_BUNDLE_TOTAL_BYTES, OversizedChunkRole, OversizedDeltaReference,
+    OversizedFlaBundle, OversizedMediaChunk, OversizedResourceEntry, OversizedSourceArchive,
+    RecordCounts, import_legacy_fla_oversized_bundle, read_binary_contents, read_binary_geometry,
+    read_binary_timeline,
 };
 pub use legacy_interchange::*;
 pub use psd::*;
