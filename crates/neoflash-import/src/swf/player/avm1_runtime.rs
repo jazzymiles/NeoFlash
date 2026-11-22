@@ -106,7 +106,9 @@ impl SwfBytecodePlayer {
         script_depth: i32,
     ) -> Avm1Value {
         let swf_depth = script_depth_to_swf(script_depth);
+        let instance_id = alloc_instance_id(&mut self.next_slot_instance_id);
         let new_slot = LiveSlot {
+            instance_id,
             character_id: 0,
             name: name.to_owned(),
             matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
@@ -131,6 +133,9 @@ impl SwfBytecodePlayer {
             total_frames: 1,
             playing: true,
             last_applied_frame: Some(0),
+            pending_audio_frames: Vec::new(),
+            looped_this_step: false,
+            entered_this_step: false,
             removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),
@@ -185,7 +190,9 @@ impl SwfBytecodePlayer {
             .sprites
             .get(&character_id)
             .map_or(1, |s| s.total_frames.max(1));
+        let instance_id = alloc_instance_id(&mut self.next_slot_instance_id);
         let new_slot = LiveSlot {
+            instance_id,
             character_id,
             name: new_name.to_owned(),
             matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
@@ -210,6 +217,9 @@ impl SwfBytecodePlayer {
             total_frames,
             playing: true,
             last_applied_frame: None,
+            pending_audio_frames: Vec::new(),
+            looped_this_step: false,
+            entered_this_step: false,
             removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),
@@ -254,6 +264,7 @@ impl SwfBytecodePlayer {
         let mut diags = Vec::new();
         let sprites = self.sprites.clone();
         let swf_ver = self.swf_version;
+        let mut next_id = self.next_slot_instance_id;
         if let Some(slot) = self.target_slot_mut(&new_id) {
             Self::sync_sprite_slot_recursive(
                 slot,
@@ -264,8 +275,10 @@ impl SwfBytecodePlayer {
                 &new_id,
                 &mut pending,
                 &mut diags,
+                &mut next_id,
             );
         }
+        self.next_slot_instance_id = next_id;
         for d in diags {
             self.record_unsupported_diagnostic(d);
         }
@@ -318,7 +331,9 @@ impl SwfBytecodePlayer {
             .rsplit_once('/')
             .map_or("_root", |(parent, _)| parent)
             .to_owned();
+        let instance_id = alloc_instance_id(&mut self.next_slot_instance_id);
         let cloned = LiveSlot {
+            instance_id,
             character_id: src_slot.character_id,
             name: new_name.to_owned(),
             matrix: src_slot.matrix,
@@ -347,6 +362,9 @@ impl SwfBytecodePlayer {
             } else {
                 None
             },
+            pending_audio_frames: Vec::new(),
+            looped_this_step: false,
+            entered_this_step: false,
             removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),
@@ -400,6 +418,7 @@ impl SwfBytecodePlayer {
         let mut diags = Vec::new();
         let sprites = self.sprites.clone();
         let swf_ver = self.swf_version;
+        let mut next_id = self.next_slot_instance_id;
         if let Some(slot) = self.target_slot_mut(&new_id) {
             Self::sync_sprite_slot_recursive(
                 slot,
@@ -410,8 +429,10 @@ impl SwfBytecodePlayer {
                 &new_id,
                 &mut pending,
                 &mut diags,
+                &mut next_id,
             );
         }
+        self.next_slot_instance_id = next_id;
         for d in diags {
             self.record_unsupported_diagnostic(d);
         }
@@ -1737,22 +1758,38 @@ impl SwfBytecodePlayer {
                             }
                         }
                         "join" | "toString" => {
+                            let is_avm2 = self.vm_kind == SwfVmKind::Avm2;
                             let sep = if method_name == "join" {
-                                args.first().map_or_else(
-                                    || ",".to_owned(),
-                                    |v| v.to_trace_string(swf_ver, &self.avm1_objects),
-                                )
+                                match args.first() {
+                                    None | Some(Avm1Value::Undefined) => ",".to_owned(),
+                                    Some(v) => v.to_trace_string(swf_ver, &self.avm1_objects),
+                                }
                             } else {
                                 ",".to_owned()
                             };
-                            if let Some(elems) = self
-                                .avm1_objects
-                                .get(*id)
-                                .and_then(|o| o.array_elements.clone())
+                            if let Some((elems, deleted)) =
+                                self.avm1_objects.get(*id).and_then(|o| {
+                                    Some((o.array_elements.clone()?, o.deleted_indices.clone()))
+                                })
                             {
                                 let parts: Vec<String> = elems
                                     .iter()
-                                    .map(|v| v.to_trace_string(swf_ver, &self.avm1_objects))
+                                    .enumerate()
+                                    .map(|(idx, v)| {
+                                        if deleted.contains(&idx) {
+                                            if is_avm2 || swf_ver <= 6 {
+                                                String::new()
+                                            } else {
+                                                "undefined".to_owned()
+                                            }
+                                        } else if is_avm2
+                                            && matches!(v, Avm1Value::Undefined | Avm1Value::Null)
+                                        {
+                                            String::new()
+                                        } else {
+                                            v.to_trace_string(swf_ver, &self.avm1_objects)
+                                        }
+                                    })
                                     .collect();
                                 return Avm1Value::String(parts.join(&sep));
                             }
@@ -1805,8 +1842,16 @@ impl SwfBytecodePlayer {
                     }
                 }
                 if mc == "Math" || mc == "__avm2_type:Math" {
-                    let a = args.first().map_or(f64::NAN, Avm1Value::to_number);
-                    let b = args.get(1).map_or(f64::NAN, Avm1Value::to_number);
+                    let is_avm2 = self.vm_kind == SwfVmKind::Avm2;
+                    let to_num = |v: &Avm1Value| {
+                        if is_avm2 {
+                            avm2_to_number(v)
+                        } else {
+                            v.to_number()
+                        }
+                    };
+                    let a = args.first().map_or(f64::NAN, to_num);
+                    let b = args.get(1).map_or(f64::NAN, to_num);
                     return match method_name {
                         "abs" => Avm1Value::Number(a.abs()),
                         "floor" => Avm1Value::Number(a.floor()),
@@ -1886,148 +1931,176 @@ impl SwfBytecodePlayer {
                     depth,
                 )
             }
-            Avm1Value::String(s) => match method_name {
-                "toUpperCase" => Avm1Value::String(s.to_uppercase()),
-                "toLowerCase" => Avm1Value::String(s.to_lowercase()),
-                "charAt" => {
-                    let idx = args.first().map_or(0, Avm1Value::to_i32);
-                    if idx < 0 {
-                        Avm1Value::String(String::new())
-                    } else {
-                        Avm1Value::String(
-                            s.chars()
-                                .nth(idx as usize)
-                                .map_or_else(String::new, |c| c.to_string()),
-                        )
-                    }
-                }
-                "charCodeAt" => {
-                    let idx = args.first().map_or(0, Avm1Value::to_i32);
-                    if idx < 0 {
-                        Avm1Value::Number(f64::NAN)
-                    } else {
-                        s.chars()
-                            .nth(idx as usize)
-                            .map_or(Avm1Value::Number(f64::NAN), |c| {
-                                Avm1Value::Number(f64::from(u32::from(c)))
-                            })
-                    }
-                }
-                "indexOf" => {
-                    let needle = args.first().map_or_else(String::new, |v| {
-                        v.to_trace_string(self.swf_version, &self.avm1_objects)
-                    });
-                    let start = args.get(1).map_or(0, Avm1Value::to_i32).max(0) as usize;
-                    let chars: Vec<char> = s.chars().collect();
-                    let nchars: Vec<char> = needle.chars().collect();
-                    let found = if nchars.is_empty() {
-                        Some(start.min(chars.len()))
-                    } else if start + nchars.len() > chars.len() {
-                        None
-                    } else {
-                        (start..=chars.len() - nchars.len())
-                            .find(|&i| chars[i..i + nchars.len()] == nchars[..])
-                    };
-                    Avm1Value::Number(found.map_or(-1.0, |i| i as f64))
-                }
-                "lastIndexOf" => {
-                    let needle = args.first().map_or_else(String::new, |v| {
-                        v.to_trace_string(self.swf_version, &self.avm1_objects)
-                    });
-                    let chars: Vec<char> = s.chars().collect();
-                    let nchars: Vec<char> = needle.chars().collect();
-                    let max_start = if nchars.is_empty() {
-                        chars.len() as i32
-                    } else {
-                        chars.len() as i32 - nchars.len() as i32
-                    };
-                    if max_start < 0 {
-                        Avm1Value::Number(-1.0)
-                    } else {
-                        let pos = args
-                            .get(1)
-                            .map_or(max_start, |v| {
-                                let n = v.to_number();
-                                if n.is_nan() { max_start } else { v.to_i32() }
-                            })
-                            .min(max_start);
-                        if pos < 0 {
-                            Avm1Value::Number(-1.0)
-                        } else if nchars.is_empty() {
-                            Avm1Value::Number(f64::from(pos))
-                        } else {
-                            let found = (0..=(pos as usize))
-                                .rev()
-                                .find(|&i| chars[i..i + nchars.len()] == nchars[..]);
-                            Avm1Value::Number(found.map_or(-1.0, |i| i as f64))
-                        }
-                    }
-                }
-                "concat" => {
-                    let mut out = s.clone();
-                    for a in args {
-                        out.push_str(&a.to_trace_string(self.swf_version, &self.avm1_objects));
-                    }
-                    Avm1Value::String(out)
-                }
-                "toString" | "valueOf" => Avm1Value::String(s.clone()),
-                "substr" => {
-                    let chars: Vec<char> = s.chars().collect();
-                    let len = chars.len() as i32;
-                    let mut start = args.first().map_or(0, Avm1Value::to_i32);
-                    if start < 0 {
-                        start = (len + start).max(0);
-                    }
-                    let count = args.get(1).map_or(len, Avm1Value::to_i32).max(0);
-                    let su = start.clamp(0, len) as usize;
-                    let eu = (start.saturating_add(count)).clamp(su as i32, len) as usize;
-                    Avm1Value::String(chars[su..eu].iter().collect())
-                }
-                "substring" | "slice" => {
-                    let chars: Vec<char> = s.chars().collect();
-                    let len = chars.len() as i32;
-                    let mut a = args.first().map_or(0, Avm1Value::to_i32);
-                    let mut b = args.get(1).map_or(len, Avm1Value::to_i32);
-                    if method_name == "slice" {
-                        if a < 0 {
-                            a = (len + a).max(0);
-                        }
-                        if b < 0 {
-                            b = (len + b).max(0);
-                        }
-                    } else {
-                        a = a.clamp(0, len);
-                        b = b.clamp(0, len);
-                        if a > b {
-                            std::mem::swap(&mut a, &mut b);
-                        }
-                    }
-                    let su = a.clamp(0, len) as usize;
-                    let eu = b.clamp(su as i32, len) as usize;
-                    Avm1Value::String(chars[su..eu].iter().collect())
-                }
-                "split" => {
-                    let sep = args.first().map_or_else(String::new, |v| {
-                        v.to_trace_string(self.swf_version, &self.avm1_objects)
-                    });
-                    let elems: Vec<Avm1Value> = if sep.is_empty() {
-                        s.chars()
-                            .map(|c| Avm1Value::String(c.to_string()))
-                            .collect()
-                    } else {
-                        s.split(&sep)
-                            .map(|p| Avm1Value::String(p.to_owned()))
-                            .collect()
-                    };
-                    let out_id = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object {
-                        array_elements: Some(elems),
-                        ..Default::default()
-                    });
-                    Avm1Value::Object(out_id)
-                }
+            Avm1Value::Bool(b) => match method_name {
+                "toString" => Avm1Value::String(if *b { "true" } else { "false" }.to_owned()),
+                "valueOf" => Avm1Value::Bool(*b),
                 _ => Avm1Value::Undefined,
             },
+            Avm1Value::String(s) => {
+                let is_avm2 = self.vm_kind == SwfVmKind::Avm2;
+                let to_int_f64 = |v: &Avm1Value| -> f64 {
+                    let n = if is_avm2 {
+                        avm2_to_number(v)
+                    } else {
+                        v.to_number()
+                    };
+                    if n.is_nan() || n == 0.0 {
+                        0.0
+                    } else if n.is_infinite() {
+                        n
+                    } else {
+                        n.trunc()
+                    }
+                };
+                match method_name {
+                    "toString" | "valueOf" => Avm1Value::String(s.clone()),
+                    "toUpperCase" => Avm1Value::String(s.to_uppercase()),
+                    "toLowerCase" => Avm1Value::String(s.to_lowercase()),
+                    "charAt" => {
+                        let idx = args.first().map_or(0.0, to_int_f64);
+                        if idx < 0.0 || idx >= (usize::MAX as f64) {
+                            Avm1Value::String(String::new())
+                        } else {
+                            Avm1Value::String(
+                                s.chars()
+                                    .nth(idx as usize)
+                                    .map_or_else(String::new, |c| c.to_string()),
+                            )
+                        }
+                    }
+                    "charCodeAt" => {
+                        let idx = args.first().map_or(0.0, to_int_f64);
+                        if idx < 0.0 || idx >= (usize::MAX as f64) {
+                            Avm1Value::Number(f64::NAN)
+                        } else {
+                            s.chars()
+                                .nth(idx as usize)
+                                .map_or(Avm1Value::Number(f64::NAN), |c| {
+                                    Avm1Value::Number(f64::from(u32::from(c)))
+                                })
+                        }
+                    }
+                    "indexOf" => {
+                        let needle = args.first().map_or_else(String::new, |v| {
+                            v.to_trace_string(self.swf_version, &self.avm1_objects)
+                        });
+                        let start = args.get(1).map_or(0, Avm1Value::to_i32).max(0) as usize;
+                        let chars: Vec<char> = s.chars().collect();
+                        let nchars: Vec<char> = needle.chars().collect();
+                        let found = if nchars.is_empty() {
+                            Some(start.min(chars.len()))
+                        } else if start + nchars.len() > chars.len() {
+                            None
+                        } else {
+                            (start..=chars.len() - nchars.len())
+                                .find(|&i| chars[i..i + nchars.len()] == nchars[..])
+                        };
+                        Avm1Value::Number(found.map_or(-1.0, |i| i as f64))
+                    }
+                    "lastIndexOf" => {
+                        let needle = args.first().map_or_else(String::new, |v| {
+                            v.to_trace_string(self.swf_version, &self.avm1_objects)
+                        });
+                        let chars: Vec<char> = s.chars().collect();
+                        let nchars: Vec<char> = needle.chars().collect();
+                        let max_start = if nchars.is_empty() {
+                            chars.len() as i32
+                        } else {
+                            chars.len() as i32 - nchars.len() as i32
+                        };
+                        if max_start < 0 {
+                            Avm1Value::Number(-1.0)
+                        } else {
+                            let pos = args
+                                .get(1)
+                                .map_or(max_start, |v| {
+                                    let n = v.to_number();
+                                    if n.is_nan() { max_start } else { v.to_i32() }
+                                })
+                                .min(max_start);
+                            if pos < 0 {
+                                Avm1Value::Number(-1.0)
+                            } else if nchars.is_empty() {
+                                Avm1Value::Number(f64::from(pos))
+                            } else {
+                                let found = (0..=(pos as usize))
+                                    .rev()
+                                    .find(|&i| chars[i..i + nchars.len()] == nchars[..]);
+                                Avm1Value::Number(found.map_or(-1.0, |i| i as f64))
+                            }
+                        }
+                    }
+                    "concat" => {
+                        let mut out = s.clone();
+                        for a in args {
+                            out.push_str(&a.to_trace_string(self.swf_version, &self.avm1_objects));
+                        }
+                        Avm1Value::String(out)
+                    }
+                    "substr" => {
+                        let chars: Vec<char> = s.chars().collect();
+                        let len = chars.len() as f64;
+                        let mut start = args.first().map_or(0.0, to_int_f64);
+                        if start < 0.0 {
+                            start = (len + start).max(0.0);
+                        }
+                        let count = match args.get(1) {
+                            None | Some(Avm1Value::Undefined) => len,
+                            Some(v) => to_int_f64(v).max(0.0),
+                        };
+                        let su = start.clamp(0.0, len) as usize;
+                        let eu = (start + count).clamp(su as f64, len) as usize;
+                        Avm1Value::String(chars[su..eu].iter().collect())
+                    }
+                    "substring" | "slice" => {
+                        let chars: Vec<char> = s.chars().collect();
+                        let len = chars.len() as f64;
+                        let mut a = args.first().map_or(0.0, to_int_f64);
+                        let mut b = match args.get(1) {
+                            None | Some(Avm1Value::Undefined) => len,
+                            Some(v) => to_int_f64(v),
+                        };
+                        if method_name == "slice" {
+                            if a < 0.0 {
+                                a = (len + a).max(0.0);
+                            }
+                            if b < 0.0 {
+                                b = (len + b).max(0.0);
+                            }
+                        } else {
+                            a = a.clamp(0.0, len);
+                            b = b.clamp(0.0, len);
+                            if a > b {
+                                std::mem::swap(&mut a, &mut b);
+                            }
+                        }
+                        let su = a.clamp(0.0, len) as usize;
+                        let eu = b.clamp(su as f64, len) as usize;
+                        Avm1Value::String(chars[su..eu].iter().collect())
+                    }
+                    "split" => {
+                        let sep = args.first().map_or_else(String::new, |v| {
+                            v.to_trace_string(self.swf_version, &self.avm1_objects)
+                        });
+                        let elems: Vec<Avm1Value> = if sep.is_empty() {
+                            s.chars()
+                                .map(|c| Avm1Value::String(c.to_string()))
+                                .collect()
+                        } else {
+                            s.split(&sep)
+                                .map(|p| Avm1Value::String(p.to_owned()))
+                                .collect()
+                        };
+                        let out_id = self.avm1_objects.len();
+                        self.avm1_objects.push(Avm1Object {
+                            array_elements: Some(elems),
+                            ..Default::default()
+                        });
+                        Avm1Value::Object(out_id)
+                    }
+                    _ => Avm1Value::Undefined,
+                }
+            }
             _ => self.call_avm1_function(method_name, args, caller_locals, steps, depth),
         }
     }

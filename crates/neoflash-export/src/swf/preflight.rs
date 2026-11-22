@@ -1035,7 +1035,7 @@ pub fn preflight_swf_publish(
                                 },
                                 kf_loc.clone(),
                                 if can_morph {
-                                    "Shape tween compiled into DefineMorphShape (tag 46) with per-frame ratio."
+                                    "Shape tween compiled into DefineMorphShape / DefineMorphShape2 (tags 46/84) with per-frame ratio."
                                         .to_owned()
                                 } else {
                                     "Shape tween sampled into separate shapes for each frame to preserve its geometry, paint and timing."

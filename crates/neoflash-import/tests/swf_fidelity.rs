@@ -1485,7 +1485,8 @@ fn avm1_preload_registers_calls_oop_enumeration_bitwise_exceptions_and_movieclip
     avm1_push_int(&mut act, 29);
     act.extend_from_slice(&[0x65, 0x26]); // BitURShift -> "7"
 
-    // null == undefined -> true; null === undefined -> false; NaN === NaN -> false; 9 > 4 -> true
+    // null == undefined -> true; null === undefined -> false;
+    // In Flash Player AVM1 (unlike AVM2/ES3), NaN === NaN evaluates to true; 9 > 4 -> true
     avm1_push_null(&mut act);
     avm1_push_undef(&mut act);
     act.extend_from_slice(&[0x49, 0x26]); // Equals2 -> "true"
@@ -1494,7 +1495,7 @@ fn avm1_preload_registers_calls_oop_enumeration_bitwise_exceptions_and_movieclip
     act.extend_from_slice(&[0x66, 0x26]); // StrictEquals -> "false"
     avm1_push_f64(&mut act, f64::NAN);
     avm1_push_f64(&mut act, f64::NAN);
-    act.extend_from_slice(&[0x66, 0x26]); // StrictEquals -> "false"
+    act.extend_from_slice(&[0x66, 0x26]); // AVM1 StrictEquals(NaN, NaN) -> "true"
     avm1_push_int(&mut act, 9);
     avm1_push_int(&mut act, 4);
     act.extend_from_slice(&[0x67, 0x26]); // Greater -> "true"
@@ -1641,7 +1642,7 @@ fn avm1_preload_registers_calls_oop_enumeration_bitwise_exceptions_and_movieclip
             "7",
             "true",
             "false",
-            "false",
+            "true",
             "true",
             "3",
             "movieclip",

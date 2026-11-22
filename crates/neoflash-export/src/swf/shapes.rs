@@ -22,12 +22,13 @@ fn morph_fill<'a>(start: &'a Element, end: &'a Element) -> Option<MorphFill<'a>>
         (None, None) => Some(MorphFill::Solid),
         (Some(a), Some(b))
             if a.kind == b.kind
-                && (1..=8).contains(&a.stops.len())
+                && (1..=15).contains(&a.stops.len())
                 && a.stops.len() == b.stops.len()
+                && a.spread == b.spread
+                && a.linear_rgb == b.linear_rgb
                 && [a, b].iter().all(|g| {
-                    g.spread == GradientSpread::Extend
-                        && !g.linear_rgb
-                        && g.focal_point_ratio == 0.0
+                    g.focal_point_ratio.is_finite()
+                        && g.stops.windows(2).all(|w| w[0].ratio <= w[1].ratio)
                 }) =>
         {
             Some(MorphFill::Gradient(a, b))
@@ -800,6 +801,19 @@ pub(super) fn prepare_morph_keys<'a>(
     }
     let start_m = transform_matrix(start_el.transform);
     let end_m = transform_matrix(end_el.transform);
+    if let MorphFill::Gradient(a, b) = morph_fill {
+        let sa = GradientPaint {
+            matrix: neoflash_core::affine_multiply(start_m, a.matrix),
+            ..a.clone()
+        };
+        let eb = GradientPaint {
+            matrix: neoflash_core::affine_multiply(end_m, b.matrix),
+            ..b.clone()
+        };
+        if sa.validate().is_err() || eb.validate().is_err() {
+            return None;
+        }
+    }
     let start_cmds = bake_affine_into_commands(&raw_start_cmds, start_m);
     let end_cmds = bake_affine_into_commands(&raw_end_cmds, end_m);
     let start_stroke_scale = (start_m[0] * start_m[3] - start_m[1] * start_m[2])
@@ -888,7 +902,13 @@ pub(super) fn prepare_morph_keys<'a>(
 }
 
 /// Emit the same prepared geometry used to choose native morph or baked frame export.
-pub(super) fn build_define_morph_shape_payload(morph_id: u16, morph: PreparedMorph<'_>) -> Vec<u8> {
+/// Uses `DefineMorphShape2` (tag 84) for gradient morphs (`0x10` linear, `0x12` radial,
+/// `0x13` focal radial, spread/interpolation flags, up to 15 stops) and `DefineMorphShape`
+/// (tag 46) for solid/stroke-only morphs.
+pub(super) fn build_define_morph_shape_tag(
+    morph_id: u16,
+    morph: PreparedMorph<'_>,
+) -> (u16, Vec<u8>) {
     let PreparedMorph {
         start,
         end,
@@ -896,8 +916,34 @@ pub(super) fn build_define_morph_shape_payload(morph_id: u16, morph: PreparedMor
         has_fill,
         has_line,
     } = morph;
-    let start_bounds = compute_edges_bounds(&start.edges);
-    let end_bounds = compute_edges_bounds(&end.edges);
+    let use_morph2 = matches!(fill, MorphFill::Gradient(..));
+    let tag_code = if use_morph2 { 84 } else { 46 };
+
+    let start_edge_bounds = compute_edges_bounds(&start.edges);
+    let end_edge_bounds = compute_edges_bounds(&end.edges);
+    let expand_bounds = |b: [i32; 4], stroke_w: f64| -> [i32; 4] {
+        let pad = if has_line {
+            (stroke_w * 10.0).round().max(0.0) as i32
+        } else {
+            0
+        };
+        [
+            b[0].saturating_sub(pad),
+            b[1].saturating_add(pad),
+            b[2].saturating_sub(pad),
+            b[3].saturating_add(pad),
+        ]
+    };
+    let start_bounds = if use_morph2 {
+        expand_bounds(start_edge_bounds, start.stroke_width)
+    } else {
+        start_edge_bounds
+    };
+    let end_bounds = if use_morph2 {
+        expand_bounds(end_edge_bounds, end.stroke_width)
+    } else {
+        end_edge_bounds
+    };
 
     let mut styles_and_start = SwfBitWriter::new();
     if has_fill {
@@ -909,18 +955,38 @@ pub(super) fn build_define_morph_shape_payload(morph_id: u16, morph: PreparedMor
                 styles_and_start.rgba(end.fill);
             }
             MorphFill::Gradient(a, b) => {
-                styles_and_start.u8(match a.kind {
+                let sfocal = a.focal_point_ratio.clamp(-1.0, 1.0);
+                let efocal = b.focal_point_ratio.clamp(-1.0, 1.0);
+                let fill_type: u8 = match a.kind {
                     GradientKind::Linear => 0x10,
-                    GradientKind::Radial => 0x12,
-                });
+                    GradientKind::Radial => {
+                        if sfocal.abs() > 1e-4 || efocal.abs() > 1e-4 {
+                            0x13
+                        } else {
+                            0x12
+                        }
+                    }
+                };
+                styles_and_start.u8(fill_type);
                 styles_and_start.matrix_px(neoflash_core::affine_multiply(start.matrix, a.matrix));
                 styles_and_start.matrix_px(neoflash_core::affine_multiply(end.matrix, b.matrix));
-                styles_and_start.u8(a.stops.len() as u8);
-                for (start, end) in a.stops.iter().zip(&b.stops) {
-                    styles_and_start.u8(start.ratio);
-                    styles_and_start.rgba(start.color);
-                    styles_and_start.u8(end.ratio);
-                    styles_and_start.rgba(end.color);
+                let count = a.stops.len().min(15);
+                let spread_bits: u8 = match a.spread {
+                    GradientSpread::Extend => 0,
+                    GradientSpread::Reflect => 1,
+                    GradientSpread::Repeat => 2,
+                };
+                let interp_bits: u8 = u8::from(a.linear_rgb);
+                styles_and_start.u8((spread_bits << 6) | (interp_bits << 4) | (count as u8));
+                for (s_stop, e_stop) in a.stops.iter().zip(&b.stops).take(count) {
+                    styles_and_start.u8(s_stop.ratio);
+                    styles_and_start.rgba(s_stop.color);
+                    styles_and_start.u8(e_stop.ratio);
+                    styles_and_start.rgba(e_stop.color);
+                }
+                if fill_type == 0x13 {
+                    styles_and_start.i16((sfocal * 256.0).round() as i16);
+                    styles_and_start.i16((efocal * 256.0).round() as i16);
                 }
             }
         }
@@ -931,6 +997,9 @@ pub(super) fn build_define_morph_shape_payload(morph_id: u16, morph: PreparedMor
         styles_and_start.u8(1); // 1 morph line style
         styles_and_start.u16((start.stroke_width * 20.0).round().clamp(1.0, 65535.0) as u16);
         styles_and_start.u16((end.stroke_width * 20.0).round().clamp(1.0, 65535.0) as u16);
+        if use_morph2 {
+            styles_and_start.u16(0); // MORPHLINESTYLE2 flags: round caps/joins, scaling, solid
+        }
         styles_and_start.rgba(start.stroke);
         styles_and_start.rgba(end.stroke);
     } else {
@@ -946,8 +1015,13 @@ pub(super) fn build_define_morph_shape_payload(morph_id: u16, morph: PreparedMor
     w.u16(morph_id);
     w.rect_twips(start_bounds);
     w.rect_twips(end_bounds);
+    if use_morph2 {
+        w.rect_twips(start_edge_bounds);
+        w.rect_twips(end_edge_bounds);
+        w.u8(u8::from(has_line));
+    }
     w.u32(styles_and_start.buf.len() as u32);
     w.bytes(&styles_and_start.buf);
     w.bytes(&end_edges_writer.buf);
-    w.buf
+    (tag_code, w.buf)
 }

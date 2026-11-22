@@ -888,8 +888,9 @@ impl SwfBuilder<'_> {
                 18 | 45 => {
                     if let Some(prev) = stream_collector.take() {
                         stream_seq += 1;
+                        let stream_scope = scope_uid.strip_prefix("swf-").unwrap_or(scope_uid);
                         if let Some((sf, fs)) = finalize_stream_sound(
-                            &format!("{scope_uid}-{stream_seq}"),
+                            &format!("{stream_scope}-{stream_seq}"),
                             prev,
                             &mut self.resources,
                             &mut self.resource_bytes_total,
@@ -1288,8 +1289,9 @@ impl SwfBuilder<'_> {
 
         if let Some(col) = stream_collector {
             stream_seq += 1;
+            let stream_scope = scope_uid.strip_prefix("swf-").unwrap_or(scope_uid);
             if let Some((sf, fs)) = finalize_stream_sound(
-                &format!("{scope_uid}-{stream_seq}"),
+                &format!("{stream_scope}-{stream_seq}"),
                 col,
                 &mut self.resources,
                 &mut self.resource_bytes_total,
@@ -1531,24 +1533,33 @@ impl SwfBuilder<'_> {
         let mut r = SwfSlice::new(payload);
         let Some(button_id) = r.u16() else { return };
         let mut attached = Vec::new();
-        // 4 button sound slots: 0=OverUpToIdle(rollOut), 1=IdleToOverUp(Over->frame 1),
-        // 2=OverUpToOverDown(Down->frame 2), 3=OverDownToOverUp(release->frame 0/2).
+        // 4 button sound slots: 0=OverUpToIdle(Up/frame 0), 1=IdleToOverUp(Over/frame 1),
+        // 2=OverUpToOverDown(Down/frame 2), 3=OverDownToOverUp(release/Hit frame 3).
         for state_slot in 0..4u32 {
             let Some(sound_id) = r.u16() else { break };
             if sound_id == 0 {
                 continue;
             }
-            if let Some(asset) = self.sounds.get(&sound_id)
-                && let Some(fs) = parse_sound_info(&mut r, asset, self.location, self.report)
-            {
-                let target_frame = match state_slot {
-                    1 => 1,
-                    2 => 2,
-                    _ => 0,
+            if let Some(asset) = self.sounds.get(&sound_id) {
+                let Some(fs) = parse_sound_info(&mut r, asset, self.location, self.report) else {
+                    break;
                 };
-                attached.push((target_frame, fs));
+                attached.push((state_slot, fs));
             } else {
-                break;
+                let dummy = super::media::SwfSoundAsset {
+                    resource_id: format!("swf-sound-{sound_id}"),
+                    duration_44: 0,
+                };
+                if super::media::read_sound_info(&mut r, &dummy, |_| {}).is_none() {
+                    break;
+                }
+                self.report.warning(
+                    "swf_sound_approximated",
+                    format!("{}#button:{button_id}:slot:{state_slot}", self.location),
+                    format!(
+                        "DefineButtonSound slot {state_slot} referenced missing sound character {sound_id}."
+                    ),
+                );
             }
         }
         if !attached.is_empty() {
@@ -2613,6 +2624,11 @@ fn morph_shape_timeline(
     start: super::shape::DecodedSwfShape,
     end: super::shape::DecodedSwfShape,
 ) -> Timeline {
+    let end_prefix = if start.elements.len() == end.elements.len() {
+        format!("{sym_uid}-morph")
+    } else {
+        format!("{sym_uid}-morph-end")
+    };
     Timeline {
         frame_count: 101,
         layers: vec![Layer {
@@ -2629,7 +2645,7 @@ fn morph_shape_timeline(
                 },
                 Keyframe {
                     frame: 100,
-                    ..shape_keyframe(end, &format!("{sym_uid}-morph-end"))
+                    ..shape_keyframe(end, &end_prefix)
                 },
             ],
             properties: LayerProperties::default(),

@@ -145,6 +145,7 @@ struct TimelineDef {
     total_frames: u32,
     frames: Vec<Vec<RawFrameTag>>,
     labels: Vec<(String, u32)>,
+    audio: BTreeMap<u32, Vec<sound::TimelineSoundCue>>,
 }
 
 impl TimelineDef {
@@ -414,6 +415,7 @@ impl RuntimeGraphicsState {
 
 #[derive(Clone, Debug)]
 struct LiveSlot {
+    instance_id: u64,
     character_id: u16,
     name: String,
     matrix: [f64; 6],
@@ -438,6 +440,9 @@ struct LiveSlot {
     total_frames: u32,
     playing: bool,
     last_applied_frame: Option<u32>,
+    pending_audio_frames: Vec<u32>,
+    looped_this_step: bool,
+    entered_this_step: bool,
     removed_timeline_depths: BTreeSet<u16>,
     children: BTreeMap<u16, LiveSlot>,
     props: HashMap<String, Avm1Value>,
@@ -445,6 +450,12 @@ struct LiveSlot {
     graphics: RuntimeGraphicsState,
     placed_this_step: bool,
     avm2_object_id: Option<usize>,
+}
+
+pub(super) fn alloc_instance_id(next_id: &mut u64) -> u64 {
+    let id = *next_id;
+    *next_id = next_id.saturating_add(1);
+    id
 }
 
 impl LiveSlot {
@@ -525,7 +536,7 @@ impl Avm1Value {
                 }
             }
             Self::Number(n) => *n,
-            Self::String(s) => s.trim().parse::<f64>().unwrap_or(f64::NAN),
+            Self::String(s) => avm1_string_to_number(s, 7),
             Self::Object(_)
             | Self::MovieClip(_)
             | Self::MovieClipIdentity(_)
@@ -579,7 +590,14 @@ impl Avm1Value {
                 }
             }
             Self::Null => "null".to_owned(),
-            Self::Bool(b) => if *b { "true" } else { "false" }.to_owned(),
+            Self::Bool(b) => if swf_version <= 4 {
+                if *b { "1" } else { "0" }
+            } else if *b {
+                "true"
+            } else {
+                "false"
+            }
+            .to_owned(),
             Self::Number(n) => format_avm_number(*n),
             Self::String(s) => s.clone(),
             Self::MovieClip(path) | Self::MovieClipIdentity(path) => path.clone(),
@@ -630,6 +648,10 @@ impl Avm1Value {
                                     } else {
                                         String::new()
                                     }
+                                } else if swf_version >= 9
+                                    && matches!(elements[idx], Self::Undefined | Self::Null)
+                                {
+                                    String::new()
                                 } else {
                                     elements[idx].format_trace_string(swf_version, objects, arrays)
                                 }
@@ -745,13 +767,16 @@ pub struct SwfBytecodePlayer {
     vm_kind: SwfVmKind,
     stage_offset: (f64, f64),
     root_timeline: TimelineDef,
-    root_audio: BTreeMap<u32, Vec<sound::RootSoundCue>>,
+    root_audio: BTreeMap<u32, Vec<sound::TimelineSoundCue>>,
     frame_sound_commands: Vec<sound::PendingAudio>,
     last_stream_frame: Option<(u32, u32)>,
+    active_clip_streams: BTreeMap<u64, sound::ActiveClipStream>,
+    next_slot_instance_id: u64,
     frame_rate: f64,
     sprites: HashMap<u16, TimelineDef>,
     buttons: HashMap<u16, Vec<ButtonCondAction>>,
     button_records: HashMap<u16, Vec<(u8, u16, u16)>>,
+    button_sounds: HashMap<u16, [sound::ButtonSoundCue; 4]>,
     char_kinds: HashMap<u16, &'static str>,
     exports: HashMap<String, u16>,
     init_actions: Vec<(u16, Vec<u8>)>,
@@ -867,6 +892,7 @@ impl SwfBytecodePlayer {
         let mut scenes: Vec<(u32, String)> = Vec::new();
 
         let mut sound_assets = HashMap::new();
+        let mut raw_button_sounds: Vec<Vec<u8>> = Vec::new();
         let mut root_frames: Vec<Vec<RawFrameTag>> = Vec::new();
         let mut cur_tags: Vec<RawFrameTag> = Vec::new();
         let mut root_labels: Vec<(String, u32)> = Vec::new();
@@ -903,6 +929,9 @@ impl SwfBytecodePlayer {
                     if let Some((id, asset)) = sound::define_sound_asset(payload) {
                         sound_assets.insert(id, asset);
                     }
+                }
+                17 => {
+                    raw_button_sounds.push(payload.to_vec());
                 }
                 60 => {
                     if payload.len() >= 2 {
@@ -1007,12 +1036,28 @@ impl SwfBytecodePlayer {
         if !cur_tags.is_empty() || root_frames.is_empty() {
             root_frames.push(cur_tags);
         }
-        let sound_classes = symbol_classes
+        let sound_classes: HashMap<&str, u16> = symbol_classes
             .iter()
             .filter(|(id, _)| sound_assets.contains_key(id))
             .map(|(id, class)| (class.as_str(), *id))
             .collect();
-        let root_audio = sound::decode_root_audio(&mut root_frames, &sound_assets, &sound_classes);
+        let root_audio =
+            sound::decode_timeline_audio("root", &mut root_frames, &sound_assets, &sound_classes);
+        for (&sprite_id, def) in &mut sprites {
+            let scope = format!("sprite={sprite_id}");
+            def.audio = sound::decode_timeline_audio(
+                &scope,
+                &mut def.frames,
+                &sound_assets,
+                &sound_classes,
+            );
+        }
+        let mut button_sounds: HashMap<u16, [sound::ButtonSoundCue; 4]> = HashMap::new();
+        for raw_bs in &raw_button_sounds {
+            if let Some((bid, slots)) = sound::decode_define_button_sound(raw_bs, &sound_assets) {
+                button_sounds.insert(bid, slots);
+            }
+        }
         let total_frames = (root_frames.len() as u32).max(u32::from(declared_frames).max(1));
         let vm_kind = if as3_flag || has_do_abc {
             SwfVmKind::Avm2
@@ -1027,15 +1072,19 @@ impl SwfBytecodePlayer {
             root_audio,
             frame_sound_commands: Vec::new(),
             last_stream_frame: None,
+            active_clip_streams: BTreeMap::new(),
+            next_slot_instance_id: 1,
             frame_rate,
             root_timeline: TimelineDef {
                 total_frames,
                 frames: root_frames,
                 labels: root_labels,
+                audio: BTreeMap::new(),
             },
             sprites,
             buttons,
             button_records,
+            button_sounds,
             char_kinds,
             exports,
             init_actions,
@@ -1149,6 +1198,8 @@ impl SwfBytecodePlayer {
         self.frame_audio_events.clear();
         self.frame_sound_commands.clear();
         self.last_stream_frame = None;
+        self.active_clip_streams.clear();
+        self.next_slot_instance_id = 1;
         self.unsupported_diagnostics.clear();
         self.frame_unsupported_diagnostics.clear();
         self.stream_sound_active = false;
@@ -1387,6 +1438,7 @@ impl SwfBytecodePlayer {
         // display list, scripts, sounds, and diagnostics all describe one coherent presentation.
         if follow_frame_control && self.current_frame != entering_frame {
             if jump_depth < MAX_FRAME_JUMPS_PER_STEP {
+                self.flush_nested_event_audio(entering_frame);
                 let destination = self.current_frame;
                 self.prepare_root_display_list_jump(entering_frame, destination);
                 let source_traces = self.frame_traces.clone();
@@ -1426,6 +1478,7 @@ impl SwfBytecodePlayer {
             entering_frame
         };
         self.presented_frame = displayed_frame;
+        self.collect_and_queue_nested_audio(displayed_frame);
         let state = SwfFrameState {
             frame: displayed_frame,
             label: frame_label,
@@ -1499,6 +1552,7 @@ impl SwfBytecodePlayer {
 
     /// Trigger specific SWF clip mouse/button condition flags (e.g. RollOver, RollOut, ReleaseOutside, DragOver, DragOut).
     pub fn trigger_pointer_event(&mut self, clip_mask: u32, btn_cond_mask: u16) {
+        self.trigger_button_sounds_for_pointer(btn_cond_mask);
         let mut actions = Vec::new();
         collect_pointer_actions_filtered(
             &self.display_list,

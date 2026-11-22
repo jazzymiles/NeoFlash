@@ -431,6 +431,36 @@ impl SwfBytecodePlayer {
             Avm1Value::MovieClip(mc) => {
                 if mc.starts_with("__avm2_class:") {
                     self.avm2_class_token_has_static_prop(mc, prop)
+                } else if mc == "Math" || mc == "__avm2_type:Math" {
+                    matches!(
+                        prop,
+                        "abs"
+                            | "floor"
+                            | "ceil"
+                            | "round"
+                            | "sqrt"
+                            | "sin"
+                            | "cos"
+                            | "tan"
+                            | "atan2"
+                            | "asin"
+                            | "acos"
+                            | "atan"
+                            | "exp"
+                            | "log"
+                            | "min"
+                            | "max"
+                            | "pow"
+                            | "random"
+                            | "PI"
+                            | "E"
+                            | "LN2"
+                            | "LN10"
+                            | "LOG2E"
+                            | "LOG10E"
+                            | "SQRT1_2"
+                            | "SQRT2"
+                    )
                 } else if mc.starts_with("__avm2_type:") {
                     false
                 } else {
@@ -501,24 +531,25 @@ impl SwfBytecodePlayer {
             ));
             return Avm1Value::Undefined;
         }
-        let Some((code, declared_locals, param_count, opt_defaults, exceptions)) =
+        let Some((code, declared_locals, param_count, return_type, opt_defaults, exceptions)) =
             self.abc_tags.get(abc_idx).and_then(|l| {
                 let body = l.abc.bodies_by_method.get(&method_idx)?;
-                let (pcount, opts) = l.abc.methods.get(method_idx).map_or_else(
-                    || (0, Vec::new()),
+                let (pcount, rtype, opts) = l.abc.methods.get(method_idx).map_or_else(
+                    || (0, 0, Vec::new()),
                     |m| {
                         let defs: Vec<Avm1Value> = m
                             .optional_values
                             .iter()
                             .map(|&(vidx, vkind)| abc_const_to_avm_value(&l.abc, vidx, vkind))
                             .collect();
-                        (m.param_types.len(), defs)
+                        (m.param_types.len(), m.return_type, defs)
                     },
                 );
                 Some((
                     body.code.clone(),
                     body.local_count,
                     pcount,
+                    rtype,
                     opts,
                     body.exceptions.clone(),
                 ))
@@ -921,11 +952,32 @@ impl SwfBytecodePlayer {
                 }
                 0x47 => {
                     // returnvoid
-                    return Avm1Value::Undefined;
+                    let out = if return_type == 0 {
+                        Avm1Value::Undefined
+                    } else {
+                        self.avm2_coerce_multiname(
+                            abc_idx,
+                            return_type,
+                            Avm1Value::Undefined,
+                            steps,
+                            depth,
+                        )
+                    };
+                    if self.avm2_thrown.is_none() {
+                        return out;
+                    }
                 }
                 0x48 => {
                     // returnvalue
-                    return stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let raw = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let out = if return_type == 0 {
+                        raw
+                    } else {
+                        self.avm2_coerce_multiname(abc_idx, return_type, raw, steps, depth)
+                    };
+                    if self.avm2_thrown.is_none() {
+                        return out;
+                    }
                 }
                 0x49 => {
                     // constructsuper
@@ -1340,11 +1392,13 @@ impl SwfBytecodePlayer {
                     let coerced = if let Some((t_abc, t_mn)) = coerce_ty
                         && t_mn != 0
                     {
-                        self.avm2_coerce_multiname(t_abc, t_mn, val)
+                        self.avm2_coerce_multiname(t_abc, t_mn, val, steps, depth)
                     } else {
                         val
                     };
-                    self.set_avm2_property_eval(&obj, &key, coerced, steps, depth);
+                    if self.avm2_thrown.is_none() {
+                        self.set_avm2_property_eval(&obj, &key, coerced, steps, depth);
+                    }
                 }
                 0x6E => {
                     // getglobalslot
@@ -1367,8 +1421,10 @@ impl SwfBytecodePlayer {
                 0x70 => {
                     // convert_s: null -> "null", undefined -> "undefined"
                     let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let s = avm2_convert_string(&v, &self.avm1_objects);
-                    self.push_avm_stack(&mut stack, Avm1Value::String(s));
+                    let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
+                    if self.avm2_thrown.is_none() {
+                        self.push_avm_stack(&mut stack, Avm1Value::String(s));
+                    }
                 }
                 0x73 | 0x83 => {
                     // convert_i / coerce_i
@@ -1408,8 +1464,10 @@ impl SwfBytecodePlayer {
                     // coerce(multiname)
                     let Some(mn_idx) = r.u30() else { break };
                     let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let out = self.avm2_coerce_multiname(abc_idx, mn_idx, v);
-                    self.push_avm_stack(&mut stack, out);
+                    let out = self.avm2_coerce_multiname(abc_idx, mn_idx, v, steps, depth);
+                    if self.avm2_thrown.is_none() {
+                        self.push_avm_stack(&mut stack, out);
+                    }
                 }
                 0x82 => {
                     // coerce_a (any `*`: preserve exact value including undefined/null)
@@ -1419,9 +1477,14 @@ impl SwfBytecodePlayer {
                     let v = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let out = match v {
                         Avm1Value::Undefined | Avm1Value::Null => Avm1Value::Null,
-                        other => Avm1Value::String(avm2_convert_string(&other, &self.avm1_objects)),
+                        other => {
+                            let s = self.avm2_coerce_to_string_eval(&other, abc_idx, steps, depth);
+                            Avm1Value::String(s)
+                        }
                     };
-                    self.push_avm_stack(&mut stack, out);
+                    if self.avm2_thrown.is_none() {
+                        self.push_avm_stack(&mut stack, out);
+                    }
                 }
                 0x86 => {
                     // astype(multiname)

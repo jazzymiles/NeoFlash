@@ -405,18 +405,85 @@ impl SwfBytecodePlayer {
         self.avm2_is_type_value(abc_idx, val, type_val)
     }
 
+    pub(super) fn avm2_coerce_to_string_eval(
+        &mut self,
+        value: &Avm1Value,
+        abc: usize,
+        steps: &mut usize,
+        depth: usize,
+    ) -> String {
+        if matches!(value, Avm1Value::Object(_)) {
+            for name in ["toString", "valueOf"] {
+                if !self.avm2_has_property(value, name) {
+                    continue;
+                }
+                let method = self.get_avm2_property_eval(value, name, steps, depth);
+                if self.avm2_thrown.is_some() {
+                    return String::new();
+                }
+                if matches!(&method, Avm1Value::String(s) if is_avm2_fn_token(s)) {
+                    let v = self.invoke_avm2_callable_with_this(
+                        &method,
+                        value.clone(),
+                        Vec::new(),
+                        steps,
+                        depth,
+                    );
+                    if self.avm2_thrown.is_some() {
+                        return String::new();
+                    }
+                    if matches!(
+                        &v,
+                        Avm1Value::Number(_)
+                            | Avm1Value::Null
+                            | Avm1Value::Undefined
+                            | Avm1Value::Bool(_)
+                    ) || matches!(&v, Avm1Value::String(s) if !is_avm2_fn_token(s))
+                    {
+                        return avm2_convert_string(&v, &self.avm1_objects);
+                    }
+                }
+            }
+            if self.avm2_has_property(value, "toString") || self.avm2_has_property(value, "valueOf")
+            {
+                let error = self.construct_avm2_named(
+                    abc,
+                    "",
+                    "TypeError",
+                    vec![Avm1Value::String(
+                        "Cannot convert object to primitive value".to_owned(),
+                    )],
+                    steps,
+                    depth,
+                );
+                self.avm2_thrown = Some(error);
+                return String::new();
+            }
+        }
+        avm2_convert_string(value, &self.avm1_objects)
+    }
+
     pub(super) fn avm2_coerce_multiname(
         &mut self,
         abc_idx: usize,
         mn_idx: usize,
         val: Avm1Value,
+        steps: &mut usize,
+        depth: usize,
     ) -> Avm1Value {
+        if mn_idx == 0 {
+            return val;
+        }
         let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
         match tname.as_str() {
-            "*" => val,
+            "" | "*" => val,
+            "void" => Avm1Value::Undefined,
             "String" => match val {
                 Avm1Value::Undefined | Avm1Value::Null => Avm1Value::Null,
-                other => Avm1Value::String(avm2_convert_string(&other, &self.avm1_objects)),
+                other => {
+                    let s = self.avm2_coerce_to_string_eval(&other, abc_idx, steps, depth);
+                    Avm1Value::String(s)
+                }
             },
             "int" => Avm1Value::Number(f64::from(ecma_f64_to_i32(avm2_to_number(&val)))),
             "uint" => Avm1Value::Number(f64::from(ecma_f64_to_u32(avm2_to_number(&val)))),
@@ -439,9 +506,43 @@ impl SwfBytecodePlayer {
                 if self.find_avm2_class(abc_idx, &pkg, &tname).is_some()
                     || matches!(tname.as_str(), "Array" | "Function")
                 {
-                    self.record_unsupported_diagnostic(format!(
-                        "AVM2 type coercion mismatch to {tname}"
-                    ));
+                    let val_desc = match &val {
+                        Avm1Value::String(s) if !is_avm2_fn_token(s) => format!("\"{s}\""),
+                        Avm1Value::Object(oid) => {
+                            if let Some((ca, cc)) =
+                                self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+                            {
+                                let (cpkg, cname) = self.abc_tags[ca]
+                                    .abc
+                                    .split_qname(self.abc_tags[ca].abc.instances[cc].name);
+                                let q = if cpkg.is_empty() {
+                                    cname
+                                } else {
+                                    format!("{cpkg}.{cname}")
+                                };
+                                format!("{q}@00000000000")
+                            } else {
+                                "Object@00000000000".to_owned()
+                            }
+                        }
+                        other => avm2_convert_string(other, &self.avm1_objects),
+                    };
+                    let target_q = if pkg.is_empty() {
+                        tname.clone()
+                    } else {
+                        format!("{pkg}.{tname}")
+                    };
+                    let err = self.construct_avm2_named(
+                        abc_idx,
+                        "",
+                        "TypeError",
+                        vec![Avm1Value::String(format!(
+                            "Error #1034: Type Coercion failed: cannot convert {val_desc} to {target_q}."
+                        ))],
+                        steps,
+                        depth,
+                    );
+                    self.avm2_thrown = Some(err);
                     Avm1Value::Null
                 } else {
                     val
@@ -1767,9 +1868,16 @@ impl SwfBytecodePlayer {
                             return;
                         }
                         AbcTraitData::Slot { type_name, .. } => {
-                            let coerced = self.avm2_coerce_multiname(a, type_name, val);
-                            self.mirror_avm2_object_prop_to_display(*id, &effective_prop, &coerced);
-                            self.set_avm1_member(obj, &effective_prop, coerced);
+                            let coerced =
+                                self.avm2_coerce_multiname(a, type_name, val, steps, depth);
+                            if self.avm2_thrown.is_none() {
+                                self.mirror_avm2_object_prop_to_display(
+                                    *id,
+                                    &effective_prop,
+                                    &coerced,
+                                );
+                                self.set_avm1_member(obj, &effective_prop, coerced);
+                            }
                             return;
                         }
                         _ => break,
@@ -1951,9 +2059,12 @@ impl SwfBytecodePlayer {
                             return;
                         }
                         AbcTraitData::Slot { type_name, .. } => {
-                            let coerced = self.avm2_coerce_multiname(a, type_name, val);
-                            self.mirror_avm2_object_prop_to_display(*oid, prop, &coerced);
-                            self.set_avm1_member(receiver, prop, coerced);
+                            let coerced =
+                                self.avm2_coerce_multiname(a, type_name, val, steps, depth);
+                            if self.avm2_thrown.is_none() {
+                                self.mirror_avm2_object_prop_to_display(*oid, prop, &coerced);
+                                self.set_avm1_member(receiver, prop, coerced);
+                            }
                             return;
                         }
                         _ => break,
@@ -2496,9 +2607,10 @@ impl SwfBytecodePlayer {
                     return Avm1Value::Number(n);
                 }
                 "String" => {
-                    let s = args
-                        .first()
-                        .map_or_else(String::new, |v| avm2_convert_string(v, &self.avm1_objects));
+                    let s = match args.first() {
+                        None => String::new(),
+                        Some(v) => self.avm2_coerce_to_string_eval(v, abc_idx, steps, depth),
+                    };
                     return Avm1Value::String(s);
                 }
                 "Boolean" => {
@@ -2590,12 +2702,15 @@ impl SwfBytecodePlayer {
 
         match prop {
             "trace" => {
-                let line = args
-                    .iter()
-                    .map(|a| avm2_convert_string(a, &self.avm1_objects))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                self.record_trace(line);
+                let mut parts = Vec::with_capacity(args.len());
+                for a in &args {
+                    let s = self.avm2_coerce_to_string_eval(a, abc_idx, steps, depth);
+                    if self.avm2_thrown.is_some() {
+                        return Avm1Value::Undefined;
+                    }
+                    parts.push(s);
+                }
+                self.record_trace(parts.join(" "));
                 return Avm1Value::Undefined;
             }
             "addFrameScript" => {
@@ -2885,6 +3000,7 @@ impl SwfBytecodePlayer {
                         let mut diags = Vec::new();
                         let sprites = self.sprites.clone();
                         let swf_ver = self.swf_version;
+                        let mut next_id = self.next_slot_instance_id;
                         if let Some(slot) = self.target_slot_mut(new_id) {
                             Self::sync_sprite_slot_recursive(
                                 slot,
@@ -2895,8 +3011,10 @@ impl SwfBytecodePlayer {
                                 new_id,
                                 &mut pending,
                                 &mut diags,
+                                &mut next_id,
                             );
                         }
+                        self.next_slot_instance_id = next_id;
                         for d in diags {
                             self.record_unsupported_diagnostic(d);
                         }
@@ -3595,8 +3713,14 @@ impl SwfBytecodePlayer {
         let sprites = self.sprites.clone();
         let swf_ver = self.swf_version;
         let mut unmodeled_any = false;
+        let mut next_id = self.next_slot_instance_id;
         if let Some(slot) = self.target_slot_mut(target) {
             slot.last_applied_frame = Some(cur_frame);
+            slot.entered_this_step = true;
+            if prev_applied.is_some_and(|prev| cur_frame <= prev) {
+                slot.looped_this_step = true;
+            }
+            slot.pending_audio_frames.push(cur_frame);
             let start_frame = match prev_applied {
                 Some(prev) if cur_frame > prev => prev + 1,
                 _ => {
@@ -3618,6 +3742,7 @@ impl SwfBytecodePlayer {
                                     swf_ver,
                                     tag.code,
                                     &tag.payload,
+                                    &mut next_id,
                                 );
                                 unmodeled_any |= uf;
                             }
@@ -3635,6 +3760,7 @@ impl SwfBytecodePlayer {
                 }
             }
         }
+        self.next_slot_instance_id = next_id;
         if unmodeled_any {
             self.record_unsupported_diagnostic(
                 "SWF PlaceObject3 filter list contained an unmodeled filter".to_owned(),
@@ -3738,6 +3864,7 @@ impl SwfBytecodePlayer {
         };
         let mut temp_map: BTreeMap<u16, LiveSlot> = BTreeMap::new();
         let mut temp_removed: BTreeSet<u16> = BTreeSet::new();
+        let mut temp_next_id = 1u64;
         if let Some(tags) = def.frames.first() {
             for tag in tags {
                 match tag.code {
@@ -3749,6 +3876,7 @@ impl SwfBytecodePlayer {
                             self.swf_version,
                             tag.code,
                             &tag.payload,
+                            &mut temp_next_id,
                         );
                     }
                     5 | 28 => {
@@ -4598,7 +4726,7 @@ pub(super) fn avm2_string_to_number(s: &str) -> f64 {
     if let Some(hex) = t.strip_prefix("+0x").or_else(|| t.strip_prefix("+0X")) {
         return u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| v as f64);
     }
-    t.parse::<f64>().unwrap_or(f64::NAN)
+    parse_ecma_decimal_strict(t)
 }
 
 pub(super) fn avm2_to_number(val: &Avm1Value) -> f64 {

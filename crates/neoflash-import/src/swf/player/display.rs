@@ -248,6 +248,15 @@ pub(super) fn clear_placed_this_step_in_map(display_list: &mut BTreeMap<u16, Liv
     }
 }
 
+pub(super) fn clear_pending_clip_audio_in_map(display_list: &mut BTreeMap<u16, LiveSlot>) {
+    for slot in display_list.values_mut() {
+        slot.pending_audio_frames.clear();
+        slot.looped_this_step = false;
+        slot.entered_this_step = false;
+        clear_pending_clip_audio_in_map(&mut slot.children);
+    }
+}
+
 pub(super) fn collect_unload_actions(
     slot: &LiveSlot,
     target: &str,
@@ -875,6 +884,7 @@ impl SwfBytecodePlayer {
             }
         }
         clear_placed_this_step_in_map(&mut self.display_list);
+        clear_pending_clip_audio_in_map(&mut self.display_list);
         self.last_applied_frame = destination_frame.checked_sub(1);
     }
 
@@ -886,6 +896,7 @@ impl SwfBytecodePlayer {
     pub(super) fn step_sprite_frame_actions(&mut self, depth: u16, advance_timeline: bool) {
         let mut pending_actions = Vec::new();
         let mut diagnostics = Vec::new();
+        let mut next_id = self.next_slot_instance_id;
         if let Some(slot) = self.display_list.get_mut(&depth) {
             let target_name = live_slot_segment(depth, slot);
             Self::sync_sprite_slot_recursive(
@@ -897,8 +908,10 @@ impl SwfBytecodePlayer {
                 &target_name,
                 &mut pending_actions,
                 &mut diagnostics,
+                &mut next_id,
             );
         }
+        self.next_slot_instance_id = next_id;
         self.prune_dangling_masks();
         for diagnostic in diagnostics {
             self.record_unsupported_diagnostic(diagnostic);
@@ -916,6 +929,7 @@ impl SwfBytecodePlayer {
         target_path: &str,
         pending_actions: &mut Vec<PendingAvm1Work>,
         diagnostics: &mut Vec<String>,
+        next_instance_id: &mut u64,
     ) {
         if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH {
             diagnostics.push(format!(
@@ -952,6 +966,11 @@ impl SwfBytecodePlayer {
             let frame_idx = slot.current_frame;
             if previous_frame != Some(frame_idx) {
                 slot.last_applied_frame = Some(frame_idx);
+                slot.entered_this_step = true;
+                if previous_frame.is_some_and(|prev| frame_idx <= prev) {
+                    slot.looped_this_step = true;
+                }
+                slot.pending_audio_frames.push(frame_idx);
                 let start_frame = match previous_frame {
                     Some(previous) if frame_idx > previous => previous + 1,
                     _ => {
@@ -1001,6 +1020,7 @@ impl SwfBytecodePlayer {
                                         swf_version,
                                         tag.code,
                                         &tag.payload,
+                                        next_instance_id,
                                     );
                                     if let Some(depth) = place_tag_depth(tag.code, &tag.payload)
                                         && let Some(child) = slot.children.get(&depth)
@@ -1068,6 +1088,7 @@ impl SwfBytecodePlayer {
                 &child_path,
                 pending_actions,
                 diagnostics,
+                next_instance_id,
             );
         }
     }
@@ -1099,6 +1120,7 @@ impl SwfBytecodePlayer {
             self.swf_version,
             tag_code,
             payload,
+            &mut self.next_slot_instance_id,
         );
         if replaced {
             self.prune_dangling_masks();
@@ -1158,6 +1180,7 @@ impl SwfBytecodePlayer {
             self.swf_version,
             tag_code,
             payload,
+            &mut self.next_slot_instance_id,
         );
         if will_create_new_slot && had_existing {
             self.prune_dangling_masks();
@@ -1187,6 +1210,7 @@ impl SwfBytecodePlayer {
         let mut diagnostics = Vec::new();
         let sprites = self.sprites.clone();
         let swf_version = self.swf_version;
+        let mut next_id = self.next_slot_instance_id;
         if let Some(root_slot) = self.target_slot_mut(root_target) {
             populate_placed_slot_frame0_recursive(
                 root_slot,
@@ -1194,8 +1218,10 @@ impl SwfBytecodePlayer {
                 swf_version,
                 runtime_depth,
                 &mut diagnostics,
+                &mut next_id,
             );
         }
+        self.next_slot_instance_id = next_id;
         for d in diagnostics {
             self.record_unsupported_diagnostic(d);
         }
@@ -1349,6 +1375,11 @@ impl SwfBytecodePlayer {
             };
             if let Some(s) = self.target_slot_mut(&target) {
                 s.last_applied_frame = Some(next_frame);
+                s.entered_this_step = true;
+                if prev_frame.is_some_and(|prev| next_frame <= prev) {
+                    s.looped_this_step = true;
+                }
+                s.pending_audio_frames.push(next_frame);
             }
             let start_frame = match prev_frame {
                 Some(prev) if next_frame > prev => prev + 1,
@@ -1382,6 +1413,7 @@ impl SwfBytecodePlayer {
                             let has_char = place_tag_replaces_slot(tag.code, &tag.payload);
                             let mut unmodeled_filter = false;
                             let mut created_child_target = None;
+                            let mut next_id = self.next_slot_instance_id;
                             if let Some(pslot) = self.target_slot_mut(&target) {
                                 let blocked = place_tag_blocked_by_tombstone(
                                     tag.code,
@@ -1406,6 +1438,7 @@ impl SwfBytecodePlayer {
                                     swf_version,
                                     tag.code,
                                     &tag.payload,
+                                    &mut next_id,
                                 );
                                 unmodeled_filter = uf;
                                 if will_create && let Some(new_c) = pslot.children.get(&depth) {
@@ -1415,6 +1448,7 @@ impl SwfBytecodePlayer {
                                     ));
                                 }
                             }
+                            self.next_slot_instance_id = next_id;
                             if unmodeled_filter {
                                 self.record_unsupported_diagnostic(
                                     "SWF PlaceObject3 filter list contained an unmodeled filter"
@@ -1515,7 +1549,7 @@ pub(super) fn parse_timeline_tags(
             1 => {
                 frames.push(std::mem::take(&mut cur_tags));
             }
-            4 | 5 | 12 | 15 | 18 | 19 | 26 | 28 | 45 | 70 => {
+            4 | 5 | 12 | 15 | 18 | 19 | 26 | 28 | 45 | 70 | 89 => {
                 cur_tags.push(RawFrameTag {
                     code,
                     payload: payload.to_vec(),
@@ -1533,6 +1567,7 @@ pub(super) fn parse_timeline_tags(
         total_frames,
         frames,
         labels,
+        audio: BTreeMap::new(),
     }
 }
 
@@ -1542,6 +1577,7 @@ fn populate_placed_slot_frame0_recursive(
     swf_version: u8,
     runtime_depth: usize,
     diagnostics: &mut Vec<String>,
+    next_instance_id: &mut u64,
 ) {
     slot.placed_this_step = true;
     if runtime_depth >= MAX_RUNTIME_SPRITE_DEPTH {
@@ -1554,6 +1590,10 @@ fn populate_placed_slot_frame0_recursive(
         slot.last_applied_frame = Some(0);
         return;
     };
+    if slot.last_applied_frame != Some(0) {
+        slot.pending_audio_frames.push(0);
+        slot.entered_this_step = true;
+    }
     slot.last_applied_frame = Some(0);
     if let Some(tags) = def.frames.first() {
         for tag in tags {
@@ -1566,6 +1606,7 @@ fn populate_placed_slot_frame0_recursive(
                         swf_version,
                         tag.code,
                         &tag.payload,
+                        next_instance_id,
                     );
                     if unmodeled_filter {
                         diagnostics.push(
@@ -1592,6 +1633,7 @@ fn populate_placed_slot_frame0_recursive(
             swf_version,
             runtime_depth + 1,
             diagnostics,
+            next_instance_id,
         );
     }
 }
@@ -1830,6 +1872,7 @@ pub(super) fn apply_place_tag_to_map(
     swf_version: u8,
     tag_code: u16,
     payload: &[u8],
+    next_instance_id: &mut u64,
 ) -> (Vec<Vec<u8>>, bool) {
     let mut r = SwfSlice::new(payload);
     let mut load_scripts = Vec::new();
@@ -1859,6 +1902,7 @@ pub(super) fn apply_place_tag_to_map(
         display_list.insert(
             depth,
             LiveSlot {
+                instance_id: alloc_instance_id(next_instance_id),
                 character_id,
                 name: String::new(),
                 matrix,
@@ -1883,6 +1927,9 @@ pub(super) fn apply_place_tag_to_map(
                 total_frames: sprite_total,
                 playing: true,
                 last_applied_frame: None,
+                pending_audio_frames: Vec::new(),
+                looped_this_step: false,
+                entered_this_step: false,
                 removed_timeline_depths: BTreeSet::new(),
                 children: BTreeMap::new(),
                 props: HashMap::new(),
@@ -1977,6 +2024,7 @@ pub(super) fn apply_place_tag_to_map(
                 .map(|(color, alpha)| (color, alpha * 100.0))
                 .unwrap_or((slot.color_transform, slot.alpha));
             *slot = LiveSlot {
+                instance_id: alloc_instance_id(next_instance_id),
                 character_id,
                 name: new_name.unwrap_or_default(),
                 matrix,
@@ -2005,6 +2053,9 @@ pub(super) fn apply_place_tag_to_map(
                     .map_or(1, |sprite| sprite.total_frames.max(1)),
                 playing: true,
                 last_applied_frame: None,
+                pending_audio_frames: Vec::new(),
+                looped_this_step: false,
+                entered_this_step: false,
                 removed_timeline_depths: BTreeSet::new(),
                 children: BTreeMap::new(),
                 props: HashMap::new(),
@@ -2077,6 +2128,7 @@ pub(super) fn apply_place_tag_to_map(
     display_list.insert(
         depth,
         LiveSlot {
+            instance_id: alloc_instance_id(next_instance_id),
             character_id,
             name: new_name.unwrap_or_default(),
             matrix,
@@ -2101,6 +2153,9 @@ pub(super) fn apply_place_tag_to_map(
             total_frames: sprite_total,
             playing: true,
             last_applied_frame: None,
+            pending_audio_frames: Vec::new(),
+            looped_this_step: false,
+            entered_this_step: false,
             removed_timeline_depths: BTreeSet::new(),
             children: BTreeMap::new(),
             props: HashMap::new(),

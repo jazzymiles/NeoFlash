@@ -709,6 +709,51 @@ impl<'a> SwfDictionaryCompiler<'a> {
             w.bytes(&cond_bytes);
         }
         self.root_tags.write_tag(34, &w.buf);
+
+        let mut button_sound_slots: [Option<(u16, &FrameSound, u64)>; 4] = [None; 4];
+        let mut has_button_sound = false;
+        for (slot_idx, slot_out) in button_sound_slots.iter_mut().enumerate() {
+            let state_frame = slot_idx as u32;
+            for layer in &sym.timeline.layers {
+                if matches!(layer.properties.role, LayerRole::Folder | LayerRole::Guide) {
+                    continue;
+                }
+                if layer
+                    .properties
+                    .end_frame
+                    .is_some_and(|end| state_frame >= end)
+                {
+                    continue;
+                }
+                if let Some(kf) = layer.keyframes.iter().find(|k| k.frame == state_frame)
+                    && let Some(snd) = kf.sound.as_ref()
+                    && snd.sync != SoundSync::Stream
+                    && let Some(&sid) = self.sound_ids.get(&snd.resource)
+                {
+                    let duration_44 = self
+                        .sound_durations_44
+                        .get(&snd.resource)
+                        .copied()
+                        .unwrap_or(44_100);
+                    *slot_out = Some((sid, snd, duration_44));
+                    has_button_sound = true;
+                    break;
+                }
+            }
+        }
+        if has_button_sound {
+            let mut bs = SwfBitWriter::new();
+            bs.u16(button_id);
+            for slot in button_sound_slots {
+                if let Some((sid, snd, duration_44)) = slot {
+                    bs.bytes(&build_start_sound_payload(sid, snd, duration_44));
+                } else {
+                    bs.u16(0);
+                }
+            }
+            self.root_tags.write_tag(17, &bs.buf); // DefineButtonSound
+        }
+
         Ok(button_id)
     }
 
@@ -751,8 +796,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     && let Some(morph) = prepare_morph_keys(kf, next_kf)
                 {
                     let morph_id = self.alloc_char_id();
-                    let payload = build_define_morph_shape_payload(morph_id, morph);
-                    self.root_tags.write_tag(46, &payload);
+                    let (morph_tag, payload) = build_define_morph_shape_tag(morph_id, morph);
+                    self.root_tags.write_tag(morph_tag, &payload);
                     morph_spans.insert((l_idx, k_idx), (morph_id, kf.frame, next_kf.frame, easing));
                     continue;
                 }

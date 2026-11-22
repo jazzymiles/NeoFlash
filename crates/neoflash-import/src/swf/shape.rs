@@ -344,7 +344,7 @@ pub(crate) fn decode_define_morph_shape(
     }
     let offset = r.u32()? as usize;
     let after_offset_pos = r.pos();
-    let end_edges_pos = after_offset_pos.checked_add(offset)?;
+    let end_edges_pos = after_offset_pos.saturating_add(offset);
 
     let mut approx_reason: Option<&'static str> = None;
     let mut non_round = false;
@@ -368,29 +368,70 @@ pub(crate) fn decode_define_morph_shape(
         end_lines.push(el);
     }
 
-    let start_edges_slice = payload.get(r.pos()..end_edges_pos.min(payload.len()))?;
-    let end_edges_slice = payload.get(end_edges_pos.min(payload.len())..)?;
+    let styles_end_pos = r.pos();
+    let (start_elements, style_trace, start_consumed, _) =
+        if end_edges_pos > styles_end_pos && end_edges_pos < payload.len() {
+            decode_morph_half_edges(
+                morph_id,
+                "start",
+                &payload[styles_end_pos..end_edges_pos],
+                &start_fills,
+                &start_lines,
+                None,
+                bitmaps,
+                &mut approx_reason,
+            )
+        } else {
+            decode_morph_half_edges(
+                morph_id,
+                "start",
+                payload.get(styles_end_pos..)?,
+                &start_fills,
+                &start_lines,
+                None,
+                bitmaps,
+                &mut approx_reason,
+            )
+        };
 
-    let (start_elements, style_trace) = decode_morph_half_edges(
-        morph_id,
-        "start",
-        start_edges_slice,
-        &start_fills,
-        &start_lines,
-        None,
-        bitmaps,
-        &mut approx_reason,
-    );
-    let (end_elements, _) = decode_morph_half_edges(
+    let primary_end_pos = if end_edges_pos > styles_end_pos && end_edges_pos < payload.len() {
+        end_edges_pos
+    } else {
+        styles_end_pos
+            .saturating_add(start_consumed)
+            .min(payload.len())
+    };
+    let (mut end_elements, _, _, mut end_anchor) = decode_morph_half_edges(
         morph_id,
         "end",
-        end_edges_slice,
+        payload.get(primary_end_pos..)?,
         &end_fills,
         &end_lines,
         Some(&style_trace),
         bitmaps,
         &mut approx_reason,
     );
+    let fallback_end_pos = styles_end_pos
+        .saturating_add(start_consumed)
+        .min(payload.len());
+    if end_elements.elements.is_empty() && fallback_end_pos != primary_end_pos {
+        let (alt_end, _, _, alt_anchor) = decode_morph_half_edges(
+            morph_id,
+            "end",
+            payload.get(fallback_end_pos..)?,
+            &end_fills,
+            &end_lines,
+            Some(&style_trace),
+            bitmaps,
+            &mut approx_reason,
+        );
+        if !alt_end.elements.is_empty() {
+            end_elements = alt_end;
+            end_anchor = alt_anchor;
+        } else if end_anchor.is_none() {
+            end_anchor = alt_anchor;
+        }
+    }
 
     if non_round {
         report.warning(
@@ -407,11 +448,10 @@ pub(crate) fn decode_define_morph_shape(
         );
     }
 
-    let end_elements = if end_elements.elements.is_empty() {
-        start_elements.clone()
-    } else {
-        end_elements
-    };
+    if end_elements.elements.is_empty() && !start_elements.elements.is_empty() {
+        end_elements =
+            build_collapsed_morph_end_shape(&start_elements, &end_fills, &end_lines, end_anchor);
+    }
 
     Some((
         morph_id,
@@ -523,13 +563,18 @@ fn decode_morph_half_edges(
     inherited_trace: Option<&[MorphEdgeStyle]>,
     bitmaps: &HashMap<u16, SwfBitmapRef>,
     approx_reason: &mut Option<&'static str>,
-) -> (DecodedSwfShape, Vec<MorphEdgeStyle>) {
+) -> (
+    DecodedSwfShape,
+    Vec<MorphEdgeStyle>,
+    usize,
+    Option<[i32; 2]>,
+) {
     let mut r = SwfSlice::new(slice);
     let Some(num_fill_bits) = r.ub(4) else {
-        return (DecodedSwfShape::default(), Vec::new());
+        return (DecodedSwfShape::default(), Vec::new(), 0, None);
     };
     let Some(num_line_bits) = r.ub(4) else {
-        return (DecodedSwfShape::default(), Vec::new());
+        return (DecodedSwfShape::default(), Vec::new(), 0, None);
     };
     let (num_fill_bits, num_line_bits) = (num_fill_bits as usize, num_line_bits as usize);
 
@@ -539,9 +584,11 @@ fn decode_morph_half_edges(
     let mut edge_idx = 0usize;
     let mut cur_x = 0i32;
     let mut cur_y = 0i32;
+    let mut first_anchor: Option<[i32; 2]> = None;
     let mut fs0 = 0usize;
     let mut fs1 = 0usize;
     let mut ls = 0usize;
+    let mut explicit_style_seen = false;
 
     for _ in 0..MAX_SHAPE_RECORDS {
         let Some(is_edge) = r.bit() else { break };
@@ -557,22 +604,27 @@ fn decode_morph_half_edges(
                 };
                 cur_x = mx;
                 cur_y = my;
+                first_anchor.get_or_insert([cur_x, cur_y]);
             }
             if (flags & 0x02) != 0 {
                 let Some(v) = r.ub(num_fill_bits) else { break };
                 fs0 = v as usize;
+                explicit_style_seen = true;
             }
             if (flags & 0x04) != 0 {
                 let Some(v) = r.ub(num_fill_bits) else { break };
                 fs1 = v as usize;
+                explicit_style_seen = true;
             }
             if (flags & 0x08) != 0 {
                 let Some(v) = r.ub(num_line_bits) else { break };
                 ls = v as usize;
+                explicit_style_seen = true;
             }
         } else {
             let Some(is_straight) = r.bit() else { break };
             let start = [cur_x, cur_y];
+            first_anchor.get_or_insert(start);
             let edge = if is_straight {
                 let Some(nb) = r.ub(4) else { break };
                 let n = (nb as usize) + 2;
@@ -616,9 +668,7 @@ fn decode_morph_half_edges(
             // In SWF DefineMorphShape, EndEdges often omits fillStyle/lineStyle changes because
             // each edge corresponds 1-to-1 with StartEdges' active styles!
             let active = if let Some(trace) = inherited_trace
-                && fs0 == 0
-                && fs1 == 0
-                && ls == 0
+                && (!explicit_style_seen || (fs0 == 0 && fs1 == 0 && ls == 0))
                 && let Some(&traced) = trace.get(edge_idx)
             {
                 traced
@@ -647,6 +697,9 @@ fn decode_morph_half_edges(
         }
     }
 
+    r.align();
+    let consumed = r.pos();
+
     let mut elements = DecodedSwfShape::default();
     let mut seq = 0usize;
     flush_style_group_named(
@@ -660,7 +713,110 @@ fn decode_morph_half_edges(
         approx_reason,
         &mut elements,
     );
-    (elements, style_trace)
+    (elements, style_trace, consumed, first_anchor)
+}
+
+fn build_collapsed_morph_end_shape(
+    start_shape: &DecodedSwfShape,
+    end_fills: &[SwfPaint],
+    end_lines: &[SwfStrokeStyle],
+    end_anchor: Option<[i32; 2]>,
+) -> DecodedSwfShape {
+    let mut out = start_shape.clone();
+    let anchor_cmds = end_anchor.map(|[tx, ty]| {
+        let ax = f64::from(tx) / 20.0;
+        let ay = f64::from(ty) / 20.0;
+        vec![
+            PathCommand::MoveTo { x: ax, y: ay },
+            PathCommand::LineTo {
+                x: ax + 0.05,
+                y: ay,
+            },
+            PathCommand::LineTo {
+                x: ax,
+                y: ay + 0.05,
+            },
+            PathCommand::Close,
+        ]
+    });
+    let mut fill_cursor = 0usize;
+    let mut line_cursor = 0usize;
+    for el in &mut out.elements {
+        let is_stroke_only = match &el.kind {
+            ElementKind::Path {
+                fill, stroke_width, ..
+            }
+            | ElementKind::PaintedPath {
+                fill, stroke_width, ..
+            } => fill[3] == 0 && *stroke_width > 0.0,
+            _ => false,
+        };
+        if is_stroke_only {
+            if let Some(ls) = end_lines.get(line_cursor).or_else(|| end_lines.last()) {
+                line_cursor += 1;
+                let cmds = anchor_cmds.clone().unwrap_or_else(|| match &el.kind {
+                    ElementKind::Path { commands, .. }
+                    | ElementKind::PaintedPath { commands, .. } => commands.clone(),
+                    _ => Vec::new(),
+                });
+                match &ls.paint {
+                    SwfPaint::Gradient { fallback, paint } => {
+                        el.kind = ElementKind::PaintedPath {
+                            commands: cmds,
+                            fill_rule: FillRule::NonZero,
+                            fill: [0, 0, 0, 0],
+                            stroke: *fallback,
+                            fill_gradient: None,
+                            stroke_gradient: Some(paint.clone()),
+                            stroke_width: ls.width_px,
+                        };
+                    }
+                    SwfPaint::Solid(c) => {
+                        el.kind = ElementKind::Path {
+                            commands: cmds,
+                            fill_rule: FillRule::NonZero,
+                            fill: [0, 0, 0, 0],
+                            stroke: *c,
+                            stroke_width: ls.width_px,
+                        };
+                    }
+                    SwfPaint::Bitmap { .. } => {}
+                }
+            }
+        } else if let Some(fp) = end_fills.get(fill_cursor).or_else(|| end_fills.last()) {
+            fill_cursor += 1;
+            let cmds = anchor_cmds.clone().unwrap_or_else(|| match &el.kind {
+                ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
+                    commands.clone()
+                }
+                _ => Vec::new(),
+            });
+            match fp {
+                SwfPaint::Gradient { fallback, paint } => {
+                    el.kind = ElementKind::PaintedPath {
+                        commands: cmds,
+                        fill_rule: FillRule::NonZero,
+                        fill: *fallback,
+                        stroke: [0, 0, 0, 0],
+                        fill_gradient: Some(paint.clone()),
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                    };
+                }
+                SwfPaint::Solid(c) => {
+                    el.kind = ElementKind::Path {
+                        commands: cmds,
+                        fill_rule: FillRule::NonZero,
+                        fill: *c,
+                        stroke: [0, 0, 0, 0],
+                        stroke_width: 0.0,
+                    };
+                }
+                SwfPaint::Bitmap { .. } => {}
+            }
+        }
+    }
+    out
 }
 
 fn read_style_count(r: &mut SwfSlice<'_>, has_ext_count: bool) -> Option<usize> {
@@ -873,7 +1029,7 @@ fn read_line_styles(
 
 fn read_morph_fill_style(
     r: &mut SwfSlice<'_>,
-    is_morph2: bool,
+    _is_morph2: bool,
     approx_reason: &mut Option<&'static str>,
 ) -> Option<(SwfPaint, SwfPaint)> {
     let fill_type = r.u8()?;
@@ -886,6 +1042,7 @@ fn read_morph_fill_style(
         0x10 | 0x12 | 0x13 => {
             let sm = r.matrix_px()?;
             let em = r.matrix_px()?;
+            r.align();
             let (num_grads, spread, linear_rgb) = gradient_flags(r.u8()?, approx_reason);
             let mut s_stops = Vec::with_capacity(num_grads);
             let mut e_stops = Vec::with_capacity(num_grads);
@@ -903,13 +1060,12 @@ fn read_morph_fill_style(
                     color: ec,
                 });
             }
-            let (sfocal, efocal) = if fill_type == 0x13 && is_morph2 {
+            r.align();
+            let (sfocal, efocal) = if fill_type == 0x13 {
                 (r.fixed8()?.clamp(-1.0, 1.0), r.fixed8()?.clamp(-1.0, 1.0))
             } else {
                 (0.0, 0.0)
             };
-            s_stops.sort_by_key(|s| s.ratio);
-            e_stops.sort_by_key(|s| s.ratio);
             let kind = if fill_type == 0x10 {
                 GradientKind::Linear
             } else {
@@ -917,7 +1073,7 @@ fn read_morph_fill_style(
             };
             let s_fb = s_stops.first().map_or([0, 0, 0, 255], |s| s.color);
             let e_fb = e_stops.first().map_or([0, 0, 0, 255], |s| s.color);
-            let sp = GradientPaint {
+            let mut sp = GradientPaint {
                 kind,
                 matrix: sm,
                 stops: s_stops,
@@ -925,7 +1081,7 @@ fn read_morph_fill_style(
                 spread,
                 linear_rgb,
             };
-            let ep = GradientPaint {
+            let mut ep = GradientPaint {
                 kind,
                 matrix: em,
                 stops: e_stops,
@@ -933,6 +1089,8 @@ fn read_morph_fill_style(
                 spread,
                 linear_rgb,
             };
+            preserve_gradient_order(&mut sp, approx_reason);
+            preserve_gradient_order(&mut ep, approx_reason);
             let s_out = if sp.validate().is_ok() {
                 SwfPaint::Gradient {
                     fallback: s_fb,

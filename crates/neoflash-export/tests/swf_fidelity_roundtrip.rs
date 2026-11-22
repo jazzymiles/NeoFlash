@@ -3273,10 +3273,11 @@ fn compiled_shape_morph_preserves_gradient_endpoints_and_static_spread_modes() {
         },
         ..Default::default()
     };
-    for (spread, linear_rgb, use_morph) in [
-        (GradientSpread::Extend, false, true),
-        (GradientSpread::Reflect, true, false),
-        (GradientSpread::Repeat, false, false),
+    for (spread, linear_rgb, end_spread, use_morph) in [
+        (GradientSpread::Extend, false, GradientSpread::Extend, true),
+        (GradientSpread::Reflect, true, GradientSpread::Reflect, true),
+        (GradientSpread::Repeat, false, GradientSpread::Repeat, true),
+        (GradientSpread::Reflect, true, GradientSpread::Repeat, false),
     ] {
         let mut project = Project::blank();
         let tl = &mut project.symbols[0].timeline;
@@ -3292,7 +3293,7 @@ fn compiled_shape_morph_preserves_gradient_endpoints_and_static_spread_modes() {
             },
             Keyframe {
                 frame: 3,
-                elements: vec![shape(paint(end_color, spread, linear_rgb))],
+                elements: vec![shape(paint(end_color, end_spread, linear_rgb))],
                 ..Default::default()
             },
         ];
@@ -3319,7 +3320,7 @@ fn compiled_shape_morph_preserves_gradient_endpoints_and_static_spread_modes() {
         assert_eq!(
             collect_swf_tags_raw(&bytes)
                 .iter()
-                .any(|(tag, _)| *tag == 46),
+                .any(|(tag, _)| *tag == 84),
             use_morph
         );
         let recovered = import_swf_bytes(&bytes).unwrap();
@@ -3338,9 +3339,9 @@ fn compiled_shape_morph_preserves_gradient_endpoints_and_static_spread_modes() {
             gradients
                 .iter()
                 .any(|g| g.stops.last().unwrap().color == end_color
-                    && g.spread == spread
+                    && g.spread == end_spread
                     && g.linear_rgb == linear_rgb),
-            "{spread:?}"
+            "{spread:?}->{end_spread:?}"
         );
         if use_morph {
             assert!(
@@ -3558,4 +3559,654 @@ fn swf_shape_tween_preserves_contours_arcs_overshoot_and_property_expressions() 
             );
         }
     }
+}
+
+#[test]
+fn t462_define_morph_shape2_linear_radial_and_focal_gradients_midpoint_pixel_parity() {
+    use neoflash_core::{
+        Easing, GradientKind, GradientPaint, GradientSpread, GradientStop, Player as CorePlayer,
+        TweenKind,
+    };
+
+    let rect_shape = |x0: f64, y0: f64, w: f64, h: f64, grad: GradientPaint| Element {
+        id: "morph_grad_box".into(),
+        kind: ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: x0, y: y0 },
+                PathCommand::LineTo { x: x0 + w, y: y0 },
+                PathCommand::LineTo {
+                    x: x0 + w,
+                    y: y0 + h,
+                },
+                PathCommand::LineTo { x: x0, y: y0 + h },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+            fill_gradient: Some(grad),
+            stroke_gradient: None,
+        },
+        ..Default::default()
+    };
+
+    let skip_swf_rect = |buf: &[u8], pos: usize| -> usize {
+        let nbits = usize::from(buf[pos] >> 3);
+        pos + (5 + nbits * 4).div_ceil(8)
+    };
+    let read_morph2_fill_type = |payload: &[u8]| -> u8 {
+        let mut p = 2; // CharacterID
+        for _ in 0..4 {
+            p = skip_swf_rect(payload, p);
+        }
+        p += 1 + 4; // Flags(1) + Offset(4)
+        assert_eq!(payload[p], 1, "expected 1 MorphFillStyle");
+        payload[p + 1]
+    };
+
+    let render_midpoint = |project: &Project| -> Vec<[u8; 4]> {
+        let mut player = CorePlayer::new(project);
+        player.seek(project, 1); // frame 1 of 0..=2 -> exact midpoint t = 0.5
+        let rgba = player.render_snapshot_rgba(project, 96, 96).unwrap();
+        rgba.as_chunks::<4>().0.to_vec()
+    };
+
+    // 1. Compatible gradient morphs: 0x10 Linear, 0x12 Radial, 0x13 Focal Radial
+    let cases = [
+        (
+            "linear_0x10",
+            0x10u8,
+            GradientPaint {
+                kind: GradientKind::Linear,
+                matrix: [0.04, 0.0, 0.0, 0.04, 24.0, 48.0],
+                stops: vec![
+                    GradientStop {
+                        ratio: 0,
+                        color: [255, 20, 20, 255],
+                    },
+                    GradientStop {
+                        ratio: 255,
+                        color: [20, 40, 255, 255],
+                    },
+                ],
+                spread: GradientSpread::Extend,
+                linear_rgb: false,
+                focal_point_ratio: 0.0,
+            },
+            GradientPaint {
+                kind: GradientKind::Linear,
+                matrix: [0.06, 0.0, 0.0, 0.06, 68.0, 48.0],
+                stops: vec![
+                    GradientStop {
+                        ratio: 32,
+                        color: [20, 240, 120, 255],
+                    },
+                    GradientStop {
+                        ratio: 224,
+                        color: [240, 220, 20, 200],
+                    },
+                ],
+                spread: GradientSpread::Extend,
+                linear_rgb: false,
+                focal_point_ratio: 0.0,
+            },
+        ),
+        (
+            "radial_0x12",
+            0x12u8,
+            GradientPaint {
+                kind: GradientKind::Radial,
+                matrix: [0.045, 0.0, 0.0, 0.045, 36.0, 36.0],
+                stops: vec![
+                    GradientStop {
+                        ratio: 0,
+                        color: [255, 255, 255, 255],
+                    },
+                    GradientStop {
+                        ratio: 255,
+                        color: [0, 90, 220, 255],
+                    },
+                ],
+                spread: GradientSpread::Reflect,
+                linear_rgb: true,
+                focal_point_ratio: 0.0,
+            },
+            GradientPaint {
+                kind: GradientKind::Radial,
+                matrix: [0.065, 0.0, 0.0, 0.065, 58.0, 58.0],
+                stops: vec![
+                    GradientStop {
+                        ratio: 16,
+                        color: [255, 160, 20, 255],
+                    },
+                    GradientStop {
+                        ratio: 240,
+                        color: [140, 20, 180, 220],
+                    },
+                ],
+                spread: GradientSpread::Reflect,
+                linear_rgb: true,
+                focal_point_ratio: 0.0,
+            },
+        ),
+        (
+            "focal_radial_0x13",
+            0x13u8,
+            GradientPaint {
+                kind: GradientKind::Radial,
+                matrix: [0.05, 0.0, 0.0, 0.05, 44.0, 44.0],
+                stops: vec![
+                    GradientStop {
+                        ratio: 0,
+                        color: [255, 240, 80, 255],
+                    },
+                    GradientStop {
+                        ratio: 255,
+                        color: [30, 20, 180, 255],
+                    },
+                ],
+                spread: GradientSpread::Extend,
+                linear_rgb: false,
+                focal_point_ratio: -0.6,
+            },
+            GradientPaint {
+                kind: GradientKind::Radial,
+                matrix: [0.06, 0.0, 0.0, 0.06, 54.0, 52.0],
+                stops: vec![
+                    GradientStop {
+                        ratio: 20,
+                        color: [80, 255, 220, 255],
+                    },
+                    GradientStop {
+                        ratio: 255,
+                        color: [220, 30, 100, 255],
+                    },
+                ],
+                spread: GradientSpread::Extend,
+                linear_rgb: false,
+                focal_point_ratio: 0.6,
+            },
+        ),
+    ];
+
+    for (label, expected_fill_type, start_grad, end_grad) in cases {
+        let mut project = Project::blank();
+        project.width = 96;
+        project.height = 96;
+        project.background = [255, 255, 255, 255];
+        let tl = &mut project.symbols[0].timeline;
+        tl.frame_count = 3; // frames 0, 1 (t = 0.5), 2
+        tl.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Shape,
+                elements: vec![rect_shape(8.0, 8.0, 64.0, 64.0, start_grad.clone())],
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 2,
+                elements: vec![rect_shape(16.0, 16.0, 68.0, 68.0, end_grad.clone())],
+                ..Default::default()
+            },
+        ];
+        project.upgrade_format_for_features();
+        project
+            .validate()
+            .expect("authored morph gradient project validates");
+
+        let (swf, rep) = publish_swf_bytes(&project, &SwfPublishOptions::default())
+            .expect("publish morph gradient SWF");
+        assert!(rep.can_proceed(), "{label}: {rep:?}");
+        let raw_tags = collect_swf_tags_raw(&swf);
+        let morph2_payload = raw_tags
+            .iter()
+            .find_map(|(code, payload)| (*code == 84).then_some(payload))
+            .unwrap_or_else(|| panic!("{label}: expected DefineMorphShape2 (tag 84)"));
+        assert_eq!(
+            read_morph2_fill_type(morph2_payload),
+            expected_fill_type,
+            "{label}: unexpected MORPHFILLSTYLE byte"
+        );
+
+        let recovered = import_swf_bytes(&swf).expect("re-import morph gradient SWF");
+        recovered
+            .validate()
+            .expect("re-imported morph gradient project validates");
+
+        if expected_fill_type == 0x13 {
+            let focals: Vec<f64> = recovered
+                .symbols
+                .iter()
+                .flat_map(|s| &s.timeline.layers)
+                .flat_map(|l| &l.keyframes)
+                .flat_map(|k| &k.elements)
+                .filter_map(|e| match &e.kind {
+                    ElementKind::PaintedPath {
+                        fill_gradient: Some(g),
+                        ..
+                    } => Some(g.focal_point_ratio),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                focals.iter().any(|f| (*f - (-0.6)).abs() < 0.02),
+                "expected start focal point -0.6 preserved, got {focals:?}"
+            );
+            assert!(
+                focals.iter().any(|f| (*f - 0.6).abs() < 0.02),
+                "expected end focal point +0.6 preserved, got {focals:?}"
+            );
+        }
+
+        // Verify midpoint (t = 0.5, frame 1) rendered pixel interpolation parity!
+        let expected_px = render_midpoint(&project);
+        let actual_px = render_midpoint(&recovered);
+        for (sx, sy) in [(24usize, 24usize), (36, 48), (48, 48), (60, 60)] {
+            let idx = sy * 96 + sx;
+            assert_ne!(
+                expected_px[idx],
+                [255, 255, 255, 255],
+                "{label}: sample ({sx},{sy}) should lie inside morphed gradient shape"
+            );
+            assert!(
+                actual_px[idx]
+                    .iter()
+                    .zip(expected_px[idx])
+                    .all(|(a, e)| a.abs_diff(e) <= 6),
+                "{label}: midpoint (t=0.5) pixel mismatch at ({sx},{sy}): actual {:?} vs expected {:?}",
+                actual_px[idx],
+                expected_px[idx]
+            );
+        }
+    }
+
+    // 2. Incompatible gradient spans (different stop counts & different paint kinds)
+    // must fall back cleanly to sampled frames without emitting tag 46 or 84!
+    let two_stop_linear = GradientPaint {
+        kind: GradientKind::Linear,
+        matrix: [0.04, 0.0, 0.0, 0.04, 32.0, 32.0],
+        stops: vec![
+            GradientStop {
+                ratio: 0,
+                color: [255, 0, 0, 255],
+            },
+            GradientStop {
+                ratio: 255,
+                color: [0, 0, 255, 255],
+            },
+        ],
+        ..Default::default()
+    };
+    let three_stop_linear = GradientPaint {
+        kind: GradientKind::Linear,
+        matrix: [0.04, 0.0, 0.0, 0.04, 48.0, 48.0],
+        stops: vec![
+            GradientStop {
+                ratio: 0,
+                color: [255, 0, 0, 255],
+            },
+            GradientStop {
+                ratio: 128,
+                color: [0, 255, 0, 255],
+            },
+            GradientStop {
+                ratio: 255,
+                color: [0, 0, 255, 255],
+            },
+        ],
+        ..Default::default()
+    };
+    let two_stop_radial = GradientPaint {
+        kind: GradientKind::Radial,
+        ..two_stop_linear.clone()
+    };
+
+    for (fallback_label, g_end) in [
+        ("mismatched_stop_count", three_stop_linear),
+        ("mismatched_paint_kind", two_stop_radial),
+    ] {
+        let mut project = Project::blank();
+        project.width = 96;
+        project.height = 96;
+        project.background = [255, 255, 255, 255];
+        let tl = &mut project.symbols[0].timeline;
+        tl.frame_count = 3;
+        tl.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Shape,
+                elements: vec![rect_shape(12.0, 12.0, 64.0, 64.0, two_stop_linear.clone())],
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 2,
+                elements: vec![rect_shape(16.0, 16.0, 64.0, 64.0, g_end)],
+                ..Default::default()
+            },
+        ];
+        project.upgrade_format_for_features();
+        let (swf, rep) = publish_swf_bytes(&project, &SwfPublishOptions::default()).unwrap();
+        assert!(rep.can_proceed(), "{fallback_label}: {rep:?}");
+        let raw_tags = collect_swf_tags_raw(&swf);
+        assert!(
+            raw_tags.iter().all(|(c, _)| *c != 46 && *c != 84),
+            "{fallback_label}: must fall back to sampled DefineShape frames instead of DefineMorphShape"
+        );
+        let recovered = import_swf_bytes(&swf).unwrap();
+        let expected_px = render_midpoint(&project);
+        let actual_px = render_midpoint(&recovered);
+        let idx = 44 * 96 + 44;
+        assert!(
+            actual_px[idx]
+                .iter()
+                .zip(expected_px[idx])
+                .all(|(a, e)| a.abs_diff(e) <= 6),
+            "{fallback_label}: sampled midpoint pixel mismatch at (44,44): {:?} vs {:?}",
+            actual_px[idx],
+            expected_px[idx]
+        );
+    }
+}
+
+#[test]
+fn t462_define_button_sound_and_nested_sprite_stream_roundtrip() {
+    use neoflash_core::{FrameSound, SoundCommand, SoundSync};
+
+    let mut project = Project::blank();
+    project.width = 200;
+    project.height = 150;
+    project.fps = 24;
+
+    let make_sound = |res: &str, sync: SoundSync, loops: u32, in_point: Option<f64>| FrameSound {
+        resource: res.into(),
+        sync,
+        loops,
+        loop_forever: false,
+        effect: Default::default(),
+        in_point,
+        out_point: None,
+        envelope: None,
+    };
+
+    for i in 1..=5 {
+        project.resources.push(
+            ResourceUnit::from_bytes(
+                format!("snd_{i}"),
+                format!("audio/snd_{i}.wav"),
+                "audio/wav",
+                &make_wav_pcm_bytes(22_050, 4410),
+            )
+            .expect("wav resource"),
+        );
+    }
+
+    let btn_sym = Symbol {
+        id: "sym_btn_snd".into(),
+        name: "SoundBtn".into(),
+        folder: String::new(),
+        kind: SymbolKind::Button,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            layers: vec![Layer {
+                id: "btn_l".into(),
+                name: "States".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![
+                    Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "b0".into(),
+                            kind: ElementKind::Rectangle {
+                                width: 40.0,
+                                height: 20.0,
+                                fill: [60, 140, 220, 255],
+                                stroke: [0; 4],
+                                stroke_width: 0.0,
+                            },
+                            ..Default::default()
+                        }],
+                        sound: Some(make_sound("snd_1", SoundSync::Start, 2, None)),
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 1,
+                        elements: vec![Element {
+                            id: "b1".into(),
+                            kind: ElementKind::Rectangle {
+                                width: 40.0,
+                                height: 20.0,
+                                fill: [90, 180, 240, 255],
+                                stroke: [0; 4],
+                                stroke_width: 0.0,
+                            },
+                            ..Default::default()
+                        }],
+                        sound: Some(make_sound("snd_2", SoundSync::Event, 3, None)),
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 2,
+                        elements: vec![Element {
+                            id: "b2".into(),
+                            kind: ElementKind::Rectangle {
+                                width: 40.0,
+                                height: 20.0,
+                                fill: [40, 100, 180, 255],
+                                stroke: [0; 4],
+                                stroke_width: 0.0,
+                            },
+                            ..Default::default()
+                        }],
+                        sound: Some(make_sound("snd_3", SoundSync::Start, 1, Some(0.02))),
+                        ..Default::default()
+                    },
+                    Keyframe {
+                        frame: 3,
+                        elements: vec![Element {
+                            id: "b3".into(),
+                            kind: ElementKind::Rectangle {
+                                width: 40.0,
+                                height: 20.0,
+                                fill: [255, 255, 255, 255],
+                                stroke: [0; 4],
+                                stroke_width: 0.0,
+                            },
+                            ..Default::default()
+                        }],
+                        sound: Some(make_sound("snd_4", SoundSync::Stop, 1, None)),
+                        ..Default::default()
+                    },
+                ],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    };
+
+    let nested_clip = Symbol {
+        id: "sym_nested_audio".into(),
+        name: "NestedAudioClip".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 3,
+            layers: vec![
+                Layer {
+                    id: "nc_art".into(),
+                    name: "Art".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![Element {
+                            id: "nc_box".into(),
+                            kind: ElementKind::Rectangle {
+                                width: 24.0,
+                                height: 24.0,
+                                fill: [220, 120, 40, 255],
+                                stroke: [0; 4],
+                                stroke_width: 0.0,
+                            },
+                            ..Default::default()
+                        }],
+                        sound: Some(make_sound("snd_5", SoundSync::Stream, 1, None)),
+                        ..Default::default()
+                    }],
+                },
+                Layer {
+                    id: "nc_evt".into(),
+                    name: "EventSnd".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        sound: Some(make_sound("snd_1", SoundSync::Start, 1, None)),
+                        ..Default::default()
+                    }],
+                },
+            ],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    };
+
+    project.symbols[0].timeline.frame_count = 3;
+    project.symbols[0].timeline.layers[0].keyframes = vec![Keyframe {
+        frame: 0,
+        elements: vec![
+            Element {
+                id: "inst_btn".into(),
+                name: "sndBtn".into(),
+                transform: Transform {
+                    x: 16.0,
+                    y: 16.0,
+                    ..Default::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: "sym_btn_snd".into(),
+                    playback: InstancePlayback::Loop,
+                },
+                ..Default::default()
+            },
+            Element {
+                id: "inst_clip".into(),
+                name: "sndClip".into(),
+                transform: Transform {
+                    x: 80.0,
+                    y: 16.0,
+                    ..Default::default()
+                },
+                kind: ElementKind::Instance {
+                    symbol_id: "sym_nested_audio".into(),
+                    playback: InstancePlayback::Loop,
+                },
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    }];
+    project.symbols.push(btn_sym);
+    project.symbols.push(nested_clip);
+    project.upgrade_format_for_features();
+    project
+        .validate()
+        .expect("authored button+clip sound project validates");
+
+    let (swf_bytes, rep) =
+        publish_swf_bytes(&project, &SwfPublishOptions::default()).expect("publish SWF");
+    assert!(rep.can_proceed(), "{rep:?}");
+    let raw_tags = collect_swf_tags_raw(&swf_bytes);
+    assert!(
+        raw_tags.iter().any(|(code, _)| *code == 17),
+        "DefineButtonSound (tag 17) must be emitted when Button symbol has FrameSounds"
+    );
+
+    let recovered = import_swf_bytes(&swf_bytes).expect("re-import SWF");
+    recovered
+        .validate()
+        .expect("re-imported button+clip sound project validates");
+
+    let rec_btn = recovered
+        .symbols
+        .iter()
+        .find(|s| s.kind == SymbolKind::Button)
+        .expect("recovered Button symbol");
+    let rec_btn_sounds: Vec<(u32, SoundSync, u32)> = rec_btn
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .filter_map(|k| k.sound.as_ref().map(|s| (k.frame, s.sync, s.loops)))
+        .collect();
+    assert_eq!(
+        rec_btn_sounds,
+        vec![
+            (0, SoundSync::Start, 2),
+            (1, SoundSync::Event, 3),
+            (2, SoundSync::Start, 1),
+            (3, SoundSync::Stop, 1),
+        ]
+    );
+    assert!(
+        recovered
+            .resources
+            .iter()
+            .any(|r| r.id.starts_with("swf-stream-sym-")),
+        "expected per-sprite stream resource `swf-stream-sym-*` in recovered resources"
+    );
+
+    let mut player = SwfBytecodePlayer::from_bytes(&swf_bytes).expect("SwfBytecodePlayer");
+    player.step_frame();
+    let f0_cmds = player.drain_sound_commands(&recovered);
+    assert!(
+        f0_cmds.iter().any(|c| matches!(
+            c,
+            SoundCommand::Play {
+                sync: SoundSync::Start,
+                ..
+            }
+        )),
+        "nested MovieClip StartSound must fire on frame 0: {f0_cmds:?}"
+    );
+    assert!(
+        f0_cmds.iter().any(|c| matches!(
+            c,
+            SoundCommand::StreamStart { channel, resource, .. }
+                if channel.starts_with("swf-clip-stream-") && resource.starts_with("swf-stream-sym-")
+        )),
+        "nested MovieClip stream must start on frame 0: {f0_cmds:?}"
+    );
+
+    player.trigger_pointer_roll_over();
+    assert!(matches!(
+        player.drain_sound_commands(&recovered).as_slice(),
+        [SoundCommand::Play {
+            sync: SoundSync::Event,
+            loops: 3,
+            ..
+        }]
+    ));
+    player.trigger_pointer_click();
+    assert!(matches!(
+        player.drain_sound_commands(&recovered).as_slice(),
+        [
+            SoundCommand::Play {
+                sync: SoundSync::Start,
+                loops: 1,
+                ..
+            },
+            SoundCommand::Stop { .. }
+        ]
+    ));
 }

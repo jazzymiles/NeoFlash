@@ -605,7 +605,16 @@ impl SwfBytecodePlayer {
                         .pop()
                         .unwrap_or(Avm1Value::Undefined)
                         .to_trace_string(self.swf_version, &self.avm1_objects);
-                    if let Some(&act_id) = self.avm1_scope_chain.last() {
+                    let mut handled_by_with = false;
+                    for scope in self.avm1_with_scopes.clone().into_iter().rev() {
+                        if self.avm1_has_member(&scope, &name) {
+                            self.set_avm1_member(&scope, &name, val.clone());
+                            handled_by_with = true;
+                            break;
+                        }
+                    }
+                    if handled_by_with {
+                    } else if let Some(&act_id) = self.avm1_scope_chain.last() {
                         if let Some(act_obj) = self.avm1_objects.get_mut(act_id) {
                             act_obj.props.insert(name, val);
                         }
@@ -683,7 +692,14 @@ impl SwfBytecodePlayer {
                         .pop()
                         .unwrap_or(Avm1Value::Undefined)
                         .to_trace_string(self.swf_version, &self.avm1_objects);
-                    if let Some(&act_id) = self.avm1_scope_chain.last() {
+                    let in_with = self
+                        .avm1_with_scopes
+                        .clone()
+                        .into_iter()
+                        .rev()
+                        .any(|scope| self.avm1_has_member(&scope, &name));
+                    if in_with {
+                    } else if let Some(&act_id) = self.avm1_scope_chain.last() {
                         if let Some(act_obj) = self.avm1_objects.get_mut(act_id) {
                             act_obj.props.entry(name).or_insert(Avm1Value::Undefined);
                         }
@@ -992,7 +1008,13 @@ impl SwfBytecodePlayer {
                     // ActionBitURShift
                     let a = stack.pop().unwrap_or(Avm1Value::Undefined).to_u32();
                     let b = stack.pop().unwrap_or(Avm1Value::Undefined).to_u32();
-                    self.push_avm_stack(stack, Avm1Value::Number(f64::from(b.wrapping_shr(a))));
+                    let shifted = b.wrapping_shr(a);
+                    let num = if self.swf_version <= 9 {
+                        f64::from(shifted as i32)
+                    } else {
+                        f64::from(shifted)
+                    };
+                    self.push_avm_stack(stack, Avm1Value::Number(num));
                 }
                 0x66 => {
                     // ActionStrictEquals
@@ -1002,7 +1024,9 @@ impl SwfBytecodePlayer {
                         (Avm1Value::Undefined, Avm1Value::Undefined)
                         | (Avm1Value::Null, Avm1Value::Null) => true,
                         (Avm1Value::Bool(x), Avm1Value::Bool(y)) => x == y,
-                        (Avm1Value::Number(x), Avm1Value::Number(y)) => x == y,
+                        (Avm1Value::Number(x), Avm1Value::Number(y)) => {
+                            x == y || (x.is_nan() && y.is_nan())
+                        }
                         (Avm1Value::String(x), Avm1Value::String(y)) => x == y,
                         (Avm1Value::Object(x), Avm1Value::Object(y)) => x == y,
                         (Avm1Value::MovieClip(x), Avm1Value::MovieClip(y))
@@ -1989,11 +2013,43 @@ pub(super) fn format_avm_number(n: f64) -> String {
         }
     } else if n == 0.0 {
         "0".to_owned()
-    } else if n.fract() == 0.0 && n.abs() < 1e15 {
-        format!("{}", n as i64)
     } else {
-        format!("{n}")
+        let abs = n.abs();
+        if !(1e-6..1e21).contains(&abs) {
+            let sci = format!("{n:e}");
+            if let Some((mant, exp)) = sci.split_once('e') {
+                if exp.starts_with('-') || exp.starts_with('+') {
+                    format!("{mant}e{exp}")
+                } else {
+                    format!("{mant}e+{exp}")
+                }
+            } else {
+                sci
+            }
+        } else if n.fract() == 0.0 && abs < 9_007_199_254_740_992.0 {
+            format!("{}", n as i64)
+        } else {
+            format!("{n}")
+        }
     }
+}
+
+pub(super) fn parse_ecma_decimal_strict(t: &str) -> f64 {
+    match t {
+        "Infinity" | "+Infinity" => return f64::INFINITY,
+        "-Infinity" => return f64::NEG_INFINITY,
+        _ => {}
+    }
+    let body = t.strip_prefix(['+', '-']).unwrap_or(t);
+    if body.is_empty()
+        || body
+            .as_bytes()
+            .first()
+            .is_some_and(|b| b.eq_ignore_ascii_case(&b'i') || b.eq_ignore_ascii_case(&b'n'))
+    {
+        return f64::NAN;
+    }
+    t.parse::<f64>().unwrap_or(f64::NAN)
 }
 
 pub(super) fn avm1_string_to_number(s: &str, swf_version: u8) -> f64 {
@@ -2007,7 +2063,10 @@ pub(super) fn avm1_string_to_number(s: &str, swf_version: u8) -> f64 {
     if let Some(hex) = t.strip_prefix("-0x").or_else(|| t.strip_prefix("-0X")) {
         return u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| -(v as f64));
     }
-    t.parse::<f64>().unwrap_or(f64::NAN)
+    if let Some(hex) = t.strip_prefix("+0x").or_else(|| t.strip_prefix("+0X")) {
+        return u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| v as f64);
+    }
+    parse_ecma_decimal_strict(t)
 }
 
 pub(super) fn avm1_equals(
@@ -2018,9 +2077,15 @@ pub(super) fn avm1_equals(
 ) -> bool {
     match (a, b) {
         (Avm1Value::Undefined | Avm1Value::Null, Avm1Value::Undefined | Avm1Value::Null) => true,
+        (Avm1Value::MovieClip(g), Avm1Value::Undefined | Avm1Value::Null)
+        | (Avm1Value::Undefined | Avm1Value::Null, Avm1Value::MovieClip(g))
+            if g == "_global" =>
+        {
+            true
+        }
         (Avm1Value::Undefined | Avm1Value::Null, _)
         | (_, Avm1Value::Undefined | Avm1Value::Null) => false,
-        (Avm1Value::Number(x), Avm1Value::Number(y)) => x == y,
+        (Avm1Value::Number(x), Avm1Value::Number(y)) => x == y || (x.is_nan() && y.is_nan()),
         (Avm1Value::Bool(x), Avm1Value::Bool(y)) => x == y,
         (Avm1Value::String(x), Avm1Value::String(y)) => x == y,
         (Avm1Value::Bool(x), other) => avm1_equals(
