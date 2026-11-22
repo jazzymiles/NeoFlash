@@ -74,9 +74,66 @@ struct Avm1Inst {
     fn_body: Vec<u8>,
 }
 
+pub(super) const SWF_ISOLATED_MATH_JS: &str = "\
+  if (!__nfSwfEnv.mathObj) {\n\
+    const __m = Object.create(null);\n\
+    __m.E = Math.E; __m.LN10 = Math.LN10; __m.LN2 = Math.LN2;\n\
+    __m.LOG10E = Math.LOG10E; __m.LOG2E = Math.LOG2E; __m.PI = Math.PI;\n\
+    __m.SQRT1_2 = Math.SQRT1_2; __m.SQRT2 = Math.SQRT2;\n\
+    __m.abs = __nfSwfFn(x => Math.abs(Number(x)));\n\
+    __m.acos = __nfSwfFn(x => Math.acos(Number(x)));\n\
+    __m.asin = __nfSwfFn(x => Math.asin(Number(x)));\n\
+    __m.atan = __nfSwfFn(x => Math.atan(Number(x)));\n\
+    __m.atan2 = __nfSwfFn((y, x) => Math.atan2(Number(y), Number(x)));\n\
+    __m.ceil = __nfSwfFn(x => Math.ceil(Number(x)));\n\
+    __m.cos = __nfSwfFn(x => Math.cos(Number(x)));\n\
+    __m.exp = __nfSwfFn(x => Math.exp(Number(x)));\n\
+    __m.floor = __nfSwfFn(x => Math.floor(Number(x)));\n\
+    __m.log = __nfSwfFn(x => Math.log(Number(x)));\n\
+    __m.max = __nfSwfFn((...a) => a.length === 0 ? -Infinity : Math.max(...a.map(Number)));\n\
+    __m.min = __nfSwfFn((...a) => a.length === 0 ? Infinity : Math.min(...a.map(Number)));\n\
+    __m.pow = __nfSwfFn((x, y) => Math.pow(Number(x), Number(y)));\n\
+    __m.random = __nfSwfFn(() => Math.random());\n\
+    __m.round = __nfSwfFn(x => Math.round(Number(x)));\n\
+    __m.sin = __nfSwfFn(x => Math.sin(Number(x)));\n\
+    __m.sqrt = __nfSwfFn(x => Math.sqrt(Number(x)));\n\
+    __m.tan = __nfSwfFn(x => Math.tan(Number(x)));\n\
+    __nfSwfEnv.mathObj = __m;\n\
+  }\n";
+
 pub(super) const AVM1_RUNTIME_INIT_JS: &str = "\
 const __avm1 = (() => {\n\
   if (!__nfSwfEnv) return null;\n\
+  if (!__nfSwfEnv.mathObj) {\n\
+    const __m = Object.create(null);\n\
+    __m.E = Math.E; __m.LN10 = Math.LN10; __m.LN2 = Math.LN2;\n\
+    __m.LOG10E = Math.LOG10E; __m.LOG2E = Math.LOG2E; __m.PI = Math.PI;\n\
+    __m.SQRT1_2 = Math.SQRT1_2; __m.SQRT2 = Math.SQRT2;\n\
+    __m.abs = __nfSwfFn(x => Math.abs(Number(x)));\n\
+    __m.acos = __nfSwfFn(x => Math.acos(Number(x)));\n\
+    __m.asin = __nfSwfFn(x => Math.asin(Number(x)));\n\
+    __m.atan = __nfSwfFn(x => Math.atan(Number(x)));\n\
+    __m.atan2 = __nfSwfFn((y, x) => Math.atan2(Number(y), Number(x)));\n\
+    __m.ceil = __nfSwfFn(x => Math.ceil(Number(x)));\n\
+    __m.cos = __nfSwfFn(x => Math.cos(Number(x)));\n\
+    __m.exp = __nfSwfFn(x => Math.exp(Number(x)));\n\
+    __m.floor = __nfSwfFn(x => Math.floor(Number(x)));\n\
+    __m.log = __nfSwfFn(x => Math.log(Number(x)));\n\
+    __m.max = __nfSwfFn((...a) => a.length === 0 ? -Infinity : Math.max(...a.map(Number)));\n\
+    __m.min = __nfSwfFn((...a) => a.length === 0 ? Infinity : Math.min(...a.map(Number)));\n\
+    __m.pow = __nfSwfFn((x, y) => Math.pow(Number(x), Number(y)));\n\
+    __m.random = __nfSwfFn(() => Math.random());\n\
+    __m.round = __nfSwfFn(x => Math.round(Number(x)));\n\
+    __m.sin = __nfSwfFn(x => Math.sin(Number(x)));\n\
+    __m.sqrt = __nfSwfFn(x => Math.sqrt(Number(x)));\n\
+    __m.tan = __nfSwfFn(x => Math.tan(Number(x)));\n\
+    __nfSwfEnv.mathObj = __m;\n\
+  }\n\
+  if (!__nfSwfEnv.avm1Global) {\n\
+    const __g = Object.create(null);\n\
+    __g.Math = __nfSwfEnv.mathObj;\n\
+    __nfSwfEnv.avm1Global = __g;\n\
+  }\n\
   if (!__nfSwfEnv.avm1) {\n\
     __nfSwfEnv.avm1 = {\n\
       tick: 0,\n\
@@ -85,6 +142,87 @@ const __avm1 = (() => {\n\
       unloadClips: [],\n\
       onEnterFrameMap: new WeakMap(),\n\
       onUnloadMap: new WeakMap(),\n\
+      registeredClasses: Object.create(null),\n\
+      symLinkage: Object.create(null),\n\
+      exportLinkages: new Set(),\n\
+      constructedClips: new WeakSet(),\n\
+      registerClass(linkageId, ctorFn) {\n\
+        if (linkageId === undefined || linkageId === null) return false;\n\
+        const id = String(linkageId);\n\
+        if (!id || id === '__proto__' || id === 'constructor' || id === 'prototype') return false;\n\
+        if (ctorFn === null) {\n\
+          delete this.registeredClasses[id];\n\
+          return true;\n\
+        }\n\
+        if (typeof ctorFn === 'function') {\n\
+          this.registeredClasses[id] = ctorFn;\n\
+          return true;\n\
+        }\n\
+        return false;\n\
+      },\n\
+      constructRegisteredClip(target, explicitLinkage) {\n\
+        if (!target || this.constructedClips.has(target) || !__nfDisplay?.alive?.(target)) return;\n\
+        let lid = explicitLinkage || null;\n\
+        if (!lid) {\n\
+          const sid = __nfDisplay.descriptor(target)?.symbol_id || '';\n\
+          const slot = (__nfSwfEnv.prefix && sid.startsWith(__nfSwfEnv.prefix)) ? sid.slice(__nfSwfEnv.prefix.length) : sid;\n\
+          lid = slot ? (this.symLinkage[slot] || null) : null;\n\
+        }\n\
+        if (!lid) return;\n\
+        const ctor = Object.hasOwn(this.registeredClasses, lid) ? this.registeredClasses[lid] : null;\n\
+        if (typeof ctor !== 'function') return;\n\
+        this.constructedClips.add(target);\n\
+        const proto = __nfSwfGet(ctor, 'prototype');\n\
+        if (proto && typeof proto === 'object') {\n\
+          for (const pk of __nfSwfKeys(proto)) {\n\
+            if (!__nfSwfHasOwn(target, pk)) this.setProp(target, pk, __nfSwfGet(proto, pk));\n\
+          }\n\
+        }\n\
+        __nfSwfTagInstance(target, ctor);\n\
+        __nfSwfApply(ctor, target, []);\n\
+      },\n\
+      constructPendingTimelineClips(rootProxy) {\n\
+        if (!rootProxy || !__nfDisplay?.alive?.(rootProxy)) return;\n\
+        const walk = (container, depth) => {\n\
+          if (depth > 32 || !__nfDisplay?.alive?.(container)) return;\n\
+          let kids = [];\n\
+          try { kids = __nfDisplay.children(container) || []; } catch (_) { return; }\n\
+          for (const knode of kids) {\n\
+            const kp = __nfDisplay.nodeProxy(knode);\n\
+            if (!kp) continue;\n\
+            walk(kp, depth + 1);\n\
+            this.constructRegisteredClip(kp, null);\n\
+          }\n\
+        };\n\
+        walk(rootProxy, 0);\n\
+      },\n\
+      sealTimelineClips(rootProxy) {\n\
+        if (!rootProxy || !__nfDisplay?.alive?.(rootProxy)) return;\n\
+        this.constructPendingTimelineClips(rootProxy);\n\
+        const mark = (container, depth) => {\n\
+          if (depth > 32 || !__nfDisplay?.alive?.(container)) return;\n\
+          let kids = [];\n\
+          try { kids = __nfDisplay.children(container) || []; } catch (_) { return; }\n\
+          for (const knode of kids) {\n\
+            const kp = __nfDisplay.nodeProxy(knode);\n\
+            if (!kp) continue;\n\
+            this.constructedClips.add(kp);\n\
+            mark(kp, depth + 1);\n\
+          }\n\
+        };\n\
+        mark(rootProxy, 0);\n\
+      },\n\
+      attachMovie(mc, args) {\n\
+        if (!mc || !__nfDisplay?.alive?.(mc) || !Array.isArray(args) || args.length < 3) return undefined;\n\
+        const rawId = String(args[0] ?? '');\n\
+        if (!rawId || !this.exportLinkages.has(rawId)) return undefined;\n\
+        const mountedId = __nfSwfEnv.prefix ? (__nfSwfEnv.prefix + 'link_' + rawId) : rawId;\n\
+        const callArgs = [mountedId, String(args[1] ?? ''), Number(args[2]) | 0];\n\
+        if (args.length >= 4 && args[3] != null && typeof args[3] === 'object') callArgs.push(args[3]);\n\
+        const clip = __nfSwfCall(mc, 'attachMovie', callArgs);\n\
+        if (clip) this.constructRegisteredClip(clip, rawId);\n\
+        return clip;\n\
+      },\n\
       calcPathDepth(target) {\n\
         let d = 0, cur = target;\n\
         while (cur && d < 64) {\n\
@@ -147,18 +285,19 @@ const __avm1 = (() => {\n\
           if (sl.placedTick === 0) sl.placedTick = curTick;\n\
         }\n\
       },\n\
-      flushInitConstruct(curTick) {\n\
+      flushInitConstruct(curTick, rootProxy) {\n\
         this.stampPlacedTick(curTick);\n\
         const batch = this.pendingQueue.filter(it => !it.initRan);\n\
-        if (!batch.length) return;\n\
         for (const it of batch) it.initRan = true;\n\
         for (const it of batch) {\n\
           if (__nfDisplay?.alive?.(it.target)) {\n\
             for (const fn of it.inits) { if (__nfDisplay?.alive?.(it.target)) __nfSwfApply(fn, it.target, []); }\n\
           }\n\
         }\n\
+        if (rootProxy) this.constructPendingTimelineClips(rootProxy);\n\
         for (const it of batch) {\n\
           if (__nfDisplay?.alive?.(it.target)) {\n\
+            this.constructRegisteredClip(it.target, null);\n\
             for (const fn of it.constructs) { if (__nfDisplay?.alive?.(it.target)) __nfSwfApply(fn, it.target, []); }\n\
           }\n\
         }\n\
@@ -356,7 +495,7 @@ const __readVar = k => {\n\
   if (k === '_root' || k === '_level0') return _root;\n\
   if (k === '_parent') return (__curTarget && __nfSwfGet(__curTarget, '_parent')) ?? (__curThis && __nfSwfGet(__curThis, '_parent')) ?? _parent;\n\
   if (k === '_global') return __global;\n\
-  if (k === 'Math') return Math;\n\
+  if (k === 'Math') return Object.hasOwn(__global, 'Math') ? __global.Math : __nfSwfEnv?.mathObj;\n\
   if (k === 'NaN') return NaN;\n\
   if (k === 'Infinity') return Infinity;\n\
   const __tv = __nfSwfGet(__curTarget ?? __baseTarget, k);\n\
@@ -716,8 +855,8 @@ while (__pc < ",
             0x46 => js.push_str("      { const __k = String(__st.pop() ?? ''), __obj = __readVar(__k); __st.push(null); if (__obj != null && (typeof __obj === 'object' || typeof __obj === 'function')) { const __eks = __nfSwfKeys(__obj); for (let __ei = __eks.length - 1; __ei >= 0; __ei--) __st.push(__eks[__ei]); } }\n"),
             0x55 => js.push_str("      { const __obj = __st.pop(); __st.push(null); if (__obj != null && (typeof __obj === 'object' || typeof __obj === 'function')) { const __eks = __nfSwfKeys(__obj); for (let __ei = __eks.length - 1; __ei >= 0; __ei--) __st.push(__eks[__ei]); } }\n"),
             0x69 => js.push_str("      { const __sup = __st.pop(), __sub = __st.pop(); __nfSwfExtends(__sub, __sup); }\n"),
-            0x3D => js.push_str("      { const __fnName = String(__st.pop() ?? ''), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); if (__fnName === 'fscommand') { __nfSwfGetURL(__curThis ?? __baseTarget, 'FSCommand:' + String(__args[0] ?? ''), String(__args[1] ?? ''), 0); __st.push(undefined); } else if (__fnName === 'getURL') { __nfSwfGetURL(__curThis ?? __baseTarget, __args[0], __args[1], 0); __st.push(undefined); } else { const __fn = __fnName === 'stop' ? stop : __fnName === 'play' ? play : __fnName === 'gotoAndStop' ? gotoAndStop : __fnName === 'gotoAndPlay' ? gotoAndPlay : __fnName === 'nextFrame' ? nextFrame : __fnName === 'prevFrame' ? prevFrame : __fnName === 'trace' ? trace : __fnName === 'Number' ? (v => Number(v)) : __fnName === 'String' ? (v => String(v ?? '')) : __fnName === 'Boolean' ? (v => Boolean(v)) : __fnName === 'int' ? (v => Number(v) | 0) : __fnName === 'parseInt' ? parseInt : __fnName === 'parseFloat' ? parseFloat : __fnName === 'isNaN' ? isNaN : __fnName === 'isFinite' ? isFinite : __readVar(__fnName); __st.push((__fn === parseInt || __fn === parseFloat || __fn === isNaN || __fn === isFinite) ? __fn(...__args) : __nfSwfApply(__fn, __curThis ?? __baseTarget, __args)); } }\n"),
-            0x52 => js.push_str("      { const __mRaw = __st.pop(), __obj = __st.pop(), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); if (__mRaw === undefined || __mRaw === null || __mRaw === '') { __st.push(__nfSwfApply(__obj, __curThis ?? __baseTarget, __args)); } else { const __mStr = String(__mRaw); if (__obj === 'String' && __mStr === 'fromCharCode') { __st.push(String.fromCharCode(...__args.map(__c => Number(__c) & 0xffff))); } else if (__obj === 'Object' && __mStr === 'registerClass') { __st.push(__nfLegacy?.Object?.registerClass ? __nfLegacy.Object.registerClass(__args[0], __args[1]) : false); } else { const __tObj = (typeof __obj === 'string' && !__builtinCtors.has(__obj)) ? __obj : (__obj ?? __curThis ?? __baseTarget); __st.push(__nfSwfCall(__tObj, __mStr, __args)); } } }\n"),
+            0x3D => js.push_str("      { const __fnName = String(__st.pop() ?? ''), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); if (__fnName === 'fscommand') { __nfSwfGetURL(__curThis ?? __baseTarget, 'FSCommand:' + String(__args[0] ?? ''), String(__args[1] ?? ''), 0); __st.push(undefined); } else if (__fnName === 'getURL') { __nfSwfGetURL(__curThis ?? __baseTarget, __args[0], __args[1], 0); __st.push(undefined); } else if (__fnName === 'attachMovie' && __avm1) { __st.push(__avm1.attachMovie(__curTarget ?? __curThis ?? __baseTarget, __args)); } else { const __fn = __fnName === 'stop' ? stop : __fnName === 'play' ? play : __fnName === 'gotoAndStop' ? gotoAndStop : __fnName === 'gotoAndPlay' ? gotoAndPlay : __fnName === 'nextFrame' ? nextFrame : __fnName === 'prevFrame' ? prevFrame : __fnName === 'trace' ? trace : __fnName === 'Number' ? (v => Number(v)) : __fnName === 'String' ? (v => String(v ?? '')) : __fnName === 'Boolean' ? (v => Boolean(v)) : __fnName === 'int' ? (v => Number(v) | 0) : __fnName === 'parseInt' ? parseInt : __fnName === 'parseFloat' ? parseFloat : __fnName === 'isNaN' ? isNaN : __fnName === 'isFinite' ? isFinite : __readVar(__fnName); __st.push((__fn === parseInt || __fn === parseFloat || __fn === isNaN || __fn === isFinite) ? __fn(...__args) : __nfSwfApply(__fn, __curThis ?? __baseTarget, __args)); } }\n"),
+            0x52 => js.push_str("      { const __mRaw = __st.pop(), __obj = __st.pop(), __argc = Math.min(4096, Math.max(0, Number(__st.pop()) | 0)), __args = []; for (let __i = 0; __i < __argc; __i++) __args.push(__st.pop()); if (__mRaw === undefined || __mRaw === null || __mRaw === '') { __st.push(__nfSwfApply(__obj, __curThis ?? __baseTarget, __args)); } else { const __mStr = String(__mRaw); if (__obj === 'String' && __mStr === 'fromCharCode') { __st.push(String.fromCharCode(...__args.map(__c => Number(__c) & 0xffff))); } else if (__obj === 'Object' && __mStr === 'registerClass') { __st.push(__avm1 ? __avm1.registerClass(__args[0], __args[1]) : false); } else if (__mStr === 'attachMovie' && __avm1) { const __tMc = (typeof __obj === 'string' && !__builtinCtors.has(__obj)) ? __obj : (__obj ?? __curThis ?? __baseTarget); __st.push(__avm1.attachMovie(__tMc, __args)); } else { const __tObj = (typeof __obj === 'string' && !__builtinCtors.has(__obj)) ? __obj : (__obj ?? __curThis ?? __baseTarget); __st.push(__nfSwfCall(__tObj, __mStr, __args)); } } }\n"),
             0x9B | 0x8E => {
                 emit_avm1_define_function(ctx, &mut js, inst, in_fn, depth);
             }
@@ -1888,10 +2027,10 @@ pub(super) fn apply_abc_scripts(
 }
 
 fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) -> Option<String> {
-    let mut out = String::from("(() => {\n");
+    let mut out = String::from("(() => {\nif (!__nfSwfEnv) return;\n");
+    out.push_str(SWF_ISOLATED_MATH_JS);
     out.push_str(
-        "if (!__nfSwfEnv) return;\n\
-if (!__nfSwfEnv.abcs) {\n\
+        "if (!__nfSwfEnv.abcs) {\n\
   __nfSwfEnv.abcs = Object.create(null);\n\
   __nfSwfEnv.classes = Object.create(null);\n\
   __nfSwfEnv.globals = Object.create(null);\n\
@@ -1973,7 +2112,7 @@ if (!__nfSwfEnv.abcs) {\n\
     int: __nfSwfFn(v => Number(v) | 0), uint: __nfSwfFn(v => Number(v) >>> 0),\n\
     parseInt: __nfSwfFn((s, r) => parseInt(s, r)), parseFloat: __nfSwfFn(s => parseFloat(s)),\n\
     isNaN: __nfSwfFn(v => Number.isNaN(Number(v))), isFinite: __nfSwfFn(v => Number.isFinite(Number(v))),\n\
-    Math: Math,\n\
+    Math: __nfSwfEnv.mathObj,\n\
     Event: __evCtor, MouseEvent: __mouseEvCtor, KeyboardEvent: __keyEvCtor,\n\
     Error: 'Error', TypeError: 'TypeError', RangeError: 'RangeError',\n\
     ReferenceError: 'ReferenceError', ArgumentError: 'ArgumentError',\n\
@@ -1996,15 +2135,19 @@ if (!__nfSwfEnv.abcs) {\n\
   };\n\
   __nfSwfEnv.getStageProxy = () => {\n\
     if (__nfSwfEnv.stageProxy) return __nfSwfEnv.stageProxy;\n\
-    const realStage = __nfDisplay ? (typeof __nfDisplay.stageContainer === 'function' ? __nfDisplay.stageContainer() : __nfDisplay.stageContainer) : null;\n\
+    const resolveRealStage = () => (__nfSwfEnv.rootClip && __nfDisplay?.alive?.(__nfSwfEnv.rootClip)) ? __nfSwfGet(__nfSwfEnv.rootClip, 'stage') : null;\n\
     const sp = Object.create(null);\n\
     __nfSwfEnv.classOf.set(sp, 'Stage');\n\
     __nfSwfEnv.stageProxy = sp;\n\
+    const stageOverrides = Object.create(null);\n\
     const sEntry = { getters: Object.create(null), setters: Object.create(null) };\n\
     sEntry.getters.numChildren = __nfSwfFn(() => __nfSwfEnv.rootClip && __nfDisplay?.alive?.(__nfSwfEnv.rootClip) ? 1 : 0);\n\
-    for (const p of ['stageWidth', 'stageHeight', 'frameRate', 'scaleMode', 'align', 'quality', 'color', 'focus']) {\n\
-      sEntry.getters[p] = __nfSwfFn(() => realStage ? __nfSwfGet(realStage, p) : undefined);\n\
-      sEntry.setters[p] = __nfSwfFn(v => { if (realStage) __nfSwfSet(realStage, p, v); });\n\
+    for (const p of ['stageWidth', 'stageHeight']) {\n\
+      sEntry.getters[p] = __nfSwfFn(() => { const rs = resolveRealStage(); return rs ? __nfSwfGet(rs, p) : undefined; });\n\
+    }\n\
+    for (const p of ['frameRate', 'scaleMode', 'align', 'quality', 'color', 'focus']) {\n\
+      sEntry.getters[p] = __nfSwfFn(() => { if (Object.hasOwn(stageOverrides, p)) return stageOverrides[p]; const rs = resolveRealStage(); return rs ? __nfSwfGet(rs, p) : undefined; });\n\
+      sEntry.setters[p] = __nfSwfFn(v => { stageOverrides[p] = v; });\n\
     }\n\
     __nfSwfEnv.entryOf.set(sp, sEntry);\n\
     __nfSwfSet(sp, 'getChildAt', __nfSwfFn(idx => {\n\
@@ -3161,7 +3304,7 @@ fn compile_avm2_method_factory(
                 let qlit = js_string_literal(&qname);
                 let slit = js_string_literal(&sname);
                 js.push_str(&format!(
-                    "      {{ const __so = __findScope({qlit}, {slit}); const __v = ({qlit} && __nfSwfEnv.avm2Get(__so, {qlit}) !== undefined) ? __nfSwfEnv.avm2Get(__so, {qlit}) : __nfSwfEnv.avm2Get(__so, {slit}); __st.push(typeof __v === 'function' && __so && __so !== __nfSwfEnv.globals && __so !== __nfSwfEnv.builtins && __so !== Math ? __nfSwfFn(function(...__ba) {{ return __nfSwfApply(__v, __so, __ba); }}) : __v); }}\n"
+                    "      {{ const __so = __findScope({qlit}, {slit}); const __v = ({qlit} && __nfSwfEnv.avm2Get(__so, {qlit}) !== undefined) ? __nfSwfEnv.avm2Get(__so, {qlit}) : __nfSwfEnv.avm2Get(__so, {slit}); __st.push(typeof __v === 'function' && __so && __so !== __nfSwfEnv.globals && __so !== __nfSwfEnv.builtins && __so !== __nfSwfEnv.mathObj ? __nfSwfFn(function(...__ba) {{ return __nfSwfApply(__v, __so, __ba); }}) : __v); }}\n"
                 ));
             }
             0x66 => {

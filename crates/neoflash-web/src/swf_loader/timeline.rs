@@ -699,12 +699,11 @@ pub(super) fn build_timeline_from_tags(
     let mut pre_place_action_frames: BTreeSet<u32> = BTreeSet::new();
     let mut frame_saw_place = false;
     let mut frame_actions_before_place = false;
-    if scope_prefix == "root" && !ctx.init_actions.is_empty() {
-        let init = std::mem::take(&mut ctx.init_actions).join("\n");
-        frame_actions.entry(0).or_default().push(format!(
-            "if (!__nfSwfEnv.avm1Initialized) {{\n__nfSwfEnv.avm1Initialized = true;\n{init}\n}}"
-        ));
-    }
+    let root_init_js = if scope_prefix == "root" && !ctx.init_actions.is_empty() {
+        Some(std::mem::take(&mut ctx.init_actions).join("\n"))
+    } else {
+        None
+    };
     let mut shown_frames = 0u32;
 
     let flush_dirty = |ctx: &mut SwfDecodeCtx,
@@ -934,11 +933,35 @@ pub(super) fn build_timeline_from_tags(
     };
 
     if scope_prefix == "root" && ctx.action_script_version < 3 && ctx.saw_do_action {
+        let mut linkage_setup = String::new();
+        for (idx, sym) in ctx.symbols.iter().enumerate() {
+            if let Some(lid) = &sym.linkage_id {
+                let lid_lit = super::vm::js_string_literal(lid);
+                linkage_setup.push_str(&format!(
+                    "  __avm1.symLinkage['s{}'] = {lid_lit};\n  __avm1.exportLinkages.add({lid_lit});\n",
+                    idx + 1
+                ));
+            }
+        }
         for frame in 0..total_frames {
             let pre_place = pre_place_action_frames.contains(&frame);
             let mut combined = format!(
-                "(() => {{\n{}if (__avm1) {{\n  const __t = ++__avm1.tick;\n  __avm1.flushUnloads();\n  __avm1.runEnterFrames(__t);\n  __avm1.flushInitConstruct(__t);\n",
+                "(() => {{\n{}if (__avm1) {{\n",
                 super::vm::AVM1_RUNTIME_INIT_JS
+            );
+            if frame == 0 && !linkage_setup.is_empty() {
+                combined.push_str(&linkage_setup);
+            }
+            combined.push_str("}\n");
+            if frame == 0
+                && let Some(init) = &root_init_js
+            {
+                combined.push_str(&format!(
+                    "if (__nfSwfEnv && !__nfSwfEnv.avm1Initialized) {{\n  __nfSwfEnv.avm1Initialized = true;\n{init}\n}}\n"
+                ));
+            }
+            combined.push_str(
+                "if (__avm1) {\n  const __t = ++__avm1.tick;\n  __avm1.flushUnloads();\n  __avm1.runEnterFrames(__t);\n  __avm1.flushInitConstruct(__t, this);\n",
             );
             if !pre_place {
                 combined.push_str("  __avm1.flushLoadsFor(null);\n");
@@ -946,7 +969,12 @@ pub(super) fn build_timeline_from_tags(
             combined.push_str("}\n})();\n");
             if let Some(blocks) = frame_actions.remove(&frame) {
                 combined.push_str(&blocks.join("\n"));
+                combined.push('\n');
             }
+            combined.push_str(&format!(
+                "(() => {{\n{}if (__avm1) __avm1.sealTimelineClips(this);\n}})();\n",
+                super::vm::AVM1_RUNTIME_INIT_JS
+            ));
             attach_compiled_frame_script(
                 ctx,
                 &mut timeline,
@@ -959,7 +987,7 @@ pub(super) fn build_timeline_from_tags(
     } else {
         if scope_prefix != "root" && ctx.action_script_version < 3 {
             let flush_self = format!(
-                "(() => {{\n{}if (__avm1) __avm1.flushLoadsFor(this);\n}})();\n",
+                "(() => {{\n{}if (__avm1) {{ __avm1.constructRegisteredClip(this, null); __avm1.flushLoadsFor(this); }}\n}})();\n",
                 super::vm::AVM1_RUNTIME_INIT_JS
             );
             frame_actions.entry(0).or_default().insert(0, flush_self);

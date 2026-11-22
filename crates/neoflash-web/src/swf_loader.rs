@@ -505,6 +505,15 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         }
     }
 
+    for (&cid, linkage) in &ctx.export_assets {
+        if let Some(sym_id) = ctx.char_symbols.get(&cid)
+            && let Some(sym) = ctx.symbols.iter_mut().find(|s| &s.id == sym_id)
+            && matches!(sym.kind, SymbolKind::MovieClip | SymbolKind::Button)
+        {
+            sym.linkage_id = Some(linkage.clone());
+        }
+    }
+
     let mut root_timeline =
         build_timeline_from_tags(&mut ctx, &tags, Some(header_frame_count), "root");
 
@@ -513,15 +522,6 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
             ctx.action_script_version = 3;
         } else if ctx.saw_do_action {
             ctx.action_script_version = 2;
-        }
-    }
-
-    for (&cid, linkage) in &ctx.export_assets {
-        if let Some(sym_id) = ctx.char_symbols.get(&cid)
-            && let Some(sym) = ctx.symbols.iter_mut().find(|s| &s.id == sym_id)
-            && matches!(sym.kind, SymbolKind::MovieClip | SymbolKind::Button)
-        {
-            sym.linkage_id = Some(linkage.clone());
         }
     }
 

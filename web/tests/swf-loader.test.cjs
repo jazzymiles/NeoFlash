@@ -1745,3 +1745,458 @@ test('T-451: Loader.load & Loader.loadBytes match Flash Player trace oracles on 
     player.free();
   }
 });
+
+test('T-451 adversarial sandbox: child SWFs isolate Math, Object.registerClass, and Stage setters from host and parent publication', async () => {
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+
+  const origRandom = globalThis.Math.random;
+  const origSin = globalThis.Math.sin;
+  const origAbs = globalThis.Math.abs;
+
+  const baseProject = {
+    format_version: 6,
+    name: 'T-451 Adversarial Sandbox Host',
+    width: 550,
+    height: 400,
+    fps: 24,
+    background: [255, 255, 255, 255],
+    root: 'root',
+    resources: [],
+    symbols: [
+      {
+        id: 'root',
+        name: 'Main',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 1,
+          layers: [{ id: 'l0', name: 'L0', visible: true, locked: false, keyframes: [{ frame: 0, elements: [], label: '', tween: null }] }],
+          scripts: [],
+        },
+      },
+      {
+        id: 'parent-card-sym',
+        name: 'ParentCard',
+        linkage_id: 'SharedLink',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 1,
+          layers: [{ id: 'pl0', name: 'PL0', visible: true, locked: false, keyframes: [{ frame: 0, elements: [], label: '', tween: null }] }],
+          scripts: [],
+        },
+      },
+    ],
+  };
+
+  const functionsMap = new Map();
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(baseProject));
+  const { host } = createRuntimeHost(root, player, [], {
+    project: baseProject,
+    bundle: { project: baseProject },
+    functions: functionsMap,
+  });
+
+  try {
+    const prog = host.program();
+    const Loader = prog.type('flash.display.Loader');
+    const ByteArray = prog.type('flash.utils.ByteArray');
+    const rootClip = host.proxyFor([]);
+    const parentLegacy = host.legacy();
+    const parentStage = host.stage().stage;
+
+    const toBa = buf => {
+      const ba = new ByteArray();
+      for (const b of buf) ba.writeByte(b);
+      return ba;
+    };
+
+    // Register a parent AS2 class on 'SharedLink' before loading any child SWF
+    assert.equal(
+      parentLegacy.registerClass('SharedLink', function ParentSharedCtor() {
+        this.origin = 'parent-intact';
+      }),
+      true,
+    );
+    const preParentInst = rootClip.attachMovie('SharedLink', 'preShared', 1);
+    assert.equal(preParentInst.origin, 'parent-intact', 'baseline parent Object.registerClass works');
+    preParentInst.removeMovieClip();
+
+    const origStageFrameRate = parentStage.frameRate;
+    const origStageScaleMode = parentStage.scaleMode;
+    const origStageAlign = parentStage.align;
+    const origStageQuality = parentStage.quality;
+
+    // --- 1. AVM1 Child SWF: Math isolation + Object.registerClass lifecycle & parent isolation ---
+    const pushStr = str => {
+      const b = Buffer.from(str + '\0', 'utf8');
+      const out = Buffer.alloc(4 + b.length);
+      out[0] = 0x96;
+      out.writeUInt16LE(1 + b.length, 1);
+      out[3] = 0;
+      b.copy(out, 4);
+      return out;
+    };
+    const pushInt = n => {
+      const out = Buffer.alloc(8);
+      out[0] = 0x96;
+      out.writeUInt16LE(5, 1);
+      out[3] = 7;
+      out.writeInt32LE(n | 0, 4);
+      return out;
+    };
+    const pushNull = () => Buffer.from([0x96, 1, 0, 2]);
+    const makeDefFn = (name, bodyBuf) => {
+      const hdr = new BitWriter();
+      hdr.writeCString(name);
+      hdr.writeU16(0); // 0 params
+      hdr.writeU16(bodyBuf.length);
+      const hb = hdr.toBuffer();
+      const op = Buffer.alloc(3 + hb.length + bodyBuf.length);
+      op[0] = 0x9b; // ActionDefineFunction
+      op.writeUInt16LE(hb.length, 1);
+      hb.copy(op, 3);
+      bodyBuf.copy(op, 3 + hb.length);
+      return op;
+    };
+    const appendSeqCode = ch => Buffer.concat([
+      // this.seq = (this.seq ? this.seq : '') + ch
+      pushStr('this'), Buffer.from([0x1c]),
+      pushStr('seq'),
+      pushStr('this'), Buffer.from([0x1c]), pushStr('seq'), Buffer.from([0x4e]),
+      pushStr(ch),
+      Buffer.from([0x47, 0x4f]), // ActionAdd2 (string concat when string) + ActionSetMember
+    ]);
+
+    // DefineSprite(cid = 2) with 1 frame placing Shape 1
+    const spritePayload = Buffer.concat([
+      Buffer.from([2, 0, 1, 0]), // spriteId=2, frameCount=1
+      makePlaceObject2({ depth: 1, charId: 1, txPx: 0, tyPx: 0 }),
+      makeSwfTag(1, Buffer.alloc(0)),
+      makeSwfTag(0, Buffer.alloc(0)),
+    ]);
+    const defineSprite2 = makeSwfTag(39, spritePayload);
+
+    // ExportAssets (tag 56): 1 asset => cid=2, linkage="ChildWidget"
+    const expBw = new BitWriter();
+    expBw.writeU16(1);
+    expBw.writeU16(2);
+    expBw.writeCString('ChildWidget');
+    const exportAssetsTag = makeSwfTag(56, expBw.toBuffer());
+
+    // DoInitAction (tag 59, sprite=2):
+    // - function ChildWidgetCtor() { this.seq = (this.seq || '') + 'R'; this.widgetTag = 'child-ok'; }
+    // - ChildWidgetCtor.prototype.protoBadge = 'proto-77'
+    // - this.regOk = Object.registerClass('ChildWidget', ChildWidgetCtor)
+    // - function EvilHijack() { this.origin = 'hijacked-by-child'; return 999; }
+    // - Object.registerClass('SharedLink', EvilHijack)
+    const childCtorBody = Buffer.concat([
+      appendSeqCode('R'),
+      pushStr('this'), Buffer.from([0x1c]), pushStr('widgetTag'), pushStr('child-ok'), Buffer.from([0x4f]),
+      Buffer.from([0x00]),
+    ]);
+    const evilCtorBody = Buffer.concat([
+      pushStr('this'), Buffer.from([0x1c]), pushStr('origin'), pushStr('hijacked-by-child'), Buffer.from([0x4f]),
+      pushInt(999), Buffer.from([0x3e, 0x00]),
+    ]);
+    const initActions = Buffer.concat([
+      makeDefFn('ChildWidgetCtor', childCtorBody),
+      makeDefFn('EvilHijack', evilCtorBody),
+      // ChildWidgetCtor.prototype.protoBadge = 'proto-77'
+      pushStr('ChildWidgetCtor'), Buffer.from([0x1c]), pushStr('prototype'), Buffer.from([0x4e]),
+      pushStr('protoBadge'), pushStr('proto-77'), Buffer.from([0x4f]),
+      // this.regOk = Object.registerClass('ChildWidget', ChildWidgetCtor)
+      pushStr('regOk'),
+      pushStr('ChildWidgetCtor'), Buffer.from([0x1c]), pushStr('ChildWidget'), pushInt(2),
+      pushStr('Object'), Buffer.from([0x1c]), pushStr('registerClass'), Buffer.from([0x52]),
+      Buffer.from([0x1d]),
+      // Object.registerClass('SharedLink', EvilHijack) (must NOT touch parent!)
+      pushStr('EvilHijack'), Buffer.from([0x1c]), pushStr('SharedLink'), pushInt(2),
+      pushStr('Object'), Buffer.from([0x1c]), pushStr('registerClass'), Buffer.from([0x52, 0x17]),
+      Buffer.from([0x00]),
+    ]);
+    const doInitActionTag = makeSwfTag(59, Buffer.concat([Buffer.from([2, 0]), initActions]));
+
+    // PlaceObject2 at depth 1, charId=2, name="w1", with CLIPACTIONS:
+    // - Initialize (0x00000200): this.seq = 'I'
+    // - Construct  (0x00040000): this.seq += 'C'
+    // - Load       (0x00000001): this.seq += 'L'
+    const initClipAct = Buffer.concat([pushStr('this'), Buffer.from([0x1c]), pushStr('seq'), pushStr('I'), Buffer.from([0x4f, 0x00])]);
+    const constructClipAct = Buffer.concat([appendSeqCode('C'), Buffer.from([0x00])]);
+    const loadClipAct = Buffer.concat([appendSeqCode('L'), Buffer.from([0x00])]);
+    const placeW1Bw = new BitWriter();
+    placeW1Bw.writeU8(0x02 | 0x04 | 0x20 | 0x80); // HasCharacter | HasMatrix | HasName | HasClipActions
+    placeW1Bw.writeU16(1); // depth
+    placeW1Bw.writeU16(2); // charId = 2 (ChildWidget)
+    placeW1Bw.writeTranslateMatrix(200, 200);
+    placeW1Bw.writeCString('w1');
+    placeW1Bw.writeU16(0); // reserved
+    placeW1Bw.writeU32(0x00000200 | 0x00040000 | 0x00000001); // allEventFlags
+    for (const [evMask, actBytes] of [
+      [0x00000200, initClipAct],
+      [0x00040000, constructClipAct],
+      [0x00000001, loadClipAct],
+    ]) {
+      placeW1Bw.writeU32(evMask);
+      placeW1Bw.writeU32(actBytes.length);
+      placeW1Bw.writeBytes(actBytes);
+    }
+    placeW1Bw.writeU32(0); // end of clip action records
+    const placeW1Tag = makeSwfTag(26, placeW1Bw.toBuffer());
+
+    // Root DoAction (tag 12):
+    // - this.mathCheck = Math.abs(-42)
+    // - this.globalMathCheck = _global.Math.round(36 / 10)
+    // - this.mathSinFn = Math.sin
+    // - this.mathCtorProbe = Math.sin.constructor
+    // - Math.random = EvilHijack
+    // - delete Math.sin
+    // - this.afterDelSin = Math.sin
+    // - this.w2 = this.attachMovie('ChildWidget', 'w2', 5)
+    // - this.w3 = attachMovie('ChildWidget', 'w3', 6)
+    // - this.stealParent = this.attachMovie('SharedLink', 'stealParent', 9)
+    // - this.unregShared = Object.registerClass('SharedLink', null)
+    const rootDoAction = makeSwfTag(12, Buffer.concat([
+      // this.mathCheck = Math.abs(-42)
+      pushStr('mathCheck'),
+      pushInt(-42), pushInt(1), pushStr('Math'), Buffer.from([0x1c]), pushStr('abs'), Buffer.from([0x52, 0x1d]),
+      // this.globalMathCheck = _global.Math.round(36 / 10)
+      pushStr('globalMathCheck'),
+      pushInt(36), pushInt(10), Buffer.from([0x0d]), pushInt(1),
+      pushStr('_global'), Buffer.from([0x1c]), pushStr('Math'), Buffer.from([0x4e]), pushStr('round'), Buffer.from([0x52, 0x1d]),
+      // this.mathSinFn = Math.sin
+      pushStr('mathSinFn'), pushStr('Math'), Buffer.from([0x1c]), pushStr('sin'), Buffer.from([0x4e, 0x1d]),
+      // this.mathCtorProbe = Math.sin.constructor
+      pushStr('mathCtorProbe'), pushStr('Math'), Buffer.from([0x1c]), pushStr('sin'), Buffer.from([0x4e]), pushStr('constructor'), Buffer.from([0x4e, 0x1d]),
+      // Math.random = EvilHijack
+      pushStr('Math'), Buffer.from([0x1c]), pushStr('random'), pushStr('EvilHijack'), Buffer.from([0x1c, 0x4f]),
+      // delete Math.sin (0x3A: stack = obj, propName)
+      pushStr('Math'), Buffer.from([0x1c]), pushStr('sin'), Buffer.from([0x3a, 0x17]),
+      // this.afterDelSin = Math.sin
+      pushStr('afterDelSin'), pushStr('Math'), Buffer.from([0x1c]), pushStr('sin'), Buffer.from([0x4e, 0x1d]),
+      // this.w2 = this.attachMovie('ChildWidget', 'w2', 5)
+      pushStr('w2'), pushInt(5), pushStr('w2'), pushStr('ChildWidget'), pushInt(3),
+      pushStr('this'), Buffer.from([0x1c]), pushStr('attachMovie'), Buffer.from([0x52, 0x1d]),
+      // this.w3 = attachMovie('ChildWidget', 'w3', 6)
+      pushStr('w3'), pushInt(6), pushStr('w3'), pushStr('ChildWidget'), pushInt(3),
+      pushStr('attachMovie'), Buffer.from([0x3d, 0x1d]),
+      // this.stealParent = this.attachMovie('SharedLink', 'stealParent', 9)
+      pushStr('stealParent'), pushInt(9), pushStr('stealParent'), pushStr('SharedLink'), pushInt(3),
+      pushStr('this'), Buffer.from([0x1c]), pushStr('attachMovie'), Buffer.from([0x52, 0x1d]),
+      // this.unregShared = Object.registerClass('SharedLink', null)
+      pushStr('unregShared'), pushNull(), pushStr('SharedLink'), pushInt(2),
+      pushStr('Object'), Buffer.from([0x1c]), pushStr('registerClass'), Buffer.from([0x52, 0x1d]),
+      Buffer.from([0x00]),
+    ]));
+
+    const avm1AdvSwf = wrapSwf('FWS', 8, 120, 90, 24, 1, [
+      makeSwfTag(69, Buffer.from([0x00, 0, 0, 0])),
+      makeSolidRectShapeTag(1, 10, 10, 0xcc4422),
+      defineSprite2,
+      exportAssetsTag,
+      doInitActionTag,
+      placeW1Tag,
+      rootDoAction,
+      makeSwfTag(1, Buffer.alloc(0)),
+    ]);
+
+    const lAvm1 = new Loader();
+    lAvm1.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('AVM1 sandbox ioError: ' + e.text); });
+    rootClip.addChild(lAvm1);
+    lAvm1.loadBytes(toBa(avm1AdvSwf));
+    await new Promise(r => setTimeout(r, 25));
+
+    // Verify AVM1 Math isolation & callable hardening
+    assert.equal(lAvm1.content.mathCheck, 42, 'AVM1 Math.abs(-42) works on isolated Math table');
+    assert.equal(lAvm1.content.globalMathCheck, 4, 'AVM1 _global.Math.round(3.6) resolves to isolated Math table');
+    assert.equal(lAvm1.content.mathCtorProbe, undefined, 'AVM1 Math.sin.constructor is blocked');
+    assert.equal(typeof lAvm1.content.mathSinFn, 'function');
+    assert.notEqual(Object.getPrototypeOf(lAvm1.content.mathSinFn), Function.prototype, 'AVM1 Math.sin is detached from Function.prototype');
+    assert.equal(Object.getPrototypeOf(Object.getPrototypeOf(lAvm1.content.mathSinFn)), null, 'AVM1 Math.sin proto chain terminates at null');
+    assert.equal(lAvm1.content.mathSinFn.constructor, undefined, 'AVM1 Math.sin has no constructor');
+    assert.equal(lAvm1.content.afterDelSin, undefined, 'AVM1 delete Math.sin mutates only child Math table');
+    assert.equal(globalThis.Math.random, origRandom, 'host globalThis.Math.random untouched by AVM1 child SWF');
+    assert.equal(globalThis.Math.sin, origSin, 'host globalThis.Math.sin untouched by AVM1 child SWF');
+    assert.equal(globalThis.Math.abs, origAbs, 'host globalThis.Math.abs untouched by AVM1 child SWF');
+    assert.equal(globalThis.Math.sin(0), 0);
+
+    // Verify AVM1 child Object.registerClass execution order & symbol isolation
+    assert.equal(lAvm1.content.regOk, true, 'child Object.registerClass succeeds locally');
+    assert.equal(lAvm1.content.w1.widgetTag, 'child-ok', 'timeline-placed child sprite constructed via registered class');
+    assert.equal(lAvm1.content.w1.protoBadge, 'proto-77', 'timeline-placed child sprite inherits registered prototype');
+    assert.equal(
+      lAvm1.content.w1.seq,
+      'IRCL',
+      'registered class constructor executes between Initialize (I) and Construct (C) and before Load (L)',
+    );
+    assert.equal(lAvm1.content.w2.widgetTag, 'child-ok', 'mc.attachMovie constructs child registered class');
+    assert.equal(lAvm1.content.w2.protoBadge, 'proto-77');
+    assert.equal(lAvm1.content.w3.widgetTag, 'child-ok', 'bare attachMovie() constructs child registered class');
+    assert.equal(lAvm1.content.stealParent, undefined, 'child SWF cannot attachMovie parent linkage symbol');
+
+    // Verify parent Object.registerClass('SharedLink') is completely unpolluted while child is mounted & after unload
+    const midParentInst = rootClip.attachMovie('SharedLink', 'midShared', 2);
+    assert.equal(midParentInst.origin, 'parent-intact', 'parent Object.registerClass untouched while child SWF is mounted');
+    midParentInst.removeMovieClip();
+
+    lAvm1.unloadAndStop(true);
+    rootClip.removeChild(lAvm1);
+    assert.equal(functionsMap.size, 0, 'AVM1 child SWF scripts cleaned up on unloadAndStop');
+
+    const postParentInst = rootClip.attachMovie('SharedLink', 'postShared', 3);
+    assert.equal(postParentInst.origin, 'parent-intact', 'parent Object.registerClass untouched after child SWF unload');
+    postParentInst.removeMovieClip();
+
+    // --- 2. AVM2 Child SWF: Math isolation + Stage (stageProxy) setter isolation ---
+    const buildAdversarialAvm2Swf = () => {
+      const abc = [16, 0, 46, 0];
+      writeU30(abc, 1);
+      writeU30(abc, 1);
+      // doubles: [1] = 100.0
+      writeU30(abc, 2);
+      const db = Buffer.alloc(8);
+      db.writeDoubleLE(100.0, 0);
+      for (const b of db) abc.push(b);
+
+      const strs = [
+        '', '', 'IsoDoc', 'MovieClip', 'Math', 'PI', 'round', 'cos', 'constructor',
+        'random', 'sin', 'stage', 'frameRate', 'scaleMode', 'align', 'quality',
+        'stageWidth', 'stageHeight', 'noBorder', 'TL', 'LOW',
+        'mathVal', 'mathFnCtor', 'localSinAfter', 'localRandAfter', 'stageReadback',
+      ];
+      writeU30(abc, strs.length);
+      for (let i = 1; i < strs.length; i++) {
+        const b = Buffer.from(strs[i], 'utf8');
+        writeU30(abc, b.length);
+        for (const c of b) abc.push(c);
+      }
+      writeU30(abc, 2); abc.push(0x16); writeU30(abc, 1);
+      writeU30(abc, 1);
+      // multinames 1..24 => strs 2..25:
+      // 1:IsoDoc, 2:MovieClip, 3:Math, 4:PI, 5:round, 6:cos, 7:constructor,
+      // 8:random, 9:sin, 10:stage, 11:frameRate, 12:scaleMode, 13:align, 14:quality,
+      // 15:stageWidth, 16:stageHeight, 17:noBorder, 18:TL, 19:LOW,
+      // 20:mathVal, 21:mathFnCtor, 22:localSinAfter, 23:localRandAfter, 24:stageReadback
+      writeU30(abc, 1 + (strs.length - 2));
+      for (let sid = 2; sid < strs.length; sid++) {
+        abc.push(0x07); writeU30(abc, 1); writeU30(abc, sid);
+      }
+
+      // methods: 0=cinit, 1=iinit, 2=fakeRandomFn, 3=script_init
+      writeU30(abc, 4);
+      for (let m = 0; m < 4; m++) {
+        writeU30(abc, 0); writeU30(abc, 0); writeU30(abc, 0); abc.push(0);
+      }
+      writeU30(abc, 0);
+      writeU30(abc, 1);
+      writeU30(abc, 1); writeU30(abc, 2); abc.push(0); writeU30(abc, 0); writeU30(abc, 1); writeU30(abc, 0);
+      writeU30(abc, 0); writeU30(abc, 0);
+      writeU30(abc, 1); writeU30(abc, 3); writeU30(abc, 0);
+
+      // fakeRandomFn (method 2): return 777 (pushshort 777 => 0x25, 0x89, 0x06, returnvalue 0x48)
+      const fakeRandCode = [0x25, 0x89, 0x06, 0x48];
+
+      // iinit (method 1):
+      const iinitCode = [
+        0xd0, 0x30,
+        0xd0, 0x49, 0, // constructsuper(0)
+        // this.mathVal = Math.round(Math.PI * 100.0)
+        0xd0,
+        0x60, 3, // getlex Math
+        0x60, 3, 0x66, 4, // Math.PI
+        0x2f, 1, // pushdouble 100.0
+        0xa2, // multiply
+        0x46, 5, 1, // callproperty round(1)
+        0x61, 20, // setproperty mathVal
+
+        // this.mathFnCtor = Math.cos.constructor
+        0xd0,
+        0x60, 3, 0x66, 6, 0x66, 7,
+        0x61, 21,
+
+        // Math.random = newfunction(2); delete Math.sin;
+        0x60, 3, 0x40, 2, 0x61, 8,
+        0x60, 3, 0x6a, 9, 0x29, // deleteproperty(sin=9), pop
+
+        // this.localSinAfter = Math.sin; this.localRandAfter = Math.random();
+        0xd0, 0x60, 3, 0x66, 9, 0x61, 22,
+        0xd0, 0x60, 3, 0x46, 8, 0, 0x61, 23,
+
+        // Stage mutations on child stageProxy (must NOT mutate parentStage!):
+        // this.stage.frameRate = 120;
+        0xd0, 0x66, 10, 0x24, 120, 0x61, 11,
+        // this.stage.scaleMode = 'noBorder' (str 18);
+        0xd0, 0x66, 10, 0x2c, 18, 0x61, 12,
+        // this.stage.align = 'TL' (str 19);
+        0xd0, 0x66, 10, 0x2c, 19, 0x61, 13,
+        // this.stage.quality = 'LOW' (str 20);
+        0xd0, 0x66, 10, 0x2c, 20, 0x61, 14,
+
+        // this.stageReadback = [this.stage.frameRate, this.stage.scaleMode, this.stage.align, this.stage.quality, this.stage.stageWidth, this.stage.stageHeight]
+        0xd0,
+        0xd0, 0x66, 10, 0x66, 11,
+        0xd0, 0x66, 10, 0x66, 12,
+        0xd0, 0x66, 10, 0x66, 13,
+        0xd0, 0x66, 10, 0x66, 14,
+        0xd0, 0x66, 10, 0x66, 15,
+        0xd0, 0x66, 10, 0x66, 16,
+        0x56, 6, // newarray(6)
+        0x61, 24, // setproperty stageReadback
+
+        0x47,
+      ];
+
+      writeU30(abc, 2);
+      for (const [mid, code] of [[1, iinitCode], [2, fakeRandCode]]) {
+        writeU30(abc, mid); writeU30(abc, 10); writeU30(abc, 4); writeU30(abc, 0); writeU30(abc, 4);
+        writeU30(abc, code.length);
+        for (const b of code) abc.push(b);
+        writeU30(abc, 0); writeU30(abc, 0);
+      }
+
+      const doAbc2 = makeSwfTag(82, Buffer.concat([Buffer.from([1, 0, 0, 0, ...Buffer.from('iso\0', 'utf8')]), Buffer.from(abc)]));
+      const sym = new BitWriter();
+      sym.writeU16(1); sym.writeU16(0); sym.writeCString('IsoDoc');
+      return wrapSwf('FWS', 13, 140, 100, 30, 1, [
+        makeSwfTag(69, Buffer.from([0x08, 0, 0, 0])),
+        doAbc2,
+        makeSwfTag(76, sym.toBuffer()),
+        makeSwfTag(1, Buffer.alloc(0)),
+      ]);
+    };
+
+    const lAvm2 = new Loader();
+    lAvm2.contentLoaderInfo.addEventListener('ioError', e => { throw new Error('AVM2 sandbox ioError: ' + e.text); });
+    rootClip.addChild(lAvm2);
+    lAvm2.loadBytes(toBa(buildAdversarialAvm2Swf()));
+    await new Promise(r => setTimeout(r, 25));
+
+    assert.equal(lAvm2.content.mathVal, 314, 'AVM2 Math.round(Math.PI * 100) works on isolated Math table');
+    assert.equal(lAvm2.content.mathFnCtor, undefined, 'AVM2 Math.cos.constructor is blocked');
+    assert.equal(lAvm2.content.localSinAfter, undefined, 'AVM2 delete Math.sin mutates only child Math table');
+    assert.equal(lAvm2.content.localRandAfter, 777, 'AVM2 Math.random override stays local to child SWF');
+    assert.equal(globalThis.Math.random, origRandom, 'host globalThis.Math.random untouched by AVM2 child SWF');
+    assert.equal(globalThis.Math.sin, origSin, 'host globalThis.Math.sin untouched by AVM2 child SWF');
+
+    assert.deepEqual(
+      Array.from(lAvm2.content.stageReadback),
+      [120, 'noBorder', 'TL', 'LOW', 550, 400],
+      'child AVM2 stageProxy stores local stage overrides while reading parent stage dimensions',
+    );
+    assert.equal(parentStage.frameRate, origStageFrameRate, 'parent Stage.frameRate untouched by child SWF');
+    assert.equal(parentStage.scaleMode, origStageScaleMode, 'parent Stage.scaleMode untouched by child SWF');
+    assert.equal(parentStage.align, origStageAlign, 'parent Stage.align untouched by child SWF');
+    assert.equal(parentStage.quality, origStageQuality, 'parent Stage.quality untouched by child SWF');
+
+    lAvm2.unloadAndStop(true);
+    rootClip.removeChild(lAvm2);
+    assert.equal(functionsMap.size, 0, 'AVM2 child SWF scripts cleaned up on unloadAndStop');
+    assert.equal(globalThis.Math.random, origRandom);
+    assert.equal(globalThis.Math.sin, origSin);
+  } finally {
+    globalThis.Math.random = origRandom;
+    globalThis.Math.sin = origSin;
+    globalThis.Math.abs = origAbs;
+    host.disposeFamily();
+    player.free();
+  }
+});
