@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Timeline script indicators remain visible above keys and beneath the playhead at Normal, Short and Compact row heights.
+- Switching categories in Preferences shows the first setting on the newly selected page, even after scrolling the previous page.
+- In Color, use the keyboard to select, move, add or delete gradient stops. Actions preserves the script when focus enters the editor. History rows, script pins and shortcut assignments show keyboard focus, and panel scrolling reveals the focused control.
+
 - CS4 motion objects with supported 2D tracks reopen as editable frame poses in binary FLA and XFL. Binary FLA imports preserve font-library metadata, keep unscaled JPEGs in their original encoding, and can retain the complete source as a lossless gzip archive when raw bytes exceed the project budget. Projects that fit as compact JSON keep their media and source.
 - SWF export preserves post-test loops, bitwise compound assignments and side effects on indexed properties for both VM targets. Compatible gradient shape tweens keep editable endpoints. Static SWF and XFL gradients keep their spread and interpolation in interchange and raster output. SWF import respects Flash’s draw order for out-of-order color stops.
 - SWF preview handles button drag-out and release-outside transitions and resolves class-linked sound events. SWF playback preserves Flash integer wraparound and comparisons involving NaN.

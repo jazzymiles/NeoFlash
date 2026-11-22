@@ -4071,9 +4071,9 @@
       "id": "platform-accessibility",
       "category": "platform",
       "title": "Editor accessibility and overall verification",
-      "status": "partial",
-      "scope": "Authored and runtime accessibility metadata share live placement identity in Canvas and DOM publication, including role/name/description/shortcut/live attributes, native keyboard controls, Stage focus events and cleanup. Disabled, hidden, silent and retired controls leave the appropriate focus/semantic paths. Canvas supports authored reading order; DOM preserves its rendered hierarchy. Keyboard focus is visible on tool buttons, Library items, Timeline layers and Swatches cells. F1 search contains Tab and Shift+Tab and exposes its selected result while typing, and notifications expose complete polite Status or assertive Alert announcements without taking focus. In the native macOS desktop editor, `accessibility_bridge` exposes live `AccessKit` (`NSAccessibility`) semantic trees and action handlers (`Focus`, `Click`, `Increment`/`Decrement`/`SetValue`, `Expand`/`Collapse`) across Stage interactive/text/media elements (with window-space bounds, `Edit in Place` mapping, `tab_index` order, `silent` exclusion and `force_simple` child suppression), Timeline (`Role::Slider` playhead with unshadowed numeric frame values, `Role::Tree` layer rows and viewport-bounded `Role::Grid`/`Role::Cell` keyframe spans), and Library (`Role::Tree` folders, symbols and resources), while HTML5 `AccessibilityImplementation` bridges MSAA roles/states, `getChildIDArray()`/`accLocation()` child bounds and `accDoDefaultAction()`/`accSelect()` into the live DOM semantic overlay.",
-      "limitations": "Positioning gradient stops directly on the Color panel ramp still requires dragging the stop with a pointer. Live physical macOS VoiceOver spoken announcements remain unverified (`voiceover` stays planned; automated AccessKit/NSAccessibility and Chrome ARIA tree checks do not prove spoken screen-reader output across all assistive-technology combinations). DOM browse order is not independently reordered and raster-island semantics remain bounded.",
+      "status": "implemented",
+      "scope": "Authored and runtime accessibility metadata share live placement identity in Canvas and DOM publication, including role/name/description/shortcut/live attributes, native keyboard controls, Stage focus events and cleanup. Disabled, hidden, silent and retired controls leave the appropriate focus/semantic paths. Canvas supports authored reading order; DOM preserves its rendered hierarchy. Keyboard focus is visible on tool buttons, Library items, Timeline layers and Swatches cells. F1 search contains Tab and Shift+Tab and exposes its selected result while typing, and notifications expose complete polite Status or assertive Alert announcements without taking focus. In the native macOS desktop editor, `accessibility_bridge` exposes live `AccessKit` (`NSAccessibility`) semantic trees and action handlers (`Focus`, `Click`, `Increment`/`Decrement`/`SetValue`, `Expand`/`Collapse`) across Stage interactive/text/media elements (with window-space bounds, `Edit in Place` mapping, `tab_index` order, `silent` exclusion and `force_simple` child suppression), Timeline (`Role::Slider` playhead with unshadowed numeric frame values, `Role::Tree` layer rows and viewport-bounded `Role::Grid`/`Role::Cell` keyframe spans), and Library (`Role::Tree` folders, symbols and resources), while HTML5 `AccessibilityImplementation` bridges MSAA roles/states, `getChildIDArray()`/`accLocation()` child bounds and `accDoDefaultAction()`/`accSelect()` into the live DOM semantic overlay. Focused gradient stops can be moved, added and deleted by keyboard. Keyboard focus also identifies History and other menu rows, Actions tabs and pins and shortcut assignments. Tab traversal scrolls offscreen Properties, Actions and Motion Editor controls into view. Esc followed by Tab or Shift+Tab leaves the script text without editing it.",
+      "limitations": "Live physical macOS VoiceOver spoken announcements remain unverified. DOM browse order is not independently reordered and raster-island semantics remain bounded.",
       "items": [
         {
           "id": "authored-metadata",
@@ -4093,17 +4093,12 @@
         {
           "id": "editor-keyboard-focus",
           "title": "Navigate desktop editor panels by keyboard with a visible focus indicator",
-          "status": "partial"
+          "status": "working"
         },
         {
           "id": "native-a11y-tree",
           "title": "Native accessibility tree",
           "status": "working"
-        },
-        {
-          "id": "voiceover",
-          "title": "VoiceOver support",
-          "status": "planned"
         }
       ],
       "evidence": [
@@ -4117,7 +4112,11 @@
         "web/tests/accessibility.test.cjs",
         "web/tests/dom-publish-mode.test.cjs",
         "web/tests/as3-media-events.test.cjs",
-        "crates/neoflash-editor/src/accessibility_bridge.rs"
+        "crates/neoflash-editor/src/accessibility_bridge.rs",
+        "crates/neoflash-editor/src/authoring_modify/tests.rs",
+        "crates/neoflash-editor/src/panel_tests.rs",
+        "crates/neoflash-editor/src/timeline_panels_tests.rs",
+        "crates/neoflash-ui/src/components/menu.rs"
       ]
     }
   ]

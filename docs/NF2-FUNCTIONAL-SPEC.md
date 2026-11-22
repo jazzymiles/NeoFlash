@@ -246,12 +246,9 @@ their `Grab` cursor feedback (`T-365`).
 - Acceptance: select-all + move shifts objects on all keyframes in range with one Undo; off restores normal view.
 
 **TL-09 · Frame view ▸ Compact / Short rows** — `timeline_frame_view_menu` · done
-- Done: `TimelineView.compact_rows` (`14 pt`, `TimelineView::LAYER_ROW_COMPACT`) and `TimelineView.short_rows` (`18 pt`, `metrics::LAYER_ROW_SHORT`), also selectable in `Preferences ▸ Timeline ▸ Row: Compact / Short / Normal` and `Layer properties ▸ Layer height: Compact / Short / 100 % / 200 %`; row height is passed to painters and hit tests.
-- Purpose: 14 pt (`Compact`) and 18 pt (`Short`) layer rows.
-- Behaviour: checked menu item; layer list, grid, hit testing and drag targets all use the compact/short height.
-- Data: workspace pref. `timeline_paint::ROW_HEIGHT` is a constant today → must become per-view.
-- Depends on: UI-only (editor).
-- Acceptance: rows 14 pt / 18 pt; clicking/dragging frames and layers hits the right row; preference persists.
+- Preferences ▸ Timeline, the Frame view menu and individual layer properties use the v3 row heights of 24 pt (Normal), 20 pt (Short) and 18 pt (Compact).
+- The layer list, grid, frame hits and drag targets share the effective row height. The script indicator sits above its key and remains visible under the playhead in all three heights.
+- The row-height preference persists with the workspace.
 
 **TL-10 · Frame view ▸ Preview** — `timeline_frame_view_menu` · done
 - Done (2026-11-01): Preview and Preview in context (checked rows, saved in `TimelineView.preview`) switch rows to `metrics::LAYER_ROW_PREVIEW` (44) and paint a ≤ 62 × 38 thumbnail after each span's keyframe cell with the stage painter: the layer's own content, or the whole stage on the document background. Evaluated scenes are cached per (symbol, layer, keyframe, `History::revision`), only for visible spans, at most 12 new per repaint (`timeline_preview.rs`).
@@ -492,7 +489,7 @@ actions are tracked separately.
   Show. Every notification also enters its originating document's Output; Show exposes its diagnostic in the active
   document's Output after a tab switch. History lasts for the editor session, not a persistent disk log.
 - Remaining: ordinary Open/import/export and successful Save retain existing status/Output or dialog feedback.
-  General export-success/failed-Open toast routing and VoiceOver speech acceptance remain open. Progress/Spinner
+  General export-success/failed-Open toast routing remains open. Progress/Spinner
   are used by their connected operations, not a replacement for every long-running workflow.
 - Data/API: editor-only `notifications.rs` queue and `Editor::notify`; shared `Toast`, `progress`, `spinner`.
 - Acceptance: notification families cover queue limits, coalescing, modal delay, hover/expiry, canvas bounds,
@@ -760,6 +757,8 @@ their own layout.
   automatic placement without a pointer remains fitted to the page.
 
 ## 7. Actions and code editor (`panels/actions.rs` `CODE_TOOLS`, `sources.rs`)
+
+Tab navigation into the code editor preserves the source. While editing, Tab indents. Esc followed by Tab or Shift+Tab moves focus forward or backward out of the text area.
 
 Status: AC-02, AC-04, AC-05 and AC-06 work, AC-01 re-indents only, bounded AC-07 statement insertion works (details in [NF2-ACTIONS-EDITOR.md](NF2-ACTIONS-EDITOR.md)), AC-03 connects to the docked `Debugger` (`PanelId::Debugger`), and AC-08 is partial.
 
