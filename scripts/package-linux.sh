@@ -32,11 +32,13 @@ source_output="$project_root/dist/NeoFlash-${version}-portable-media-correspondi
 checksum_file="$project_root/dist/NeoFlash-${version}-linux-x64-SHA256SUMS.txt"
 media_root="${NEOFLASH_LINUX_MEDIA_ROOT:-$project_root/target/bundled-media/linux-x64}"
 media_source_archive="${NEOFLASH_LINUX_MEDIA_SOURCE_ARCHIVE:-$project_root/target/bundled-media/NeoFlash-${version}-portable-media-corresponding-source.tar.xz}"
+deb_path=""
 package_complete=0
 
 cleanup_incomplete() {
   if [ "$package_complete" -eq 0 ]; then
     rm -f "$archive_path" "$source_output" "$checksum_file"
+    if [ -n "$deb_path" ]; then rm -f "$deb_path"; fi
   fi
 }
 trap cleanup_incomplete EXIT
@@ -79,6 +81,9 @@ python3 "$project_root/scripts/package-portable.py" all \
   --source-output "$source_output" \
   --checksum-file "$checksum_file"
 
+deb_path="$(./scripts/package-linux-deb.sh "$stage_dir" "$project_root/dist")"
+(cd "$project_root/dist" && sha256sum "$(basename "$deb_path")") >> "$checksum_file"
+
 package_complete=1
 trap - EXIT
-printf '%s\n' "$archive_path"
+printf '%s\n' "$deb_path" "$archive_path"

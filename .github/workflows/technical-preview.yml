@@ -236,7 +236,7 @@ jobs:
             target/technical-preview/ffprobe.txt
 
   linux-x64:
-    name: Ubuntu 24.04 x64 portable preview
+    name: Ubuntu 24.04 x64 installed and portable previews
     needs: portable-media
     runs-on: ubuntu-24.04
     timeout-minutes: 240
@@ -267,12 +267,13 @@ jobs:
             libasound2-dev libegl1-mesa-dev libfontconfig1-dev libfreetype6-dev \
             libgl1-mesa-dev libgl1-mesa-dri libudev-dev libwayland-dev libx11-xcb-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
-            libxkbcommon-x11-dev mesa-vulkan-drivers pkg-config weston xauth xvfb
+            libxkbcommon-x11-dev mesa-vulkan-drivers pkg-config weston xauth xvfb \
+            dpkg-dev desktop-file-utils shared-mime-info xdg-utils libglib2.0-bin
       - name: Install pinned Rust
         run: |
           rustup toolchain install 1.99.1 --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
           rustup default 1.99.1
-      - name: Build the fail-closed portable tarball
+      - name: Build the portable archive and Debian installer
         run: ./scripts/package-linux.sh release
       - name: Verify external and internal hashes in a clean directory
         run: |
@@ -287,6 +288,15 @@ jobs:
           (cd "$root" && find . -type f ! -name PACKAGE-SHA256SUMS.txt -printf '%P\n' | LC_ALL=C sort > "$RUNNER_TEMP/actual-files.txt")
           diff -u "$RUNNER_TEMP/expected-files.txt" "$RUNNER_TEMP/actual-files.txt"
           cp -R "$root" target/technical-preview/linux-unpacked
+      - name: Install the Debian package and verify desktop integration
+        run: |
+          sudo apt-get install --yes ./dist/neoflash_*_amd64.deb
+          test "$(command -v neoflash)" = /usr/bin/neoflash
+          test "$(readlink -f /usr/bin/neoflash)" = /usr/lib/neoflash/neoflash-editor
+          dpkg -V neoflash
+          (cd /usr/lib/neoflash && sha256sum --quiet -c PACKAGE-SHA256SUMS.txt)
+          desktop-file-validate /usr/share/applications/neoflash.desktop
+          test "$(XDG_CURRENT_DESKTOP=GNOME xdg-mime query filetype examples/timeline-tweens.nflash)" = application/x-neoflash-project
       - name: Audit packaged Linux dependency closure
         run: |
           root="$PWD/target/technical-preview/linux-unpacked"
@@ -324,7 +334,7 @@ jobs:
             NEOFLASH_WINDOW=1280x800 \
             NEOFLASH_SCREENSHOT_THEME=dark \
             NEOFLASH_SCREENSHOT="$PWD/target/technical-preview/linux-x11-vulkan.png" \
-            xvfb-run --auto-servernum target/technical-preview/linux-unpacked/neoflash-editor
+            xvfb-run --auto-servernum neoflash examples/timeline-tweens.nflash
           test -s target/technical-preview/linux-x11-vulkan.png
       - name: Capture Wayland GLES headless startup
         run: |
@@ -346,6 +356,14 @@ jobs:
             NEOFLASH_SCREENSHOT="$PWD/target/technical-preview/linux-wayland-gles.png" \
             target/technical-preview/linux-unpacked/neoflash-editor
           test -s target/technical-preview/linux-wayland-gles.png
+      - name: Remove the Debian package and keep the user project
+        run: |
+          cp examples/timeline-tweens.nflash "$HOME/installer-smoke.nflash"
+          sudo apt-get remove --yes neoflash
+          test ! -e /usr/bin/neoflash
+          test ! -e /usr/lib/neoflash
+          test ! -e /usr/share/applications/neoflash.desktop
+          cmp examples/timeline-tweens.nflash "$HOME/installer-smoke.nflash"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: NeoFlash-0.1.0-beta.1-linux-x64-preview-ubuntu24.04
@@ -354,6 +372,7 @@ jobs:
           if-no-files-found: error
           path: |
             dist/NeoFlash-0.1.0-beta.1-linux-x64-preview.tar.gz
+            dist/neoflash_*_amd64.deb
             dist/NeoFlash-0.1.0-beta.1-linux-x64-SHA256SUMS.txt
             target/technical-preview/linux-x11-vulkan.png
             target/technical-preview/linux-wayland-gles.png

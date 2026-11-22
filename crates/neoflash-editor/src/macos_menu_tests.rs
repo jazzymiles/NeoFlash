@@ -811,7 +811,7 @@ fn t311_zero_document_queued_commands_shortcuts_and_function_search_execute_clea
     // commands are ignored rather than panicking or mutating state.
     crate::commands::queue_command(&ctx, CommandId::WindowOutput);
     crate::commands::queue_command(&ctx, CommandId::EditSelectAll);
-    if crate::panels::beta_feedback::is_beta_build() {
+    if crate::panels::beta_feedback::beta_feedback_available() {
         crate::commands::queue_command(&ctx, CommandId::HelpSendBetaFeedback);
     }
     let _ = ctx.run(egui::RawInput::default(), |ctx| {
@@ -821,7 +821,7 @@ fn t311_zero_document_queued_commands_shortcuts_and_function_search_execute_clea
         editor.workspace.is_panel_active(PanelId::Output),
         "queued WindowOutput must execute even when 0 documents are open"
     );
-    if crate::panels::beta_feedback::is_beta_build() {
+    if crate::panels::beta_feedback::beta_feedback_available() {
         assert!(
             editor.beta_feedback.open,
             "queued HelpSendBetaFeedback must open Beta feedback with 0 documents open"

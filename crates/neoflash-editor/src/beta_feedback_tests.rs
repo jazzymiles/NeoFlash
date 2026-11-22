@@ -4,7 +4,7 @@
 
 use crate::{
     app::{Editor, Tool},
-    panels::beta_feedback::{is_beta_build, set_beta_build_for_test},
+    panels::beta_feedback::{beta_feedback_available, set_feedback_available_for_test},
     tests::primary_button,
     workspace::StageToolbarMode,
 };
@@ -21,18 +21,18 @@ use std::{
     time::{Duration, Instant},
 };
 
-struct BetaFlagGuard;
+pub(super) struct BetaFlagGuard;
 
 impl BetaFlagGuard {
-    fn set(val: Option<bool>) -> Self {
-        set_beta_build_for_test(val);
+    pub(crate) fn set(val: Option<bool>) -> Self {
+        set_feedback_available_for_test(val);
         Self
     }
 }
 
 impl Drop for BetaFlagGuard {
     fn drop(&mut self) {
-        set_beta_build_for_test(None);
+        set_feedback_available_for_test(None);
     }
 }
 
@@ -277,12 +277,7 @@ fn spawn_loopback_feedback_server(
 
 #[test]
 fn bug_chip_beta_visibility_ruler_offset_editbar_and_focus_on_click() {
-    let _guard = BetaFlagGuard::set(None);
-    assert!(
-        is_beta_build(),
-        "0.1.0-beta.1 workspace version must enable beta feedback chip"
-    );
-
+    let _guard = BetaFlagGuard::set(Some(true));
     let ctx = egui::Context::default();
     let mut editor = Editor::from_project(&ctx, Project::blank());
     let mut t = 0.0;
@@ -331,7 +326,7 @@ fn bug_chip_beta_visibility_ruler_offset_editbar_and_focus_on_click() {
     );
 
     // Release build override hides the chip completely.
-    set_beta_build_for_test(Some(false));
+    set_feedback_available_for_test(Some(false));
     t += 0.02;
     let out_release = run_editor_frame(&mut editor, &ctx, t, Vec::new(), Vec::new());
     assert!(
@@ -340,7 +335,7 @@ fn bug_chip_beta_visibility_ruler_offset_editbar_and_focus_on_click() {
     );
 
     // Restore beta build and click `Bug?`: opens dialog and immediately focuses the TextArea.
-    set_beta_build_for_test(Some(true));
+    set_feedback_available_for_test(Some(true));
     editor.workspace.stage_toolbar = StageToolbarMode::Expanded;
     t += 0.02;
     let out_beta = run_editor_frame(&mut editor, &ctx, t, Vec::new(), Vec::new());
@@ -941,7 +936,8 @@ fn t311_closing_modal_during_in_flight_send_completes_cleanly_and_help_command_i
     }
 
     {
-        let _guard = BetaFlagGuard::set(Some(false));
+        let _guard = BetaFlagGuard::set(None);
+        assert!(!beta_feedback_available());
         assert!(
             !editor
                 .command_menu_state(Some(&ctx), crate::commands::CommandId::HelpSendBetaFeedback)

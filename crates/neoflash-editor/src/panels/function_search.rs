@@ -119,7 +119,7 @@ pub(crate) fn results_for_context(
                 return false;
             }
             if matches!(command, CommandId::HelpSendBetaFeedback)
-                && !crate::panels::beta_feedback::is_beta_build()
+                && !crate::panels::beta_feedback::beta_feedback_available()
             {
                 return false;
             }
@@ -163,7 +163,7 @@ pub(crate) fn results_for_editor(
             }
             if has_doc {
                 if matches!(command, CommandId::HelpSendBetaFeedback) {
-                    crate::panels::beta_feedback::is_beta_build()
+                    crate::panels::beta_feedback::beta_feedback_available()
                 } else {
                     true
                 }

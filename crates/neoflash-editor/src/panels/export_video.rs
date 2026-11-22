@@ -1634,6 +1634,7 @@ mod tests {
     /// rectangle in each of its states, in all three densities.
     #[test]
     fn e7b_dialogs_keep_one_outer_rect_in_every_state_and_density() {
+        let _feedback = crate::beta_feedback_tests::BetaFlagGuard::set(Some(true));
         use crate::panels::{
             ai_dialogs, beta_feedback, export_audio, export_image, export_lottie, import_video,
         };

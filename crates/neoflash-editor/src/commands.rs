@@ -2947,7 +2947,7 @@ pub fn export_shortcuts_html(prefs: &ShortcutPrefs) -> String {
                 continue;
             }
             if matches!(cmd, CommandId::HelpSendBetaFeedback)
-                && !crate::panels::beta_feedback::is_beta_build()
+                && !crate::panels::beta_feedback::beta_feedback_available()
             {
                 continue;
             }
@@ -3182,7 +3182,9 @@ impl Editor {
             | CommandId::HelpOpenExample
             | CommandId::HelpCheckForUpdates
             | CommandId::HelpAbout => true,
-            CommandId::HelpSendBetaFeedback => crate::panels::beta_feedback::is_beta_build(),
+            CommandId::HelpSendBetaFeedback => {
+                crate::panels::beta_feedback::beta_feedback_available()
+            }
             _ if standalone_as => match cmd {
                 CommandId::FileClose
                 | CommandId::FileSave
@@ -3902,7 +3904,7 @@ impl Editor {
                 self.updater.start_check(channel, ctx);
             }
             CommandId::HelpSendBetaFeedback => {
-                if crate::panels::beta_feedback::is_beta_build() {
+                if crate::panels::beta_feedback::beta_feedback_available() {
                     self.open_beta_feedback();
                 } else {
                     return false;

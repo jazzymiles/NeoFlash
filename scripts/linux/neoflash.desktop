@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=NeoFlash
+Comment=Author vector animations and interactive HTML5 content
+Exec=neoflash %F
+Icon=neoflash
+Terminal=false
+Categories=Graphics;2DGraphics;
+MimeType=application/x-neoflash-project;

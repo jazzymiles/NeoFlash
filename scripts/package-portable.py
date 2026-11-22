@@ -746,10 +746,11 @@ beside this ZIP; users do not need to search for licenses themselves.
         run_guide = f"""NeoFlash {args.version} — Linux x64 Technical Preview
 ==========================================================
 
-Run ./neoflash-editor from this directory. The executable bit is preserved by
-the tar.gz archive. This preview is built and tested on Ubuntu 24.04 x64 with
-X11 and Wayland, using Vulkan first and GLES as the fallback. It is not an
-AppImage or a deb package.
+On Ubuntu 24.04 x64 install the .deb with sudo apt install ./neoflash_*.deb,
+then open NeoFlash from the applications menu or run neoflash. To uninstall,
+run sudo apt remove neoflash. With the portable tar.gz, extract it and run
+./neoflash-editor from this directory. Both packages support X11 and Wayland,
+using Vulkan first and GLES as the fallback.
 
 The editor uses normal system runtime libraries, including glibc, the desktop
 X11/Wayland stack and ALSA. Bundled FFmpeg/FFprobe use the BtbN
@@ -758,7 +759,7 @@ runtime; the package does not claim fully static Linux executables.
 
 All application and media license texts are already included. The complete
 media corresponding-source archive and {args.checksum_file.name} are supplied
-beside this tarball; users do not need to search for licenses themselves.
+beside these packages; users do not need to search for licenses themselves.
 """
     (args.stage_dir / "README.txt").write_text(
         run_guide, encoding="utf-8", newline="\n"

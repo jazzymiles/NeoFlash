@@ -53,23 +53,22 @@ const LIMIT_TOOLTIP: &str = "At most 5 images can be attached";
 
 #[cfg(test)]
 thread_local! {
-    static BETA_BUILD_OVERRIDE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    static FEEDBACK_AVAILABLE_OVERRIDE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }
 
-/// Override [`is_beta_build`] on the current test thread (`None` restores package-version detection).
+/// Override [`beta_feedback_available`] on the current test thread (`None` restores the shipping configuration).
 #[cfg(test)]
-pub(crate) fn set_beta_build_for_test(value: Option<bool>) {
-    BETA_BUILD_OVERRIDE.with(|cell| cell.set(value));
+pub(crate) fn set_feedback_available_for_test(value: Option<bool>) {
+    FEEDBACK_AVAILABLE_OVERRIDE.with(|cell| cell.set(value));
 }
 
-/// Returns `true` when running a beta build (`CARGO_PKG_VERSION` contains `"beta"`).
-/// Release builds return `false` and hide the `Bug?` Stage chip (`R-103` item 1).
-pub(crate) fn is_beta_build() -> bool {
+/// Feedback entry points stay disabled until the delivery endpoint is verified.
+pub(crate) fn beta_feedback_available() -> bool {
     #[cfg(test)]
-    if let Some(override_val) = BETA_BUILD_OVERRIDE.with(|cell| cell.get()) {
+    if let Some(override_val) = FEEDBACK_AVAILABLE_OVERRIDE.with(|cell| cell.get()) {
         return override_val;
     }
-    env!("CARGO_PKG_VERSION").contains("beta")
+    false
 }
 
 /// Session-scoped state for `"Beta feedback"`.
@@ -322,6 +321,9 @@ pub(crate) fn chip_rect_temp_id() -> egui::Id {
 impl Editor {
     /// Open `"Beta feedback"` and focus its `TextArea` (`R-103` item 2).
     pub(crate) fn open_beta_feedback(&mut self) {
+        if !beta_feedback_available() {
+            return;
+        }
         self.finish_edits();
         self.beta_feedback.open = true;
         self.beta_feedback.focus_text_on_open = true;
@@ -344,7 +346,7 @@ impl Editor {
     /// canvas drags just like the floating Stage toolbar.
     pub(crate) fn beta_feedback_stage_chip(&mut self, ctx: &egui::Context, canvas: Rect) {
         let rect_id = chip_rect_temp_id();
-        if !is_beta_build() || canvas.width() < 420.0 || canvas.height() < 160.0 {
+        if !beta_feedback_available() || canvas.width() < 420.0 || canvas.height() < 160.0 {
             ctx.data_mut(|d| d.remove::<Rect>(rect_id));
             return;
         }

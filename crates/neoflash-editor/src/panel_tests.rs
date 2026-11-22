@@ -13140,6 +13140,7 @@ fn t319_focus_isolation_across_panels_blocks_all_tool_timeline_and_stage_shortcu
 
     // 11. Beta feedback modal ("Beta feedback" TextArea)
     d.editor.select_single_id(rect_id);
+    let _feedback = crate::beta_feedback_tests::BetaFlagGuard::set(Some(true));
     d.editor.open_beta_feedback();
     d.settle();
     assert_isolated(&mut d, "Beta feedback TextArea", true);
@@ -13628,6 +13629,7 @@ fn t319_two_step_escape_across_modals_popups_and_tracked_rgba_popovers() {
     ));
 
     // 8. Beta feedback (`R-103`): open popup -> 1st Esc closes popup keeping modal open, 2nd Esc closes modal preserving draft.
+    let _feedback = crate::beta_feedback_tests::BetaFlagGuard::set(Some(true));
     d.editor.open_beta_feedback();
     d.editor.beta_feedback.text = "Draft preserved across two-step Escape".to_owned();
     d.settle();

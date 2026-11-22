@@ -1641,7 +1641,7 @@ fn prefs_shortcuts(ui: &mut Ui, area: PageArea, draft: &mut PreferencesDraft) {
             continue;
         }
         if matches!(cmd, crate::commands::CommandId::HelpSendBetaFeedback)
-            && !crate::panels::beta_feedback::is_beta_build()
+            && !crate::panels::beta_feedback::beta_feedback_available()
         {
             continue;
         }
@@ -1720,7 +1720,7 @@ fn prefs_shortcuts(ui: &mut Ui, area: PageArea, draft: &mut PreferencesDraft) {
                 return false;
             }
             if matches!(cmd, crate::commands::CommandId::HelpSendBetaFeedback)
-                && !crate::panels::beta_feedback::is_beta_build()
+                && !crate::panels::beta_feedback::beta_feedback_available()
             {
                 return false;
             }
@@ -1793,7 +1793,7 @@ fn prefs_shortcuts(ui: &mut Ui, area: PageArea, draft: &mut PreferencesDraft) {
                             && (!matches!(cmd, crate::commands::CommandId::EditSendToAi)
                                 || draft.has_ready_ai)
                             && (!matches!(cmd, crate::commands::CommandId::HelpSendBetaFeedback)
-                                || crate::panels::beta_feedback::is_beta_build())
+                                || crate::panels::beta_feedback::beta_feedback_available())
                     })
                     .collect();
                 let total = all_in_cat.len();

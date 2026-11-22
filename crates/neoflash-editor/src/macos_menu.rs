@@ -2343,7 +2343,7 @@ impl NativeMenuSpec {
             NativeMenuItemSpec::Separator,
             cmd_item(editor, ctx, CommandId::HelpCheckForUpdates),
         ];
-        if crate::panels::beta_feedback::is_beta_build() {
+        if crate::panels::beta_feedback::beta_feedback_available() {
             items.push(cmd_item(editor, ctx, CommandId::HelpSendBetaFeedback));
         }
         items.push(NativeMenuItemSpec::Separator);
