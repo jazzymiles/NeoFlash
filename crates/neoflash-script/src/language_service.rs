@@ -1366,21 +1366,23 @@ mod tests {
             language: ScriptLanguage::ActionScript3,
             source: source.into(),
         };
-        let source = "import flash.net.Socket; var connection:Socket = new Socket(); connection.connect('localhost',80);";
+        let source = "import flash.display.Loader; import flash.net.URLRequest; var loader:Loader = new Loader(); loader.load(new URLRequest('clip.swf'));";
         let diagnostics = partial_api_uses(&script(source));
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].owner, "flash.net.Socket");
+        assert_eq!(diagnostics[0].owner, "flash.display.Loader");
         assert_eq!(
             &source[diagnostics[0].span.0..diagnostics[0].span.1],
-            "connect"
+            "load"
         );
-        assert!(diagnostics[0].limitation.contains("TCP"));
+        assert!(diagnostics[0].limitation.contains("SWF"));
         for source in [
-            "var connection:Object; connection.connect();",
-            "import flash.net.Socket; function f(connection:Object):void { connection.connect(); }",
-            "import flash.net.Socket; class Socket { public function connect():void {} } var connection:Socket; connection.connect();",
-            "import flash.net.Socket; var connection:Socket; trace('connection.connect()');",
-            "import flash.net.Socket; var connection:Socket; var pattern:RegExp=/connection.connect/;",
+            "var loader:Object; loader.load();",
+            "import flash.display.Loader; function f(loader:Object):void { loader.load(); }",
+            "import flash.display.Loader; class Loader { public function load():void {} } var loader:Loader; loader.load();",
+            "import flash.display.Loader; var loader:Loader; trace('loader.load()');",
+            "import flash.display.Loader; var loader:Loader; var pattern:RegExp=/loader.load/;",
+            "import flash.net.URLLoader; import flash.net.URLRequest; var ul:URLLoader = new URLLoader(); ul.load(new URLRequest('data.json'));",
+            "import flash.net.Socket; var connection:Socket = new Socket(); connection.connect('localhost',80);",
         ] {
             assert!(partial_api_uses(&script(source)).is_empty(), "{source}");
         }
