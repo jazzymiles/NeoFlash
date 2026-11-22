@@ -57,10 +57,34 @@ pub(super) enum SwfAssignOp {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub(super) enum SwfXmlRawPiece {
+    Raw(String),
+    ElemExpr(String),
+    AttrExpr(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum SwfXmlCompiledPiece {
+    Raw(String),
+    ElemExpr(Box<SwfExpr>),
+    AttrExpr(Box<SwfExpr>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum SwfXmlSelector {
+    Named(String),
+    Computed(Box<SwfExpr>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum SwfLValue {
     Ident(String),
     Member(Box<SwfExpr>, String),
     Index(Box<SwfExpr>, Box<SwfExpr>),
+    XmlAttr {
+        object: Box<SwfExpr>,
+        attr: SwfXmlSelector,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -81,6 +105,19 @@ pub(super) enum SwfExpr {
     },
     Member(Box<SwfExpr>, String),
     Index(Box<SwfExpr>, Box<SwfExpr>),
+    XmlLit {
+        is_list: bool,
+        pieces: Vec<SwfXmlCompiledPiece>,
+    },
+    XmlAttr {
+        object: Box<SwfExpr>,
+        attr: SwfXmlSelector,
+    },
+    XmlDescendants {
+        object: Box<SwfExpr>,
+        target: SwfXmlSelector,
+        is_attr: bool,
+    },
     Unary {
         op: SwfUnaryOp,
         expr: Box<SwfExpr>,
@@ -171,6 +208,7 @@ pub(super) enum SwfStmt {
         fields: Vec<(bool, String, Option<SwfExpr>)>,
     },
     Return(Option<SwfExpr>),
+    DefaultXmlNamespace(SwfExpr),
     EventHandler {
         is_clip_event: bool,
         events: Vec<String>,
@@ -184,6 +222,10 @@ pub(super) enum SwfToken {
     Int(i32),
     Float(f64),
     Str(String),
+    XmlLiteral {
+        is_list: bool,
+        pieces: Vec<SwfXmlRawPiece>,
+    },
     LParen,
     RParen,
     LBrace,
@@ -193,6 +235,8 @@ pub(super) enum SwfToken {
     Semi,
     Comma,
     Dot,
+    DotDot,
+    At,
     Colon,
     Plus,
     Minus,
@@ -320,7 +364,11 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
             while i < len && bytes[i].is_ascii_digit() {
                 i += 1;
             }
-            if i < len && bytes[i] == b'.' && (i + 1 >= len || bytes[i + 1].is_ascii_digit()) {
+            if i < len
+                && bytes[i] == b'.'
+                && tokens.last() != Some(&SwfToken::Dot)
+                && (i + 1 >= len || bytes[i + 1].is_ascii_digit())
+            {
                 is_float = true;
                 i += 1;
                 while i < len && bytes[i].is_ascii_digit() {
@@ -362,6 +410,12 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
             tokens.push(SwfToken::Ident(source[start..i].to_owned()));
             continue;
         }
+        if b == b'<' && can_start_xml_literal(&tokens, source, i) {
+            let (xml_tok, next_i) = scan_xml_literal(source, i)?;
+            tokens.push(xml_tok);
+            i = next_i;
+            continue;
+        }
         let rem = &source[i..];
         // Prefer the longest spelling so >>>= stays a single update of its left operand.
         const OPERATORS: &[(&str, SwfToken)] = &[
@@ -390,6 +444,7 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
             ("&=", SwfToken::CompoundAssign(SwfAssignOp::BitAndAssign)),
             ("|=", SwfToken::CompoundAssign(SwfAssignOp::BitOrAssign)),
             ("^=", SwfToken::CompoundAssign(SwfAssignOp::BitXorAssign)),
+            ("..", SwfToken::DotDot),
         ];
         if let Some((spelling, token)) = OPERATORS.iter().find(|(op, _)| rem.starts_with(op)) {
             tokens.push(token.clone());
@@ -405,6 +460,7 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
                 b';' => SwfToken::Semi,
                 b',' => SwfToken::Comma,
                 b'.' => SwfToken::Dot,
+                b'@' => SwfToken::At,
                 b':' => SwfToken::Colon,
                 b'+' => SwfToken::Plus,
                 b'-' => SwfToken::Minus,
@@ -432,6 +488,387 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
         }
     }
     Ok(tokens)
+}
+
+fn can_start_xml_literal(tokens: &[SwfToken], source: &str, pos: usize) -> bool {
+    let expr_start = match tokens.last() {
+        None => true,
+        Some(
+            SwfToken::LParen
+            | SwfToken::LBrace
+            | SwfToken::LBracket
+            | SwfToken::Semi
+            | SwfToken::Comma
+            | SwfToken::Colon
+            | SwfToken::Question
+            | SwfToken::Assign
+            | SwfToken::FatArrow
+            | SwfToken::CompoundAssign(_)
+            | SwfToken::Eq
+            | SwfToken::Ne
+            | SwfToken::StrictEq
+            | SwfToken::StrictNe
+            | SwfToken::Lt
+            | SwfToken::Le
+            | SwfToken::Gt
+            | SwfToken::Ge
+            | SwfToken::And
+            | SwfToken::Or
+            | SwfToken::Not
+            | SwfToken::BitAnd
+            | SwfToken::BitOr
+            | SwfToken::BitXor
+            | SwfToken::Shl
+            | SwfToken::Shr
+            | SwfToken::UShr
+            | SwfToken::Tilde
+            | SwfToken::Plus
+            | SwfToken::Minus
+            | SwfToken::Star
+            | SwfToken::Slash
+            | SwfToken::Percent,
+        ) => true,
+        Some(SwfToken::Ident(kw)) => matches!(
+            kw.as_str(),
+            "return" | "throw" | "case" | "in" | "typeof" | "delete" | "new" | "else" | "do"
+        ),
+        _ => false,
+    };
+    if !expr_start {
+        return false;
+    }
+    let after = &source[pos + 1..];
+    after.starts_with('>')
+        || after.starts_with("!--")
+        || after.starts_with("![CDATA[")
+        || after.starts_with('?')
+        || after.starts_with('{')
+        || after
+            .bytes()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == b'_')
+}
+
+fn push_xml_raw(pieces: &mut Vec<SwfXmlRawPiece>, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(SwfXmlRawPiece::Raw(prev)) = pieces.last_mut() {
+        prev.push_str(text);
+    } else {
+        pieces.push(SwfXmlRawPiece::Raw(text.to_owned()));
+    }
+}
+
+fn scan_balanced_braces_expr(source: &str, brace_pos: usize) -> Result<(String, usize), String> {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut p = brace_pos + 1;
+    let mut depth = 1usize;
+    while p < len && depth > 0 {
+        let b = bytes[p];
+        if b == b'"' || b == b'\'' {
+            let q = b;
+            p += 1;
+            let mut closed = false;
+            while p < len {
+                let ch = source[p..].chars().next().unwrap();
+                p += ch.len_utf8();
+                if ch == '\\' {
+                    if p >= len {
+                        return Err(
+                            "unterminated string escape inside E4X '{}' interpolation".to_owned()
+                        );
+                    }
+                    let esc = source[p..].chars().next().unwrap();
+                    p += esc.len_utf8();
+                } else if ch as u32 == u32::from(q) {
+                    closed = true;
+                    break;
+                }
+            }
+            if !closed {
+                return Err("unterminated string literal inside E4X '{}' interpolation".to_owned());
+            }
+            continue;
+        }
+        if b == b'/' && p + 1 < len && bytes[p + 1] == b'/' {
+            p += 2;
+            while p < len && bytes[p] != b'\n' {
+                p += 1;
+            }
+            continue;
+        }
+        if b == b'/' && p + 1 < len && bytes[p + 1] == b'*' {
+            let Some(rel_end) = source[p + 2..].find("*/") else {
+                return Err("unterminated block comment inside E4X '{}' interpolation".to_owned());
+            };
+            p += 2 + rel_end + 2;
+            continue;
+        }
+        if b == b'{' {
+            depth += 1;
+            p += 1;
+        } else if b == b'}' {
+            depth -= 1;
+            p += 1;
+        } else {
+            let ch = source[p..].chars().next().unwrap();
+            p += ch.len_utf8();
+        }
+    }
+    if depth != 0 {
+        return Err("unterminated '{}' interpolation in E4X XML literal".to_owned());
+    }
+    let expr_src = source[brace_pos + 1..p - 1].trim().to_owned();
+    if expr_src.is_empty() {
+        return Err("empty '{}' interpolation in E4X XML literal".to_owned());
+    }
+    Ok((expr_src, p))
+}
+
+fn scan_xml_name(source: &str, pos: usize) -> Option<(String, usize)> {
+    let bytes = source.as_bytes();
+    let first = *bytes.get(pos)?;
+    if !(first.is_ascii_alphabetic() || first == b'_' || first == b':') {
+        return None;
+    }
+    let mut p = pos + 1;
+    while p < bytes.len()
+        && (bytes[p].is_ascii_alphanumeric() || matches!(bytes[p], b'_' | b':' | b'-' | b'.'))
+    {
+        p += 1;
+    }
+    Some((source[pos..p].to_owned(), p))
+}
+
+fn scan_xml_open_tag(
+    source: &str,
+    start: usize,
+    pieces: &mut Vec<SwfXmlRawPiece>,
+    tag_stack: &mut Vec<Option<String>>,
+) -> Result<usize, String> {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut p = start + 1;
+    push_xml_raw(pieces, "<");
+
+    let tag_name = if p < len && bytes[p] == b'{' {
+        let (e, next_p) = scan_balanced_braces_expr(source, p)?;
+        pieces.push(SwfXmlRawPiece::ElemExpr(e));
+        p = next_p;
+        None
+    } else if let Some((tname, next_p)) = scan_xml_name(source, p) {
+        push_xml_raw(pieces, &tname);
+        p = next_p;
+        Some(tname)
+    } else {
+        return Err("invalid XML element tag name in E4X literal".to_owned());
+    };
+
+    loop {
+        let ws_start = p;
+        while p < len && bytes[p].is_ascii_whitespace() {
+            p += 1;
+        }
+        if p > ws_start {
+            push_xml_raw(pieces, &source[ws_start..p]);
+        }
+        if p >= len {
+            return Err("unterminated XML start tag in E4X literal".to_owned());
+        }
+        if source[p..].starts_with("/>") {
+            push_xml_raw(pieces, "/>");
+            return Ok(p + 2);
+        }
+        if bytes[p] == b'>' {
+            push_xml_raw(pieces, ">");
+            tag_stack.push(tag_name);
+            return Ok(p + 1);
+        }
+
+        if bytes[p] == b'{' {
+            let (e, next_p) = scan_balanced_braces_expr(source, p)?;
+            pieces.push(SwfXmlRawPiece::ElemExpr(e));
+            p = next_p;
+        } else if let Some((aname, next_p)) = scan_xml_name(source, p) {
+            push_xml_raw(pieces, &aname);
+            p = next_p;
+        } else {
+            return Err("expected XML attribute name or '>' in E4X literal".to_owned());
+        }
+
+        while p < len && bytes[p].is_ascii_whitespace() {
+            p += 1;
+        }
+        if p >= len || bytes[p] != b'=' {
+            return Err("expected '=' after XML attribute name in E4X literal".to_owned());
+        }
+        push_xml_raw(pieces, "=");
+        p += 1;
+        while p < len && bytes[p].is_ascii_whitespace() {
+            p += 1;
+        }
+        if p >= len {
+            return Err("unterminated XML attribute in E4X literal".to_owned());
+        }
+        if bytes[p] == b'"' || bytes[p] == b'\'' {
+            let q = bytes[p] as char;
+            let Some(rel_end) = source[p + 1..].find(q) else {
+                return Err("unterminated XML attribute string in E4X literal".to_owned());
+            };
+            let attr_end = p + 1 + rel_end + 1;
+            push_xml_raw(pieces, &source[p..attr_end]);
+            p = attr_end;
+        } else if bytes[p] == b'{' {
+            push_xml_raw(pieces, "\"");
+            let (e, next_p) = scan_balanced_braces_expr(source, p)?;
+            pieces.push(SwfXmlRawPiece::AttrExpr(e));
+            push_xml_raw(pieces, "\"");
+            p = next_p;
+        } else {
+            return Err(
+                "expected quoted string or '{...}' for XML attribute value in E4X literal"
+                    .to_owned(),
+            );
+        }
+    }
+}
+
+fn scan_xml_literal(source: &str, start: usize) -> Result<(SwfToken, usize), String> {
+    if source[start..].starts_with("<!--") {
+        let Some(rel_end) = source[start + 4..].find("-->") else {
+            return Err("unterminated XML comment in E4X literal".to_owned());
+        };
+        let end = start + 4 + rel_end + 3;
+        return Ok((
+            SwfToken::XmlLiteral {
+                is_list: false,
+                pieces: vec![SwfXmlRawPiece::Raw(source[start..end].to_owned())],
+            },
+            end,
+        ));
+    }
+    if source[start..].starts_with("<![CDATA[") {
+        let Some(rel_end) = source[start + 9..].find("]]>") else {
+            return Err("unterminated XML CDATA section in E4X literal".to_owned());
+        };
+        let end = start + 9 + rel_end + 3;
+        return Ok((
+            SwfToken::XmlLiteral {
+                is_list: false,
+                pieces: vec![SwfXmlRawPiece::Raw(source[start..end].to_owned())],
+            },
+            end,
+        ));
+    }
+    if source[start..].starts_with("<?") {
+        let Some(rel_end) = source[start + 2..].find("?>") else {
+            return Err("unterminated XML processing instruction in E4X literal".to_owned());
+        };
+        let end = start + 2 + rel_end + 2;
+        return Ok((
+            SwfToken::XmlLiteral {
+                is_list: false,
+                pieces: vec![SwfXmlRawPiece::Raw(source[start..end].to_owned())],
+            },
+            end,
+        ));
+    }
+
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    let mut pieces = Vec::new();
+    let mut tag_stack: Vec<Option<String>> = Vec::new();
+    let (is_list, mut p) = if source[start..].starts_with("<>") {
+        tag_stack.push(Some(String::new()));
+        (true, start + 2)
+    } else {
+        let next_p = scan_xml_open_tag(source, start, &mut pieces, &mut tag_stack)?;
+        (false, next_p)
+    };
+
+    while !tag_stack.is_empty() {
+        if p >= len {
+            return Err("unterminated XML element in E4X literal".to_owned());
+        }
+        if bytes[p] == b'{' {
+            let (e, next_p) = scan_balanced_braces_expr(source, p)?;
+            pieces.push(SwfXmlRawPiece::ElemExpr(e));
+            p = next_p;
+        } else if source[p..].starts_with("<!--") {
+            let Some(rel_end) = source[p + 4..].find("-->") else {
+                return Err("unterminated XML comment in E4X literal".to_owned());
+            };
+            let end = p + 4 + rel_end + 3;
+            push_xml_raw(&mut pieces, &source[p..end]);
+            p = end;
+        } else if source[p..].starts_with("<![CDATA[") {
+            let Some(rel_end) = source[p + 9..].find("]]>") else {
+                return Err("unterminated XML CDATA section in E4X literal".to_owned());
+            };
+            let end = p + 9 + rel_end + 3;
+            push_xml_raw(&mut pieces, &source[p..end]);
+            p = end;
+        } else if source[p..].starts_with("<?") {
+            let Some(rel_end) = source[p + 2..].find("?>") else {
+                return Err("unterminated XML processing instruction in E4X literal".to_owned());
+            };
+            let end = p + 2 + rel_end + 2;
+            push_xml_raw(&mut pieces, &source[p..end]);
+            p = end;
+        } else if source[p..].starts_with("</") {
+            if is_list && tag_stack.len() == 1 && source[p..].starts_with("</>") {
+                tag_stack.pop();
+                p += 3;
+                break;
+            }
+            p += 2;
+            while p < len && bytes[p].is_ascii_whitespace() {
+                p += 1;
+            }
+            push_xml_raw(&mut pieces, "</");
+            let close_name = if p < len && bytes[p] == b'{' {
+                let (e, next_p) = scan_balanced_braces_expr(source, p)?;
+                pieces.push(SwfXmlRawPiece::ElemExpr(e));
+                p = next_p;
+                None
+            } else if let Some((cname, next_p)) = scan_xml_name(source, p) {
+                push_xml_raw(&mut pieces, &cname);
+                p = next_p;
+                Some(cname)
+            } else {
+                return Err("invalid XML closing tag in E4X literal".to_owned());
+            };
+            while p < len && bytes[p].is_ascii_whitespace() {
+                p += 1;
+            }
+            if p >= len || bytes[p] != b'>' {
+                return Err("expected '>' in XML closing tag in E4X literal".to_owned());
+            }
+            push_xml_raw(&mut pieces, ">");
+            p += 1;
+            let expected = tag_stack.pop().unwrap_or(None);
+            if let (Some(open_n), Some(close_n)) = (expected, close_name)
+                && open_n != close_n
+            {
+                return Err(format!(
+                    "mismatched XML closing tag '</{close_n}>' for '<{open_n}>' in E4X literal"
+                ));
+            }
+        } else if bytes[p] == b'<' {
+            p = scan_xml_open_tag(source, p, &mut pieces, &mut tag_stack)?;
+        } else {
+            let text_start = p;
+            while p < len && bytes[p] != b'<' && bytes[p] != b'{' {
+                let ch = source[p..].chars().next().unwrap();
+                p += ch.len_utf8();
+            }
+            push_xml_raw(&mut pieces, &source[text_start..p]);
+        }
+    }
+
+    Ok((SwfToken::XmlLiteral { is_list, pieces }, p))
 }
 
 pub(super) struct SwfParser {
@@ -594,6 +1031,20 @@ impl SwfParser {
                 "with" | "interface" => Err(format!(
                     "ActionScript '{kw}' is not supported by the bounded SWF compiler"
                 )),
+                "default"
+                    if self.is_avm2
+                        && self.tokens.get(self.pos + 1)
+                            == Some(&SwfToken::Ident("xml".to_owned()))
+                        && self.tokens.get(self.pos + 2)
+                            == Some(&SwfToken::Ident("namespace".to_owned())) =>
+                {
+                    self.pos += 3;
+                    self.expect(&SwfToken::Assign)?;
+                    let ns_expr = self.parse_expr()?;
+                    self.consume_optional_semi();
+                    out.push(SwfStmt::DefaultXmlNamespace(ns_expr));
+                    Ok(())
+                }
                 "catch" | "finally" | "case" | "default" => Err(format!(
                     "unexpected ActionScript '{kw}' outside its enclosing statement in bounded SWF compiler"
                 )),
@@ -676,7 +1127,11 @@ impl SwfParser {
                             }
                             if matches!(
                                 next_tok,
-                                SwfToken::Ident(id) if id == "case" || id == "default"
+                                SwfToken::Ident(id)
+                                    if id == "case"
+                                        || (id == "default"
+                                            && self.tokens.get(self.pos + 1)
+                                                != Some(&SwfToken::Ident("xml".to_owned())))
                             ) {
                                 break;
                             }
@@ -1476,6 +1931,22 @@ impl SwfParser {
         self.parse_postfix()
     }
 
+    fn parse_xml_selector(&mut self) -> Result<SwfXmlSelector, String> {
+        if self.eat(&SwfToken::LBracket) {
+            let saved_in = self.allow_in;
+            self.allow_in = true;
+            let idx_res = self.parse_expr();
+            self.allow_in = saved_in;
+            let idx = idx_res?;
+            self.expect(&SwfToken::RBracket)?;
+            Ok(SwfXmlSelector::Computed(Box::new(idx)))
+        } else if self.eat(&SwfToken::Star) {
+            Ok(SwfXmlSelector::Named("*".to_owned()))
+        } else {
+            Ok(SwfXmlSelector::Named(self.expect_ident()?))
+        }
+    }
+
     pub(super) fn parse_postfix(&mut self) -> Result<SwfExpr, String> {
         let is_new = self.peek() == Some(&SwfToken::Ident("new".to_owned()));
         if is_new {
@@ -1484,8 +1955,44 @@ impl SwfParser {
         let mut expr = self.parse_primary()?;
         loop {
             if self.eat(&SwfToken::Dot) {
-                let prop = self.expect_ident()?;
-                expr = SwfExpr::Member(Box::new(expr), prop);
+                if self.eat(&SwfToken::At) {
+                    if !self.is_avm2 {
+                        return Err(
+                            "ActionScript 3 E4X '@' attribute access is not supported in AVM1"
+                                .to_owned(),
+                        );
+                    }
+                    let attr = self.parse_xml_selector()?;
+                    expr = SwfExpr::XmlAttr {
+                        object: Box::new(expr),
+                        attr,
+                    };
+                } else if self.is_avm2 && self.eat(&SwfToken::Star) {
+                    expr = SwfExpr::Member(Box::new(expr), "*".to_owned());
+                } else if self.is_avm2
+                    && let Some(&SwfToken::Int(iv)) = self.peek()
+                    && iv >= 0
+                {
+                    self.pos += 1;
+                    expr = SwfExpr::Index(Box::new(expr), Box::new(SwfExpr::Int(iv)));
+                } else {
+                    let prop = self.expect_ident()?;
+                    expr = SwfExpr::Member(Box::new(expr), prop);
+                }
+            } else if self.eat(&SwfToken::DotDot) {
+                if !self.is_avm2 {
+                    return Err(
+                        "ActionScript 3 E4X '..' descendant operator is not supported in AVM1"
+                            .to_owned(),
+                    );
+                }
+                let is_attr = self.eat(&SwfToken::At);
+                let target = self.parse_xml_selector()?;
+                expr = SwfExpr::XmlDescendants {
+                    object: Box::new(expr),
+                    target,
+                    is_attr,
+                };
             } else if self.eat(&SwfToken::LBracket) {
                 let idx = self.parse_expr()?;
                 self.expect(&SwfToken::RBracket)?;
@@ -1599,6 +2106,31 @@ impl SwfParser {
             Some(SwfToken::Int(v)) => Ok(SwfExpr::Int(v)),
             Some(SwfToken::Float(v)) => Ok(SwfExpr::Float(v)),
             Some(SwfToken::Str(s)) => Ok(SwfExpr::Str(s)),
+            Some(SwfToken::XmlLiteral { is_list, pieces }) => {
+                if !self.is_avm2 {
+                    return Err(
+                        "ActionScript 3 E4X XML literals are not supported in AVM1".to_owned()
+                    );
+                }
+                let mut compiled = Vec::with_capacity(pieces.len());
+                for piece in pieces {
+                    match piece {
+                        SwfXmlRawPiece::Raw(s) => compiled.push(SwfXmlCompiledPiece::Raw(s)),
+                        SwfXmlRawPiece::ElemExpr(src) => {
+                            let e = parse_swf_expr_strict(&src, true)?;
+                            compiled.push(SwfXmlCompiledPiece::ElemExpr(Box::new(e)));
+                        }
+                        SwfXmlRawPiece::AttrExpr(src) => {
+                            let e = parse_swf_expr_strict(&src, true)?;
+                            compiled.push(SwfXmlCompiledPiece::AttrExpr(Box::new(e)));
+                        }
+                    }
+                }
+                Ok(SwfExpr::XmlLit {
+                    is_list,
+                    pieces: compiled,
+                })
+            }
             Some(SwfToken::Ident(s)) => match s.as_str() {
                 "true" => Ok(SwfExpr::Bool(true)),
                 "false" => Ok(SwfExpr::Bool(false)),
@@ -1738,8 +2270,22 @@ pub(super) fn expr_to_lvalue(expr: SwfExpr) -> Result<SwfLValue, String> {
         SwfExpr::Ident(name) => Ok(SwfLValue::Ident(name)),
         SwfExpr::Member(obj, prop) => Ok(SwfLValue::Member(obj, prop)),
         SwfExpr::Index(obj, idx) => Ok(SwfLValue::Index(obj, idx)),
+        SwfExpr::XmlAttr { object, attr } => Ok(SwfLValue::XmlAttr { object, attr }),
         _ => Err("invalid assignment target in bounded SWF compiler".to_owned()),
     }
+}
+
+pub(super) fn parse_swf_expr_strict(source: &str, is_avm2: bool) -> Result<SwfExpr, String> {
+    let tokens = tokenize_swf_script(source)?;
+    let mut parser = SwfParser::new(tokens, is_avm2);
+    let expr = parser.parse_expr()?;
+    if parser.pos < parser.tokens.len() {
+        return Err(format!(
+            "unexpected trailing token {:?} inside expression in bounded SWF compiler",
+            parser.peek()
+        ));
+    }
+    Ok(expr)
 }
 
 pub(super) fn parse_swf_statements_strict(

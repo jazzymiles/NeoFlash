@@ -29,11 +29,195 @@ fn as3_spec_extends_target(
     false
 }
 
-/// Run a comprehensive compatibility preflight for publishing `project` as a `.swf` movie.
+fn collect_required_interface_methods(
+    iface_qname: &str,
+    known: &BTreeMap<String, AbcClassSpec>,
+    out: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+) {
+    if !seen.insert(iface_qname.to_owned()) {
+        return;
+    }
+    let Some(ispec) = known.get(iface_qname) else {
+        return;
+    };
+    if !ispec.is_interface {
+        return;
+    }
+    for (m_name, _) in &ispec.interface_methods {
+        if !out.contains(m_name) {
+            out.push(m_name.clone());
+        }
+    }
+    for (spkg, sname) in &ispec.interfaces {
+        let sq = if spkg.is_empty() {
+            sname.clone()
+        } else {
+            format!("{spkg}.{sname}")
+        };
+        collect_required_interface_methods(&sq, known, out, seen);
+    }
+}
+
+fn validate_as3_oop_hierarchy(
+    known: &BTreeMap<String, AbcClassSpec>,
+    source_loc_by_qname: &BTreeMap<String, String>,
+    report: &mut FlaCompatibilityReport,
+) {
+    for (qname, spec) in known {
+        let loc = source_loc_by_qname
+            .get(qname)
+            .cloned()
+            .unwrap_or_else(|| format!("class:{qname}"));
+        if spec.is_interface {
+            for (ipkg, iname) in &spec.interfaces {
+                let iqname = if ipkg.is_empty() {
+                    iname.clone()
+                } else {
+                    format!("{ipkg}.{iname}")
+                };
+                if iqname == *qname {
+                    report.push(
+                        "swf_as3_cyclic_inheritance",
+                        FlaCompatibilityCategory::Scripts,
+                        FlaCompatibilityStatus::Blocking,
+                        loc.clone(),
+                        format!("AS3 interface '{qname}' cannot extend itself."),
+                    );
+                } else if let Some(target) = known.get(&iqname)
+                    && !target.is_interface
+                {
+                    report.push(
+                        "swf_as3_interface_extends_class",
+                        FlaCompatibilityCategory::Scripts,
+                        FlaCompatibilityStatus::Blocking,
+                        loc.clone(),
+                        format!(
+                            "AS3 interface '{qname}' cannot extend non-interface class '{iqname}'."
+                        ),
+                    );
+                }
+            }
+            continue;
+        }
+
+        let mut cur = spec;
+        let mut chain_seen = HashSet::new();
+        chain_seen.insert(qname.clone());
+        let mut all_instance_methods: HashSet<String> = HashSet::new();
+        let mut reaches_builtin_display = false;
+        loop {
+            let only_synthetic_init = !cur.has_explicit_ctor
+                && cur.static_methods.is_empty()
+                && cur.extra_methods.len() == 1
+                && cur.extra_methods[0].0 == "init"
+                && cur.extra_methods[0].1.is_empty()
+                && cur.extra_methods[0].2.is_empty();
+            if !only_synthetic_init {
+                for (m_name, _, _) in &cur.extra_methods {
+                    all_instance_methods.insert(m_name.clone());
+                }
+            }
+            if cur.super_name.is_empty() || (cur.super_pkg.is_empty() && cur.super_name == "Object")
+            {
+                break;
+            }
+            let sqname = if cur.super_pkg.is_empty() {
+                cur.super_name.clone()
+            } else {
+                format!("{}.{}", cur.super_pkg, cur.super_name)
+            };
+            if !chain_seen.insert(sqname.clone()) {
+                report.push(
+                    "swf_as3_cyclic_inheritance",
+                    FlaCompatibilityCategory::Scripts,
+                    FlaCompatibilityStatus::Blocking,
+                    loc.clone(),
+                    format!("Cyclic AS3 inheritance detected involving class '{qname}'."),
+                );
+                break;
+            }
+            if let Some(sup_spec) = known.get(&sqname) {
+                if sup_spec.is_interface {
+                    report.push(
+                        "swf_as3_class_extends_interface",
+                        FlaCompatibilityCategory::Scripts,
+                        FlaCompatibilityStatus::Blocking,
+                        loc.clone(),
+                        format!(
+                            "AS3 class '{qname}' cannot use 'extends' with interface '{sqname}'; use 'implements' instead."
+                        ),
+                    );
+                    break;
+                }
+                cur = sup_spec;
+            } else {
+                reaches_builtin_display = true;
+                break;
+            }
+        }
+
+        for (ipkg, iname) in &spec.interfaces {
+            let iqname = if ipkg.is_empty() {
+                iname.clone()
+            } else {
+                format!("{ipkg}.{iname}")
+            };
+            if let Some(iface_spec) = known.get(&iqname) {
+                if !iface_spec.is_interface {
+                    report.push(
+                        "swf_as3_implements_non_interface",
+                        FlaCompatibilityCategory::Scripts,
+                        FlaCompatibilityStatus::Blocking,
+                        loc.clone(),
+                        format!(
+                            "AS3 class '{qname}' cannot use 'implements' with non-interface class '{iqname}'."
+                        ),
+                    );
+                } else {
+                    let mut req_methods = Vec::new();
+                    let mut seen_ifaces = HashSet::new();
+                    collect_required_interface_methods(
+                        &iqname,
+                        known,
+                        &mut req_methods,
+                        &mut seen_ifaces,
+                    );
+                    for req_m in req_methods {
+                        let inherited_builtin = (reaches_builtin_display
+                            && is_avm2_inherited_builtin_member(&req_m))
+                            || matches!(
+                                req_m.as_str(),
+                                "toString"
+                                    | "valueOf"
+                                    | "hasOwnProperty"
+                                    | "isPrototypeOf"
+                                    | "propertyIsEnumerable"
+                                    | "setPropertyIsEnumerable"
+                            );
+                        if !all_instance_methods.contains(&req_m) && !inherited_builtin {
+                            report.push(
+                                "swf_as3_unimplemented_interface_method",
+                                FlaCompatibilityCategory::Scripts,
+                                FlaCompatibilityStatus::Blocking,
+                                loc.clone(),
+                                format!(
+                                    "AS3 class '{qname}' implements '{iqname}' but does not implement required method '{req_m}'."
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[must_use]
-pub fn preflight_swf_publish(
+pub(super) fn preflight_swf_publish_inner(
     project: &Project,
     options: &SwfPublishOptions,
+    strict: bool,
 ) -> FlaCompatibilityReport {
     let equivalent_fla_profile = match options.profile {
         SwfPublishProfile::FlashPlayer8Avm1 => FlaTargetProfile::LegacyFlash8,
@@ -256,6 +440,7 @@ pub fn preflight_swf_publish(
     let mut has_avm1_scripts = false;
     let mut has_avm2_scripts = false;
     let mut parsed_external_as3_classes: BTreeMap<String, AbcClassSpec> = BTreeMap::new();
+    let mut source_loc_by_qname: BTreeMap<String, String> = BTreeMap::new();
     let mut used_avm2_symbol_classes: BTreeMap<String, String> = BTreeMap::new();
     let mut used_avm1_linkages: BTreeMap<String, String> = BTreeMap::new();
 
@@ -320,12 +505,13 @@ pub fn preflight_swf_publish(
                     } else {
                         format!("{}.{}", spec.pkg, spec.class_name)
                     };
-                    match parsed_external_as3_classes.entry(qname) {
+                    match parsed_external_as3_classes.entry(qname.clone()) {
                         std::collections::btree_map::Entry::Occupied(entry) => {
                             Some(entry.key().clone())
                         }
                         std::collections::btree_map::Entry::Vacant(entry) => {
                             entry.insert(spec.clone());
+                            source_loc_by_qname.insert(qname, loc.clone());
                             None
                         }
                     }
@@ -427,6 +613,29 @@ pub fn preflight_swf_publish(
         }
     }
 
+    if !parsed_external_as3_classes.is_empty() {
+        let raw_specs: Vec<AbcClassSpec> = parsed_external_as3_classes.values().cloned().collect();
+        let resolved_specs = order_and_resolve_abc_classes(&raw_specs);
+        parsed_external_as3_classes = resolved_specs
+            .into_iter()
+            .map(|spec| {
+                let qname = if spec.pkg.is_empty() {
+                    spec.class_name.clone()
+                } else {
+                    format!("{}.{}", spec.pkg, spec.class_name)
+                };
+                (qname, spec)
+            })
+            .collect();
+        if options.profile.is_avm2() && !options.scriptless_mode {
+            validate_as3_oop_hierarchy(
+                &parsed_external_as3_classes,
+                &source_loc_by_qname,
+                &mut report,
+            );
+        }
+    }
+
     if let Some(doc_cls) = &project.document_class
         && !doc_cls.trim().is_empty()
     {
@@ -461,6 +670,18 @@ pub fn preflight_swf_publish(
                 FlaCompatibilityStatus::Blocking,
                 "project.document_class",
                 format!("Document class '{clean}' is not a valid ActionScript 3 class name."),
+            );
+        } else if let Some(ext_spec) = parsed_external_as3_classes.get(clean)
+            && ext_spec.is_interface
+        {
+            report.push(
+                "swf_document_class_is_interface",
+                FlaCompatibilityCategory::Scripts,
+                FlaCompatibilityStatus::Blocking,
+                "project.document_class",
+                format!(
+                    "Document class '{clean}' is an ActionScript 3 interface and cannot be instantiated as the root timeline."
+                ),
             );
         } else if let Some(ext_spec) = parsed_external_as3_classes.get(clean)
             && root_has_timeline
@@ -575,7 +796,18 @@ pub fn preflight_swf_publish(
                         format!("Duplicate AVM2 SymbolClass '{cls}' also bound at {prev_loc}."),
                     );
                 } else if let Some(ext_spec) = parsed_external_as3_classes.get(cls) {
-                    if sym.kind == SymbolKind::MovieClip
+                    if ext_spec.is_interface {
+                        report.push(
+                            "swf_symbol_class_is_interface",
+                            FlaCompatibilityCategory::SymbolsAndLibrary,
+                            FlaCompatibilityStatus::Blocking,
+                            sym_loc.clone(),
+                            format!(
+                                "Symbol class '{cls}' is an ActionScript 3 interface and cannot be bound to symbol '{}'.",
+                                sym.name
+                            ),
+                        );
+                    } else if sym.kind == SymbolKind::MovieClip
                         && (has_as3_sym_scripts || sym.timeline.frame_count > 1)
                         && !as3_spec_extends_target(
                             ext_spec,
@@ -1300,7 +1532,7 @@ pub fn preflight_swf_publish(
                                 .into_iter()
                                 .flatten()
                             {
-                                if grad.stops.is_empty() || grad.stops.len() > 15 {
+                                if grad.stops.is_empty() || (strict && grad.stops.len() > 15) {
                                     report.push(
                                         "swf_gradient_stop_count_limit",
                                         FlaCompatibilityCategory::ShapesAndPaints,
@@ -1308,6 +1540,17 @@ pub fn preflight_swf_publish(
                                         el_loc.clone(),
                                         format!(
                                             "Shape gradient has {} stops, outside SWF supported range (1..=15).",
+                                            grad.stops.len()
+                                        ),
+                                    );
+                                } else if grad.stops.len() > 15 {
+                                    report.push(
+                                        "swf_gradient_stops_approximated",
+                                        FlaCompatibilityCategory::ShapesAndPaints,
+                                        FlaCompatibilityStatus::Approximated,
+                                        el_loc.clone(),
+                                        format!(
+                                            "Shape gradient with {} stops resampled to 15 monotonic SWF GRADRECORD stops (preserving exact endpoints).",
                                             grad.stops.len()
                                         ),
                                     );

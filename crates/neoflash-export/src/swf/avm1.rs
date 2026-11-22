@@ -140,6 +140,7 @@ pub(super) fn collect_direct_decls_in_stmts(
             | SwfStmt::IncDec { .. }
             | SwfStmt::Expr(_)
             | SwfStmt::Return(_)
+            | SwfStmt::DefaultXmlNamespace(_)
             | SwfStmt::Break
             | SwfStmt::Continue
             | SwfStmt::Throw(_) => {}
@@ -181,6 +182,27 @@ pub(super) fn collect_refs_and_child_free_in_expr(
         SwfExpr::Index(obj, idx) => {
             collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
             collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+        }
+        SwfExpr::XmlLit { pieces, .. } => {
+            for piece in pieces {
+                match piece {
+                    SwfXmlCompiledPiece::Raw(_) => {}
+                    SwfXmlCompiledPiece::ElemExpr(e) | SwfXmlCompiledPiece::AttrExpr(e) => {
+                        collect_refs_and_child_free_in_expr(e, direct_refs, child_free);
+                    }
+                }
+            }
+        }
+        SwfExpr::XmlAttr { object, attr }
+        | SwfExpr::XmlDescendants {
+            object,
+            target: attr,
+            ..
+        } => {
+            collect_refs_and_child_free_in_expr(object, direct_refs, child_free);
+            if let SwfXmlSelector::Computed(idx) = attr {
+                collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+            }
         }
         SwfExpr::Unary { expr, .. } => {
             collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
@@ -225,6 +247,12 @@ pub(super) fn collect_refs_and_child_free_in_lvalue(
         SwfLValue::Index(obj, idx) => {
             collect_refs_and_child_free_in_expr(obj, direct_refs, child_free);
             collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+        }
+        SwfLValue::XmlAttr { object, attr } => {
+            collect_refs_and_child_free_in_expr(object, direct_refs, child_free);
+            if let SwfXmlSelector::Computed(idx) = attr {
+                collect_refs_and_child_free_in_expr(idx, direct_refs, child_free);
+            }
         }
     }
 }
@@ -365,7 +393,7 @@ pub(super) fn collect_refs_and_child_free_in_stmts(
                 direct_refs.insert(name.clone());
                 collect_free_vars_of_function(Some(name.as_str()), params, body, child_free);
             }
-            SwfStmt::Return(Some(expr)) => {
+            SwfStmt::Return(Some(expr)) | SwfStmt::DefaultXmlNamespace(expr) => {
                 collect_refs_and_child_free_in_expr(expr, direct_refs, child_free);
             }
             SwfStmt::Return(None) => {}
@@ -470,6 +498,9 @@ pub(super) fn avm1_compile_expr(
             avm1_compile_expr(out, idx, reg_map)?;
             out.push(0x4e); // ActionGetMember
         }
+        SwfExpr::XmlLit { .. } | SwfExpr::XmlAttr { .. } | SwfExpr::XmlDescendants { .. } => {
+            return Err("ActionScript 3 E4X syntax is not supported in AVM1 SWF".to_owned());
+        }
         SwfExpr::Unary { op, expr } => match op {
             SwfUnaryOp::Not => {
                 avm1_compile_expr(out, expr, reg_map)?;
@@ -508,6 +539,9 @@ pub(super) fn avm1_compile_expr(
                 avm1_compile_expr(out, obj, reg_map)?;
                 avm1_compile_expr(out, idx, reg_map)?;
                 out.push(0x3a); // ActionDelete
+            }
+            SwfLValue::XmlAttr { .. } => {
+                return Err("ActionScript 3 E4X syntax is not supported in AVM1 SWF".to_owned());
             }
         },
         SwfExpr::Ternary {
@@ -989,7 +1023,7 @@ where
             match target {
                 SwfLValue::Member(_, name) => avm1_push_string(out, name)?,
                 SwfLValue::Index(_, index) => avm1_compile_expr(out, index, reg_map)?,
-                SwfLValue::Ident(_) => unreachable!(),
+                SwfLValue::Ident(_) | SwfLValue::XmlAttr { .. } => unreachable!(),
             }
             if read_previous {
                 // [obj, obj, key] -> [obj, key, obj, key]. Register zero is scratch
@@ -1000,6 +1034,9 @@ where
             }
             emit_rhs(out)?;
             out.push(0x4f); // SetMember
+        }
+        SwfLValue::XmlAttr { .. } => {
+            return Err("ActionScript 3 E4X syntax is not supported in AVM1 SWF".to_owned());
         }
     }
     Ok(())
@@ -1770,6 +1807,11 @@ fn avm1_compile_stmt_with_flow(
         }
         SwfStmt::EventHandler { body, .. } => {
             avm1_compile_stmt_list_with_flow(out, body, in_function, reg_map, ctx)?;
+        }
+        SwfStmt::DefaultXmlNamespace(_) => {
+            return Err(
+                "ActionScript 3 'default xml namespace' is not supported in AVM1 SWF".to_owned(),
+            );
         }
     }
     Ok(())

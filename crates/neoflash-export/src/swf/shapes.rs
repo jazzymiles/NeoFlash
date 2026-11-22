@@ -209,6 +209,200 @@ pub(super) fn convert_commands_to_swf_edges(
     }
 }
 
+fn swf_srgb_u8_to_linear_255(c: u8) -> f64 {
+    let s = f64::from(c) / 255.0;
+    let lin = if s <= 0.04045 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
+    };
+    lin * 255.0
+}
+
+fn swf_linear_255_to_srgb_u8(v: f64) -> u8 {
+    let l = (v / 255.0).clamp(0.0, 1.0);
+    let s = if l <= 0.0031308 {
+        l * 12.92
+    } else {
+        1.055 * l.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+fn swf_color_to_interp_space(c: Color, linear_rgb: bool) -> [f64; 4] {
+    if linear_rgb {
+        [
+            swf_srgb_u8_to_linear_255(c[0]),
+            swf_srgb_u8_to_linear_255(c[1]),
+            swf_srgb_u8_to_linear_255(c[2]),
+            f64::from(c[3]),
+        ]
+    } else {
+        [
+            f64::from(c[0]),
+            f64::from(c[1]),
+            f64::from(c[2]),
+            f64::from(c[3]),
+        ]
+    }
+}
+
+fn swf_color_from_interp_space(v: [f64; 4], linear_rgb: bool) -> Color {
+    if linear_rgb {
+        [
+            swf_linear_255_to_srgb_u8(v[0]),
+            swf_linear_255_to_srgb_u8(v[1]),
+            swf_linear_255_to_srgb_u8(v[2]),
+            v[3].round().clamp(0.0, 255.0) as u8,
+        ]
+    } else {
+        [
+            v[0].round().clamp(0.0, 255.0) as u8,
+            v[1].round().clamp(0.0, 255.0) as u8,
+            v[2].round().clamp(0.0, 255.0) as u8,
+            v[3].round().clamp(0.0, 255.0) as u8,
+        ]
+    }
+}
+
+/// Deterministically resamples `>15` gradient stops down to `15` strictly monotonic unique `u8`
+/// `GRADRECORD` stops, preserving exact first and last endpoints and selecting interior stops via
+/// greedy Douglas-Peucker maximum piecewise-linear RGBA interpolation error reduction.
+pub(super) fn resample_swf_gradient_stops(
+    stops: &[neoflash_core::GradientStop],
+    linear_rgb: bool,
+) -> Vec<neoflash_core::GradientStop> {
+    if stops.len() <= 15 {
+        return stops.to_vec();
+    }
+
+    let mut sorted = stops.to_vec();
+    sorted.sort_by_key(|s| s.ratio);
+
+    let first = sorted[0].clone();
+    let last = sorted[sorted.len() - 1].clone();
+    if first.ratio == last.ratio {
+        if first.ratio < 255 {
+            return vec![
+                first.clone(),
+                neoflash_core::GradientStop {
+                    ratio: first.ratio + 1,
+                    color: last.color,
+                },
+            ];
+        }
+        return vec![
+            neoflash_core::GradientStop {
+                ratio: 254,
+                color: first.color,
+            },
+            last,
+        ];
+    }
+
+    let mut dedup = Vec::with_capacity(sorted.len());
+    dedup.push(first.clone());
+    for stop in &sorted[1..sorted.len() - 1] {
+        if stop.ratio == last.ratio {
+            continue;
+        }
+        let prev_ratio = dedup.last().expect("non-empty dedup").ratio;
+        if stop.ratio > prev_ratio {
+            dedup.push(stop.clone());
+        } else if dedup.len() > 1 {
+            *dedup.last_mut().expect("interior dedup stop") = stop.clone();
+        }
+    }
+    dedup.push(last.clone());
+
+    if dedup.len() >= 15 {
+        let pts: Vec<[f64; 4]> = dedup
+            .iter()
+            .map(|s| swf_color_to_interp_space(s.color, linear_rgb))
+            .collect();
+        let mut selected: Vec<usize> = vec![0, dedup.len() - 1];
+        while selected.len() < 15 {
+            let mut best_idx: Option<usize> = None;
+            let mut best_err = -1.0_f64;
+            let mut best_gap = 0u8;
+
+            for seg in selected.windows(2) {
+                let left = seg[0];
+                let right = seg[1];
+                if right <= left + 1 {
+                    continue;
+                }
+                let r_left = dedup[left].ratio;
+                let r_right = dedup[right].ratio;
+                let span = f64::from(r_right - r_left);
+                for k in (left + 1)..right {
+                    let r_k = dedup[k].ratio;
+                    let t = f64::from(r_k - r_left) / span;
+                    let mut err_sq = 0.0_f64;
+                    for ((&pl, &pr), &pk) in pts[left].iter().zip(&pts[right]).zip(&pts[k]) {
+                        let pred = pl + (pr - pl) * t;
+                        let diff = pk - pred;
+                        err_sq += diff * diff;
+                    }
+                    let min_gap = (r_k - r_left).min(r_right - r_k);
+                    let better = if (err_sq - best_err).abs() > 1e-6 {
+                        err_sq > best_err
+                    } else {
+                        min_gap > best_gap
+                    };
+                    if better {
+                        best_err = err_sq;
+                        best_gap = min_gap;
+                        best_idx = Some(k);
+                    }
+                }
+            }
+
+            let Some(chosen) = best_idx else {
+                break;
+            };
+            selected.push(chosen);
+            selected.sort_unstable();
+        }
+        return selected.into_iter().map(|i| dedup[i].clone()).collect();
+    }
+
+    let available_unique = usize::from(last.ratio) - usize::from(first.ratio) + 1;
+    let target_len = available_unique.min(15);
+    let mut out = dedup;
+    while out.len() < target_len {
+        let Some((best_seg, _)) = out
+            .windows(2)
+            .enumerate()
+            .map(|(i, w)| (i, w[1].ratio - w[0].ratio))
+            .filter(|&(_, gap)| gap >= 2)
+            .max_by_key(|&(_, gap)| gap)
+        else {
+            break;
+        };
+        let a = &out[best_seg];
+        let b = &out[best_seg + 1];
+        let mid_ratio = ((u16::from(a.ratio) + u16::from(b.ratio)) / 2) as u8;
+        let t = f64::from(mid_ratio - a.ratio) / f64::from(b.ratio - a.ratio);
+        let va = swf_color_to_interp_space(a.color, linear_rgb);
+        let vb = swf_color_to_interp_space(b.color, linear_rgb);
+        let vmid = [
+            va[0] + (vb[0] - va[0]) * t,
+            va[1] + (vb[1] - va[1]) * t,
+            va[2] + (vb[2] - va[2]) * t,
+            va[3] + (vb[3] - va[3]) * t,
+        ];
+        out.insert(
+            best_seg + 1,
+            neoflash_core::GradientStop {
+                ratio: mid_ratio,
+                color: swf_color_from_interp_space(vmid, linear_rgb),
+            },
+        );
+    }
+    out
+}
+
 pub(super) fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillStyle) {
     if let Some(brush) = fill.bitmap {
         w.u8(match (brush.repeat, brush.smoothing) {
@@ -242,7 +436,14 @@ pub(super) fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillS
         };
         w.u8(fill_type);
         w.matrix_px(grad.matrix);
-        let count = grad.stops.len().min(15);
+        let resampled_storage;
+        let stops_to_write: &[neoflash_core::GradientStop] = if grad.stops.len() > 15 {
+            resampled_storage = resample_swf_gradient_stops(&grad.stops, grad.linear_rgb);
+            &resampled_storage
+        } else {
+            &grad.stops
+        };
+        let count = stops_to_write.len().min(15);
         let spread_bits: u8 = match grad.spread {
             GradientSpread::Extend => 0,
             GradientSpread::Reflect => 1,
@@ -250,7 +451,7 @@ pub(super) fn write_single_fill_style(w: &mut SwfBitWriter, fill: &SwfShapeFillS
         };
         let interp_bits: u8 = u8::from(grad.linear_rgb);
         w.u8((spread_bits << 6) | (interp_bits << 4) | (count as u8));
-        for stop in grad.stops.iter().take(count) {
+        for stop in stops_to_write.iter().take(count) {
             w.u8(stop.ratio);
             w.rgba(stop.color);
         }

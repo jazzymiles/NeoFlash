@@ -115,6 +115,27 @@ fn dotted_member_chain(expr: &SwfExpr) -> Option<Vec<String>> {
     }
 }
 
+fn resolve_avm2_member_multiname(
+    pool: &mut AbcPoolBuilder,
+    env: &Avm2LexicalEnv,
+    prop: &str,
+    is_attr: bool,
+) -> u32 {
+    if is_attr {
+        if env.uses_dxns || !env.imports.wildcard_packages.is_empty() {
+            let ns_set = env.open_package_ns_set(pool);
+            pool.add_multiname_attr(prop, ns_set)
+        } else {
+            pool.add_qname_attr("", prop)
+        }
+    } else if env.uses_dxns {
+        let ns_set = env.open_package_ns_set(pool);
+        pool.add_multiname(prop, ns_set)
+    } else {
+        pool.add_qname("", prop)
+    }
+}
+
 fn try_resolve_static_avm2_type_multiname(
     pool: &mut AbcPoolBuilder,
     rhs: &SwfExpr,
@@ -238,28 +259,110 @@ pub(super) fn compile_avm2_expr(
                 code.u32_v(mn);
             } else {
                 compile_avm2_expr(pool, obj, code, state, env)?;
-                let mn = pool.add_qname("", prop);
+                let mn = resolve_avm2_member_multiname(pool, env, prop, false);
                 code.u8(0x66); // getproperty
                 code.u32_v(mn);
             }
         }
         SwfExpr::Index(obj, idx) => {
-            if let SwfExpr::Int(iv) = idx.as_ref() {
-                compile_avm2_expr(pool, obj, code, state, env)?;
-                let mn = pool.add_qname("", &iv.to_string());
-                code.u8(0x66); // getproperty
-                code.u32_v(mn);
-            } else if let SwfExpr::Str(s) = idx.as_ref() {
-                compile_avm2_expr(pool, obj, code, state, env)?;
-                let mn = pool.add_qname("", s);
-                code.u8(0x66); // getproperty
-                code.u32_v(mn);
+            let super_ref = matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "super");
+            let get_op = if super_ref { 0x04 } else { 0x66 }; // getsuper / getproperty
+            if super_ref {
+                code.u8(0xD0); // getlocal_0
             } else {
                 compile_avm2_expr(pool, obj, code, state, env)?;
+            }
+            if let SwfExpr::Int(iv) = idx.as_ref() {
+                let mn = pool.add_qname("", &iv.to_string());
+                code.u8(get_op);
+                code.u32_v(mn);
+            } else if let SwfExpr::Str(s) = idx.as_ref() {
+                let mn = pool.add_qname("", s);
+                code.u8(get_op);
+                code.u32_v(mn);
+            } else {
                 compile_avm2_expr(pool, idx, code, state, env)?;
                 let mn_l = pool.intern_multiname_l();
-                code.u8(0x66); // getproperty (MultinameL)
+                code.u8(get_op);
                 code.u32_v(mn_l);
+            }
+        }
+        SwfExpr::XmlLit { is_list, pieces } => {
+            let xml_cls_mn = pool.add_qname("", if *is_list { "XMLList" } else { "XML" });
+            code.u8(0x60); // getlex XML / XMLList
+            code.u32_v(xml_cls_mn);
+            if pieces.is_empty() {
+                let empty_idx = pool.add_string("");
+                code.u8(0x2C); // pushstring ""
+                code.u32_v(empty_idx);
+            } else {
+                for (i, piece) in pieces.iter().enumerate() {
+                    match piece {
+                        SwfXmlCompiledPiece::Raw(raw) => {
+                            let s_idx = pool.add_string(raw);
+                            code.u8(0x2C); // pushstring
+                            code.u32_v(s_idx);
+                        }
+                        SwfXmlCompiledPiece::ElemExpr(inner) => {
+                            compile_avm2_expr(pool, inner, code, state, env)?;
+                            code.u8(0x71); // esc_xelem
+                        }
+                        SwfXmlCompiledPiece::AttrExpr(inner) => {
+                            compile_avm2_expr(pool, inner, code, state, env)?;
+                            code.u8(0x72); // esc_xattr
+                        }
+                    }
+                    if i > 0 {
+                        code.u8(0xA0); // add
+                    }
+                }
+            }
+            code.u8(0x42); // construct 1
+            code.u32_v(1);
+        }
+        SwfExpr::XmlAttr { object, attr } => {
+            compile_avm2_expr(pool, object, code, state, env)?;
+            match attr {
+                SwfXmlSelector::Named(name) => {
+                    let mn = resolve_avm2_member_multiname(pool, env, name, true);
+                    code.u8(0x66); // getproperty (QNameA / MultinameA)
+                    code.u32_v(mn);
+                }
+                SwfXmlSelector::Computed(idx) => {
+                    compile_avm2_expr(pool, idx, code, state, env)?;
+                    let mn_la = pool.intern_multiname_la();
+                    code.u8(0x66); // getproperty (MultinameLA)
+                    code.u32_v(mn_la);
+                }
+            }
+        }
+        SwfExpr::XmlDescendants {
+            object,
+            target,
+            is_attr,
+        } => {
+            compile_avm2_expr(pool, object, code, state, env)?;
+            match target {
+                SwfXmlSelector::Named(name) => {
+                    let mn = if *is_attr {
+                        let ns_set = env.open_package_ns_set(pool);
+                        pool.add_multiname_attr(name, ns_set)
+                    } else {
+                        resolve_avm2_member_multiname(pool, env, name, false)
+                    };
+                    code.u8(0x59); // getdescendants
+                    code.u32_v(mn);
+                }
+                SwfXmlSelector::Computed(idx) => {
+                    compile_avm2_expr(pool, idx, code, state, env)?;
+                    let mn = if *is_attr {
+                        pool.intern_multiname_la()
+                    } else {
+                        pool.intern_multiname_l()
+                    };
+                    code.u8(0x59); // getdescendants (MultinameL / MultinameLA)
+                    code.u32_v(mn);
+                }
             }
         }
         SwfExpr::Unary { op, expr } => {
@@ -289,7 +392,7 @@ pub(super) fn compile_avm2_expr(
             }
             SwfLValue::Member(obj, prop) => {
                 compile_avm2_expr(pool, obj, code, state, env)?;
-                let mn = pool.add_qname("", prop);
+                let mn = resolve_avm2_member_multiname(pool, env, prop, false);
                 code.u8(0x6A); // deleteproperty
                 code.u32_v(mn);
             }
@@ -310,6 +413,22 @@ pub(super) fn compile_avm2_expr(
                     let mn_l = pool.intern_multiname_l();
                     code.u8(0x6A); // deleteproperty (MultinameL)
                     code.u32_v(mn_l);
+                }
+            }
+            SwfLValue::XmlAttr { object, attr } => {
+                compile_avm2_expr(pool, object, code, state, env)?;
+                match attr {
+                    SwfXmlSelector::Named(name) => {
+                        let mn = resolve_avm2_member_multiname(pool, env, name, true);
+                        code.u8(0x6A); // deleteproperty (QNameA / MultinameA)
+                        code.u32_v(mn);
+                    }
+                    SwfXmlSelector::Computed(idx) => {
+                        compile_avm2_expr(pool, idx, code, state, env)?;
+                        let mn_la = pool.intern_multiname_la();
+                        code.u8(0x6A); // deleteproperty (MultinameLA)
+                        code.u32_v(mn_la);
+                    }
                 }
             }
         },
@@ -547,6 +666,8 @@ pub(super) fn compile_avm2_call(
                 | "Number"
                 | "String"
                 | "Boolean"
+                | "XML"
+                | "XMLList"
                 | "parseInt"
                 | "parseFloat"
                 | "isNaN"
@@ -684,7 +805,13 @@ where
                 code.u8(0x2a); // dup receiver for the read
             }
             let property = match target {
-                SwfLValue::Member(_, name) => pool.add_qname("", name),
+                SwfLValue::Member(_, name) => {
+                    if super_ref {
+                        pool.add_qname("", name)
+                    } else {
+                        resolve_avm2_member_multiname(pool, env, name, false)
+                    }
+                }
                 SwfLValue::Index(_, index) => match index.as_ref() {
                     SwfExpr::Int(value) => pool.add_qname("", &value.to_string()),
                     SwfExpr::Str(name) => pool.add_qname("", name),
@@ -700,7 +827,7 @@ where
                         pool.intern_multiname_l()
                     }
                 },
-                SwfLValue::Ident(_) => unreachable!(),
+                SwfLValue::Ident(_) | SwfLValue::XmlAttr { .. } => unreachable!(),
             };
             if read_previous {
                 code.u8(if super_ref { 0x04 } else { 0x66 }); // getsuper / getproperty
@@ -709,6 +836,33 @@ where
             emit_rhs(pool, code, state, env)?;
             code.u8(if super_ref { 0x05 } else { 0x61 }); // setsuper / setproperty
             code.u32_v(property);
+        }
+        SwfLValue::XmlAttr { object, attr } => {
+            compile_avm2_expr(pool, object, code, state, env)?;
+            if read_previous {
+                code.u8(0x2A); // dup receiver for the read
+            }
+            let attr_mn = match attr {
+                SwfXmlSelector::Named(name) => resolve_avm2_member_multiname(pool, env, name, true),
+                SwfXmlSelector::Computed(idx) => {
+                    compile_avm2_expr(pool, idx, code, state, env)?;
+                    if read_previous {
+                        let key = env.alloc_temp_reg();
+                        code.u8(0x2A); // keep one key on the stack
+                        emit_avm2_setlocal(code, key);
+                        code.u8(0x2B); // swap key below the second receiver
+                        emit_avm2_getlocal(code, key);
+                    }
+                    pool.intern_multiname_la()
+                }
+            };
+            if read_previous {
+                code.u8(0x66); // getproperty
+                code.u32_v(attr_mn);
+            }
+            emit_rhs(pool, code, state, env)?;
+            code.u8(0x61); // setproperty
+            code.u32_v(attr_mn);
         }
     }
     Ok(())
@@ -1451,6 +1605,17 @@ pub(super) fn compile_avm2_stmt(
         SwfStmt::Throw(expr) => {
             compile_avm2_expr(pool, expr, code, state, env)?;
             code.u8(0x03); // throw
+        }
+        SwfStmt::DefaultXmlNamespace(ns_expr) => {
+            env.uses_dxns = true;
+            if let SwfExpr::Str(uri) = ns_expr {
+                let s_idx = pool.add_string(uri);
+                code.u8(0x06); // dxns
+                code.u32_v(s_idx);
+            } else {
+                compile_avm2_expr(pool, ns_expr, code, state, env)?;
+                code.u8(0x07); // dxnslate
+            }
         }
         SwfStmt::FunctionDecl { name, params, body } => {
             compile_avm2_function_decl_binding(pool, name, params, body, code, state, env)?;

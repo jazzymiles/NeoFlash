@@ -286,6 +286,25 @@ impl SwfPublishOptions {
     }
 }
 
+/// Extended SWF export options combining `SwfPublishOptions` with optional `strict` preflight enforcement.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwfExportOptions {
+    pub publish: SwfPublishOptions,
+    /// When `true`, refuse lossy SWF approximations (such as resampling `>15` gradient stops).
+    pub strict: bool,
+}
+
+impl SwfExportOptions {
+    /// Convenience constructor for strict SWF export on a given publish profile.
+    #[must_use]
+    pub fn strict_for_profile(profile: SwfPublishProfile) -> Self {
+        Self {
+            publish: SwfPublishOptions::for_profile(profile),
+            strict: true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SwfLayoutIssue {
     DepthOverflow,
@@ -1059,7 +1078,7 @@ pub(super) fn as3_source_declares_package_or_class(source: &str) -> bool {
     tokens.first() == Some(&SwfToken::Ident("package".to_owned()))
         || tokens
             .iter()
-            .any(|t| *t == SwfToken::Ident("class".to_owned()))
+            .any(|t| matches!(t, SwfToken::Ident(kw) if kw == "class" || kw == "interface"))
 }
 
 pub(super) fn swf_script_compilation_issue(
@@ -1188,12 +1207,29 @@ pub fn preflight_swf_publish(
     project: &Project,
     options: &SwfPublishOptions,
 ) -> FlaCompatibilityReport {
+    preflight_swf_with_strict(project, options, false)
+}
+
+/// Preflight SWF export with explicit `SwfExportOptions` (honoring `options.strict`).
+#[must_use]
+pub fn preflight_swf_export(
+    project: &Project,
+    options: &SwfExportOptions,
+) -> FlaCompatibilityReport {
+    preflight_swf_with_strict(project, &options.publish, options.strict)
+}
+
+fn preflight_swf_with_strict(
+    project: &Project,
+    options: &SwfPublishOptions,
+    strict: bool,
+) -> FlaCompatibilityReport {
     if project.uses_format_15() {
         let mut published = project.clone();
         published.apply_publish_layer_visibility();
-        preflight::preflight_swf_publish(&published, options)
+        preflight::preflight_swf_publish_inner(&published, options, strict)
     } else {
-        preflight::preflight_swf_publish(project, options)
+        preflight::preflight_swf_publish_inner(project, options, strict)
     }
 }
 pub(crate) use tags::SwfBitWriter;
@@ -1210,18 +1246,28 @@ pub fn publish_swf_bytes(
     project: &Project,
     options: &SwfPublishOptions,
 ) -> Result<(Vec<u8>, FlaCompatibilityReport), ExportError> {
-    compile_swf_document(project, options).map(|(bytes, report, _)| (bytes, report))
+    compile_swf_document(project, options, false).map(|(bytes, report, _)| (bytes, report))
+}
+
+/// Compile `project` into SWF movie bytes with explicit `SwfExportOptions` (honoring `options.strict`).
+pub fn export_swf_bytes(
+    project: &Project,
+    options: &SwfExportOptions,
+) -> Result<(Vec<u8>, FlaCompatibilityReport), ExportError> {
+    compile_swf_document(project, &options.publish, options.strict)
+        .map(|(bytes, report, _)| (bytes, report))
 }
 
 fn compile_swf_document(
     project: &Project,
     options: &SwfPublishOptions,
+    strict: bool,
 ) -> Result<(Vec<u8>, FlaCompatibilityReport, usize), ExportError> {
     if project.symbol(&project.root).is_none() {
         return Err(ExportError::MissingRootSymbol(project.root.clone()));
     }
 
-    let mut report = preflight_swf_publish(project, options);
+    let mut report = preflight_swf_with_strict(project, options, strict);
     if let Some(first) = report
         .items
         .iter()
@@ -1564,8 +1610,25 @@ pub fn publish_swf(
     dest: impl AsRef<Path>,
     options: &SwfPublishOptions,
 ) -> Result<FlaCompatibilityReport, ExportError> {
+    export_swf(
+        project,
+        dest,
+        &SwfExportOptions {
+            publish: options.clone(),
+            strict: false,
+        },
+    )
+}
+
+/// Export a SWF with explicit `SwfExportOptions` (honoring `options.strict`) after round-trip validation.
+pub fn export_swf(
+    project: &Project,
+    dest: impl AsRef<Path>,
+    options: &SwfExportOptions,
+) -> Result<FlaCompatibilityReport, ExportError> {
     let dest = dest.as_ref();
-    let (bytes, mut report, bitmap_bytes) = compile_swf_document(project, options)?;
+    let (bytes, mut report, bitmap_bytes) =
+        compile_swf_document(project, &options.publish, options.strict)?;
     let editable_bytes = neoflash_import::verify_swf_publication(&bytes, bitmap_bytes)
         .map_err(|err| ExportError::RoundTripVerification(err.to_string()))?;
     if editable_bytes > neoflash_core::MAX_PROJECT_JSON_BYTES {

@@ -16,6 +16,7 @@ pub(super) struct AbcPoolBuilder {
     pub(super) multinames: Vec<(u8, u32, u32)>,
     pub(super) mn_map: HashMap<(u8, u32, u32), u32>,
     pub(super) multiname_l: Option<u32>,
+    pub(super) multiname_la: Option<u32>,
 }
 
 impl AbcPoolBuilder {
@@ -61,9 +62,41 @@ impl AbcPoolBuilder {
     }
 
     pub(super) fn add_qname(&mut self, pkg: &str, name: &str) -> u32 {
-        let ns_idx = self.add_namespace(0x16, pkg); // 0x16 = PackageNamespace
-        let name_idx = self.add_string(name);
+        let (ns_idx, name_idx) = if pkg.is_empty() && name == "*" {
+            (0, 0)
+        } else {
+            (self.add_namespace(0x16, pkg), self.add_string(name))
+        };
         let key = (0x07, ns_idx, name_idx); // 0x07 = QName
+        if let Some(&idx) = self.mn_map.get(&key) {
+            return idx;
+        }
+        let idx = (self.multinames.len() + 1) as u32;
+        self.multinames.push(key);
+        self.mn_map.insert(key, idx);
+        idx
+    }
+
+    pub(super) fn add_ns_qname(&mut self, ns_kind: u8, ns_name: &str, name: &str) -> u32 {
+        let ns_idx = self.add_namespace(ns_kind, ns_name);
+        let name_idx = self.add_string(name);
+        let key = (0x07, ns_idx, name_idx);
+        if let Some(&idx) = self.mn_map.get(&key) {
+            return idx;
+        }
+        let idx = (self.multinames.len() + 1) as u32;
+        self.multinames.push(key);
+        self.mn_map.insert(key, idx);
+        idx
+    }
+
+    pub(super) fn add_qname_attr(&mut self, pkg: &str, name: &str) -> u32 {
+        let (ns_idx, name_idx) = if pkg.is_empty() && name == "*" {
+            (0, 0)
+        } else {
+            (self.add_namespace(0x16, pkg), self.add_string(name))
+        };
+        let key = (0x0D, ns_idx, name_idx); // 0x0D = CONSTANT_QNameA
         if let Some(&idx) = self.mn_map.get(&key) {
             return idx;
         }
@@ -83,7 +116,11 @@ impl AbcPoolBuilder {
     }
 
     pub(super) fn add_multiname(&mut self, name: &str, ns_set_idx: u32) -> u32 {
-        let name_idx = self.add_string(name);
+        let name_idx = if name == "*" {
+            0
+        } else {
+            self.add_string(name)
+        };
         let key = (0x09, name_idx, ns_set_idx); // 0x09 = CONSTANT_Multiname (name, ns_set)
         if let Some(&idx) = self.mn_map.get(&key) {
             return idx;
@@ -94,16 +131,49 @@ impl AbcPoolBuilder {
         idx
     }
 
+    pub(super) fn add_multiname_attr(&mut self, name: &str, ns_set_idx: u32) -> u32 {
+        let name_idx = if name == "*" {
+            0
+        } else {
+            self.add_string(name)
+        };
+        let key = (0x0E, name_idx, ns_set_idx); // 0x0E = CONSTANT_MultinameA (name, ns_set)
+        if let Some(&idx) = self.mn_map.get(&key) {
+            return idx;
+        }
+        let idx = (self.multinames.len() + 1) as u32;
+        self.multinames.push(key);
+        self.mn_map.insert(key, idx);
+        idx
+    }
+
+    pub(super) fn add_interface_multiname(&mut self, pkg: &str, name: &str) -> u32 {
+        let ns_idx = self.add_namespace(0x16, pkg);
+        let ns_set_idx = self.add_ns_set(vec![ns_idx]);
+        self.add_multiname(name, ns_set_idx)
+    }
+
     pub(super) fn intern_multiname_l(&mut self) -> u32 {
         if let Some(idx) = self.multiname_l {
             return idx;
         }
         let pub_ns = self.add_namespace(0x16, "");
-        let ns_set_idx = (self.ns_sets.len() + 1) as u32;
-        self.ns_sets.push(vec![pub_ns]);
+        let ns_set_idx = self.add_ns_set(vec![pub_ns]);
         let idx = (self.multinames.len() + 1) as u32;
         self.multinames.push((0x1B, ns_set_idx, 0)); // 0x1B = CONSTANT_MultinameL
         self.multiname_l = Some(idx);
+        idx
+    }
+
+    pub(super) fn intern_multiname_la(&mut self) -> u32 {
+        if let Some(idx) = self.multiname_la {
+            return idx;
+        }
+        let pub_ns = self.add_namespace(0x16, "");
+        let ns_set_idx = self.add_ns_set(vec![pub_ns]);
+        let idx = (self.multinames.len() + 1) as u32;
+        self.multinames.push((0x1C, ns_set_idx, 0)); // 0x1C = CONSTANT_MultinameLA
+        self.multiname_la = Some(idx);
         idx
     }
 }
@@ -159,8 +229,12 @@ pub(super) fn patch_avm2_s24(
 pub(super) struct AbcClassSpec {
     pub(super) pkg: String,
     pub(super) class_name: String,
+    pub(super) is_interface: bool,
     pub(super) super_pkg: String,
     pub(super) super_name: String,
+    pub(super) interfaces: Vec<(String, String)>,
+    pub(super) interface_methods: Vec<(String, Vec<String>)>,
+    pub(super) override_methods: HashSet<String>,
     pub(super) imported_classes: HashMap<String, String>,
     pub(super) wildcard_packages: Vec<String>,
     pub(super) ctor_params: Vec<String>,
@@ -322,6 +396,80 @@ fn consume_metadata_brackets(parser: &mut SwfParser) -> Result<(), String> {
     Ok(())
 }
 
+fn resolve_parsed_as3_type_ref(
+    raw: &str,
+    current_pkg: &str,
+    imported_classes: &HashMap<String, String>,
+) -> (String, String) {
+    if raw.contains('.') {
+        let (p, c) = split_qualified_class(raw);
+        return (p, c);
+    }
+    if let Some(imp_pkg) = imported_classes.get(raw) {
+        return (imp_pkg.clone(), raw.to_owned());
+    }
+    if matches!(
+        raw,
+        "MovieClip"
+            | "Sprite"
+            | "SimpleButton"
+            | "Shape"
+            | "DisplayObject"
+            | "DisplayObjectContainer"
+            | "InteractiveObject"
+            | "Bitmap"
+            | "IBitmapDrawable"
+    ) {
+        return ("flash.display".to_owned(), raw.to_owned());
+    }
+    if matches!(raw, "EventDispatcher" | "IEventDispatcher") {
+        return ("flash.events".to_owned(), raw.to_owned());
+    }
+    if matches!(raw, "IDataInput" | "IDataOutput" | "IExternalizable") {
+        return ("flash.utils".to_owned(), raw.to_owned());
+    }
+    if matches!(
+        raw,
+        "Object"
+            | "Array"
+            | "Error"
+            | "TypeError"
+            | "RangeError"
+            | "ReferenceError"
+            | "ArgumentError"
+            | "VerifyError"
+            | "SyntaxError"
+            | "URIError"
+            | "EvalError"
+            | "SecurityError"
+    ) {
+        return (String::new(), raw.to_owned());
+    }
+    (current_pkg.to_owned(), raw.to_owned())
+}
+
+fn parse_as3_param_list(parser: &mut SwfParser) -> Result<Vec<String>, String> {
+    parser.expect(&SwfToken::LParen)?;
+    let mut params = Vec::new();
+    if !parser.eat(&SwfToken::RParen) {
+        loop {
+            let pname = parser.expect_ident()?;
+            parser.skip_type_annotation()?;
+            if parser.eat(&SwfToken::Assign) {
+                let _ = parser.parse_expr()?;
+            }
+            params.push(pname);
+            if parser.eat(&SwfToken::Comma) {
+                continue;
+            }
+            parser.expect(&SwfToken::RParen)?;
+            break;
+        }
+    }
+    parser.skip_type_annotation()?;
+    Ok(params)
+}
+
 pub(super) fn parse_as3_source_to_spec_strict(
     source: &str,
     fallback_qname: &str,
@@ -331,15 +479,16 @@ pub(super) fn parse_as3_source_to_spec_strict(
     let mut parser = SwfParser::new(tokens, true);
 
     let starts_with_package = parser.peek() == Some(&SwfToken::Ident("package".to_owned()));
-    let has_class_tok = parser
+    let has_type_decl_tok = parser
         .tokens
         .iter()
-        .any(|t| *t == SwfToken::Ident("class".to_owned()));
+        .any(|t| matches!(t, SwfToken::Ident(kw) if kw == "class" || kw == "interface"));
 
-    if !starts_with_package && !has_class_tok {
+    if !starts_with_package && !has_type_decl_tok {
         if external_source {
             return Err(
-                "external ActionScript 3 source file must declare a package and class".to_owned(),
+                "external ActionScript 3 source file must declare a package and class or interface"
+                    .to_owned(),
             );
         }
         let stmts = parser.parse_stmt_list(false)?;
@@ -368,7 +517,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
 
     if !external_source {
         return Err(
-            "ActionScript 3 frame script cannot declare a package or class; move package/class definitions to an external .as source file"
+            "ActionScript 3 frame script cannot declare a package, class, or interface; move package/class/interface definitions to an external .as source file"
                 .to_owned(),
         );
     }
@@ -409,9 +558,103 @@ pub(super) fn parse_as3_source_to_spec_strict(
         }
     }
 
-    if parser.next() != Some(SwfToken::Ident("class".to_owned())) {
-        return Err("expected 'class' declaration in ActionScript 3 source".to_owned());
+    let decl_kw = match parser.next() {
+        Some(SwfToken::Ident(kw)) if kw == "class" || kw == "interface" => kw,
+        _ => {
+            return Err(
+                "expected 'class' or 'interface' declaration in ActionScript 3 source".to_owned(),
+            );
+        }
+    };
+
+    if decl_kw == "interface" {
+        let iface_name = parser.expect_ident()?;
+        let mut super_interfaces = Vec::new();
+        if parser.peek() == Some(&SwfToken::Ident("extends".to_owned())) {
+            parser.pos += 1;
+            loop {
+                let sup_if = parse_dotted_name(&mut parser)?;
+                super_interfaces.push(resolve_parsed_as3_type_ref(
+                    &sup_if,
+                    &pkg,
+                    &imported_classes,
+                ));
+                if !parser.eat(&SwfToken::Comma) {
+                    break;
+                }
+            }
+        }
+        if parser.peek() == Some(&SwfToken::Ident("implements".to_owned())) {
+            return Err(
+                "ActionScript 3 interface cannot use 'implements'; use 'extends' for super-interfaces"
+                    .to_owned(),
+            );
+        }
+        parser.expect(&SwfToken::LBrace)?;
+        let mut interface_methods = Vec::new();
+        while parser.peek().is_some() && parser.peek() != Some(&SwfToken::RBrace) {
+            if parser.eat(&SwfToken::Semi) {
+                continue;
+            }
+            if parser.eat(&SwfToken::LBracket) {
+                consume_metadata_brackets(&mut parser)?;
+                continue;
+            }
+            if parser.peek() == Some(&SwfToken::Ident("import".to_owned())) {
+                consume_import_directive(
+                    &mut parser,
+                    &mut imported_classes,
+                    &mut wildcard_packages,
+                )?;
+                continue;
+            }
+            while let Some(SwfToken::Ident(m)) = parser.peek() {
+                if matches!(m.as_str(), "public" | "internal") {
+                    parser.pos += 1;
+                } else {
+                    break;
+                }
+            }
+            if parser.next() != Some(SwfToken::Ident("function".to_owned())) {
+                return Err(format!(
+                    "ActionScript 3 interface '{iface_name}' may only declare method signatures"
+                ));
+            }
+            let fn_name = parser.expect_ident()?;
+            let params = parse_as3_param_list(&mut parser)?;
+            if parser.peek() == Some(&SwfToken::LBrace) {
+                return Err(format!(
+                    "ActionScript 3 interface method '{iface_name}.{fn_name}' cannot have an implementation body"
+                ));
+            }
+            parser.consume_optional_semi();
+            interface_methods.push((fn_name, params));
+        }
+        parser.expect(&SwfToken::RBrace)?;
+        if has_package_brace {
+            while parser.eat(&SwfToken::Semi) {}
+            parser.expect(&SwfToken::RBrace)?;
+        }
+        while parser.eat(&SwfToken::Semi) {}
+        if parser.pos < parser.tokens.len() {
+            return Err(format!(
+                "unexpected trailing token {:?} after ActionScript 3 interface",
+                parser.peek()
+            ));
+        }
+        extract_script_imports(source, &mut imported_classes, &mut wildcard_packages);
+        return Ok(AbcClassSpec {
+            pkg,
+            class_name: iface_name,
+            is_interface: true,
+            interfaces: super_interfaces,
+            interface_methods,
+            imported_classes,
+            wildcard_packages,
+            ..Default::default()
+        });
     }
+
     let class_name = parser.expect_ident()?;
     let mut super_pkg = String::new();
     let mut super_name = "Object".to_owned();
@@ -419,56 +662,17 @@ pub(super) fn parse_as3_source_to_spec_strict(
     if parser.peek() == Some(&SwfToken::Ident("extends".to_owned())) {
         parser.pos += 1;
         let sup = parse_dotted_name(&mut parser)?;
-        if sup.contains('.') {
-            let (sp, sc) = split_qualified_class(&sup);
-            super_pkg = sp;
-            super_name = sc;
-        } else if let Some(imp_pkg) = imported_classes.get(&sup) {
-            super_pkg.clone_from(imp_pkg);
-            super_name = sup;
-        } else if matches!(
-            sup.as_str(),
-            "MovieClip"
-                | "Sprite"
-                | "SimpleButton"
-                | "Shape"
-                | "DisplayObject"
-                | "DisplayObjectContainer"
-                | "InteractiveObject"
-                | "Bitmap"
-        ) {
-            super_pkg = "flash.display".to_owned();
-            super_name = sup;
-        } else if sup == "EventDispatcher" {
-            super_pkg = "flash.events".to_owned();
-            super_name = sup;
-        } else if matches!(
-            sup.as_str(),
-            "Object"
-                | "Array"
-                | "Error"
-                | "TypeError"
-                | "RangeError"
-                | "ReferenceError"
-                | "ArgumentError"
-                | "VerifyError"
-                | "SyntaxError"
-                | "URIError"
-                | "EvalError"
-                | "SecurityError"
-        ) {
-            super_pkg = String::new();
-            super_name = sup;
-        } else {
-            super_pkg.clone_from(&pkg);
-            super_name = sup;
-        }
+        let (sp, sn) = resolve_parsed_as3_type_ref(&sup, &pkg, &imported_classes);
+        super_pkg = sp;
+        super_name = sn;
     }
 
+    let mut interfaces = Vec::new();
     if parser.peek() == Some(&SwfToken::Ident("implements".to_owned())) {
         parser.pos += 1;
         loop {
-            let _ = parse_dotted_name(&mut parser)?;
+            let iface = parse_dotted_name(&mut parser)?;
+            interfaces.push(resolve_parsed_as3_type_ref(&iface, &pkg, &imported_classes));
             if !parser.eat(&SwfToken::Comma) {
                 break;
             }
@@ -484,6 +688,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
     let mut static_fields = Vec::new();
     let mut static_methods = Vec::new();
     let mut extra_methods = Vec::new();
+    let mut override_methods = HashSet::new();
 
     while parser.peek().is_some() && parser.peek() != Some(&SwfToken::RBrace) {
         if parser.eat(&SwfToken::Semi) {
@@ -498,6 +703,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
             continue;
         }
         let mut is_static = false;
+        let mut is_override = false;
         while let Some(SwfToken::Ident(m)) = parser.peek() {
             if matches!(
                 m.as_str(),
@@ -512,6 +718,8 @@ pub(super) fn parse_as3_source_to_spec_strict(
             ) {
                 if m == "static" {
                     is_static = true;
+                } else if m == "override" {
+                    is_override = true;
                 }
                 parser.pos += 1;
             } else {
@@ -521,27 +729,15 @@ pub(super) fn parse_as3_source_to_spec_strict(
         if parser.peek() == Some(&SwfToken::Ident("function".to_owned())) {
             parser.pos += 1;
             let fn_name = parser.expect_ident()?;
-            parser.expect(&SwfToken::LParen)?;
-            let mut params = Vec::new();
-            if !parser.eat(&SwfToken::RParen) {
-                loop {
-                    let pname = parser.expect_ident()?;
-                    parser.skip_type_annotation()?;
-                    if parser.eat(&SwfToken::Assign) {
-                        let _ = parser.parse_expr()?;
-                    }
-                    params.push(pname);
-                    if parser.eat(&SwfToken::Comma) {
-                        continue;
-                    }
-                    parser.expect(&SwfToken::RParen)?;
-                    break;
-                }
-            }
-            parser.skip_type_annotation()?;
+            let params = parse_as3_param_list(&mut parser)?;
             parser.expect(&SwfToken::LBrace)?;
             let body = parser.parse_stmt_list(true)?;
             parser.expect(&SwfToken::RBrace)?;
+            if is_override && (is_static || fn_name == class_name) {
+                return Err(format!(
+                    "ActionScript 3 'override' modifier is only valid on instance methods ('{class_name}.{fn_name}')"
+                ));
+            }
             if fn_name == class_name && !is_static {
                 ctor_params = params;
                 has_explicit_ctor = true;
@@ -549,10 +745,18 @@ pub(super) fn parse_as3_source_to_spec_strict(
             } else if is_static {
                 static_methods.push((fn_name, params, body));
             } else {
+                if is_override {
+                    override_methods.insert(fn_name.clone());
+                }
                 extra_methods.push((fn_name, params, body));
             }
         } else if matches!(parser.peek(), Some(SwfToken::Ident(kw)) if kw == "var" || kw == "const")
         {
+            if is_override {
+                return Err(format!(
+                    "ActionScript 3 'override' modifier cannot be applied to 'var' or 'const' in '{class_name}'"
+                ));
+            }
             let mut tmp = Vec::new();
             parser.parse_stmt_into(&mut tmp)?;
             for s in tmp {
@@ -594,8 +798,12 @@ pub(super) fn parse_as3_source_to_spec_strict(
     Ok(AbcClassSpec {
         pkg,
         class_name,
+        is_interface: false,
         super_pkg,
         super_name,
+        interfaces,
+        interface_methods: Vec::new(),
+        override_methods,
         imported_classes,
         wildcard_packages,
         ctor_params,
@@ -613,6 +821,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
 pub(super) struct AbcMethodSpec {
     pub(super) param_names: Vec<u32>,
     pub(super) needs_activation: bool,
+    pub(super) uses_dxns: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -647,6 +856,7 @@ impl Avm2CompilerState {
         self.methods.push(AbcMethodSpec {
             param_names,
             needs_activation: false,
+            uses_dxns: false,
         });
         idx
     }
@@ -702,6 +912,7 @@ pub(super) struct Avm2ImportCtx {
 pub(super) struct Avm2LexicalEnv {
     pub(super) init_scope_depth: u32,
     pub(super) needs_activation: bool,
+    pub(super) uses_dxns: bool,
     pub(super) act_reg: Option<u32>,
     pub(super) active_catch_regs: Vec<u32>,
     pub(super) max_catch_scopes: usize,
@@ -886,12 +1097,37 @@ pub(super) fn expr_has_direct_self_named_fn(expr: &SwfExpr) -> bool {
         SwfExpr::Index(obj, idx) => {
             expr_has_direct_self_named_fn(obj) || expr_has_direct_self_named_fn(idx)
         }
+        SwfExpr::XmlLit { pieces, .. } => pieces.iter().any(|p| match p {
+            SwfXmlCompiledPiece::Raw(_) => false,
+            SwfXmlCompiledPiece::ElemExpr(e) | SwfXmlCompiledPiece::AttrExpr(e) => {
+                expr_has_direct_self_named_fn(e)
+            }
+        }),
+        SwfExpr::XmlAttr { object, attr }
+        | SwfExpr::XmlDescendants {
+            object,
+            target: attr,
+            ..
+        } => {
+            expr_has_direct_self_named_fn(object)
+                || match attr {
+                    SwfXmlSelector::Named(_) => false,
+                    SwfXmlSelector::Computed(idx) => expr_has_direct_self_named_fn(idx),
+                }
+        }
         SwfExpr::Unary { expr, .. } => expr_has_direct_self_named_fn(expr),
         SwfExpr::Delete(target) => match target.as_ref() {
             SwfLValue::Ident(_) => false,
             SwfLValue::Member(obj, _) => expr_has_direct_self_named_fn(obj),
             SwfLValue::Index(obj, idx) => {
                 expr_has_direct_self_named_fn(obj) || expr_has_direct_self_named_fn(idx)
+            }
+            SwfLValue::XmlAttr { object, attr } => {
+                expr_has_direct_self_named_fn(object)
+                    || match attr {
+                        SwfXmlSelector::Named(_) => false,
+                        SwfXmlSelector::Computed(idx) => expr_has_direct_self_named_fn(idx),
+                    }
             }
         },
         SwfExpr::Ternary {
@@ -926,7 +1162,53 @@ fn lvalue_has_direct_self_named_fn(target: &SwfLValue) -> bool {
         SwfLValue::Index(obj, idx) => {
             expr_has_direct_self_named_fn(obj) || expr_has_direct_self_named_fn(idx)
         }
+        SwfLValue::XmlAttr { object, attr } => {
+            expr_has_direct_self_named_fn(object)
+                || match attr {
+                    SwfXmlSelector::Named(_) => false,
+                    SwfXmlSelector::Computed(idx) => expr_has_direct_self_named_fn(idx),
+                }
+        }
     }
+}
+
+pub(super) fn stmts_have_dxns(stmts: &[SwfStmt]) -> bool {
+    stmts.iter().any(|stmt| match stmt {
+        SwfStmt::DefaultXmlNamespace(_) => true,
+        SwfStmt::Block(inner) | SwfStmt::While { body: inner, .. } => stmts_have_dxns(inner),
+        SwfStmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            stmts_have_dxns(then_branch)
+                || else_branch.as_ref().is_some_and(|eb| stmts_have_dxns(eb))
+        }
+        SwfStmt::For {
+            init, update, body, ..
+        } => {
+            init.as_ref()
+                .is_some_and(|i| stmts_have_dxns(std::slice::from_ref(i)))
+                || update
+                    .as_ref()
+                    .is_some_and(|u| stmts_have_dxns(std::slice::from_ref(u)))
+                || stmts_have_dxns(body)
+        }
+        SwfStmt::ForIn { body, .. } => stmts_have_dxns(body),
+        SwfStmt::Switch { cases, .. } => cases.iter().any(|(_, cbody)| stmts_have_dxns(cbody)),
+        SwfStmt::Try {
+            try_body,
+            catches,
+            finally_body,
+        } => {
+            stmts_have_dxns(try_body)
+                || catches.iter().any(|(_, _, cbody)| stmts_have_dxns(cbody))
+                || finally_body
+                    .as_ref()
+                    .is_some_and(|fbody| stmts_have_dxns(fbody))
+        }
+        _ => false,
+    })
 }
 
 pub(super) fn stmts_have_direct_self_named_fn(stmts: &[SwfStmt]) -> bool {
@@ -934,6 +1216,7 @@ pub(super) fn stmts_have_direct_self_named_fn(stmts: &[SwfStmt]) -> bool {
         SwfStmt::VarDecl { init: Some(e), .. }
         | SwfStmt::Expr(e)
         | SwfStmt::Throw(e)
+        | SwfStmt::DefaultXmlNamespace(e)
         | SwfStmt::Return(Some(e)) => expr_has_direct_self_named_fn(e),
         SwfStmt::Assign { target, value, .. } => {
             lvalue_has_direct_self_named_fn(target) || expr_has_direct_self_named_fn(value)
@@ -1106,9 +1389,14 @@ where
         None
     };
 
+    let uses_dxns = stmts_have_dxns(stmts)
+        || post_super
+            .as_ref()
+            .is_some_and(|ps| stmts_have_dxns(&ps.field_stmts));
     let mut env = Avm2LexicalEnv {
         init_scope_depth,
         needs_activation,
+        uses_dxns,
         act_reg,
         active_catch_regs: Vec::new(),
         max_catch_scopes: 0,
@@ -1136,6 +1424,7 @@ where
     let pushed_scopes = max_pushed_scopes.max(min_pushed_scopes);
     if let Some(mspec) = state.methods.get_mut(method_idx as usize) {
         mspec.needs_activation = env.needs_activation;
+        mspec.uses_dxns = env.uses_dxns;
     }
     state.bodies.push(AbcMethodBodySpec {
         method_idx,
@@ -1155,6 +1444,9 @@ pub(super) fn try_compile_avm2_source(
     external_source: bool,
 ) -> Result<AbcClassSpec, String> {
     let spec = parse_as3_source_to_spec_strict(source, "Main", external_source)?;
+    if spec.is_interface {
+        return Ok(spec);
+    }
     let mut pool = AbcPoolBuilder::default();
     let mut state = Avm2CompilerState::default();
     let empty_outer = HashMap::new();
@@ -1315,7 +1607,13 @@ pub(super) fn compute_avm2_method_metrics(
     let mut max_local = param_count;
     let mut pos = 0usize;
     let catch_targets: HashSet<usize> = exceptions.iter().map(|e| e.target as usize).collect();
-    let is_mn_l = |mn: u32| -> i32 { i32::from(pool.multiname_l == Some(mn)) };
+    let is_mn_l = |mn: u32| -> i32 {
+        i32::from(
+            pool.multinames
+                .get((mn as usize).wrapping_sub(1))
+                .is_some_and(|&(k, _, _)| k == 0x1B || k == 0x1C),
+        )
+    };
     while pos < code.len() {
         if catch_targets.contains(&pos) {
             cur_stack = cur_stack.max(1);
@@ -1328,6 +1626,10 @@ pub(super) fn compute_avm2_method_metrics(
             0x02 | 0x09 | 0x47 => {
                 // nop / label / returnvoid
             }
+            0x06 => {
+                // dxns u30
+                let _ = read_abc_u30(code, &mut pos);
+            }
             0x1D => {
                 // popscope
                 cur_scope = (cur_scope - 1).max(0);
@@ -1338,8 +1640,8 @@ pub(super) fn compute_avm2_method_metrics(
                 cur_scope += 1;
                 max_scope = max_scope.max(cur_scope);
             }
-            0x03 | 0x29 | 0x48 => {
-                // throw / pop / returnvalue
+            0x03 | 0x07 | 0x29 | 0x48 => {
+                // throw / dxnslate / pop / returnvalue
                 cur_stack = (cur_stack - 1).max(0);
             }
             0x04 => {
@@ -1451,8 +1753,8 @@ pub(super) fn compute_avm2_method_metrics(
                 let _ = read_abc_u30(code, &mut pos);
                 max_stack = max_stack.max(cur_stack.max(1));
             }
-            0x66 | 0x6A => {
-                // getproperty / deleteproperty (u30)
+            0x59 | 0x66 | 0x6A => {
+                // getdescendants / getproperty / deleteproperty (u30)
                 let mn = read_abc_u30(code, &mut pos);
                 cur_stack = (cur_stack - is_mn_l(mn)).max(1);
                 max_stack = max_stack.max(cur_stack);
@@ -1480,8 +1782,8 @@ pub(super) fn compute_avm2_method_metrics(
                 max_local = max_local.max(reg);
                 cur_stack = (cur_stack - 1).max(0);
             }
-            0x70 | 0x73..=0x76 | 0x82 | 0x85 | 0x90 | 0x91 | 0x93 | 0x95 | 0x96 | 0x97 => {
-                // unary in-place (incl. convert_s, coerce_a, coerce_s, typeof, bitnot)
+            0x70..=0x76 | 0x82 | 0x85 | 0x90 | 0x91 | 0x93 | 0x95 | 0x96 | 0x97 => {
+                // unary in-place (incl. convert_s, esc_xelem, esc_xattr, coerce_a, coerce_s, typeof, bitnot)
                 max_stack = max_stack.max(cur_stack.max(1));
             }
             0x80 | 0x86 | 0xB2 => {

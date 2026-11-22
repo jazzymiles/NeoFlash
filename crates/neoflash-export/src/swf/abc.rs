@@ -2,7 +2,34 @@
 
 use super::*;
 
-fn order_and_resolve_abc_classes(classes: &[AbcClassSpec]) -> Vec<AbcClassSpec> {
+fn resolve_abc_type_pkg(
+    tpkg: &mut String,
+    tname: &str,
+    imported_classes: &HashMap<String, String>,
+    known_classes: &[(String, String)],
+) {
+    if tname.is_empty() || known_classes.iter().any(|(p, n)| p == tpkg && n == tname) {
+        return;
+    }
+    if let Some(imp_pkg) = imported_classes.get(tname)
+        && known_classes
+            .iter()
+            .any(|(p, n)| p == imp_pkg && n == tname)
+    {
+        *tpkg = imp_pkg.clone();
+        return;
+    }
+    let matches: Vec<&String> = known_classes
+        .iter()
+        .filter(|(_, n)| n == tname)
+        .map(|(p, _)| p)
+        .collect();
+    if matches.len() == 1 {
+        *tpkg = matches[0].clone();
+    }
+}
+
+pub(super) fn order_and_resolve_abc_classes(classes: &[AbcClassSpec]) -> Vec<AbcClassSpec> {
     let mut resolved = classes.to_vec();
     let known_classes: Vec<(String, String)> = resolved
         .iter()
@@ -21,26 +48,16 @@ fn order_and_resolve_abc_classes(classes: &[AbcClassSpec]) -> Vec<AbcClassSpec> 
                     .or_insert_with(|| kpkg.clone());
             }
         }
-        let spkg = cls.super_pkg.clone();
-        let sname = cls.super_name.clone();
-        let exact_exists = known_classes.iter().any(|(p, n)| p == &spkg && n == &sname);
-        if !exact_exists {
-            if let Some(imp_pkg) = cls.imported_classes.get(&sname)
-                && known_classes
-                    .iter()
-                    .any(|(p, n)| p == imp_pkg && n == &sname)
-            {
-                cls.super_pkg = imp_pkg.clone();
-            } else {
-                let matches: Vec<String> = known_classes
-                    .iter()
-                    .filter(|(_, n)| n == &sname)
-                    .map(|(p, _)| p.clone())
-                    .collect();
-                if matches.len() == 1 {
-                    cls.super_pkg = matches[0].clone();
-                }
-            }
+        if !cls.is_interface {
+            resolve_abc_type_pkg(
+                &mut cls.super_pkg,
+                &cls.super_name,
+                &cls.imported_classes,
+                &known_classes,
+            );
+        }
+        for (ipkg, iname) in &mut cls.interfaces {
+            resolve_abc_type_pkg(ipkg, iname, &cls.imported_classes, &known_classes);
         }
     }
 
@@ -64,14 +81,25 @@ fn order_and_resolve_abc_classes(classes: &[AbcClassSpec]) -> Vec<AbcClassSpec> 
             return;
         }
         visiting[idx] = true;
-        let spkg = &resolved[idx].super_pkg;
-        let sname = &resolved[idx].super_name;
-        if let Some(parent_idx) = resolved
-            .iter()
-            .position(|c| &c.pkg == spkg && &c.class_name == sname)
-            && parent_idx != idx
-        {
-            visit(parent_idx, resolved, visited, visiting, ordered);
+        for (ipkg, iname) in &resolved[idx].interfaces {
+            if let Some(iface_idx) = resolved
+                .iter()
+                .position(|c| &c.pkg == ipkg && &c.class_name == iname)
+                && iface_idx != idx
+            {
+                visit(iface_idx, resolved, visited, visiting, ordered);
+            }
+        }
+        if !resolved[idx].is_interface {
+            let spkg = &resolved[idx].super_pkg;
+            let sname = &resolved[idx].super_name;
+            if let Some(parent_idx) = resolved
+                .iter()
+                .position(|c| &c.pkg == spkg && &c.class_name == sname)
+                && parent_idx != idx
+            {
+                visit(parent_idx, resolved, visited, visiting, ordered);
+            }
         }
         visiting[idx] = false;
         if !visited[idx] {
@@ -86,7 +114,7 @@ fn order_and_resolve_abc_classes(classes: &[AbcClassSpec]) -> Vec<AbcClassSpec> 
     ordered
 }
 
-fn is_avm2_inherited_builtin_member(name: &str) -> bool {
+pub(super) fn is_avm2_inherited_builtin_member(name: &str) -> bool {
     matches!(
         name,
         "x" | "y"
@@ -197,13 +225,15 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
     let add_frame_script_mn = pool.add_qname("", "addFrameScript");
 
     struct CompiledClass {
+        is_interface: bool,
         class_mn: u32,
         super_mn: u32,
+        interface_mns: Vec<u32>,
         ancestor_mns: Vec<u32>,
         cinit_method: u32,
         iinit_method: u32,
         instance_slots: Vec<u32>,
-        trait_methods: Vec<(u32, u32)>,
+        trait_methods: Vec<(u32, u32, bool)>,
         static_slots: Vec<u32>,
         static_methods: Vec<(u32, u32)>,
     }
@@ -214,6 +244,54 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
 
     for cls in &ordered_classes {
         let class_mn = pool.add_qname(&cls.pkg, &cls.class_name);
+        let interface_mns: Vec<u32> = cls
+            .interfaces
+            .iter()
+            .map(|(ipkg, iname)| pool.add_interface_multiname(ipkg, iname))
+            .collect();
+
+        if cls.is_interface {
+            let cinit_method = state.alloc_method(Vec::new());
+            state.bodies.push(AbcMethodBodySpec {
+                method_idx: cinit_method,
+                max_stack: 1,
+                local_count: 1,
+                init_scope_depth: 2,
+                max_scope_depth: 2,
+                code: vec![0x47], // returnvoid
+                exceptions: Vec::new(),
+                activation_traits: Vec::new(),
+            });
+            let iinit_method = state.alloc_method(Vec::new());
+            let iface_ns_name = if cls.pkg.is_empty() {
+                cls.class_name.clone()
+            } else {
+                format!("{}:{}", cls.pkg, cls.class_name)
+            };
+            let mut trait_methods = Vec::with_capacity(cls.interface_methods.len());
+            for (m_name, m_params) in &cls.interface_methods {
+                let fn_mn = pool.add_ns_qname(0x08, &iface_ns_name, m_name);
+                let param_name_indices: Vec<u32> =
+                    m_params.iter().map(|p| pool.add_string(p)).collect();
+                let m_idx = state.alloc_method(param_name_indices);
+                trait_methods.push((fn_mn, m_idx, false));
+            }
+            compiled_classes.push(CompiledClass {
+                is_interface: true,
+                class_mn,
+                super_mn: 0,
+                interface_mns,
+                ancestor_mns: Vec::new(),
+                cinit_method,
+                iinit_method,
+                instance_slots: Vec::new(),
+                trait_methods,
+                static_slots: Vec::new(),
+                static_methods: Vec::new(),
+            });
+            continue;
+        }
+
         let super_mn = pool.add_qname(&cls.super_pkg, &cls.super_name);
         let ancestor_chain = resolve_abc_ancestor_chain(cls, &ordered_classes);
         let ancestor_mns: Vec<u32> = ancestor_chain
@@ -300,6 +378,7 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         // so closures resolve them via `findproperty`/`getlex` on `this` while keeping `MethodBodyInfo`
         // `trait_cnt == 0` on the frame method itself).
         let mut parsed_frame_scripts = Vec::with_capacity(cls.frame_scripts.len());
+        let mut ancestor_method_names: HashSet<String> = HashSet::new();
         let mut reserved_instance_names: HashSet<String> = cls
             .instance_fields
             .iter()
@@ -316,13 +395,19 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         for (apkg, aname) in &ancestor_chain {
             if let Some(anc) = ordered_classes
                 .iter()
-                .find(|c| &c.pkg == apkg && &c.class_name == aname)
+                .find(|c| !c.is_interface && &c.pkg == apkg && &c.class_name == aname)
             {
                 for (n, _) in &anc.instance_fields {
                     reserved_instance_names.insert(n.clone());
                 }
                 for (n, _, _) in &anc.extra_methods {
                     reserved_instance_names.insert(n.clone());
+                    ancestor_method_names.insert(n.clone());
+                }
+                for (f_idx, _) in &anc.frame_scripts {
+                    let fname = format!("frame{}", f_idx + 1);
+                    reserved_instance_names.insert(fname.clone());
+                    ancestor_method_names.insert(fname);
                 }
             }
         }
@@ -398,7 +483,8 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                 ))
             })?;
 
-            trait_methods.push((fn_mn, m_idx));
+            let is_override = ancestor_method_names.contains(&fn_name);
+            trait_methods.push((fn_mn, m_idx, is_override));
             frame_bindings.push((frame_idx, fn_mn));
         }
 
@@ -427,7 +513,9 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                     cls.class_name, m_name
                 ))
             })?;
-            trait_methods.push((fn_mn, m_idx));
+            let is_override =
+                cls.override_methods.contains(m_name) || ancestor_method_names.contains(m_name);
+            trait_methods.push((fn_mn, m_idx, is_override));
         }
 
         // 3. iinit (constructor)
@@ -486,8 +574,10 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         })?;
 
         compiled_classes.push(CompiledClass {
+            is_interface: false,
             class_mn,
             super_mn,
+            interface_mns,
             ancestor_mns,
             cinit_method,
             iinit_method,
@@ -505,6 +595,16 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
     sinit_code.u8(0x30); // pushscope
     let mut max_chain_len = 0u32;
     for (c_idx, cls) in compiled_classes.iter().enumerate() {
+        if cls.is_interface {
+            sinit_code.u8(0x65); // getscopeobject 0
+            sinit_code.u8(0x00);
+            sinit_code.u8(0x20); // pushnull
+            sinit_code.u8(0x58); // newclass
+            sinit_code.u32_v(c_idx as u32);
+            sinit_code.u8(0x68); // initproperty
+            sinit_code.u32_v(cls.class_mn);
+            continue;
+        }
         max_chain_len = max_chain_len.max(cls.ancestor_mns.len() as u32);
         sinit_code.u8(0x65); // getscopeobject 0
         sinit_code.u8(0x00);
@@ -615,6 +715,9 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         if m.needs_activation {
             flags |= 0x02; // NEED_ACTIVATION
         }
+        if m.uses_dxns {
+            flags |= 0x40; // SET_DXNS
+        }
         if !m.param_names.is_empty() {
             flags |= 0x80; // HAS_PARAM_NAMES
         }
@@ -634,8 +737,11 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
     for cls in &compiled_classes {
         w.u32_v(cls.class_mn);
         w.u32_v(cls.super_mn);
-        w.u8(0x00); // flags = dynamic (0)
-        w.u32_v(0); // intrf_count = 0
+        w.u8(if cls.is_interface { 0x05 } else { 0x00 }); // ClassSealed | ClassInterface (0x05) or dynamic (0x00)
+        w.u32_v(cls.interface_mns.len() as u32);
+        for &imn in &cls.interface_mns {
+            w.u32_v(imn);
+        }
         w.u32_v(cls.iinit_method);
         w.u32_v((cls.instance_slots.len() + cls.trait_methods.len()) as u32);
         for &slot_mn in &cls.instance_slots {
@@ -645,9 +751,9 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
             w.u32_v(0); // type_name = *
             w.u32_v(0); // vindex = 0
         }
-        for &(m_mn, m_idx) in &cls.trait_methods {
+        for &(m_mn, m_idx, is_override) in &cls.trait_methods {
             w.u32_v(m_mn);
-            w.u8(0x01); // Trait_Method
+            w.u8(if is_override { 0x21 } else { 0x01 }); // TRAIT_Override (0x20) | Trait_Method (0x01)
             w.u32_v(0); // disp_id = 0
             w.u32_v(m_idx);
         }

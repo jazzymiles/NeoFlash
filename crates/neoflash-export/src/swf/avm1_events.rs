@@ -417,6 +417,21 @@ pub(super) fn find_event_handler_in_expr(expr: &SwfExpr) -> Option<&SwfStmt> {
         SwfExpr::Index(obj, idx) => {
             find_event_handler_in_expr(obj).or_else(|| find_event_handler_in_expr(idx))
         }
+        SwfExpr::XmlLit { pieces, .. } => pieces.iter().find_map(|p| match p {
+            SwfXmlCompiledPiece::Raw(_) => None,
+            SwfXmlCompiledPiece::ElemExpr(e) | SwfXmlCompiledPiece::AttrExpr(e) => {
+                find_event_handler_in_expr(e)
+            }
+        }),
+        SwfExpr::XmlAttr { object, attr }
+        | SwfExpr::XmlDescendants {
+            object,
+            target: attr,
+            ..
+        } => find_event_handler_in_expr(object).or_else(|| match attr {
+            SwfXmlSelector::Named(_) => None,
+            SwfXmlSelector::Computed(idx) => find_event_handler_in_expr(idx),
+        }),
         SwfExpr::Unary { expr, .. } => find_event_handler_in_expr(expr),
         SwfExpr::Binary { lhs, rhs, .. } => {
             find_event_handler_in_expr(lhs).or_else(|| find_event_handler_in_expr(rhs))
@@ -430,6 +445,12 @@ pub(super) fn find_event_handler_in_expr(expr: &SwfExpr) -> Option<&SwfStmt> {
             SwfLValue::Member(obj, _) => find_event_handler_in_expr(obj),
             SwfLValue::Index(obj, idx) => {
                 find_event_handler_in_expr(obj).or_else(|| find_event_handler_in_expr(idx))
+            }
+            SwfLValue::XmlAttr { object, attr } => {
+                find_event_handler_in_expr(object).or_else(|| match attr {
+                    SwfXmlSelector::Named(_) => None,
+                    SwfXmlSelector::Computed(idx) => find_event_handler_in_expr(idx),
+                })
             }
         },
         SwfExpr::Ternary {
@@ -457,6 +478,7 @@ pub(super) fn find_event_handler_in_stmts(stmts: &[SwfStmt]) -> Option<&SwfStmt>
             | SwfStmt::Assign { value: e, .. }
             | SwfStmt::Expr(e)
             | SwfStmt::Return(Some(e))
+            | SwfStmt::DefaultXmlNamespace(e)
             | SwfStmt::Throw(e) => {
                 if let Some(found) = find_event_handler_in_expr(e) {
                     return Some(found);

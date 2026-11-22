@@ -860,6 +860,7 @@ fn avm1_and_avm2_logical_operators_short_circuit_rhs_evaluation() {
         let mut env = Avm2LexicalEnv {
             init_scope_depth: 1,
             needs_activation: false,
+            uses_dxns: false,
             act_reg: None,
             active_catch_regs: Vec::new(),
             max_catch_scopes: 0,
