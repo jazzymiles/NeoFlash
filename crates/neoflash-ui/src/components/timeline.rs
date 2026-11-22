@@ -1035,16 +1035,16 @@ pub fn paint_marker(
             ));
         }
     }
-    // "a" (Inter Semi Bold 9/9) at y 1; Compact rows have no room above the dot.
+    // Keep the master at its original position on tall rows. Short rows use the same
+    // glyph, aligned by its ink so the font's ascent cannot push it onto the dot.
     if action && cell.width() >= 6.0 && cell.height() >= 17.0 {
-        let top = if cell.height() >= 24.0 { 1.0 } else { 0.0 };
-        painter.text(
-            egui::pos2(c.x, cell.top() + top),
-            egui::Align2::CENTER_TOP,
-            "a",
-            action_font(),
-            fg,
-        );
+        let glyph = painter.layout_no_wrap("a".into(), action_font(), fg);
+        let mut top = cell.top() + 1.0;
+        if cell.height() < crate::metrics::LAYER_ROW {
+            top = cell.top() - glyph.mesh_bounds.top();
+        }
+        let pos = egui::pos2(c.x - glyph.size().x * 0.5, top);
+        painter.galley(pos, glyph, fg);
     }
 }
 

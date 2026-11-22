@@ -216,6 +216,14 @@ pub struct TimelineVirtualStats {
     pub scroll_offset_y: f32,
 }
 
+/// Script markers at the current frame stay visible over the playhead stem.
+struct PlayheadActionMarker {
+    painter: egui::Painter,
+    cell: Rect,
+    kind: MarkerKind,
+    selected: bool,
+}
+
 const TIMELINE_VIRTUAL_STATS_ID: &str = "neoflash_timeline_virtual_stats";
 const TIMELINE_LAYER_FOCUS_ID: &str = "neoflash_timeline_layer_focus";
 
@@ -641,6 +649,7 @@ impl Editor {
                 | egui::scroll_area::ScrollSource::MOUSE_WHEEL;
             let mut grid_rect = Rect::NOTHING;
             let mut grid_clip = Rect::NOTHING;
+            let mut playhead_actions = Vec::new();
             let mut focused_grid = None;
             let mut drawn_layer_rows = 0usize;
             let mut measured_layer_list_height = 0.0_f32;
@@ -1235,6 +1244,7 @@ impl Editor {
                                     &layer_indices,
                                     &script_frames,
                                     view.tinted,
+                                    &mut playhead_actions,
                                 );
                                 stats.drawn_layer_rows = drawn_layer_rows;
                                 stats.layer_list_height = measured_layer_list_height;
@@ -1990,6 +2000,15 @@ impl Editor {
                     time.as_deref(),
                 );
             }
+            for action in playhead_actions {
+                tl::paint_marker(
+                    &action.painter,
+                    &ctx,
+                    action.cell,
+                    action.kind,
+                    action.selected,
+                );
+            }
             if let Some(crate::library::LibraryDrag::Symbol(sym_id)) =
                 self.library_panel.drag.clone()
             {
@@ -2144,6 +2163,7 @@ impl Editor {
         layer_indices: &[usize],
         script_frames: &[u32],
         tinted: bool,
+        playhead_actions: &mut Vec<PlayheadActionMarker>,
     ) -> TimelineVirtualStats {
         #[derive(Clone, Copy)]
         struct VisibleSpan {
@@ -2421,13 +2441,26 @@ impl Editor {
                     (false, true) => MarkerKind::ActionKeyframe,
                     (false, false) => MarkerKind::Keyframe,
                 };
-                tl::paint_marker(
-                    &rp,
-                    &ctx,
-                    geo.cell(row, start + 1),
-                    marker,
-                    on_selection(start),
-                );
+                let cell = geo.cell(row, start + 1);
+                if start == self.frame
+                    && matches!(
+                        marker,
+                        MarkerKind::ActionKeyframe | MarkerKind::ActionBlankKeyframe
+                    )
+                {
+                    let mut painter = rp.clone();
+                    if any_solo && !self.is_layer_id_effectively_soloed(&layer_id) {
+                        painter.multiply_opacity(0.45);
+                    }
+                    playhead_actions.push(PlayheadActionMarker {
+                        painter,
+                        cell,
+                        kind: marker,
+                        selected: on_selection(start),
+                    });
+                } else {
+                    tl::paint_marker(&rp, &ctx, cell, marker, on_selection(start));
+                }
                 let tween = matches!(
                     kind,
                     Some(

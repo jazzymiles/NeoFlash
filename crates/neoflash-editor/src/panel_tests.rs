@@ -740,6 +740,99 @@ fn tools_scroll_to_fit_and_library_scroll_to_last_symbol_at_minimum_window() {
 }
 
 #[test]
+fn active_and_inactive_script_keys_are_readable_in_all_timeline_densities() {
+    use crate::workspace::DensityPref;
+    use egui::Shape;
+
+    let ctx = egui::Context::default();
+    let mut project = Project::demo();
+    let root = project.root.clone();
+    let timeline = &mut project.symbol_mut(&root).unwrap().timeline;
+    timeline.layers.truncate(1);
+    let layer = &mut timeline.layers[0];
+    let id = layer.id.clone();
+    layer.keyframes.truncate(1);
+    let mut blank = layer.keyframes[0].clone();
+    blank.frame = 3;
+    blank.elements.clear();
+    layer.keyframes.push(blank);
+    timeline.scripts = [0, 3]
+        .map(|frame| FrameScript {
+            layer: Some(id.clone()),
+            frame,
+            script: Script {
+                source: "trace(1);".into(),
+                ..Default::default()
+            },
+        })
+        .to_vec();
+    let mut editor = Editor::from_project(&ctx, project);
+    for density in [
+        DensityPref::Comfortable,
+        DensityPref::Compact,
+        DensityPref::ClassicFlash,
+    ] {
+        editor.set_density(&ctx, density);
+        for current in [0, 3] {
+            editor.frame = current;
+            editor.select_frame_range(FrameRange {
+                layers: vec![id.clone()],
+                start: current,
+                end: current,
+            });
+            let size = Vec2::new(1440., 900.);
+            frame(&mut editor, &ctx, size, 0.1, vec![]);
+            let out = frame(&mut editor, &ctx, size, 0.2, vec![]);
+            let palette = neoflash_ui::palette(&ctx);
+            let playhead = out.shapes.iter().position(|s| matches!(
+                &s.shape, Shape::LineSegment { points, stroke }
+                   if stroke.color == palette.timeline_playhead && points[0].x == points[1].x
+            )).expect("playhead stem");
+            let mut markers = 0;
+            for (idx, shape) in out.shapes.iter().enumerate() {
+                let Shape::Text(text) = &shape.shape else {
+                    continue;
+                };
+                if text.galley.job.text != "a" {
+                    continue;
+                }
+                let ink = text.galley.mesh_bounds.translate(text.pos.to_vec2());
+                assert!(
+                    shape.clip_rect.contains_rect(ink),
+                    "{density:?}: clipped letter"
+                );
+                let dot = out
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        Shape::Circle(c)
+                            if (c.center.x - ink.center().x).abs() < 1.
+                                && shape.clip_rect.contains(c.center)
+                                && (c.radius + c.stroke.width / 2. - 3.).abs() < 0.01 =>
+                        {
+                            Some(c)
+                        }
+                        _ => None,
+                    })
+                    .expect("keyframe dot below the letter");
+                let top = dot.center.y - dot.radius - dot.stroke.width / 2.;
+                assert!(
+                    ink.bottom() <= top + 0.01,
+                    "{density:?}: action letter {ink:?} crosses marker at {top}"
+                );
+                assert_eq!(
+                    idx > playhead,
+                    text.fallback_color == palette.timeline_marker_inverse
+                );
+                markers += 1;
+            }
+            assert_eq!(markers, 2, "{density:?}: filled and blank scripted keys");
+        }
+    }
+    editor.set_density(&ctx, DensityPref::Comfortable);
+}
+
+#[test]
 fn layer_labels_and_keys_share_exact_rows_after_vertical_scroll() {
     for theme in [ThemeMode::Light, ThemeMode::Dark] {
         let ctx = egui::Context::default();
