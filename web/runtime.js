@@ -2717,6 +2717,7 @@
         const swfClassMeta=new WeakMap();
         const swfSlotNames=new WeakMap();
         const swfAnonSlots=new WeakMap();
+        const swfAllowedHostCtors=new WeakSet();
         const hardenSwfCallable=(fn,proto=null)=>{
           Object.defineProperty(fn,'constructor',{value:undefined,writable:false,configurable:false,enumerable:false});
           Object.setPrototypeOf(fn,proto);
@@ -2832,6 +2833,7 @@
         },null);
         const __nfSwfKeys=hardenSwfCallable(obj=>{
           if(obj==null||(typeof obj!=='object'&&typeof obj!=='function'))return [];
+          if(xmlHost?.is?.(obj)){try{return [...xmlHost.enumerate(obj,false,true)];}catch(_){return [];}}
           if(references.has(obj))return (legacyGlobals?.enumerateKeys?.(obj)||[]).filter(k=>!isAlwaysBlockedSwfProp(k)&&k!=='prototype');
           const seen=new Set(),out=[];
           for(let cur=obj,depth=0;cur&&!isProtectedHostProto(cur)&&depth<32;cur=Object.getPrototypeOf(cur),depth++){
@@ -2965,10 +2967,16 @@
             const ret=sanitizeSwfValue(Reflect.apply(ctor,inst,args));
             return (ret!==null&&(typeof ret==='object'||typeof ret==='function'))?ret:inst;
           }
+          if(swfAllowedHostCtors.has(ctor)||(typeof currentBuiltins==='object'&&currentBuiltins?.__nfNativeClassName?.(ctor))){
+            return sanitizeSwfValue(Reflect.construct(ctor,toBoundedSwfArgs(args)));
+          }
           return {};
         },null);
         const __nfSwfInstanceOf=hardenSwfCallable((val,ctorOrName)=>{
           if(ctorOrName==null)return false;
+          if(typeof ctorOrName==='function'&&typeof ctorOrName.__nfIs==='function'){
+            try{if(ctorOrName.__nfIs(val))return true;}catch(_){}
+          }
           const typeName=typeof ctorOrName==='string'?ctorOrName:(typeof ctorOrName==='function'?(swfClassMeta.get(ctorOrName)?.shortName||''):'');
           if(typeName==='*'||typeName==='Any')return true;
           if(val===null||val===undefined)return false;
@@ -3147,6 +3155,27 @@
           getBuiltin:qname=>{try{return program?.type?.(qname);}catch(_){return as3MediaEventsHost?.builtins?.[qname]||as3NetSysHost?.builtins?.[qname]||fte3dHost?.builtins?.[qname]||null;}},
           inspectSwfBytes:bytes=>fte3dHost?fte3dHost.inspectSwfBytes(bytes):null,
           decodeSwfBundle:bytes=>typeof wasm?.decode_swf_bundle_json==='function'?JSON.parse(wasm.decode_swf_bundle_json(bytes)):null,
+          getRootSwfBytes:()=>{
+            try{
+              const payloadObj={
+                project:typeof project!=='undefined'?project:null,
+                program:typeof bundle!=='undefined'&&bundle?.program?bundle.program:null,
+                scripts:typeof bundle!=='undefined'&&Array.isArray(bundle?.scripts)?bundle.scripts:(typeof scripts!=='undefined'&&Array.isArray(scripts)?scripts:[]),
+              };
+              const jsonBytes=new TextEncoder().encode('NFWK'+JSON.stringify(payloadObj));
+              const totalLen=8+5+6+jsonBytes.length+2;
+              const out=new Uint8Array(totalLen);
+              out[0]=0x46;out[1]=0x57;out[2]=0x53;out[3]=12;
+              out[4]=totalLen&0xff;out[5]=(totalLen>>>8)&0xff;out[6]=(totalLen>>>16)&0xff;out[7]=(totalLen>>>24)&0xff;
+              out[8]=0x00;out[9]=0x00;out[10]=24;out[11]=0x01;out[12]=0x00;
+              const tagHdr=(1021<<6)|0x3f;
+              out[13]=tagHdr&0xff;out[14]=(tagHdr>>>8)&0xff;
+              const plen=jsonBytes.length;
+              out[15]=plen&0xff;out[16]=(plen>>>8)&0xff;out[17]=(plen>>>16)&0xff;out[18]=(plen>>>24)&0xff;
+              out.set(jsonBytes,19);
+              return out;
+            }catch(_){return null;}
+          },
           getFrameRate:()=>runtimeFrameRate,getRootDisplay:()=>proxyFor([]),
           getStageSize:()=>{const [w,h]=logicalSize();return {width:w,height:h};},
           mountPublishedBundle:(record,childBundle,childUrl='',isCurrent)=>{
@@ -3227,6 +3256,33 @@
             const swfEnv=Object.create(null);
             swfEnv.loaderRecord=record;
             swfEnv.prefix=mountedPrefix;
+            const targetAppDomain=record?.info?record.info.applicationDomain:null;
+            swfEnv.applicationDomain=targetAppDomain;
+            swfEnv.byteArrayCtor=binaryHost?.ByteArray||null;
+            swfEnv.appDomainCtor=as3NetSysHost?.builtins?.['flash.system.ApplicationDomain']||null;
+            for(const hc of [binaryHost?.ByteArray,xmlHost?.XML,xmlHost?.XMLList,xmlHost?.Namespace,xmlHost?.QName,swfEnv.appDomainCtor]){
+              if(typeof hc==='function')swfAllowedHostCtors.add(hc);
+            }
+            if(program?.classes){
+              for(const pctor of Object.values(program.classes)){
+                if(typeof pctor==='function'&&!blockedSwfCallables.has(pctor))swfAllowedHostCtors.add(pctor);
+              }
+            }
+            let childProgram=program;
+            if(childBundle.program?.code&&typeof currentBuiltins==='object'&&currentBuiltins){
+              try{
+                childProgram=(typeof compileProgramUnit==='function'?compileProgramUnit(childBundle.program):new Function('__nfBuiltins',childBundle.program.code+'\n//# sourceURL='+(childBundle.program.source_url||'neoflash-child-project.js')))(currentBuiltins);
+                if(childProgram?.classes){
+                  for(const [cq,cctor] of Object.entries(childProgram.classes)){
+                    if(typeof cctor!=='function')continue;
+                    swfAllowedHostCtors.add(cctor);
+                    if(targetAppDomain?._registerDefinition?.(cq,cctor)!==false){
+                      if(record?.info)loaderHost?.registerDefinition?.(cctor,record.info);
+                    }
+                  }
+                }
+              }catch(_){}
+            }
             const childHasSymbolClasses=Boolean(childBundle.project?.symbols?.some(s=>s.class_name));
             const cleanEntry={prefix:mountedPrefix,targetKey:contentTargetKey,resourcePaths:addedPaths,resourceIds:addedIds.length?addedIds:remappedResources.map(r=>r.id),scriptKeys,swfEnv,hasSymbolClasses:childHasSymbolClasses};
             if(cleanEntry.prefix)mountedByPrefix.set(cleanEntry.prefix,cleanEntry);
@@ -3235,13 +3291,25 @@
             for(const unit of childBundle.scripts||[]){
               if(unit.location==='avm2-abc-init'){
                 const initFn=compileDynamicBundleScript(unit,swfEnv);
-                initFn.call(initReceiver,null,initReceiver,initReceiver._parent,trace,initReceiver.play,initReceiver.stop,initReceiver.gotoAndPlay,initReceiver.gotoAndStop,initReceiver.nextFrame,initReceiver.prevFrame,as2.method,as2.value,program,display,legacyGlobals,xmlHost);
+                initFn.call(initReceiver,null,initReceiver,initReceiver._parent,trace,initReceiver.play,initReceiver.stop,initReceiver.gotoAndPlay,initReceiver.gotoAndStop,initReceiver.nextFrame,initReceiver.prevFrame,as2.method,as2.value,childProgram,display,legacyGlobals,xmlHost);
                 continue;
               }
               const item=unit.script?unit:{...unit,language:unit.language,source:unit.source};
               const k=sourceKey(item.script||item);
               functions.set(k,{fn:compileDynamicBundleScript(unit,swfEnv),location:unit.location||'published-bundle',prefix:mountedPrefix});
               scriptKeys.push(k);
+            }
+            if(swfEnv.classes&&targetAppDomain){
+              const seenEntries=new Set();
+              for(const [ckey,centry] of Object.entries(swfEnv.classes)){
+                if(!centry||typeof centry.ctor!=='function'||seenEntries.has(centry))continue;
+                const qn=centry.spec?.qname||ckey;
+                seenEntries.add(centry);
+                swfAllowedHostCtors.add(centry.ctor);
+                if(targetAppDomain._registerDefinition?.(qn,centry.ctor)!==false){
+                  if(record?.info)loaderHost?.registerDefinition?.(centry.ctor,record.info);
+                }
+              }
             }
             if(Array.isArray(childBundle.warnings)&&childBundle.warnings.length){
               const prevSuppress=global.__neoflashSuppressConsoleRelay;
@@ -3318,7 +3386,7 @@
         airHost=global.NeoFlashAIR.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,net:netHost,getXML:()=>xmlHost?.XML||null,getStage:()=>stageHost?.stage||null,getDisplay:()=>display||null,getBitmap:()=>bitmapHost||null,getLoader:()=>loaderHost||null,getViewportSize:logicalSize,project:typeof project==='undefined'?null:project,afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(global.NeoFlashAS3NetSys&&typeof wasm?.As3NetSysKernel==='function'){
-        as3NetSysHost=global.NeoFlashAS3NetSys.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,amf:amfHost,net:netHost,video:videoHost,storage:storageHost,external:externalHost,xml:xmlHost,display,geometry:geometryHost,getBitmap:()=>bitmapHost,getAir:()=>airHost,getBuiltins:()=>currentBuiltins,getProgram:()=>program,getViewportSize:logicalSize,afterEvent:afterTimerEvent,onError:netFailure});
+        as3NetSysHost=global.NeoFlashAS3NetSys.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},binary:binaryHost,amf:amfHost,net:netHost,video:videoHost,storage:storageHost,external:externalHost,xml:xmlHost,display,geometry:geometryHost,getBitmap:()=>bitmapHost,getAir:()=>airHost,getBuiltins:()=>currentBuiltins,getProgram:()=>program,getViewportSize:logicalSize,onTrace:text=>trace(text),afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(global.NeoFlashFte3D&&typeof wasm?.As3Fte3dKernel==='function'){
         fte3dHost=global.NeoFlashFte3D.create({wasm,player,events:{...global.NeoFlashEvents,...eventFamilies},eventFamilies,binary:binaryHost,geometry:geometryHost,geometry3d:geometry3dHost,getBitmap:()=>bitmapHost,getDisplay:()=>display,getStage:()=>stageHost?.stage||null,getStageContext:()=>typeof context!=='undefined'?context:null,getVideo:()=>videoHost,proxyForRef,referenceOf:target=>references.get(target),afterEvent:afterTimerEvent,onError:netFailure});
@@ -3332,7 +3400,7 @@
             else proxyFor([])?.gotoAndStop?.(target+1);
           }
         };
-        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:activeDoc,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:[Number(event?.clientX)||0,Number(event?.clientY)||0];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}drainSounds();drainVideos();if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
+        as3MediaEventsHost=global.NeoFlashAS3MediaEvents.create({wasm,events:{...global.NeoFlashEvents,...eventFamilies},eventHub,binary:binaryHost,geometry:geometryHost,net:netHost,getAudio:()=>audioHost,getStage:()=>stageHost?.stage||null,StageClass:global.NeoFlashStage?.Stage,LoaderInfoClass:loaderHost?.LoaderInfo,getDRMContentData:()=>as3NetSysHost?.builtins?.['flash.net.drm.DRMContentData']||null,airBuiltins:airHost?.builtins||null,canvas:typeof canvas==='undefined'?null:canvas,menuContainer:typeof viewport==='undefined'?null:viewport,document:activeDoc,hitTest:event=>{if(typeof canvas==='undefined')return stageHost?.stage||null;const h=hitAt(event,true);return h?.target||(h?(graphMode?proxyForRef(h):proxyFor(h)):stageHost?.stage||null);},coordinates:event=>{const p=stagePointFromEvent(event);return p?[p.x,p.y]:[Number(event?.clientX)||0,Number(event?.clientY)||0];},localPoint:(target,x,y)=>{if(!target||target===stageHost?.stage||!display)return[x,y];const p=display.convert(target,{x,y},false);return[p.x,p.y];},onBuiltInMenuAction:key=>{if(key==='play'){if(typeof player.set_playing==='function')player.set_playing(!player.is_playing());else if(typeof player.play==='function')player.play();}else if(key==='rewind'){if(typeof player.set_playing==='function')player.set_playing(false);else if(typeof player.stop==='function')player.stop();if(typeof player.seek==='function')player.seek(0);else rootProxy.seek(0);}else if(key==='forwardAndBack'){const next=Math.min(player.total_frames()-1,player.current_frame()+1);if(typeof player.seek==='function')player.seek(next);else rootProxy.seek(next);}drainSounds();drainVideos();if(typeof context!=='undefined')render();},getAccessibilityActive:()=>Boolean(typeof semanticLayer!=='undefined'&&semanticLayer?.container),onAccessibilityUpdate:()=>updateAs2Accessibility(),afterEvent:afterTimerEvent,onError:netFailure});
       }
       if(textHost)legacyGlobals=Object.freeze({...legacyGlobals,TextFormat:textHost.As2TextFormat||textHost.TextFormat});
       if(as2TextHost){

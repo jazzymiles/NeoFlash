@@ -11,12 +11,17 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use wasm_bindgen::prelude::*;
 
+mod media;
 mod tags_extra;
 #[cfg(test)]
 mod tests;
 mod timeline;
 mod vm;
 
+use self::media::{
+    SwfSoundAsset, SwfVideoStreamDef, decode_define_sound_tag, decode_define_video_stream_tag,
+    decode_video_frame_tag, finalize_video_streams,
+};
 use self::tags_extra::{SwfMorphRecord, decode_button_tag, decode_morph_shape_tag};
 use self::timeline::{
     build_timeline_from_tags, decode_edit_text_tag, decode_export_assets_tag, decode_font_name_tag,
@@ -409,6 +414,9 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
         char_symbols: HashMap::new(),
         char_edit_texts: HashMap::new(),
         char_bitmaps: HashMap::new(),
+        char_sounds: HashMap::new(),
+        char_videos: HashMap::new(),
+        video_streams: BTreeMap::new(),
         char_morphs: HashMap::new(),
         morph_ratio_symbols: HashMap::new(),
         char_button_scripts: HashMap::new(),
@@ -427,6 +435,32 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
     };
 
     let tags = parse_tag_slice(&body[reader.byte_pos()..])?;
+    for &(tag_code, tag_bytes) in &tags {
+        match tag_code {
+            14 => {
+                let _ = decode_define_sound_tag(&mut ctx, tag_bytes);
+            }
+            60 => decode_define_video_stream_tag(&mut ctx, tag_bytes),
+            61 => decode_video_frame_tag(&mut ctx, tag_bytes),
+            39 if tag_bytes.len() >= 4 => {
+                if let Ok(sub_tags) = parse_tag_slice(&tag_bytes[4..]) {
+                    for &(sc, spay) in &sub_tags {
+                        if sc == 60 {
+                            decode_define_video_stream_tag(&mut ctx, spay);
+                        } else if sc == 61 {
+                            decode_video_frame_tag(&mut ctx, spay);
+                        }
+                    }
+                }
+            }
+            76 => {
+                let _ = decode_symbol_class_tag(&mut ctx, tag_bytes);
+            }
+            _ => {}
+        }
+    }
+    finalize_video_streams(&mut ctx, frame_rate);
+
     for &(tag_code, tag_bytes) in &tags {
         match tag_code {
             69 if !tag_bytes.is_empty() => {
@@ -478,9 +512,6 @@ pub fn decode_swf_bundle(bytes: &[u8]) -> Result<DecodedSwfBundle, String> {
             }
             56 => {
                 let _ = decode_export_assets_tag(&mut ctx, tag_bytes);
-            }
-            76 => {
-                let _ = decode_symbol_class_tag(&mut ctx, tag_bytes);
             }
             72 | 82 => {
                 ctx.saw_do_abc = true;
@@ -599,6 +630,9 @@ pub(super) struct SwfDecodeCtx {
     pub(super) char_symbols: HashMap<u16, String>,
     pub(super) char_edit_texts: HashMap<u16, (ElementKind, f64, f64, f64)>,
     pub(super) char_bitmaps: HashMap<u16, (String, u32, u32)>,
+    pub(super) char_sounds: HashMap<u16, SwfSoundAsset>,
+    pub(super) char_videos: HashMap<u16, (f64, f64)>,
+    pub(super) video_streams: BTreeMap<u16, SwfVideoStreamDef>,
     pub(super) char_morphs: HashMap<u16, SwfMorphRecord>,
     pub(super) morph_ratio_symbols: HashMap<(u16, u16), String>,
     pub(super) char_button_scripts: HashMap<u16, String>,
@@ -1285,7 +1319,7 @@ fn crc32_png(tag: &[u8], payload: &[u8]) -> u32 {
     !crc
 }
 
-fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+pub(super) fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
     let w = width as usize;
     let h = height as usize;
     if w == 0 || h == 0 || rgba.len() != w * h * 4 {

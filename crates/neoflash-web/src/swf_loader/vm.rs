@@ -1128,6 +1128,8 @@ fn emit_avm1_define_function(
 struct AbcMultiname {
     name: String,
     runtime_name: bool,
+    runtime_ns: bool,
+    is_attr: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1454,16 +1456,19 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
     let mut multinames = vec![AbcMultiname {
         name: String::new(),
         runtime_name: false,
+        runtime_ns: false,
+        is_attr: false,
     }];
     for _ in 1..mn_count.min(32768) {
         let kind = r.read_u8()?;
+        let is_attr = matches!(kind, 0x0D | 0x0E | 0x10 | 0x12 | 0x1C);
         match kind {
             0x07 | 0x0D => {
                 let ns_idx = r.read_u30()? as usize;
                 let name_idx = r.read_u30()? as usize;
                 let local = strings.get(name_idx).cloned().unwrap_or_default();
                 let pkg = ns_names.get(ns_idx).cloned().unwrap_or_default();
-                let full = if pkg.is_empty() {
+                let full = if pkg.is_empty() || is_attr {
                     local
                 } else {
                     format!("{pkg}.{local}")
@@ -1471,6 +1476,8 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
                 multinames.push(AbcMultiname {
                     name: full,
                     runtime_name: false,
+                    runtime_ns: false,
+                    is_attr,
                 });
             }
             0x0F | 0x10 => {
@@ -1478,12 +1485,16 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
                 multinames.push(AbcMultiname {
                     name: strings.get(name_idx).cloned().unwrap_or_default(),
                     runtime_name: false,
+                    runtime_ns: true,
+                    is_attr,
                 });
             }
             0x11 | 0x12 => {
                 multinames.push(AbcMultiname {
                     name: String::new(),
                     runtime_name: true,
+                    runtime_ns: true,
+                    is_attr,
                 });
             }
             0x09 | 0x0E => {
@@ -1492,6 +1503,8 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
                 multinames.push(AbcMultiname {
                     name: strings.get(name_idx).cloned().unwrap_or_default(),
                     runtime_name: false,
+                    runtime_ns: false,
+                    is_attr,
                 });
             }
             0x1B | 0x1C => {
@@ -1499,6 +1512,8 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
                 multinames.push(AbcMultiname {
                     name: String::new(),
                     runtime_name: true,
+                    runtime_ns: false,
+                    is_attr,
                 });
             }
             0x1D => {
@@ -1513,6 +1528,8 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
                 multinames.push(AbcMultiname {
                     name: base_name,
                     runtime_name: false,
+                    runtime_ns: false,
+                    is_attr: false,
                 });
             }
             _ => return Err("Unknown ABC multiname kind".into()),
@@ -1811,6 +1828,12 @@ pub(super) fn apply_abc_scripts(
                         sprite_frame_attachments.push((sym_id.clone(), f_idx, cls_name.clone()));
                     }
                 }
+            }
+        } else if found_abc.is_some()
+            && (ctx.char_sounds.contains_key(&cid) || ctx.char_bitmaps.contains_key(&cid))
+        {
+            if let Some((abc_idx, cls_idx)) = found_abc {
+                bound_classes_by_abc[abc_idx].insert(cls_idx);
             }
         } else {
             ctx.warn(format!(
@@ -2124,9 +2147,26 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     TextField: 'TextField', Bitmap: 'Bitmap', Stage: 'Stage',\n\
     DisplayObjectContainer: 'DisplayObjectContainer', InteractiveObject: 'InteractiveObject',\n\
     DisplayObject: 'DisplayObject', EventDispatcher: 'EventDispatcher', Function: 'Function',\n\
+    XML: __nfXML?.XML ?? null, XMLList: __nfXML?.XMLList ?? null,\n\
+    Namespace: __nfXML?.Namespace ?? null, QName: __nfXML?.QName ?? null,\n\
+    ByteArray: __nfSwfEnv.byteArrayCtor ?? null, ApplicationDomain: __nfSwfEnv.appDomainCtor ?? null,\n\
     fscommand: __nfSwfFn((c, a) => __nfSwfGetURL(this, 'FSCommand:' + String(c ?? ''), String(a ?? ''), 0)),\n\
     navigateToURL: __nfSwfFn((req, tgt) => { const u = req && typeof req === 'object' ? __nfSwfGet(req, 'url') : req; __nfSwfGetURL(this, u, tgt, 0); }),\n\
   });\n\
+  __nfSwfEnv.resolveDomainDef = (qname, sname) => {\n\
+    const dom = __nfSwfEnv.applicationDomain;\n\
+    if (!dom || typeof dom.hasDefinition !== 'function') return undefined;\n\
+    if (qname && dom.hasDefinition(qname)) return dom.getDefinition(qname);\n\
+    if (sname && dom.hasDefinition(sname)) return dom.getDefinition(sname);\n\
+    return undefined;\n\
+  };\n\
+  __nfSwfEnv.domMem = () => {\n\
+    const dom = __nfSwfEnv.applicationDomain || __nfSwfEnv.appDomainCtor?.currentDomain;\n\
+    if (dom && typeof dom.li8 === 'function') return dom;\n\
+    const err = new RangeError('RangeError: Error #1506: The specified range is invalid.');\n\
+    err.errorID = 1506;\n\
+    throw err;\n\
+  };\n\
   __nfSwfEnv.nextInstanceName = () => 'instance' + (++__nfSwfEnv.nextInstId);\n\
   __nfSwfEnv.getSymInfo = proxy => {\n\
     if (!proxy || !__nfDisplay?.alive?.(proxy)) return null;\n\
@@ -2178,6 +2218,7 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     if (typeof v === 'number' || typeof v === 'boolean') return String(v);\n\
     if (Array.isArray(v)) return v.map(x => x == null ? '' : __nfSwfEnv.toStr(x)).join(',');\n\
     if (typeof v === 'object' || typeof v === 'function') {\n\
+      if (__nfXML?.is?.(v)) return String(v);\n\
       if (typeof v.__nfEvFmt === 'function') return v.__nfEvFmt();\n\
       const ent = __nfSwfEnv.entryOf.get(v);\n\
       if (ent && ent.hasCustomToString) return String(__nfSwfCall(v, 'toString', []));\n\
@@ -2198,8 +2239,12 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     }\n\
     return String(v);\n\
   };\n\
-  __nfSwfEnv.avm2Get = (obj, prop) => {\n\
+  __nfSwfEnv.avm2Get = (obj, prop, isAttr = false, ns = undefined) => {\n\
     if (obj == null) return undefined;\n\
+    if (__nfXML?.is?.(obj)) {\n\
+      const sel = (isAttr || ns !== undefined) ? __nfXML.selector(String(prop ?? ''), ns, Boolean(isAttr), false) : prop;\n\
+      return __nfXML.ref(obj, sel, true).get();\n\
+    }\n\
     const k = String(prop);\n\
     if (k === 'stage' && __nfDisplay?.alive?.(obj)) {\n\
       return __nfDisplay.descriptor(obj)?.on_stage === false ? null : __nfSwfEnv.getStageProxy();\n\
@@ -2221,6 +2266,10 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
       }\n\
     }\n\
     const raw = __nfSwfGet(obj, k);\n\
+    if (raw === undefined && obj === __nfSwfEnv.globals) {\n\
+      const domDef = __nfSwfEnv.resolveDomainDef(k, k.split('.').pop());\n\
+      if (domDef !== undefined) return domDef;\n\
+    }\n\
     if (__nfSwfEnv.isUnconstructedChild(raw)) return undefined;\n\
     return raw;\n\
   };\n\
@@ -2241,8 +2290,12 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     }\n\
     throw new TypeError('Cannot convert object to primitive value');\n\
   };\n\
-  __nfSwfEnv.avm2Set = (obj, prop, val) => {\n\
+  __nfSwfEnv.avm2Set = (obj, prop, val, isAttr = false, ns = undefined) => {\n\
     if (obj == null) return val;\n\
+    if (__nfXML?.is?.(obj)) {\n\
+      const sel = (isAttr || ns !== undefined) ? __nfXML.selector(String(prop ?? ''), ns, Boolean(isAttr), false) : prop;\n\
+      return __nfXML.ref(obj, sel, true).set(val);\n\
+    }\n\
     const k = String(prop);\n\
     const ent = (typeof obj === 'object' || typeof obj === 'function') ? __nfSwfEnv.entryOf.get(obj) : null;\n\
     if (ent) {\n\
@@ -2251,6 +2304,20 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     }\n\
     return __nfSwfSet(obj, k, val);\n\
   };\n\
+  __nfSwfEnv.avm2Delete = (obj, prop, isAttr = false, ns = undefined) => {\n\
+    if (obj == null) return false;\n\
+    if (__nfXML?.is?.(obj)) {\n\
+      const sel = (isAttr || ns !== undefined) ? __nfXML.selector(String(prop ?? ''), ns, Boolean(isAttr), false) : prop;\n\
+      return __nfXML.ref(obj, sel, true).delete();\n\
+    }\n\
+    return __nfSwfDelete(obj, prop);\n\
+  };\n\
+  __nfSwfEnv.avm2Descendants = (obj, prop, isAttr = false, ns = undefined) => {\n\
+    if (obj == null || !__nfXML) return undefined;\n\
+    const sel = __nfXML.selector(String(prop ?? '*'), ns, Boolean(isAttr), true);\n\
+    return __nfXML.ref(obj, sel, true).get();\n\
+  };\n\
+  __nfSwfEnv.avm2Eq = (a, b) => (__nfXML && (__nfXML.is(a) || __nfXML.is(b))) ? __nfXML.equals(a, b) : (a == b);\n\
   const __avm2LifecycleTypes = new Set(['added', 'addedToStage', 'removed', 'removedFromStage', 'frameConstructed', 'exitFrame', 'enterFrame']);\n\
   __nfSwfEnv.addAvm2Listener = (target, type, fn, useCapture = false) => {\n\
     if (!target || typeof fn !== 'function') return;\n\
@@ -2572,6 +2639,7 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
       }\n\
     }\n\
     const recv = isGlobalRecv ? curThis : rawRecv;\n\
+    if (__nfXML?.is?.(recv)) return __nfXML.method(recv, m, true)(...args);\n\
     const r = __nfSwfCall(recv, m, args);\n\
     if ((m === 'getChildAt' || m === 'getChildByName') && __nfSwfEnv.isUnconstructedChild(r)) return null;\n\
     return r;\n\
@@ -2868,8 +2936,10 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
   __abc.classesByName[spec.shortName] = entry;\n\
   __nfSwfEnv.classes[spec.qname] = entry;\n\
   __nfSwfEnv.classes[spec.shortName] = entry;\n\
-  __nfSwfEnv.globals[spec.qname] = ctor;\n\
-  __nfSwfEnv.globals[spec.shortName] = ctor;\n\
+  const existingDomCtor = (spec.qname && (!__nfSwfEnv.rootDocTarget || __nfSwfEnv.rootDocTarget.clsName !== spec.qname)) ? __nfSwfEnv.resolveDomainDef(spec.qname, null) : undefined;\n\
+  const effectiveCtor = typeof existingDomCtor === 'function' ? existingDomCtor : ctor;\n\
+  __nfSwfEnv.globals[spec.qname] = effectiveCtor;\n\
+  __nfSwfEnv.globals[spec.shortName] = effectiveCtor;\n\
   for (const [mn, mid] of spec.instMethods) {\n\
     if (mn === 'valueOf') entry.hasCustomValueOf = true;\n\
     if (mn === 'toString') entry.hasCustomToString = true;\n\
@@ -2878,11 +2948,19 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
   }\n\
   for (const [gn, gmid] of spec.instGetters) {\n\
     const gf = __abc.methods[gmid];\n\
-    if (gf) entry.getters[gn] = gf(entry.methodScopes, entry);\n\
+    if (gf) {\n\
+      const gfn = gf(entry.methodScopes, entry);\n\
+      entry.getters[gn] = gfn;\n\
+      try { Object.defineProperty(entry.proto, gn, { get() { return __nfSwfApply(gfn, this, []); }, set(v) { const sfn = entry.setters[gn]; if (sfn) __nfSwfApply(sfn, this, [v]); }, configurable: true }); } catch (_) {}\n\
+    }\n\
   }\n\
   for (const [sn, smid] of spec.instSetters) {\n\
     const sf = __abc.methods[smid];\n\
-    if (sf) entry.setters[sn] = sf(entry.methodScopes, entry);\n\
+    if (sf) {\n\
+      const sfn = sf(entry.methodScopes, entry);\n\
+      entry.setters[sn] = sfn;\n\
+      if (!entry.getters[sn]) { try { Object.defineProperty(entry.proto, sn, { set(v) { __nfSwfApply(sfn, this, [v]); }, configurable: true }); } catch (_) {} }\n\
+    }\n\
   }\n\
   const sEntry = { getters: Object.create(null), setters: Object.create(null) };\n\
   __nfSwfEnv.entryOf.set(ctor, sEntry);\n\
@@ -2955,11 +3033,11 @@ fn decode_avm2_instructions(code: &[u8]) -> Result<Vec<Avm2Inst>, String> {
             0x24 | 0x65 | 0xF2 => Ok(vec![i64::from(r.read_u8()?)]),
             // 1 u30 truncated to signed i16 (pushshort)
             0x25 => Ok(vec![i64::from(r.read_u30()? as i16)]),
-            // 1 u30
+            // 1 u30 (note: 0x78 checkfilter has 0 operands in AVM2!)
             0x04 | 0x05 | 0x06 | 0x08 | 0x2C | 0x2D | 0x2E | 0x2F | 0x31 | 0x40 | 0x41 | 0x42
             | 0x49 | 0x53 | 0x55 | 0x56 | 0x58 | 0x59 | 0x5A | 0x5B | 0x5C | 0x5D | 0x5E | 0x5F
             | 0x60 | 0x61 | 0x62 | 0x63 | 0x66 | 0x67 | 0x68 | 0x6A | 0x6C | 0x6D | 0x6E | 0x6F
-            | 0x78 | 0x80 | 0x86 | 0x92 | 0x94 | 0xB2 | 0xC2 | 0xC3 | 0xF0 | 0xF1 => {
+            | 0x80 | 0x86 | 0x92 | 0x94 | 0xB2 | 0xC2 | 0xC3 | 0xF0 | 0xF1 => {
                 Ok(vec![i64::from(r.read_u30()?)])
             }
             // 2 u30
@@ -3106,10 +3184,16 @@ fn compile_avm2_method_factory(
       const __callHostGlobal = (n, a) => n === 'trace' ? trace(...a.map(__nfSwfEnv.toStr)) : undefined;\n\
       const __isHostBuiltin = n => n === 'trace';\n\
       const __isClipCtrl = n => n === 'stop' || n === 'play' || n === 'gotoAndStop' || n === 'gotoAndPlay' || n === 'nextFrame' || n === 'prevFrame' || n === 'addFrameScript';\n\
-      const __findScope = (qname, sname) => {{\n\
+      const __findScope = (qname, sname, isAttr = false, ns = undefined) => {{\n\
         for (let __i = __sc.length - 1; __i >= 0; __i--) {{\n\
           const __s = __sc[__i];\n\
-          if (__s != null && (typeof __s === 'object' || typeof __s === 'function') && __nfSwfHas(__s, sname)) return __s;\n\
+          if (__s == null || (typeof __s !== 'object' && typeof __s !== 'function')) continue;\n\
+          if (__nfXML?.is?.(__s)) {{\n\
+            const __sel = (isAttr || ns !== undefined) ? __nfXML.selector(String(sname ?? ''), ns, Boolean(isAttr), false) : sname;\n\
+            if (__nfXML.ref(__s, __sel, true).has()) return __s;\n\
+            continue;\n\
+          }}\n\
+          if (__nfSwfHas(__s, sname)) return __s;\n\
         }}\n\
         for (let __i = __outerSc.length - 1; __i >= 0; __i--) {{\n\
           const __s = __outerSc[__i];\n\
@@ -3120,7 +3204,8 @@ fn compile_avm2_method_factory(
         }}\n\
         if (qname && Object.hasOwn(__nfSwfEnv.globals, qname)) return __nfSwfEnv.globals;\n\
         if (Object.hasOwn(__nfSwfEnv.globals, sname)) return __nfSwfEnv.globals;\n\
-        if (Object.hasOwn(__nfSwfEnv.builtins, sname)) return __nfSwfEnv.builtins;\n\
+        if (Object.hasOwn(__nfSwfEnv.builtins, sname) && __nfSwfEnv.builtins[sname] != null) return __nfSwfEnv.builtins;\n\
+        if (__nfSwfEnv.resolveDomainDef(qname, sname) !== undefined) return __nfSwfEnv.globals;\n\
         if (__isHostBuiltin(sname) || __isClipCtrl(sname)) return this ?? __nfSwfEnv.globals;\n\
         return __sc[0] ?? this ?? __nfSwfEnv.globals;\n\
       }};\n\
@@ -3134,18 +3219,24 @@ fn compile_avm2_method_factory(
     for (idx, inst) in insts.iter().enumerate() {
         js.push_str(&format!("    case {idx}: {{\n"));
         let next_idx = idx + 1;
-        let mn_full_short = |arg_i: usize| -> (String, String, bool) {
+        let mn_info = |arg_i: usize| -> (String, String, bool, bool, bool) {
             let mi = inst.args.get(arg_i).copied().unwrap_or(0) as usize;
             abc.multinames.get(mi).map_or_else(
-                || (String::new(), String::new(), false),
+                || (String::new(), String::new(), false, false, false),
                 |m| {
                     (
                         m.name.clone(),
                         short_multiname(&m.name).to_owned(),
                         m.runtime_name,
+                        m.runtime_ns,
+                        m.is_attr,
                     )
                 },
             )
+        };
+        let mn_full_short = |arg_i: usize| -> (String, String, bool) {
+            let (q, s, rn, _, _) = mn_info(arg_i);
+            (q, s, rn)
         };
         let branch_target = |rel_arg: i64| -> usize {
             let next_byte_off = insts.get(idx + 1).map_or(code.len(), |n| n.offset);
@@ -3291,21 +3382,71 @@ fn compile_avm2_method_factory(
             }
             0x4A => {
                 // constructprop u30 mn, u30 argc
-                let (qname, sname, rt) = mn_full_short(0);
+                let (qname, sname, rt, rt_ns, _) = mn_info(0);
                 let argc = inst.args[1].clamp(0, MAX_SWF_OPCODE_ARITY);
                 js.push_str(&format!(
                     "      {{ const __args = new Array({argc}); for (let __i = {argc} - 1; __i >= 0; __i--) __args[__i] = __st.pop();\n"
                 ));
                 if rt {
-                    js.push_str(
-                        "        const __k = String(__st.pop() ?? ''), __o = __st.pop(); __st.push(__nfSwfNew(__o, __k, __args));\n      }\n",
-                    );
+                    let pop_ns = if rt_ns { " __st.pop();" } else { "" };
+                    js.push_str(&format!(
+                        "        const __k = String(__st.pop() ?? '');{pop_ns} const __o = __st.pop(); __st.push(__nfSwfNew(__o, __k, __args));\n      }}\n"
+                    ));
                 } else {
+                    let pop_ns = if rt_ns { "__st.pop(); " } else { "" };
                     let qlit = js_string_literal(&qname);
                     let slit = js_string_literal(&sname);
                     js.push_str(&format!(
-                        "        const __o = __st.pop(); const __ctor = (__o && __nfSwfGet(__o, {qlit})) ?? (__o && __nfSwfGet(__o, {slit})) ?? __nfSwfEnv.globals[{qlit}] ?? __nfSwfEnv.globals[{slit}] ?? __nfSwfEnv.builtins[{slit}]; __st.push(__nfSwfNew(__ctor, undefined, __args));\n      }}\n"
+                        "        {pop_ns}const __o = __st.pop(); const __ctor = (__o && __nfSwfGet(__o, {qlit})) ?? (__o && __nfSwfGet(__o, {slit})) ?? __nfSwfEnv.globals[{qlit}] ?? __nfSwfEnv.globals[{slit}] ?? __nfSwfEnv.builtins[{slit}] ?? __nfSwfEnv.resolveDomainDef({qlit}, {slit}); __st.push(__nfSwfNew(__ctor, undefined, __args));\n      }}\n"
                     ));
+                }
+            }
+            0x06 => {
+                // dxns u30 str_idx
+                let uri = js_string_literal(
+                    abc.strings
+                        .get(inst.args[0] as usize)
+                        .map_or("", String::as_str),
+                );
+                js.push_str(&format!(
+                    "      if (__nfXML?.setDefaultNamespace) __nfXML.setDefaultNamespace({uri});\n"
+                ));
+            }
+            0x07 => {
+                // dxnslate
+                js.push_str("      { const __ns = __st.pop(); if (__nfXML?.setDefaultNamespace) __nfXML.setDefaultNamespace(String(__ns ?? '')); }\n");
+            }
+            0x35 => js.push_str("      __st.push(__nfSwfEnv.domMem().li8(__st.pop()));\n"),
+            0x36 => js.push_str("      __st.push(__nfSwfEnv.domMem().li16(__st.pop()));\n"),
+            0x37 => js.push_str("      __st.push(__nfSwfEnv.domMem().li32(__st.pop()));\n"),
+            0x38 => js.push_str("      __st.push(__nfSwfEnv.domMem().lf32(__st.pop()));\n"),
+            0x39 => js.push_str("      __st.push(__nfSwfEnv.domMem().lf64(__st.pop()));\n"),
+            0x3A => js.push_str("      { const __a = __st.pop(), __v = __st.pop(); __nfSwfEnv.domMem().si8(__v, __a); }\n"),
+            0x3B => js.push_str("      { const __a = __st.pop(), __v = __st.pop(); __nfSwfEnv.domMem().si16(__v, __a); }\n"),
+            0x3C => js.push_str("      { const __a = __st.pop(), __v = __st.pop(); __nfSwfEnv.domMem().si32(__v, __a); }\n"),
+            0x3D => js.push_str("      { const __a = __st.pop(), __v = __st.pop(); __nfSwfEnv.domMem().sf32(__v, __a); }\n"),
+            0x3E => js.push_str("      { const __a = __st.pop(), __v = __st.pop(); __nfSwfEnv.domMem().sf64(__v, __a); }\n"),
+            0x50 => js.push_str("      __st.push((Number(__st.pop()) & 1) ? -1 : 0);\n"),
+            0x51 => js.push_str("      __st.push(((Number(__st.pop()) & 0xff) << 24) >> 24);\n"),
+            0x52 => js.push_str("      __st.push(((Number(__st.pop()) & 0xffff) << 16) >> 16);\n"),
+            0x59 => {
+                // getdescendants u30 mn
+                let (_, sname, rt, rt_ns, is_attr) = mn_info(0);
+                let attr_lit = is_attr.to_string();
+                let slit = js_string_literal(&sname);
+                match (rt, rt_ns) {
+                    (true, true) => js.push_str(&format!(
+                        "      {{ const __k = __st.pop(), __ns = __st.pop(), __o = __st.pop(); __st.push(__nfSwfEnv.avm2Descendants(__o, __k, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (true, false) => js.push_str(&format!(
+                        "      {{ const __k = __st.pop(), __o = __st.pop(); __st.push(__nfSwfEnv.avm2Descendants(__o, __k, {attr_lit}, undefined)); }}\n"
+                    )),
+                    (false, true) => js.push_str(&format!(
+                        "      {{ const __ns = __st.pop(), __o = __st.pop(); __st.push(__nfSwfEnv.avm2Descendants(__o, {slit}, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (false, false) => js.push_str(&format!(
+                        "      {{ const __o = __st.pop(); __st.push(__nfSwfEnv.avm2Descendants(__o, {slit}, {attr_lit}, undefined)); }}\n"
+                    )),
                 }
             }
             0x55 => {
@@ -3324,55 +3465,90 @@ fn compile_avm2_method_factory(
                 js.push_str("      __st.push(__nfSwfEnv.globals);\n");
             }
             0x5D..=0x5F => {
-                let (qname, sname, rt) = mn_full_short(0);
-                if rt {
-                    js.push_str("      { const __k = String(__st.pop() ?? ''); __st.push(__findScope('', __k)); }\n");
-                } else {
-                    let qlit = js_string_literal(&qname);
-                    let slit = js_string_literal(&sname);
-                    js.push_str(&format!("      __st.push(__findScope({qlit}, {slit}));\n"));
+                let (qname, sname, rt, rt_ns, is_attr) = mn_info(0);
+                let attr_lit = is_attr.to_string();
+                let qlit = js_string_literal(&qname);
+                let slit = js_string_literal(&sname);
+                match (rt, rt_ns) {
+                    (true, true) => js.push_str(&format!(
+                        "      {{ const __k = String(__st.pop() ?? ''), __ns = __st.pop(); __st.push(__findScope('', __k, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (true, false) => js.push_str(&format!(
+                        "      {{ const __k = String(__st.pop() ?? ''); __st.push(__findScope('', __k, {attr_lit}, undefined)); }}\n"
+                    )),
+                    (false, true) => js.push_str(&format!(
+                        "      {{ const __ns = __st.pop(); __st.push(__findScope({qlit}, {slit}, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (false, false) => js.push_str(&format!(
+                        "      __st.push(__findScope({qlit}, {slit}, {attr_lit}, undefined));\n"
+                    )),
                 }
             }
             0x60 => {
-                let (qname, sname, _) = mn_full_short(0);
+                let (qname, sname, _, _, is_attr) = mn_info(0);
+                let attr_lit = is_attr.to_string();
                 let qlit = js_string_literal(&qname);
                 let slit = js_string_literal(&sname);
                 js.push_str(&format!(
-                    "      {{ const __so = __findScope({qlit}, {slit}); const __v = ({qlit} && __nfSwfEnv.avm2Get(__so, {qlit}) !== undefined) ? __nfSwfEnv.avm2Get(__so, {qlit}) : __nfSwfEnv.avm2Get(__so, {slit}); __st.push(typeof __v === 'function' && __so && __so !== __nfSwfEnv.globals && __so !== __nfSwfEnv.builtins && __so !== __nfSwfEnv.mathObj ? __nfSwfFn(function(...__ba) {{ return __nfSwfApply(__v, __so, __ba); }}) : __v); }}\n"
+                    "      {{ const __so = __findScope({qlit}, {slit}, {attr_lit}, undefined); const __v = ({qlit} && !{attr_lit} && __nfSwfEnv.avm2Get(__so, {qlit}, false, undefined) !== undefined) ? __nfSwfEnv.avm2Get(__so, {qlit}, false, undefined) : __nfSwfEnv.avm2Get(__so, {slit}, {attr_lit}, undefined); __st.push(typeof __v === 'function' && __so && __so !== __nfSwfEnv.globals && __so !== __nfSwfEnv.builtins && __so !== __nfSwfEnv.mathObj ? __nfSwfFn(function(...__ba) {{ return __nfSwfApply(__v, __so, __ba); }}) : __v); }}\n"
                 ));
             }
             0x66 => {
-                let (_, sname, rt) = mn_full_short(0);
-                if rt {
-                    js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, __k)); }\n");
-                } else {
-                    let name_lit = js_string_literal(&sname);
-                    js.push_str(&format!(
-                        "      {{ const __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, {name_lit})); }}\n"
-                    ));
+                let (_, sname, rt, rt_ns, is_attr) = mn_info(0);
+                let attr_lit = is_attr.to_string();
+                let name_lit = js_string_literal(&sname);
+                match (rt, rt_ns) {
+                    (true, true) => js.push_str(&format!(
+                        "      {{ const __k = __st.pop(), __ns = __st.pop(), __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, __k, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (true, false) => js.push_str(&format!(
+                        "      {{ const __k = __st.pop(), __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, __k, {attr_lit}, undefined)); }}\n"
+                    )),
+                    (false, true) => js.push_str(&format!(
+                        "      {{ const __ns = __st.pop(), __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, {name_lit}, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (false, false) => js.push_str(&format!(
+                        "      {{ const __o = __st.pop() ?? this; __st.push(__nfSwfEnv.avm2Get(__o, {name_lit}, {attr_lit}, undefined)); }}\n"
+                    )),
                 }
             }
             0x61 | 0x68 => {
-                let (qname, sname, rt) = mn_full_short(0);
-                if rt {
-                    js.push_str("      { const __v = __st.pop(), __k = String(__st.pop() ?? ''), __o = __st.pop() ?? this; __nfSwfEnv.avm2Set(__o, __k, __v); }\n");
-                } else {
-                    let qlit = js_string_literal(&qname);
-                    let slit = js_string_literal(&sname);
-                    js.push_str(&format!(
-                        "      {{ const __v = __st.pop(), __o = __st.pop() ?? this; if (__o === __nfSwfEnv.globals && {qlit}) __nfSwfSet(__o, {qlit}, __v); __nfSwfEnv.avm2Set(__o, {slit}, __v); }}\n"
-                    ));
+                let (qname, sname, rt, rt_ns, is_attr) = mn_info(0);
+                let attr_lit = is_attr.to_string();
+                let qlit = js_string_literal(&qname);
+                let slit = js_string_literal(&sname);
+                match (rt, rt_ns) {
+                    (true, true) => js.push_str(&format!(
+                        "      {{ const __v = __st.pop(), __k = __st.pop(), __ns = __st.pop(), __o = __st.pop() ?? this; __nfSwfEnv.avm2Set(__o, __k, __v, {attr_lit}, __ns); }}\n"
+                    )),
+                    (true, false) => js.push_str(&format!(
+                        "      {{ const __v = __st.pop(), __k = __st.pop(), __o = __st.pop() ?? this; __nfSwfEnv.avm2Set(__o, __k, __v, {attr_lit}, undefined); }}\n"
+                    )),
+                    (false, true) => js.push_str(&format!(
+                        "      {{ const __v = __st.pop(), __ns = __st.pop(), __o = __st.pop() ?? this; __nfSwfEnv.avm2Set(__o, {slit}, __v, {attr_lit}, __ns); }}\n"
+                    )),
+                    (false, false) => js.push_str(&format!(
+                        "      {{ const __v = __st.pop(), __o = __st.pop() ?? this; if (__o === __nfSwfEnv.globals && {qlit} && !{attr_lit}) __nfSwfSet(__o, {qlit}, __v); __nfSwfEnv.avm2Set(__o, {slit}, __v, {attr_lit}, undefined); }}\n"
+                    )),
                 }
             }
             0x6A => {
-                let (_, sname, rt) = mn_full_short(0);
-                if rt {
-                    js.push_str("      { const __k = String(__st.pop() ?? ''), __o = __st.pop(); __st.push(__nfSwfDelete(__o, __k)); }\n");
-                } else {
-                    let slit = js_string_literal(&sname);
-                    js.push_str(&format!(
-                        "      {{ const __o = __st.pop(); __st.push(__nfSwfDelete(__o, {slit})); }}\n"
-                    ));
+                let (_, sname, rt, rt_ns, is_attr) = mn_info(0);
+                let attr_lit = is_attr.to_string();
+                let slit = js_string_literal(&sname);
+                match (rt, rt_ns) {
+                    (true, true) => js.push_str(&format!(
+                        "      {{ const __k = __st.pop(), __ns = __st.pop(), __o = __st.pop(); __st.push(__nfSwfEnv.avm2Delete(__o, __k, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (true, false) => js.push_str(&format!(
+                        "      {{ const __k = __st.pop(), __o = __st.pop(); __st.push(__nfSwfEnv.avm2Delete(__o, __k, {attr_lit}, undefined)); }}\n"
+                    )),
+                    (false, true) => js.push_str(&format!(
+                        "      {{ const __ns = __st.pop(), __o = __st.pop(); __st.push(__nfSwfEnv.avm2Delete(__o, {slit}, {attr_lit}, __ns)); }}\n"
+                    )),
+                    (false, false) => js.push_str(&format!(
+                        "      {{ const __o = __st.pop(); __st.push(__nfSwfEnv.avm2Delete(__o, {slit}, {attr_lit}, undefined)); }}\n"
+                    )),
                 }
             }
             0x46 | 0x4C | 0x4F => {
@@ -3471,7 +3647,7 @@ fn compile_avm2_method_factory(
                 // nextvalue
                 js.push_str("      { const __ni = (Number(__st.pop()) | 0) - 1, __no = __st.pop(); const __ks = __no != null ? __nfSwfKeys(__no) : []; __st.push(__ks[__ni] !== undefined ? __nfSwfEnv.avm2Get(__no, __ks[__ni]) : undefined); }\n");
             }
-            0xA0 => js.push_str("      { const right = __st.pop(); const a = __nfSwfEnv.addOperand(__st.pop()), b = __nfSwfEnv.addOperand(right); __st.push(a + b); }\n"),
+            0xA0 => js.push_str("      { const right = __st.pop(), left = __st.pop(); if (__nfXML?.is?.(left) && __nfXML?.is?.(right)) { __st.push(__nfXML.concat(left, right)); } else { const a = __nfSwfEnv.addOperand(left), b = __nfSwfEnv.addOperand(right); __st.push(a + b); } }\n"),
             0xA1 => js.push_str("      { const __b = Number(__st.pop()), __a = Number(__st.pop()); __st.push(__a - __b); }\n"),
             0xA2 => js.push_str("      { const __b = Number(__st.pop()), __a = Number(__st.pop()); __st.push(__a * __b); }\n"),
             0xC4 => js.push_str("      __st.push((-(Number(__st.pop()) | 0)) | 0);\n"),
@@ -3507,7 +3683,9 @@ fn compile_avm2_method_factory(
             0x95 => js.push_str("      { const __v = __st.pop(); __st.push(__v === null ? 'object' : typeof __v === 'function' ? 'function' : typeof __v); }\n"),
             0x96 => js.push_str("      __st.push(!__st.pop());\n"),
             0x97 => js.push_str("      __st.push(~(Number(__st.pop()) | 0));\n"),
-            0x71 | 0x72 => js.push_str("      { const __v = String(__st.pop() ?? ''); __st.push(__v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;')); }\n"),
+            0x71 => js.push_str("      { const __v = String(__st.pop() ?? ''); __st.push(__v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')); }\n"),
+            0x72 => js.push_str("      { const __v = String(__st.pop() ?? ''); __st.push(__v.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/\\t/g,'&#x9;').replace(/\\n/g,'&#xA;').replace(/\\r/g,'&#xD;')); }\n"),
+            0x78 => js.push_str("      { const __v = __st.pop(); if (!__nfXML?.is?.(__v)) { const __e = new TypeError('TypeError: Error #1123: Filter operator not supported on type ' + typeof __v + '.'); __e.errorID = 1123; throw __e; } __st.push(__v); }\n"),
             0x73 | 0x83 => js.push_str("      __st.push(Number(__st.pop()) | 0);\n"),
             0x74 | 0x88 => js.push_str("      __st.push(Number(__st.pop()) >>> 0);\n"),
             0x75 | 0x84 => js.push_str("      __st.push(Number(__st.pop()));\n"),
@@ -3543,7 +3721,7 @@ fn compile_avm2_method_factory(
             0x87 => {
                 js.push_str("      { const __tp = __st.pop(), __v = __st.pop(); __st.push(__nfSwfInstanceOf(__v, __tp) ? __v : null); }\n");
             }
-            0xAB => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a == __b); }\n"),
+            0xAB => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__nfSwfEnv.avm2Eq(__a, __b)); }\n"),
             0xAC => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a === __b); }\n"),
             0xAD => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a < __b); }\n"),
             0xAE => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a <= __b); }\n"),
@@ -3580,11 +3758,11 @@ fn compile_avm2_method_factory(
             }
             0x13 => {
                 let t = branch_target(inst.args[0]);
-                js.push_str(&format!("      {{ const __b = __st.pop(), __a = __st.pop(); if (__a == __b) {{ __pc = {t}; continue; }} }}\n"));
+                js.push_str(&format!("      {{ const __b = __st.pop(), __a = __st.pop(); if (__nfSwfEnv.avm2Eq(__a, __b)) {{ __pc = {t}; continue; }} }}\n"));
             }
             0x14 => {
                 let t = branch_target(inst.args[0]);
-                js.push_str(&format!("      {{ const __b = __st.pop(), __a = __st.pop(); if (__a != __b) {{ __pc = {t}; continue; }} }}\n"));
+                js.push_str(&format!("      {{ const __b = __st.pop(), __a = __st.pop(); if (!__nfSwfEnv.avm2Eq(__a, __b)) {{ __pc = {t}; continue; }} }}\n"));
             }
             0x15 | 0x0F => {
                 let t = branch_target(inst.args[0]);
@@ -3661,6 +3839,7 @@ fn compile_avm2_method_factory(
             }\n\
           }\n\
           if (__handled) continue;\n\
+          if (__nfSwfEnv.callDepth <= 1 && __ev instanceof Error) throw __ev;\n\
           throw { __nfSwfThrown: __ev };\n\
         }\n\
       }\n\

@@ -370,6 +370,105 @@
       return ev;
     }
 
+    function makeDRMLicenseRequestEvent(serverURL) {
+      const Ctor = getEventCtor('flash.events.DRMLicenseRequestEvent');
+      if (Ctor) {
+        try {
+          return new Ctor('licenseRequest', false, false, serverURL);
+        } catch (_) {}
+      }
+      const ev = new events.Event('licenseRequest', false, false);
+      ev.serverURL = serverURL == null ? null : String(serverURL);
+      return ev;
+    }
+
+    function makeDRMMetadataEvent(contentData, timestamp = 0) {
+      const Ctor = getEventCtor('flash.events.DRMMetadataEvent');
+      if (Ctor) {
+        try {
+          return new Ctor('drmMetadata', false, false, contentData, timestamp);
+        } catch (_) {}
+      }
+      const ev = new events.Event('drmMetadata', false, false);
+      ev.drmMetadata = contentData;
+      ev.timestamp = Number(timestamp) || 0;
+      return ev;
+    }
+
+    function makeDRMReturnVoucherCompleteEvent(serverURL, licenseID, policyID, count) {
+      const Ctor = getEventCtor('flash.events.DRMReturnVoucherCompleteEvent');
+      if (Ctor) {
+        try {
+          return new Ctor('returnVoucherComplete', false, false, serverURL, licenseID, policyID, count | 0);
+        } catch (_) {}
+      }
+      const ev = new events.Event('returnVoucherComplete', false, false);
+      ev.serverURL = serverURL;
+      ev.licenseID = licenseID;
+      ev.policyID = policyID;
+      ev.numberOfVouchersReturned = count | 0;
+      return ev;
+    }
+
+    function makeDRMReturnVoucherErrorEvent(text, errorID, subErrorID, serverURL, licenseID, policyID) {
+      const Ctor = getEventCtor('flash.events.DRMReturnVoucherErrorEvent');
+      if (Ctor) {
+        try {
+          return new Ctor('returnVoucherError', false, false, text, errorID | 0, subErrorID | 0, serverURL, licenseID, policyID);
+        } catch (_) {}
+      }
+      const ev = new events.Event('returnVoucherError', false, false);
+      ev.text = text;
+      ev.errorID = errorID | 0;
+      ev.subErrorID = subErrorID | 0;
+      ev.serverURL = serverURL;
+      ev.licenseID = licenseID;
+      ev.policyID = policyID;
+      return ev;
+    }
+
+    function makeDRMDeviceGroupEvent(type, deviceGroup) {
+      const Ctor = getEventCtor('flash.events.DRMDeviceGroupEvent');
+      if (Ctor) {
+        try {
+          return new Ctor(type, false, false, deviceGroup);
+        } catch (_) {}
+      }
+      const ev = new events.Event(type, false, false);
+      ev.deviceGroup = deviceGroup;
+      return ev;
+    }
+
+    function makeDRMDeviceGroupErrorEvent(type, text, errorID, subErrorID, deviceGroup, sysUpd = false, drmUpd = false) {
+      const Ctor = getEventCtor('flash.events.DRMDeviceGroupErrorEvent');
+      if (Ctor) {
+        try {
+          return new Ctor(type, false, false, text, errorID | 0, subErrorID | 0, deviceGroup, sysUpd, drmUpd);
+        } catch (_) {}
+      }
+      const ev = new events.Event(type, false, false);
+      ev.text = text;
+      ev.errorID = errorID | 0;
+      ev.subErrorID = subErrorID | 0;
+      ev.deviceGroup = deviceGroup;
+      ev.systemUpdateNeeded = Boolean(sysUpd);
+      ev.drmUpdateNeeded = Boolean(drmUpd);
+      return ev;
+    }
+
+    function makeStatusEvent(code, level = 'error') {
+      const Ctor = getEventCtor('flash.events.StatusEvent');
+      if (Ctor) {
+        try {
+          return new Ctor('status', false, false, String(code ?? ''), String(level ?? 'error'));
+        } catch (_) {}
+      }
+      const ev = new events.Event('status', false, false);
+      ev.code = String(code ?? '');
+      ev.level = String(level ?? 'error');
+      return ev;
+    }
+
     // =========================================================================
     // 1. flash.crypto.generateRandomBytes
     // =========================================================================
@@ -5714,20 +5813,55 @@
       LOCAL_ONLY: 'localOnly',
     });
 
+    const drmDeviceGroups = new WeakMap();
+    class DRMDeviceGroup {
+      constructor(name = 'default-device-group', meta = null) {
+        ensureActive();
+        const cfg = meta && typeof meta === 'object' ? meta : {};
+        drmDeviceGroups.set(this, {
+          name: String(name || 'default-device-group'),
+          serverURL: String(cfg.serverURL || 'https://drm.neoflash.local/license'),
+          domain: String(cfg.domain || 'default'),
+          authenticationMethod: String(cfg.authenticationMethod || 'anonymous'),
+        });
+      }
+      get name() { return ddgState(this).name; }
+      set name(v) { ddgState(this).name = String(v ?? ''); }
+      get serverURL() { return ddgState(this).serverURL; }
+      get domain() { return ddgState(this).domain; }
+      get authenticationMethod() { return ddgState(this).authenticationMethod; }
+    }
+    function ddgState(instance) {
+      const rec = drmDeviceGroups.get(instance);
+      if (!rec) throw new TypeError('Expected a valid DRMDeviceGroup instance.');
+      return rec;
+    }
+    tagType(DRMDeviceGroup, 'DRMDeviceGroup', v => drmDeviceGroups.has(v));
+
     const voucherAccessInfos = new WeakMap();
     class VoucherAccessInfo {
       constructor(snap = {}) {
+        let dg = null;
+        if (snap.deviceGroup && drmDeviceGroups.has(snap.deviceGroup)) {
+          dg = snap.deviceGroup;
+        } else if (snap.deviceGroup && typeof snap.deviceGroup === 'object') {
+          dg = new DRMDeviceGroup(snap.deviceGroup.name || 'default-device-group', snap.deviceGroup);
+        } else if (typeof snap.deviceGroup === 'string' && snap.deviceGroup) {
+          dg = new DRMDeviceGroup(snap.deviceGroup, snap);
+        }
         voucherAccessInfos.set(this, {
           authenticationMethod: String(snap.authenticationMethod || 'anonymous'),
           displayName: String(snap.displayName || 'Default Access'),
           domain: String(snap.domain || 'default'),
           policyID: String(snap.policyID || 'policy-default'),
+          deviceGroup: dg,
         });
       }
       get authenticationMethod() { return vaiState(this).authenticationMethod; }
       get displayName() { return vaiState(this).displayName; }
       get domain() { return vaiState(this).domain; }
       get policyID() { return vaiState(this).policyID; }
+      get deviceGroup() { return vaiState(this).deviceGroup; }
     }
     function vaiState(instance) {
       const rec = voucherAccessInfos.get(instance);
@@ -5759,25 +5893,43 @@
     const drmVouchers = new WeakMap();
     class DRMVoucher {
       constructor(snap = {}) {
+        const onlineOnly = Boolean(snap.onlineOnly) || (snap.offlineStartMs === 0 && snap.offlineEndMs === 0);
+        const noTimeWindow = Boolean(snap.noTimeWindow);
         drmVouchers.set(this, {
-          serverURL: String(snap.serverURL || 'https://drm.neoflash.local/license'),
-          licenseID: String(snap.licenseID || 'lic-default'),
-          policyID: String(snap.policyID || 'policy-default'),
-          voucherStartDate: new Date(Number(snap.voucherStartMs || 1762000000000)),
-          voucherEndDate: new Date(Number(snap.voucherEndMs || 1764592000000)),
-          offlineLeaseStartDate: new Date(Number(snap.offlineStartMs || 1762000000000)),
-          offlineLeaseEndDate: new Date(Number(snap.offlineEndMs || 1762604800000)),
-          playbackTimeWindow: new DRMPlaybackTimeWindow(snap),
+          serverURL: String(snap.serverURL || snap.serverUrl || 'https://drm.neoflash.local/license'),
+          licenseID: String(snap.licenseID || snap.licenseId || 'lic-default'),
+          policyID: String(snap.policyID || snap.policyId || 'policy-default'),
+          domain: String(snap.domain || 'default'),
+          voucherStartDate: snap.voucherStartMs === null ? null : new Date(Number(snap.voucherStartMs || 1762000000000)),
+          voucherEndDate: snap.voucherEndMs === null ? null : new Date(Number(snap.voucherEndMs || 1764592000000)),
+          offlineLeaseStartDate: onlineOnly ? null : new Date(Number(snap.offlineStartMs || 1762000000000)),
+          offlineLeaseEndDate: onlineOnly ? null : new Date(Number(snap.offlineEndMs || 1762604800000)),
+          playbackTimeWindow: noTimeWindow ? null : new DRMPlaybackTimeWindow(snap),
           policies: { ...(snap.policies || {}) },
+          contentKeyBase64: String(snap.contentKeyBase64 || ''),
+          onlineOnly,
+          noTimeWindow,
         });
       }
       get serverURL() { return dvState(this).serverURL; }
       get licenseID() { return dvState(this).licenseID; }
       get policyID() { return dvState(this).policyID; }
-      get voucherStartDate() { return new Date(dvState(this).voucherStartDate.getTime()); }
-      get voucherEndDate() { return new Date(dvState(this).voucherEndDate.getTime()); }
-      get offlineLeaseStartDate() { return new Date(dvState(this).offlineLeaseStartDate.getTime()); }
-      get offlineLeaseEndDate() { return new Date(dvState(this).offlineLeaseEndDate.getTime()); }
+      get voucherStartDate() {
+        const d = dvState(this).voucherStartDate;
+        return d ? new Date(d.getTime()) : null;
+      }
+      get voucherEndDate() {
+        const d = dvState(this).voucherEndDate;
+        return d ? new Date(d.getTime()) : null;
+      }
+      get offlineLeaseStartDate() {
+        const d = dvState(this).offlineLeaseStartDate;
+        return d ? new Date(d.getTime()) : null;
+      }
+      get offlineLeaseEndDate() {
+        const d = dvState(this).offlineLeaseEndDate;
+        return d ? new Date(d.getTime()) : null;
+      }
       get playbackTimeWindow() { return dvState(this).playbackTimeWindow; }
       get policies() { return { ...dvState(this).policies }; }
       toByteArray() {
@@ -5786,14 +5938,18 @@
           serverURL: s.serverURL,
           licenseID: s.licenseID,
           policyID: s.policyID,
-          voucherStartMs: s.voucherStartDate.getTime(),
-          voucherEndMs: s.voucherEndDate.getTime(),
-          offlineStartMs: s.offlineLeaseStartDate.getTime(),
-          offlineEndMs: s.offlineLeaseEndDate.getTime(),
-          windowPeriod: s.playbackTimeWindow.period,
-          windowStartMs: s.playbackTimeWindow.startDate.getTime(),
-          windowEndMs: s.playbackTimeWindow.endDate.getTime(),
+          domain: s.domain,
+          voucherStartMs: s.voucherStartDate ? s.voucherStartDate.getTime() : 0,
+          voucherEndMs: s.voucherEndDate ? s.voucherEndDate.getTime() : 0,
+          offlineStartMs: s.offlineLeaseStartDate ? s.offlineLeaseStartDate.getTime() : 0,
+          offlineEndMs: s.offlineLeaseEndDate ? s.offlineLeaseEndDate.getTime() : 0,
+          windowPeriod: s.playbackTimeWindow ? s.playbackTimeWindow.period : 0,
+          windowStartMs: s.playbackTimeWindow ? s.playbackTimeWindow.startDate.getTime() : 0,
+          windowEndMs: s.playbackTimeWindow ? s.playbackTimeWindow.endDate.getTime() : 0,
           policies: s.policies,
+          contentKeyBase64: s.contentKeyBase64,
+          onlineOnly: s.onlineOnly,
+          noTimeWindow: s.noTimeWindow,
         }));
         return binary?.fromBytes ? binary.fromBytes(bytes) : bytes;
       }
@@ -5810,27 +5966,45 @@
       constructor(rawData = null) {
         ensureActive();
         let b64 = '';
-        if (rawData && binary?.ByteArray?.__nfIs?.(rawData) && binary.toBytes) {
-          b64 = toBase64(binary.toBytes(rawData));
-        } else if (rawData instanceof Uint8Array) {
-          b64 = toBase64(rawData);
-        } else if (typeof rawData === 'string') {
-          b64 = toBase64(new TextEncoder().encode(rawData));
+        if (rawData !== null && rawData !== undefined) {
+          let rawBytes = null;
+          if (binary?.ByteArray?.__nfIs?.(rawData) && binary.toBytes) {
+            rawBytes = binary.toBytes(rawData);
+          } else if (rawData instanceof Uint8Array) {
+            rawBytes = rawData;
+          } else if (typeof rawData === 'string') {
+            rawBytes = new TextEncoder().encode(rawData);
+          } else {
+            throw new TypeError('TypeError: Error #2007: DRMContentData rawData must be a ByteArray.');
+          }
+          if (!rawBytes || rawBytes.byteLength === 0) {
+            const err = new Error('ArgumentError: Error #2004: DRMContentData rawData cannot be empty.');
+            err.name = 'ArgumentError';
+            err.errorID = 2004;
+            throw err;
+          }
+          b64 = toBase64(rawBytes);
         }
         const parsed = execKernel({ op: 'drm_parse_content', base64: b64 });
         const accessList = (parsed.accessInfo || []).map(a => new VoucherAccessInfo(a));
         drmContentMap.set(this, {
           serverURL: parsed.serverURL,
+          fmrmsURL: parsed.fmrmsURL || parsed.FMRMSURL || parsed.serverURL,
           licenseID: parsed.licenseID,
           domain: parsed.domain,
           authenticationMethod: parsed.authenticationMethod,
+          maxEmbeddedVersion: Number(parsed.maxEmbeddedVersion ?? 1),
+          policyID: accessList[0]?.policyID || 'policy-default',
           accessList,
+          rawBase64: b64,
         });
       }
       get serverURL() { return dcdState(this).serverURL; }
+      get FMRMSURL() { return dcdState(this).fmrmsURL; }
       get licenseID() { return dcdState(this).licenseID; }
       get domain() { return dcdState(this).domain; }
       get authenticationMethod() { return dcdState(this).authenticationMethod; }
+      get maxEmbeddedVersion() { return dcdState(this).maxEmbeddedVersion; }
       getVoucherAccessInfo() {
         const rec = dcdState(this);
         return makeVector('flash.net.drm.VoucherAccessInfo', rec.accessList);
@@ -5842,30 +6016,74 @@
       return rec;
     }
     tagType(DRMContentData, 'DRMContentData', v => drmContentMap.has(v));
+    global.__nfDRMContentDataCtor = DRMContentData;
 
-    const drmDeviceGroups = new WeakMap();
-    class DRMDeviceGroup {
-      constructor(name = 'default-device-group') {
-        ensureActive();
-        drmDeviceGroups.set(this, {
-          name: String(name || 'default-device-group'),
-        });
+    function isLiveDrmHttpUrl(rawUrl) {
+      if (typeof rawUrl !== 'string' || !/^https?:\/\//i.test(rawUrl)) return false;
+      try {
+        const u = new URL(rawUrl);
+        const h = u.hostname.toLowerCase();
+        if (!h || h.endsWith('.local') || h.endsWith('.test') || h.endsWith('.example') || h.endsWith('.invalid')) {
+          return false;
+        }
+        return typeof (options.fetch || global.fetch) === 'function';
+      } catch (_) {
+        return false;
       }
-      get name() { return ddgState(this).name; }
-      set name(v) { ddgState(this).name = String(v ?? ''); }
     }
-    function ddgState(instance) {
-      const rec = drmDeviceGroups.get(instance);
-      if (!rec) throw new TypeError('Expected a valid DRMDeviceGroup instance.');
-      return rec;
-    }
-    tagType(DRMDeviceGroup, 'DRMDeviceGroup', v => drmDeviceGroups.has(v));
 
+    let drmAuthChain = Promise.resolve();
     const drmManagers = new WeakSet();
     let drmManagerSingleton = null;
     let drmNetworkIdleTimeout = 120000;
+
+    async function postDrmLicenseServer(serverURL, domain, bodyObj, fallbackTokenUrl = null) {
+      const fetchFn = options.fetch || global.fetch;
+      let tokRes = execKernel({ op: 'drm_op', action: 'get_token', serverURL, domain: domain || '' });
+      if (!tokRes?.tokenBase64 && fallbackTokenUrl && fallbackTokenUrl !== serverURL) {
+        tokRes = execKernel({ op: 'drm_op', action: 'get_token', serverURL: fallbackTokenUrl, domain: domain || '' });
+      }
+      const headers = { 'Content-Type': 'application/json', Accept: 'application/json' };
+      if (tokRes?.tokenBase64) headers.Authorization = `Bearer ${tokRes.tokenBase64}`;
+      const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+      const timeoutMs = Math.max(50, Math.min(300000, Number(drmNetworkIdleTimeout) || 120000));
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        try { ctrl?.abort(); } catch (_) {}
+      }, timeoutMs);
+      timer?.unref?.();
+      try {
+        const res = await fetchFn(serverURL, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(bodyObj),
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+        let json = null;
+        try { json = await res.json(); } catch (_) {}
+        return { ok: res.ok && json?.ok !== false, status: res.status, json: json || {}, timedOut: false };
+      } catch (err) {
+        return {
+          ok: false,
+          status: timedOut ? 408 : 0,
+          json: { errorID: timedOut ? 3315 : 3305, subErrorID: timedOut ? 408 : 503, text: timedOut ? 'DRM networkIdleTimeout exceeded.' : String(err?.message || err) },
+          timedOut,
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    const drmManagerConstructToken = Symbol('DRMManagerConstruct');
     class DRMManager extends events.EventDispatcher {
-      constructor() {
+      constructor(token) {
+        if (token !== drmManagerConstructToken) {
+          const err = new Error('ArgumentError: Error #2012: DRMManager$ class cannot be instantiated directly; call DRMManager.getDRMManager().');
+          err.name = 'ArgumentError';
+          err.errorID = 2012;
+          throw err;
+        }
         super();
         ensureActive();
         registerDispatcher(this);
@@ -5895,7 +6113,7 @@
       static getDRMManager() {
         ensureActive();
         if (!drmManagerSingleton || aliveTargets.get(drmManagerSingleton) !== generation) {
-          drmManagerSingleton = new DRMManager();
+          drmManagerSingleton = new DRMManager(drmManagerConstructToken);
         }
         return drmManagerSingleton;
       }
@@ -5906,13 +6124,42 @@
         }
         const srv = String(serverURL);
         const dom = String(domain);
+        const usr = String(username);
+        const pwd = String(password);
+        const born = generation;
+        if (isLiveDrmHttpUrl(srv)) {
+          drmAuthChain = drmAuthChain.catch(() => {}).then(async () => {
+            if (disposed || generation !== born) return;
+            const resp = await postDrmLicenseServer(srv, dom, {
+              action: 'authenticate',
+              domain: dom,
+              username: usr,
+              password: pwd,
+            });
+            if (disposed || generation !== born) return;
+            if (!resp.ok) {
+              dispatchNow(this, makeDRMAuthErrorEvent(
+                srv,
+                dom,
+                resp.json.text || 'Authentication failed',
+                resp.json.errorID || 3315,
+                resp.json.subErrorID || resp.status || 401
+              ));
+              return;
+            }
+            const tokB64 = String(resp.json.tokenBase64 || toBase64(new TextEncoder().encode(`${srv}:${dom}:${usr}`)));
+            execKernel({ op: 'drm_op', action: 'set_token', serverURL: srv, domain: dom, tokenBase64: tokB64 });
+            dispatchNow(this, makeDRMAuthCompleteEvent(srv, dom, fromBase64(tokB64)));
+          });
+          return;
+        }
         const res = execKernel({
           op: 'drm_op',
           action: 'authenticate',
           serverURL: srv,
           domain: dom,
-          username: String(username),
-          password: String(password),
+          username: usr,
+          password: pwd,
         });
         if (!res.ok) {
           dispatchLater(this, () => makeDRMAuthErrorEvent(srv, dom, 'Authentication failed', res.errorID, res.subErrorID));
@@ -5923,8 +6170,21 @@
       }
       setAuthenticationToken(serverURL, domain, token) {
         ensureDrmManager(this);
-        if (serverURL == null || domain == null || !token || !binary?.ByteArray?.__nfIs?.(token)) {
-          throw new TypeError('TypeError: Error #2007: DRMManager.setAuthenticationToken requires serverURL, domain, and token ByteArray.');
+        if (serverURL == null || domain == null) {
+          throw new TypeError('TypeError: Error #2007: DRMManager.setAuthenticationToken requires non-null serverURL and domain.');
+        }
+        if (token === null) {
+          execKernel({
+            op: 'drm_op',
+            action: 'set_token',
+            serverURL: String(serverURL),
+            domain: String(domain),
+            clear: true,
+          });
+          return;
+        }
+        if (!binary?.ByteArray?.__nfIs?.(token)) {
+          throw new TypeError('TypeError: Error #2007: DRMManager.setAuthenticationToken requires a ByteArray or null token.');
         }
         const b64 = toBase64(binary.toBytes(token));
         execKernel({
@@ -5940,24 +6200,126 @@
         if (!contentData || !drmContentMap.has(contentData)) {
           throw new TypeError('TypeError: Error #2007: Parameter contentData must be a non-null DRMContentData.');
         }
+        const setStr = String(setting);
+        if (setStr !== 'allowServer' && setStr !== 'forceRefresh' && setStr !== 'localOnly') {
+          const err = new Error(`ArgumentError: Error #2004: Invalid LoadVoucherSetting '${setStr}'.`);
+          err.name = 'ArgumentError';
+          err.errorID = 2004;
+          throw err;
+        }
         const cd = drmContentMap.get(contentData);
-        const res = execKernel({
-          op: 'drm_op',
-          action: 'load_voucher',
-          serverURL: cd.serverURL,
-          licenseID: cd.licenseID,
-          domain: cd.domain,
-          authenticationMethod: cd.authenticationMethod,
-          setting: String(setting),
-          preview: false,
-          nowMs: Date.now(),
-        });
-        if (res.error) {
-          dispatchLater(this, () => makeDRMErrorEvent(res.text, res.errorID, res.subErrorID, contentData));
+        if (setStr !== 'forceRefresh') {
+          const localProbe = execKernel({
+            op: 'drm_op',
+            action: 'load_voucher',
+            serverURL: cd.serverURL,
+            licenseID: cd.licenseID,
+            policyID: cd.policyID,
+            domain: cd.domain,
+            authenticationMethod: cd.authenticationMethod,
+            setting: 'localOnly',
+            preview: false,
+            nowMs: Date.now(),
+          });
+          if (localProbe.voucher) {
+            const cachedV = new DRMVoucher(localProbe.voucher);
+            dispatchLater(this, () => makeDRMStatusEvent(contentData, cachedV, true));
+            return;
+          }
+          if (setStr === 'localOnly') {
+            dispatchLater(this, () => makeDRMStatusEvent(contentData, null, true));
+            return;
+          }
+        }
+        const born = generation;
+        if (isLiveDrmHttpUrl(cd.serverURL)) {
+          Promise.resolve().then(async () => {
+            if (disposed || generation !== born) return;
+            const licReqEv = makeDRMLicenseRequestEvent(cd.serverURL);
+            dispatchNow(this, licReqEv);
+            const effectiveUrl = licReqEv.serverURL ? String(licReqEv.serverURL) : cd.serverURL;
+            const resp = await postDrmLicenseServer(effectiveUrl, cd.domain, {
+              action: 'loadVoucher',
+              licenseID: cd.licenseID,
+              policyID: cd.policyID,
+              domain: cd.domain,
+              authenticationMethod: cd.authenticationMethod,
+              setting: setStr,
+              nowMs: Date.now(),
+            }, cd.serverURL);
+            if (disposed || generation !== born) return;
+            if (!resp.ok || resp.json.error) {
+              dispatchNow(this, makeDRMErrorEvent(
+                resp.json.text || 'License acquisition failed',
+                resp.json.errorID || 3305,
+                resp.json.subErrorID || resp.status || 403,
+                contentData,
+                Boolean(resp.json.systemUpdateNeeded),
+                Boolean(resp.json.drmUpdateNeeded)
+              ));
+              return;
+            }
+            const srvV = resp.json.voucher || {};
+            const normPolicies = { domain: cd.domain };
+            if (srvV.policies && typeof srvV.policies === 'object') {
+              for (const [pk, pv] of Object.entries(srvV.policies)) {
+                if (pv !== undefined && pv !== null) normPolicies[pk] = String(pv);
+              }
+            }
+            const resolvedLic = String(srvV.licenseID || srvV.licenseId || cd.licenseID);
+            const resolvedPol = String(srvV.policyID || srvV.policyId || cd.policyID);
+            const resolvedDom = String(srvV.domain || cd.domain);
+            const rawSnap = {
+              serverUrl: cd.serverURL,
+              licenseId: resolvedLic,
+              policyId: resolvedPol,
+              domain: resolvedDom,
+              voucherStartMs: Number(srvV.voucherStartMs ?? srvV.startMs ?? Date.now()),
+              voucherEndMs: Number(srvV.voucherEndMs ?? srvV.endMs ?? (Date.now() + 86400000 * 30)),
+              offlineStartMs: Number(srvV.offlineStartMs ?? Date.now()),
+              offlineEndMs: Number(srvV.offlineEndMs ?? (Date.now() + 86400000 * 7)),
+              windowPeriod: Number(srvV.windowPeriod ?? srvV.windowPeriodSec ?? 86400),
+              windowStartMs: Number(srvV.windowStartMs ?? srvV.startMs ?? Date.now()),
+              windowEndMs: Number(srvV.windowEndMs ?? (Date.now() + 86400000)),
+              onlineOnly: Boolean(srvV.onlineOnly) || (srvV.offlineStartMs === 0 && srvV.offlineEndMs === 0),
+              noTimeWindow: Boolean(srvV.noTimeWindow),
+              contentKeyBase64: String(srvV.contentKeyBase64 || ''),
+              policies: normPolicies,
+            };
+            const stored = execKernel({
+              op: 'drm_op',
+              action: 'store_voucher',
+              base64: toBase64(new TextEncoder().encode(JSON.stringify(rawSnap))),
+              isLocal: !rawSnap.onlineOnly,
+              nowMs: Date.now(),
+            });
+            const vObj = new DRMVoucher(stored.voucher);
+            dispatchNow(this, makeDRMStatusEvent(contentData, vObj, false));
+          });
           return;
         }
-        const voucher = res.voucher ? new DRMVoucher(res.voucher) : null;
-        dispatchLater(this, () => makeDRMStatusEvent(contentData, voucher, res.isLocal));
+        dispatchLater(this, () => {
+          const licReqEv = makeDRMLicenseRequestEvent(cd.serverURL);
+          dispatchNow(this, licReqEv);
+          const effectiveUrl = licReqEv.serverURL ? String(licReqEv.serverURL) : cd.serverURL;
+          const res = execKernel({
+            op: 'drm_op',
+            action: 'load_voucher',
+            serverURL: effectiveUrl,
+            licenseID: cd.licenseID,
+            policyID: cd.policyID,
+            domain: cd.domain,
+            authenticationMethod: cd.authenticationMethod,
+            setting: setStr,
+            preview: false,
+            nowMs: Date.now(),
+          });
+          if (res.error) {
+            return makeDRMErrorEvent(res.text, res.errorID, res.subErrorID, contentData);
+          }
+          const voucher = res.voucher ? new DRMVoucher(res.voucher) : null;
+          return makeDRMStatusEvent(contentData, voucher, res.isLocal);
+        });
       }
       loadPreviewVoucher(contentData) {
         ensureDrmManager(this);
@@ -5965,19 +6327,64 @@
           throw new TypeError('TypeError: Error #2007: Parameter contentData must be a non-null DRMContentData.');
         }
         const cd = drmContentMap.get(contentData);
-        const res = execKernel({
-          op: 'drm_op',
-          action: 'load_voucher',
-          serverURL: cd.serverURL,
-          licenseID: cd.licenseID,
-          domain: cd.domain,
-          authenticationMethod: cd.authenticationMethod,
-          setting: 'allowServer',
-          preview: true,
-          nowMs: Date.now(),
+        const born = generation;
+        if (isLiveDrmHttpUrl(cd.serverURL)) {
+          Promise.resolve().then(async () => {
+            if (disposed || generation !== born) return;
+            const licReqEv = makeDRMLicenseRequestEvent(cd.serverURL);
+            dispatchNow(this, licReqEv);
+            const effectiveUrl = licReqEv.serverURL ? String(licReqEv.serverURL) : cd.serverURL;
+            const resp = await postDrmLicenseServer(effectiveUrl, cd.domain, {
+              action: 'loadPreviewVoucher',
+              licenseID: cd.licenseID,
+              policyID: cd.policyID,
+              domain: cd.domain,
+              preview: true,
+              nowMs: Date.now(),
+            }, cd.serverURL);
+            if (disposed || generation !== born) return;
+            if (!resp.ok || resp.json.error) {
+              dispatchNow(this, makeDRMErrorEvent(
+                resp.json.text || 'Preview license acquisition failed',
+                resp.json.errorID || 3305,
+                resp.json.subErrorID || resp.status || 403,
+                contentData
+              ));
+              return;
+            }
+            const rawSnap = {
+              serverURL: cd.serverURL,
+              licenseID: cd.licenseID,
+              policyID: cd.policyID,
+              domain: cd.domain,
+              onlineOnly: true,
+              policies: { preview: 'true', domain: cd.domain },
+              ...(resp.json.voucher || {}),
+            };
+            const vObj = new DRMVoucher(rawSnap);
+            dispatchNow(this, makeDRMStatusEvent(contentData, vObj, false));
+          });
+          return;
+        }
+        dispatchLater(this, () => {
+          const licReqEv = makeDRMLicenseRequestEvent(cd.serverURL);
+          dispatchNow(this, licReqEv);
+          const effectiveUrl = licReqEv.serverURL ? String(licReqEv.serverURL) : cd.serverURL;
+          const res = execKernel({
+            op: 'drm_op',
+            action: 'load_voucher',
+            serverURL: effectiveUrl,
+            licenseID: cd.licenseID,
+            policyID: cd.policyID,
+            domain: cd.domain,
+            authenticationMethod: cd.authenticationMethod,
+            setting: 'allowServer',
+            preview: true,
+            nowMs: Date.now(),
+          });
+          const voucher = res.voucher ? new DRMVoucher(res.voucher) : null;
+          return makeDRMStatusEvent(contentData, voucher, false);
         });
-        const voucher = res.voucher ? new DRMVoucher(res.voucher) : null;
-        dispatchLater(this, () => makeDRMStatusEvent(contentData, voucher, false));
       }
       storeVoucher(voucher) {
         ensureDrmManager(this);
@@ -5994,15 +6401,55 @@
         if (inServerURL == null) {
           throw new TypeError('TypeError: Error #2007: Parameter inServerURL must be non-null.');
         }
-        const _imm = Boolean(immediateCommit);
-        const _pol = policyID;
-        execKernel({
+        if (licenseID == null && policyID == null) {
+          const err = new Error('ArgumentError: Error #2004: Either licenseID or policyID must be non-null in DRMManager.returnVoucher.');
+          err.name = 'ArgumentError';
+          err.errorID = 2004;
+          throw err;
+        }
+        const srv = String(inServerURL);
+        const licStr = licenseID == null ? null : String(licenseID);
+        const polStr = policyID == null ? null : String(policyID);
+        const imm = Boolean(immediateCommit);
+        const kRes = execKernel({
           op: 'drm_op',
           action: 'return_voucher',
-          serverURL: String(inServerURL),
-          licenseID: licenseID == null ? '' : String(licenseID),
+          serverURL: srv,
+          licenseID: licStr ?? '',
+          policyID: polStr ?? '',
         });
-        dispatchLater(this, () => makeDRMStatusEvent(null, null, false));
+        const localRemoved = Number(kRes.removed) | 0;
+        const born = generation;
+        if (isLiveDrmHttpUrl(srv)) {
+          Promise.resolve().then(async () => {
+            if (disposed || generation !== born) return;
+            const resp = await postDrmLicenseServer(srv, '', {
+              action: 'returnVoucher',
+              immediateCommit: imm,
+              licenseID: licStr,
+              policyID: polStr,
+              localRemoved,
+            });
+            if (disposed || generation !== born) return;
+            if (!resp.ok) {
+              dispatchNow(this, makeDRMReturnVoucherErrorEvent(
+                resp.json.text || 'Return voucher failed',
+                resp.json.errorID || 3315,
+                resp.json.subErrorID || resp.status || 500,
+                srv,
+                licStr,
+                polStr
+              ));
+              return;
+            }
+            const returnedCount = resp.json.numberOfVouchersReturned !== undefined
+              ? (Number(resp.json.numberOfVouchersReturned) | 0)
+              : localRemoved;
+            dispatchNow(this, makeDRMReturnVoucherCompleteEvent(srv, licStr, polStr, returnedCount));
+          });
+          return;
+        }
+        dispatchLater(this, () => makeDRMReturnVoucherCompleteEvent(srv, licStr, polStr, localRemoved));
       }
       resetDRMVouchers() {
         ensureDrmManager(this);
@@ -6014,24 +6461,242 @@
         if (!deviceGroup || !drmDeviceGroups.has(deviceGroup)) {
           throw new TypeError('TypeError: Error #2007: Parameter deviceGroup must be a non-null DRMDeviceGroup.');
         }
-        const _force = Boolean(forceRefresh);
+        const force = Boolean(forceRefresh);
+        const srv = deviceGroup.serverURL;
+        const born = generation;
+        if (isLiveDrmHttpUrl(srv)) {
+          Promise.resolve().then(async () => {
+            if (disposed || generation !== born) return;
+            const resp = await postDrmLicenseServer(srv, deviceGroup.domain, {
+              action: 'addToDeviceGroup',
+              name: deviceGroup.name,
+              domain: deviceGroup.domain,
+              forceRefresh: force,
+            });
+            if (disposed || generation !== born) return;
+            if (!resp.ok) {
+              dispatchNow(this, makeDRMDeviceGroupErrorEvent(
+                'addToDeviceGroupError',
+                resp.json.text || 'Failed to register device group',
+                resp.json.errorID || 3315,
+                resp.json.subErrorID || resp.status || 403,
+                deviceGroup,
+                Boolean(resp.json.systemUpdateNeeded),
+                Boolean(resp.json.drmUpdateNeeded)
+              ));
+              return;
+            }
+            execKernel({ op: 'drm_op', action: 'device_group', name: deviceGroup.name, remove: false });
+            dispatchNow(this, makeDRMDeviceGroupEvent('addToDeviceGroupComplete', deviceGroup));
+          });
+          return;
+        }
         execKernel({ op: 'drm_op', action: 'device_group', name: deviceGroup.name, remove: false });
-        dispatchLater(this, () => makeDRMStatusEvent(null, null, false));
+        dispatchLater(this, () => makeDRMDeviceGroupEvent('addToDeviceGroupComplete', deviceGroup));
       }
       removeFromDeviceGroup(deviceGroup) {
         ensureDrmManager(this);
         if (!deviceGroup || !drmDeviceGroups.has(deviceGroup)) {
           throw new TypeError('TypeError: Error #2007: Parameter deviceGroup must be a non-null DRMDeviceGroup.');
         }
+        const srv = deviceGroup.serverURL;
+        const born = generation;
+        if (isLiveDrmHttpUrl(srv)) {
+          Promise.resolve().then(async () => {
+            if (disposed || generation !== born) return;
+            const resp = await postDrmLicenseServer(srv, deviceGroup.domain, {
+              action: 'removeFromDeviceGroup',
+              name: deviceGroup.name,
+              domain: deviceGroup.domain,
+            });
+            if (disposed || generation !== born) return;
+            if (!resp.ok) {
+              dispatchNow(this, makeDRMDeviceGroupErrorEvent(
+                'removeFromDeviceGroupError',
+                resp.json.text || 'Failed to unregister device group',
+                resp.json.errorID || 3315,
+                resp.json.subErrorID || resp.status || 403,
+                deviceGroup
+              ));
+              return;
+            }
+            execKernel({ op: 'drm_op', action: 'device_group', name: deviceGroup.name, remove: true });
+            dispatchNow(this, makeDRMDeviceGroupEvent('removeFromDeviceGroupComplete', deviceGroup));
+          });
+          return;
+        }
         execKernel({ op: 'drm_op', action: 'device_group', name: deviceGroup.name, remove: true });
-        dispatchLater(this, () => makeDRMStatusEvent(null, null, false));
+        dispatchLater(this, () => makeDRMDeviceGroupEvent('removeFromDeviceGroupComplete', deviceGroup));
       }
     }
+    Object.defineProperty(DRMManager, '_packageEncryptedStream', {
+      configurable: true,
+      writable: true,
+      enumerable: false,
+      value: function _packageEncryptedStream(metadataBytesOrJson, cleartextBytes, customKeyBytes = null) {
+        let metaB64;
+        if (drmContentMap.has(metadataBytesOrJson)) {
+          metaB64 = dcdState(metadataBytesOrJson).rawBase64;
+        } else if (typeof metadataBytesOrJson === 'string') {
+          metaB64 = toBase64(new TextEncoder().encode(metadataBytesOrJson));
+        } else if (binary?.ByteArray?.__nfIs?.(metadataBytesOrJson) && binary.toBytes) {
+          metaB64 = toBase64(binary.toBytes(metadataBytesOrJson));
+        } else {
+          metaB64 = toBase64(metadataBytesOrJson);
+        }
+        const clearRaw = binary?.ByteArray?.__nfIs?.(cleartextBytes) ? binary.toBytes(cleartextBytes) : cleartextBytes;
+        const out = execKernel({
+          op: 'drm_op',
+          action: 'encrypt_media',
+          metadataBase64: metaB64,
+          cleartextBase64: toBase64(clearRaw),
+          keyBase64: customKeyBytes ? toBase64(customKeyBytes) : '',
+        });
+        const encU8 = fromBase64(out.encryptedBase64);
+        return binary?.fromBytes ? binary.fromBytes(encU8) : encU8;
+      },
+    });
     function ensureDrmManager(instance) {
       ensureActive();
       if (!drmManagers.has(instance)) throw new TypeError('Expected a valid DRMManager instance.');
     }
     tagType(DRMManager, 'DRMManager', v => drmManagers.has(v));
+
+    if (videoHost?.NetStream?.prototype && !videoHost.NetStream.prototype.__nfDrmWrapped) {
+      const nsProto = videoHost.NetStream.prototype;
+      const lastDecryptedMap = new WeakMap();
+      Object.defineProperty(nsProto, '__nfDrmWrapped', { value: true, configurable: true });
+      Object.defineProperty(nsProto, '_lastDecryptedBytes', {
+        configurable: true,
+        enumerable: false,
+        get() { return lastDecryptedMap.get(this) || null; },
+      });
+      const prevAppendBytes = nsProto.appendBytes;
+      const prevResetVouchers = nsProto.resetDRMVouchers;
+      const isNfdrmEnvelope = u8 => u8 && u8.byteLength >= 34 && u8[0] === 0x4e && u8[1] === 0x46 && u8[2] === 0x44 && u8[3] === 0x52 && u8[4] === 0x4d && u8[5] === 0x31;
+      const nsLater = fn => {
+        const born = generation;
+        schedule(() => {
+          if (disposed || generation !== born) return;
+          try { fn(); } finally { afterEvent(); }
+        });
+      };
+
+      const processEncryptedMediaOnNetStream = (nsSelf, rawU8, forwardCleartext) => {
+        const metaLen = ((rawU8[6] << 24) | (rawU8[7] << 16) | (rawU8[8] << 8) | rawU8[9]) >>> 0;
+        let cdObj = null;
+        if (10 + metaLen <= rawU8.byteLength) {
+          try {
+            cdObj = new DRMContentData(rawU8.subarray(10, 10 + metaLen));
+          } catch (err) {
+            nsLater(() => {
+              nsSelf.dispatchEvent(makeDRMErrorEvent(String(err?.message || err), 3300, 2, null));
+            });
+            return;
+          }
+        }
+        if (cdObj) {
+          nsLater(() => {
+            const client = nsSelf.client || nsSelf;
+            if (typeof client?.onDRMContentData === 'function') {
+              try { client.onDRMContentData(cdObj); } catch (_) {}
+            }
+            nsSelf.dispatchEvent(makeDRMMetadataEvent(cdObj, Number(nsSelf.time) || 0));
+          });
+        }
+        const tryDecryptNow = isLocalFlag => {
+          const dec = execKernel({
+            op: 'drm_op',
+            action: 'decrypt_media',
+            base64: toBase64(rawU8),
+            nowMs: Date.now(),
+          });
+          if (dec.ok) {
+            const vObj = new DRMVoucher(dec.voucher);
+            const clearBytes = fromBase64(dec.cleartextBase64);
+            lastDecryptedMap.set(nsSelf, clearBytes);
+            forwardCleartext(clearBytes);
+            nsLater(() => {
+              nsSelf.dispatchEvent(makeDRMStatusEvent(cdObj, vObj, isLocalFlag));
+            });
+            return true;
+          }
+          return dec;
+        };
+        const firstTry = tryDecryptNow(true);
+        if (firstTry === true) return;
+        if (firstTry.needsVoucher && cdObj && cdObj.authenticationMethod === 'anonymous') {
+          const dm = DRMManager.getDRMManager();
+          const onStatus = ev => {
+            if (ev.contentData !== cdObj) return;
+            dm.removeEventListener('drmStatus', onStatus);
+            dm.removeEventListener('drmError', onErr);
+            const secondTry = tryDecryptNow(false);
+            if (secondTry !== true) {
+              nsLater(() => {
+                nsSelf.dispatchEvent(makeDRMErrorEvent(secondTry.text || 'DRM decryption failed', secondTry.errorID || 3305, secondTry.subErrorID || 0, cdObj));
+              });
+            }
+          };
+          const onErr = ev => {
+            if (ev.contentData && ev.contentData !== cdObj) return;
+            dm.removeEventListener('drmStatus', onStatus);
+            dm.removeEventListener('drmError', onErr);
+            nsLater(() => {
+              nsSelf.dispatchEvent(makeDRMErrorEvent(ev.text || 'License denied', ev.errorID || 3305, ev.subErrorID || 403, cdObj, ev.systemUpdateNeeded, ev.drmUpdateNeeded));
+            });
+          };
+          dm.addEventListener('drmStatus', onStatus);
+          dm.addEventListener('drmError', onErr);
+          dm.loadVoucher(cdObj, 'allowServer');
+          return;
+        }
+        nsLater(() => {
+          nsSelf.dispatchEvent(makeDRMErrorEvent(
+            firstTry.text || 'No valid DRM voucher available for encrypted media.',
+            firstTry.errorID || 3305,
+            firstTry.subErrorID || 401,
+            cdObj
+          ));
+        });
+      };
+
+      if (typeof prevAppendBytes === 'function') {
+        Object.defineProperty(nsProto, 'appendBytes', {
+          configurable: true,
+          writable: true,
+          value: function appendBytes(bytes) {
+            if (!disposed && binary?.ByteArray?.__nfIs?.(bytes) && binary.toBytes) {
+              const rem = Math.max(0, bytes.length - bytes.position);
+              const full = binary.toBytes(bytes);
+              const slice = full.subarray(bytes.position, bytes.position + rem);
+              if (isNfdrmEnvelope(slice)) {
+                bytes.position = bytes.length;
+                processEncryptedMediaOnNetStream(this, slice, clearU8 => {
+                  if (binary?.fromBytes) {
+                    const clearBa = binary.fromBytes(clearU8);
+                    try { prevAppendBytes.call(this, clearBa); } catch (_) {}
+                  }
+                });
+                return;
+              }
+            }
+            return prevAppendBytes.call(this, bytes);
+          },
+        });
+      }
+      Object.defineProperty(nsProto, 'resetDRMVouchers', {
+        configurable: true,
+        writable: true,
+        value: function resetDRMVouchers() {
+          if (typeof prevResetVouchers === 'function') prevResetVouchers.call(this);
+          if (!disposed && kernel) {
+            try { execKernel({ op: 'drm_op', action: 'reset_vouchers' }); } catch (_) {}
+          }
+          lastDecryptedMap.delete(this);
+        },
+      });
+    }
 
     // =========================================================================
     // 6. flash.media.scanHardware, flash.concurrent.{Mutex, Condition},
@@ -7187,8 +7852,10 @@
         if (rec.definitions.has(key) || rec.definitions.has(String(name))) return true;
         const b = getBuiltins();
         if (b && key in b) return true;
-        const prog = getProgram();
-        if (prog?.classes && (key in prog.classes || String(name) in prog.classes)) return true;
+        if (this === ApplicationDomain.currentDomain) {
+          const prog = getProgram();
+          if (prog?.classes && (key in prog.classes || String(name) in prog.classes)) return true;
+        }
         return false;
       }
       getDefinition(name) {
@@ -7204,10 +7871,12 @@
         if (rec.definitions.has(String(name))) return rec.definitions.get(String(name));
         const b = getBuiltins();
         if (b && key in b) return b[key];
-        const prog = getProgram();
-        if (prog?.classes) {
-          if (key in prog.classes) return prog.classes[key];
-          if (String(name) in prog.classes) return prog.classes[String(name)];
+        if (this === ApplicationDomain.currentDomain) {
+          const prog = getProgram();
+          if (prog?.classes) {
+            if (key in prog.classes) return prog.classes[key];
+            if (String(name) in prog.classes) return prog.classes[String(name)];
+          }
         }
         throw new ReferenceError(`ReferenceError: Error #1065: Variable ${name} is not defined.`);
       }
@@ -7235,11 +7904,13 @@
             names.add(dot > 0 ? `${k.slice(0, dot)}::${k.slice(dot + 1)}` : k);
           }
         }
-        const prog = getProgram();
-        if (prog?.classes) {
-          for (const k of Object.keys(prog.classes)) {
-            const dot = k.lastIndexOf('.');
-            names.add(dot > 0 ? `${k.slice(0, dot)}::${k.slice(dot + 1)}` : k);
+        if (this === ApplicationDomain.currentDomain) {
+          const prog = getProgram();
+          if (prog?.classes) {
+            for (const k of Object.keys(prog.classes)) {
+              const dot = k.lastIndexOf('.');
+              names.add(dot > 0 ? `${k.slice(0, dot)}::${k.slice(dot + 1)}` : k);
+            }
           }
         }
         return makeVector('String', Array.from(names).sort());
@@ -7312,6 +7983,19 @@
         return ((Number(val) & 0xffff) << 16) >> 16;
       }
     }
+    Object.defineProperty(ApplicationDomain.prototype, '_registerDefinition', {
+      configurable: true,
+      writable: true,
+      enumerable: false,
+      value: function _registerDefinition(name, value) {
+        const rec = adState(this);
+        if (!name || value === undefined) return false;
+        const key = String(name).replace(/::/g, '.');
+        if (this.hasDefinition(key)) return false;
+        rec.definitions.set(key, value);
+        return true;
+      },
+    });
     for (const opName of ['li8', 'li16', 'li32', 'lf32', 'lf64', 'si8', 'si16', 'si32', 'sf32', 'sf64', 'sxi1', 'sxi8', 'sxi16']) {
       Object.defineProperty(ApplicationDomain, opName, {
         configurable: true,
@@ -8093,12 +8777,31 @@
     });
 
     const systemUpdaters = new WeakMap();
+    let activeSystemUpdate = null;
+
+    function clearActiveSystemUpdateFor(updater) {
+      if (activeSystemUpdate && (activeSystemUpdate.generation !== generation || activeSystemUpdate.updater === updater)) {
+        activeSystemUpdate = null;
+      }
+    }
+
+    function resolveSystemUpdateUrl(instance, updateType) {
+      if (typeof instance._endpointUrl === 'string' && instance._endpointUrl) return instance._endpointUrl;
+      if (typeof SystemUpdater._endpointUrl === 'string' && SystemUpdater._endpointUrl) return SystemUpdater._endpointUrl;
+      if (typeof options.systemUpdateUrl === 'function') return options.systemUpdateUrl(updateType);
+      if (typeof options.systemUpdateUrl === 'string' && options.systemUpdateUrl) return options.systemUpdateUrl;
+      if (typeof global.NEOFLASH_SYSTEM_UPDATE_URL === 'string' && global.NEOFLASH_SYSTEM_UPDATE_URL) {
+        return global.NEOFLASH_SYSTEM_UPDATE_URL;
+      }
+      return null;
+    }
+
     class SystemUpdater extends events.EventDispatcher {
       constructor() {
         super();
         ensureActive();
         registerDispatcher(this);
-        systemUpdaters.set(this, { generation, activeOp: 0 });
+        systemUpdaters.set(this, { generation, activeOp: 0, abortCtrl: null });
       }
       update(type) {
         const rec = suState(this);
@@ -8109,20 +8812,166 @@
           err.errorID = 2004;
           throw err;
         }
+        if (activeSystemUpdate && activeSystemUpdate.generation === generation) {
+          const err = new Error('Error #2037: Only one SystemUpdater update may run at a time.');
+          err.name = 'IllegalOperationError';
+          err.errorID = 2037;
+          throw err;
+        }
         const opId = ++rec.activeOp;
+        const born = generation;
+        const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+        rec.abortCtrl = ctrl;
+        activeSystemUpdate = { generation: born, updater: this, opId, type: t };
+
+        if (options.systemUpdatePolicyAllowed === false) {
+          dispatchLater(this, () => {
+            if (rec.activeOp !== opId || generation !== born) return null;
+            clearActiveSystemUpdateFor(this);
+            return makeSecurityErrorEvent('securityError', 'Security policy forbids SystemUpdater execution.');
+          });
+          return;
+        }
+        if (options.systemUpdateUnsupported === true) {
+          dispatchLater(this, () => {
+            if (rec.activeOp !== opId || generation !== born) return null;
+            dispatchNow(this, makeBasicEvent('open'));
+            clearActiveSystemUpdateFor(this);
+            return makeStatusEvent('DRM.UpdateFailedNotSupported', 'error');
+          });
+          return;
+        }
+
+        const endpointUrl = resolveSystemUpdateUrl(this, t);
+        if (endpointUrl !== null) {
+          const urlStr = String(endpointUrl).trim();
+          if (!/^https?:\/\//i.test(urlStr)) {
+            dispatchLater(this, () => {
+              if (rec.activeOp !== opId || generation !== born) return null;
+              clearActiveSystemUpdateFor(this);
+              return makeSecurityErrorEvent('securityError', `Disallowed SystemUpdater URL scheme in '${urlStr}'.`);
+            });
+            return;
+          }
+          const fetchFn = options.fetch || global.fetch;
+          if (typeof fetchFn !== 'function') {
+            dispatchLater(this, () => {
+              if (rec.activeOp !== opId || generation !== born) return null;
+              clearActiveSystemUpdateFor(this);
+              return makeIOErrorEvent('ioError', 'HTTP fetch transport is unavailable for SystemUpdater.');
+            });
+            return;
+          }
+          const sep = urlStr.includes('?') ? '&' : '?';
+          const reqUrl = `${urlStr}${sep}type=${encodeURIComponent(t)}`;
+          Promise.resolve().then(async () => {
+            if (disposed || generation !== born || rec.activeOp !== opId) return;
+            try {
+              const res = await fetchFn(reqUrl, {
+                method: 'GET',
+                signal: ctrl ? ctrl.signal : undefined,
+              });
+              if (disposed || generation !== born || rec.activeOp !== opId) return;
+              if (res.status === 403) {
+                clearActiveSystemUpdateFor(this);
+                dispatchNow(this, makeSecurityErrorEvent('securityError', 'SystemUpdater denied by server policy (HTTP 403).'));
+                return;
+              }
+              dispatchNow(this, makeBasicEvent('open'));
+              if (disposed || generation !== born || rec.activeOp !== opId) return;
+              const statusHdr = res.headers?.get?.('x-system-update-status') || '';
+              if (!res.ok || statusHdr) {
+                clearActiveSystemUpdateFor(this);
+                let code = statusHdr || 'DRM.UpdateFailed';
+                if (!statusHdr) {
+                  if (res.status === 404 || res.status === 503) code = 'DRM.UpdateFailedNotCurrentlyAvailable';
+                  else if (res.status === 422) code = 'DRM.UpdateFailedNotSupported';
+                  else if (res.status === 426) code = 'DRM.UpdateNeededButIncompatible';
+                }
+                dispatchNow(this, makeStatusEvent(code, 'error'));
+                return;
+              }
+              const contentLen = Math.max(0, Number(res.headers?.get?.('content-length')) || 0);
+              const expectedSha = (res.headers?.get?.('x-package-sha256') || '').trim().toLowerCase();
+              const chunks = [];
+              let loaded = 0;
+              if (res.body && typeof res.body.getReader === 'function') {
+                const reader = res.body.getReader();
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (disposed || generation !== born || rec.activeOp !== opId) {
+                    try { await reader.cancel(); } catch (_) {}
+                    return;
+                  }
+                  if (done) break;
+                  if (value && value.byteLength > 0) {
+                    chunks.push(value);
+                    loaded += value.byteLength;
+                    dispatchNow(this, makeProgressEvent('progress', loaded, contentLen || loaded));
+                    if (disposed || generation !== born || rec.activeOp !== opId) return;
+                  }
+                }
+              } else {
+                const ab = await res.arrayBuffer();
+                if (disposed || generation !== born || rec.activeOp !== opId) return;
+                const u8 = new Uint8Array(ab);
+                chunks.push(u8);
+                loaded = u8.byteLength;
+                dispatchNow(this, makeProgressEvent('progress', loaded, contentLen || loaded));
+              }
+              if (expectedSha && global.crypto?.subtle?.digest) {
+                const merged = new Uint8Array(loaded);
+                let off = 0;
+                for (const c of chunks) { merged.set(c, off); off += c.byteLength; }
+                const digestBuf = await global.crypto.subtle.digest('SHA-256', merged);
+                const actualSha = Array.from(new Uint8Array(digestBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+                if (actualSha !== expectedSha) {
+                  clearActiveSystemUpdateFor(this);
+                  dispatchNow(this, makeStatusEvent('DRM.UpdateFailed', 'error'));
+                  return;
+                }
+              }
+              if (disposed || generation !== born || rec.activeOp !== opId) return;
+              clearActiveSystemUpdateFor(this);
+              dispatchNow(this, makeBasicEvent('complete'));
+            } catch (err) {
+              if (disposed || generation !== born || rec.activeOp !== opId) return;
+              clearActiveSystemUpdateFor(this);
+              if (err?.name === 'AbortError') return;
+              dispatchNow(this, makeIOErrorEvent('ioError', String(err?.message || err)));
+            }
+          });
+          return;
+        }
+
         dispatchLater(this, () => {
-          if (rec.activeOp !== opId) return null;
+          if (rec.activeOp !== opId || generation !== born) return null;
           dispatchNow(this, makeBasicEvent('open'));
           dispatchNow(this, makeProgressEvent('progress', 100, 100));
+          clearActiveSystemUpdateFor(this);
           return makeBasicEvent('complete');
         });
       }
       cancel() {
         const rec = suState(this);
+        if (!activeSystemUpdate || activeSystemUpdate.generation !== generation || activeSystemUpdate.updater !== this) {
+          return;
+        }
         rec.activeOp++;
+        clearActiveSystemUpdateFor(this);
+        if (rec.abortCtrl) {
+          try { rec.abortCtrl.abort(); } catch (_) {}
+          rec.abortCtrl = null;
+        }
         dispatchLater(this, () => makeBasicEvent('cancel'));
       }
     }
+    Object.defineProperty(SystemUpdater, '_endpointUrl', {
+      configurable: true,
+      writable: true,
+      enumerable: false,
+      value: null,
+    });
     function suState(instance) {
       ensureActive();
       const rec = systemUpdaters.get(instance);
@@ -8144,30 +8993,142 @@
       CLOSED: 'closed',
     });
 
+    const workerConstructToken = Symbol('WorkerConstruct');
+    const workerDomainConstructToken = Symbol('WorkerDomainConstruct');
+
+    function extractWorkerExecutablePayload(rawBytes) {
+      if (!(rawBytes instanceof Uint8Array) || rawBytes.byteLength < 8) return null;
+      // 1. Check for NeoFlash self-worker custom SWF tag 1021 ("NFWK" + JSON)
+      if (rawBytes[0] === 0x46 && rawBytes[1] === 0x57 && rawBytes[2] === 0x53 && rawBytes.byteLength > 23) {
+        const nfwkMarker = [0x4e, 0x46, 0x57, 0x4b];
+        for (let i = 12; i + 8 < Math.min(rawBytes.byteLength, 64); i++) {
+          if (rawBytes[i] === nfwkMarker[0] && rawBytes[i + 1] === nfwkMarker[1] && rawBytes[i + 2] === nfwkMarker[2] && rawBytes[i + 3] === nfwkMarker[3]) {
+            const plen = (rawBytes[i - 4] | (rawBytes[i - 3] << 8) | (rawBytes[i - 2] << 16) | (rawBytes[i - 1] << 24)) >>> 0;
+            const jsonEnd = Math.min(rawBytes.byteLength, i + plen);
+            try {
+              const bundleObj = JSON.parse(new TextDecoder().decode(rawBytes.subarray(i + 4, jsonEnd)));
+              if (bundleObj && typeof bundleObj === 'object') {
+                return { kind: 'neoflash', bundle: bundleObj };
+              }
+            } catch (_) {}
+            break;
+          }
+        }
+      }
+      // 2. Check for direct NeoFlash bundle JSON text
+      if (rawBytes[0] === 0x7b) {
+        try {
+          const parsed = JSON.parse(new TextDecoder().decode(rawBytes));
+          if (parsed && typeof parsed === 'object' && (parsed.project || parsed.program || Array.isArray(parsed.scripts))) {
+            return { kind: 'neoflash', bundle: parsed };
+          }
+        } catch (_) {}
+      }
+      // 3. Real FWS/CWS/ZWS AVM2/AVM1 SWF compiled via WASM decode_swf_bundle_json
+      const isSwfSig = (rawBytes[0] === 0x46 || rawBytes[0] === 0x43 || rawBytes[0] === 0x5a) && rawBytes[1] === 0x57 && rawBytes[2] === 0x53;
+      if (isSwfSig && rawBytes.byteLength >= 12 && typeof wasm?.decode_swf_bundle_json === 'function') {
+        try {
+          const decoded = JSON.parse(wasm.decode_swf_bundle_json(rawBytes));
+          if (decoded && Array.isArray(decoded.scripts) && decoded.scripts.length > 0) {
+            return {
+              kind: 'swf',
+              scripts: decoded.scripts,
+              actionScriptVersion: decoded.swfInfo?.actionScriptVersion || 3,
+            };
+          }
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    let cachedNodeWorkerCtor = undefined;
+    function resolveNodeWorkerCtor() {
+      if (cachedNodeWorkerCtor !== undefined) return cachedNodeWorkerCtor;
+      cachedNodeWorkerCtor = null;
+      if (typeof global.Worker !== 'function' && typeof require === 'function') {
+        try {
+          const wt = require('node:worker_threads');
+          if (typeof wt?.Worker === 'function') cachedNodeWorkerCtor = wt.Worker;
+        } catch (_) {}
+      }
+      return cachedNodeWorkerCtor;
+    }
+
     const WORKER_BOOTSTRAP_SOURCE = [
       '(function() {',
       '  "use strict";',
+      '  var nodeParentPort = null;',
+      '  if ((typeof self === "undefined" || typeof self.postMessage !== "function") && typeof require === "function") {',
+      '    try { nodeParentPort = require("node:worker_threads").parentPort; } catch (_) {}',
+      '  }',
       '  var root = typeof self !== "undefined" ? self : globalThis;',
       '  var sharedProps = new Map();',
       '  var channels = new Map();',
+      '  var channelSabs = new Map();',
       '  var workerId = 2;',
       '  var state = "running";',
-      '  function postOut(msg) { root.postMessage(msg); }',
-      '  function WorkerByteArray(sab, initialLen) {',
-      '    this._sab = sab;',
-      '    this._u8 = new Uint8Array(sab);',
-      '    this._dv = new DataView(sab);',
+      '  var rawWorkerSwfBytes = new Uint8Array(0);',
+      '  function postOut(msg) {',
+      '    if (nodeParentPort) nodeParentPort.postMessage(msg);',
+      '    else if (typeof root.postMessage === "function") root.postMessage(msg);',
+      '  }',
+      '  function isSab(v) {',
+      '    return typeof SharedArrayBuffer === "function" && (v instanceof SharedArrayBuffer);',
+      '  }',
+      '  function canTransferSab() {',
+      '    if (typeof SharedArrayBuffer !== "function") return false;',
+      '    if (!nodeParentPort && typeof root.importScripts === "function") return root.crossOriginIsolated === true;',
+      '    return true;',
+      '  }',
+      '  function traceFn() {',
+      '    var parts = [];',
+      '    for (var i = 0; i < arguments.length; i++) parts.push(String(arguments[i]));',
+      '    postOut({ type: "worker_trace", text: parts.join(" ") });',
+      '  }',
+      '  function WorkerByteArray(sabOrBuf, initialLen) {',
+      '    if (isSab(sabOrBuf) || sabOrBuf instanceof ArrayBuffer) {',
+      '      this._sab = sabOrBuf;',
+      '      this.shareable = isSab(sabOrBuf);',
+      '      this.length = initialLen !== undefined ? (initialLen >>> 0) : sabOrBuf.byteLength;',
+      '    } else if (sabOrBuf instanceof Uint8Array) {',
+      '      this._sab = sabOrBuf.buffer.slice(sabOrBuf.byteOffset, sabOrBuf.byteOffset + Math.max(256, sabOrBuf.byteLength));',
+      '      new Uint8Array(this._sab).set(sabOrBuf, 0);',
+      '      this.shareable = false;',
+      '      this.length = sabOrBuf.byteLength;',
+      '    } else {',
+      '      this._sab = new ArrayBuffer(1024);',
+      '      this.shareable = false;',
+      '      this.length = 0;',
+      '    }',
+      '    this._u8 = new Uint8Array(this._sab);',
+      '    this._dv = new DataView(this._sab);',
       '    this.position = 0;',
-      '    this.length = initialLen >>> 0;',
-      '    this.shareable = true;',
       '    this.endian = "bigEndian";',
       '  }',
+      '  WorkerByteArray.__nfIs = function(v) { return v instanceof WorkerByteArray; };',
+      '  Object.defineProperty(WorkerByteArray.prototype, "bytesAvailable", {',
+      '    get: function() { return Math.max(0, this.length - this.position); }',
+      '  });',
+      '  WorkerByteArray.prototype._ensure = function(need) {',
+      '    if (need <= this._u8.byteLength) return;',
+      '    if (this.shareable) return;',
+      '    var nextCap = Math.max(this._u8.byteLength * 2, need + 256);',
+      '    var nextBuf = new ArrayBuffer(nextCap);',
+      '    var nextU8 = new Uint8Array(nextBuf);',
+      '    nextU8.set(this._u8.subarray(0, this.length), 0);',
+      '    this._sab = nextBuf; this._u8 = nextU8; this._dv = new DataView(nextBuf);',
+      '  };',
       '  WorkerByteArray.prototype._little = function() { return this.endian === "littleEndian"; };',
+      '  WorkerByteArray.prototype._syncIfShared = function() {',
+      '    if (this.shareable) postOut({ type: "worker_sab_sync", length: this.length });',
+      '  };',
+      '  WorkerByteArray.prototype.clear = function() { this.position = 0; this.length = 0; this._syncIfShared(); };',
       '  WorkerByteArray.prototype.writeByte = function(v) {',
+      '    this._ensure(this.position + 1);',
       '    if (this.position < this._u8.length) {',
       '      this._u8[this.position++] = v & 0xff;',
       '      if (this.position > this.length) this.length = this.position;',
-      '      postOut({ type: "worker_sab_sync", length: this.length });',
+      '      this._syncIfShared();',
       '    }',
       '  };',
       '  WorkerByteArray.prototype.readByte = function() {',
@@ -8176,30 +9137,61 @@
       '  };',
       '  WorkerByteArray.prototype.readUnsignedByte = function() { return this._u8[this.position++] & 0xff; };',
       '  WorkerByteArray.prototype.writeInt = function(v) {',
+      '    this._ensure(this.position + 4);',
       '    this._dv.setInt32(this.position, v | 0, this._little());',
       '    this.position += 4;',
       '    if (this.position > this.length) this.length = this.position;',
-      '    postOut({ type: "worker_sab_sync", length: this.length });',
+      '    this._syncIfShared();',
       '  };',
       '  WorkerByteArray.prototype.readInt = function() {',
       '    var v = this._dv.getInt32(this.position, this._little());',
       '    this.position += 4;',
       '    return v;',
       '  };',
+      '  WorkerByteArray.prototype.writeUnsignedInt = function(v) { this.writeInt(v >>> 0); };',
+      '  WorkerByteArray.prototype.readUnsignedInt = function() { return this.readInt() >>> 0; };',
+      '  WorkerByteArray.prototype.writeDouble = function(v) {',
+      '    this._ensure(this.position + 8);',
+      '    this._dv.setFloat64(this.position, Number(v), this._little());',
+      '    this.position += 8;',
+      '    if (this.position > this.length) this.length = this.position;',
+      '    this._syncIfShared();',
+      '  };',
+      '  WorkerByteArray.prototype.readDouble = function() {',
+      '    var v = this._dv.getFloat64(this.position, this._little());',
+      '    this.position += 8;',
+      '    return v;',
+      '  };',
       '  WorkerByteArray.prototype.writeUTFBytes = function(s) {',
       '    var enc = new TextEncoder().encode(String(s));',
+      '    this._ensure(this.position + enc.byteLength);',
       '    this._u8.set(enc, this.position);',
       '    this.position += enc.byteLength;',
       '    if (this.position > this.length) this.length = this.position;',
-      '    postOut({ type: "worker_sab_sync", length: this.length });',
+      '    this._syncIfShared();',
       '  };',
       '  WorkerByteArray.prototype.readUTFBytes = function(len) {',
       '    var slice = this._u8.slice(this.position, this.position + (len >>> 0));',
       '    this.position += (len >>> 0);',
       '    return new TextDecoder().decode(slice);',
       '  };',
+      '  WorkerByteArray.prototype.writeUTF = function(s) {',
+      '    var enc = new TextEncoder().encode(String(s));',
+      '    this._ensure(this.position + 2 + enc.byteLength);',
+      '    this._dv.setUint16(this.position, enc.byteLength, this._little());',
+      '    this.position += 2;',
+      '    this._u8.set(enc, this.position);',
+      '    this.position += enc.byteLength;',
+      '    if (this.position > this.length) this.length = this.position;',
+      '    this._syncIfShared();',
+      '  };',
+      '  WorkerByteArray.prototype.readUTF = function() {',
+      '    var len = this._dv.getUint16(this.position, this._little());',
+      '    this.position += 2;',
+      '    return this.readUTFBytes(len);',
+      '  };',
       '  WorkerByteArray.prototype.atomicCompareAndSwapIntAt = function(byteIdx, expected, next) {',
-      '    if (typeof Atomics === "object" && this._sab instanceof SharedArrayBuffer) {',
+      '    if (typeof Atomics === "object" && isSab(this._sab)) {',
       '      var i32 = new Int32Array(this._sab, byteIdx >>> 0, 1);',
       '      var old = Atomics.compareExchange(i32, 0, expected | 0, next | 0);',
       '      postOut({ type: "worker_sab_sync", length: Math.max(this.length, (byteIdx >>> 0) + 4) });',
@@ -8209,20 +9201,129 @@
       '    if (cur === (expected | 0)) this._dv.setInt32(byteIdx >>> 0, next | 0, true);',
       '    return cur;',
       '  };',
-      '  function getOrMakeChannel(id) {',
+      '  WorkerByteArray.prototype.atomicCompareAndSwapLength = function(expectedLen, newLen) {',
+      '    var cur = this.length | 0;',
+      '    if (cur === (expectedLen | 0)) {',
+      '      this.length = Math.max(0, newLen | 0);',
+      '      this._syncIfShared();',
+      '    }',
+      '    return cur;',
+      '  };',
+      '  function WorkerEvent(type, bubbles, cancelable) {',
+      '    this.type = String(type || "");',
+      '    this.bubbles = Boolean(bubbles);',
+      '    this.cancelable = Boolean(cancelable);',
+      '    this.target = null;',
+      '    this.currentTarget = null;',
+      '  }',
+      '  WorkerEvent.CHANNEL_MESSAGE = "channelMessage";',
+      '  WorkerEvent.CHANNEL_STATE = "channelState";',
+      '  WorkerEvent.WORKER_STATE = "workerState";',
+      '  WorkerEvent.__nfIs = function(v) { return v instanceof WorkerEvent; };',
+      '  function WorkerMutex(sab) {',
+      '    this._sab = (typeof SharedArrayBuffer === "function" && sab instanceof SharedArrayBuffer) ? sab : (canTransferSab() ? new SharedArrayBuffer(16) : null);',
+      '    this._i32 = this._sab ? new Int32Array(this._sab) : null;',
+      '    this._depth = 0;',
+      '  }',
+      '  WorkerMutex.isSupported = true;',
+      '  WorkerMutex.__nfIs = function(v) { return v instanceof WorkerMutex; };',
+      '  WorkerMutex.prototype.lock = function() {',
+      '    if (this._depth > 0) { this._depth++; return; }',
+      '    if (this._i32 && typeof Atomics === "object") {',
+      '      while (Atomics.compareExchange(this._i32, 0, 0, workerId) !== 0) {',
+      '        Atomics.wait(this._i32, 0, Atomics.load(this._i32, 0), 50);',
+      '      }',
+      '    }',
+      '    this._depth = 1;',
+      '  };',
+      '  WorkerMutex.prototype.tryLock = function() {',
+      '    if (this._depth > 0) { this._depth++; return true; }',
+      '    if (this._i32 && typeof Atomics === "object") {',
+      '      if (Atomics.compareExchange(this._i32, 0, 0, workerId) !== 0) return false;',
+      '    }',
+      '    this._depth = 1; return true;',
+      '  };',
+      '  WorkerMutex.prototype.unlock = function() {',
+      '    if (this._depth <= 0) throw new Error("IllegalOperationError: Mutex is not locked.");',
+      '    this._depth--;',
+      '    if (this._depth === 0 && this._i32 && typeof Atomics === "object") {',
+      '      Atomics.store(this._i32, 0, 0);',
+      '      Atomics.notify(this._i32, 0, 1);',
+      '    }',
+      '  };',
+      '  function WorkerCondition(mtx) {',
+      '    if (!(mtx instanceof WorkerMutex)) throw new TypeError("Condition requires a Mutex.");',
+      '    this.mutex = mtx;',
+      '  }',
+      '  WorkerCondition.isSupported = true;',
+      '  WorkerCondition.__nfIs = function(v) { return v instanceof WorkerCondition; };',
+      '  WorkerCondition.prototype.wait = function(timeout) {',
+      '    var ms = timeout !== undefined && timeout >= 0 ? timeout : 100;',
+      '    if (this.mutex._i32 && typeof Atomics === "object") {',
+      '      var seq = Atomics.load(this.mutex._i32, 1);',
+      '      this.mutex.unlock();',
+      '      var r = Atomics.wait(this.mutex._i32, 1, seq, ms);',
+      '      this.mutex.lock();',
+      '      return r === "timed-out";',
+      '    }',
+      '    return false;',
+      '  };',
+      '  WorkerCondition.prototype.notify = function() {',
+      '    if (this.mutex._i32 && typeof Atomics === "object") {',
+      '      Atomics.add(this.mutex._i32, 1, 1);',
+      '      Atomics.notify(this.mutex._i32, 1, 1);',
+      '    }',
+      '  };',
+      '  WorkerCondition.prototype.notifyAll = function() {',
+      '    if (this.mutex._i32 && typeof Atomics === "object") {',
+      '      Atomics.add(this.mutex._i32, 1, 1);',
+      '      Atomics.notify(this.mutex._i32, 1, 1024);',
+      '    }',
+      '  };',
+      '  function getOrMakeChannel(id, optSab) {',
+      '    if (isSab(optSab)) channelSabs.set(id, optSab);',
       '    if (channels.has(id)) return channels.get(id);',
       '    var listeners = new Map();',
       '    var queue = [];',
+      '    var consumedSabSeq = 0;',
       '    var chState = "open";',
       '    var ch = {',
       '      id: id,',
       '      get state() { return chState; },',
-      '      get messageAvailable() { return queue.length > 0; },',
+      '      get messageAvailable() {',
+      '        if (queue.length > 0) return true;',
+      '        var sab = channelSabs.get(id);',
+      '        if (sab && typeof Atomics === "object") return Atomics.load(new Int32Array(sab, 0, 4), 0) > consumedSabSeq;',
+      '        return false;',
+      '      },',
       '      send: function(val) { postOut({ type: "worker_channel_send", channelId: id, value: serializeVal(val) }); },',
-      '      receive: function() {',
-      '        if (queue.length === 0) return null;',
-      '        postOut({ type: "worker_channel_consumed", channelId: id });',
-      '        return queue.shift();',
+      '      receive: function(blockUntilReceived) {',
+      '        if (queue.length > 0) {',
+      '          var sab0 = channelSabs.get(id);',
+      '          if (sab0 && typeof Atomics === "object") {',
+      '            var i32a = new Int32Array(sab0, 0, 4);',
+      '            var curSeq = Atomics.load(i32a, 0);',
+      '            if (curSeq > consumedSabSeq) consumedSabSeq = curSeq;',
+      '          }',
+      '          postOut({ type: "worker_channel_consumed", channelId: id });',
+      '          return queue.shift();',
+      '        }',
+      '        var sab = channelSabs.get(id);',
+      '        if (sab && typeof Atomics === "object") {',
+      '          var i32 = new Int32Array(sab, 0, 4);',
+      '          if (blockUntilReceived && Atomics.load(i32, 0) <= consumedSabSeq) {',
+      '            Atomics.wait(i32, 0, consumedSabSeq, 5000);',
+      '          }',
+      '          var seq = Atomics.load(i32, 0);',
+      '          if (seq > consumedSabSeq) {',
+      '            consumedSabSeq = seq;',
+      '            var byteLen = Atomics.load(i32, 1) >>> 0;',
+      '            var slice = new Uint8Array(sab, 16, Math.min(byteLen, sab.byteLength - 16)).slice();',
+      '            postOut({ type: "worker_channel_consumed", channelId: id });',
+      '            try { return deserializeVal(JSON.parse(new TextDecoder().decode(slice))); } catch (_) { return null; }',
+      '          }',
+      '        }',
+      '        return null;',
       '      },',
       '      close: function() { chState = "closed"; postOut({ type: "worker_channel_close", channelId: id }); },',
       '      addEventListener: function(t, fn) {',
@@ -8231,10 +9332,15 @@
       '      removeEventListener: function(t, fn) {',
       '        var arr = listeners.get(t); if (arr) listeners.set(t, arr.filter(function(x){ return x !== fn; }));',
       '      },',
-      '      _pushIncoming: function(val) {',
+      '      hasEventListener: function(t) { var arr = listeners.get(t); return Boolean(arr && arr.length > 0); },',
+      '      _pushIncoming: function(val, sabSeq) {',
+      '        if (typeof sabSeq === "number" && sabSeq <= consumedSabSeq) return;',
+      '        if (typeof sabSeq === "number") consumedSabSeq = sabSeq;',
       '        queue.push(val);',
       '        var arr = listeners.get("channelMessage") || [];',
-      '        for (var i = 0; i < arr.length; i++) { try { arr[i]({ type: "channelMessage", target: ch }); } catch (_) {} }',
+      '        for (var i = 0; i < arr.length; i++) {',
+      '          try { arr[i](new WorkerEvent("channelMessage", false, false)); } catch (_) {}',
+      '        }',
       '      }',
       '    };',
       '    channels.set(id, ch);',
@@ -8242,28 +9348,30 @@
       '  }',
       '  function deserializeVal(v) {',
       '    if (!v || typeof v !== "object") return v;',
-      '    if (v.__nfKind === "messageChannel") return getOrMakeChannel(v.id);',
+      '    if (v.__nfKind === "messageChannel") return getOrMakeChannel(v.id, v.sab || null);',
       '    if (v.__nfKind === "shareableByteArray") {',
       '      var sba = new WorkerByteArray(v.sab, v.length);',
       '      if (v.endian === "littleEndian" || v.endian === "bigEndian") sba.endian = v.endian;',
       '      return sba;',
       '    }',
       '    if (v.__nfKind === "byteArrayCopy") {',
-      '      var buf = v.bytes instanceof Uint8Array ? v.bytes.buffer.slice(v.bytes.byteOffset, v.bytes.byteOffset + v.bytes.byteLength) : new ArrayBuffer(0);',
-      '      var ba = new WorkerByteArray(buf, v.bytes ? v.bytes.byteLength : 0); ba.shareable = false;',
+      '      var u8 = v.bytes instanceof Uint8Array ? v.bytes : new Uint8Array(v.bytes || []);',
+      '      var ba = new WorkerByteArray(u8, u8.byteLength);',
       '      if (v.endian === "littleEndian" || v.endian === "bigEndian") ba.endian = v.endian;',
       '      return ba;',
       '    }',
+      '    if (v.__nfKind === "syncMutex") return new WorkerMutex(v.sab || null);',
       '    return v;',
       '  }',
       '  function serializeVal(v) {',
       '    if (!v || typeof v !== "object") return v;',
       '    if (v instanceof WorkerByteArray) {',
-      '      if (v.shareable && typeof SharedArrayBuffer === "function" && v._sab instanceof SharedArrayBuffer) {',
+      '      if (v.shareable && canTransferSab() && v._sab instanceof SharedArrayBuffer) {',
       '        return { __nfKind: "shareableByteArray", sab: v._sab, length: v.length, endian: v.endian };',
       '      }',
       '      return { __nfKind: "byteArrayCopy", bytes: v._u8.slice(0, v.length), endian: v.endian };',
       '    }',
+      '    if (v instanceof WorkerMutex && v._sab && canTransferSab()) return { __nfKind: "syncMutex", sab: v._sab };',
       '    if (typeof v.id === "number" && channels.get(v.id) === v) return { __nfKind: "messageChannel", id: v.id };',
       '    return v;',
       '  }',
@@ -8275,25 +9383,235 @@
       '      sharedProps.set(String(k), v);',
       '      postOut({ type: "worker_set_shared", key: String(k), value: serializeVal(v) });',
       '    },',
+      '    createMessageChannel: function() { return getOrMakeChannel(9000 + channels.size); },',
+      '    addEventListener: function() {},',
+      '    removeEventListener: function() {},',
       '    terminate: function() { state = "terminated"; postOut({ type: "worker_self_terminated" }); return true; }',
       '  };',
-      '  root.onmessage = function(ev) {',
-      '    var msg = ev && ev.data;',
+      '  function WorkerClass() { throw new Error("ArgumentError: Error #2012: Worker$ class cannot be instantiated."); }',
+      '  WorkerClass.isSupported = true;',
+      '  Object.defineProperty(WorkerClass, "current", { get: function() { return currentWorker; } });',
+      '  WorkerClass.__nfIs = function(v) { return v === currentWorker; };',
+      '  var workerDomainObj = {',
+      '    createWorker: function() { throw new Error("Nested Worker creation inside background Worker is not supported."); },',
+      '    listWorkers: function() { return [currentWorker]; }',
+      '  };',
+      '  function WorkerDomainClass() { throw new Error("ArgumentError: Error #2012: WorkerDomain$ class cannot be instantiated."); }',
+      '  WorkerDomainClass.isSupported = true;',
+      '  Object.defineProperty(WorkerDomainClass, "current", { get: function() { return workerDomainObj; } });',
+      '  WorkerDomainClass.__nfIs = function(v) { return v === workerDomainObj; };',
+      '  var WorkerStateConst = { NEW: "new", RUNNING: "running", TERMINATED: "terminated" };',
+      '  var MessageChannelStateConst = { OPEN: "open", CLOSING: "closing", CLOSED: "closed" };',
+      '  var EndianConst = { BIG_ENDIAN: "bigEndian", LITTLE_ENDIAN: "littleEndian" };',
+      '  function makeWorkerBuiltins() {',
+      '    function SimpleDispatcher() { this._l = new Map(); }',
+      '    SimpleDispatcher.__nfIs = function(v) { return v instanceof SimpleDispatcher; };',
+      '    SimpleDispatcher.__nfInitialize = function(recv) { if (recv && !recv._l) SimpleDispatcher.call(recv); };',
+      '    SimpleDispatcher.prototype.addEventListener = function(t, f) { var a = this._l.get(t) || []; a.push(f); this._l.set(t, a); };',
+      '    SimpleDispatcher.prototype.removeEventListener = function(t, f) { var a = this._l.get(t); if (a) this._l.set(t, a.filter(function(x){ return x !== f; })); };',
+      '    SimpleDispatcher.prototype.dispatchEvent = function(e) { var a = this._l.get(e.type) || []; for (var i = 0; i < a.length; i++) a[i](e); return true; };',
+      '    SimpleDispatcher.prototype.hasEventListener = function(t) { var a = this._l.get(t); return Boolean(a && a.length > 0); };',
+      '    function WorkerSprite() { SimpleDispatcher.call(this); this.loaderInfo = { get bytes() { return new WorkerByteArray(rawWorkerSwfBytes, rawWorkerSwfBytes.byteLength); } }; }',
+      '    WorkerSprite.prototype = Object.create(SimpleDispatcher.prototype);',
+      '    WorkerSprite.prototype.constructor = WorkerSprite;',
+      '    WorkerSprite.__nfIs = function(v) { return v instanceof WorkerSprite; };',
+      '    WorkerSprite.__nfInitialize = function(recv) {',
+      '      if (!recv) return;',
+      '      SimpleDispatcher.__nfInitialize(recv);',
+      '      if (!recv.loaderInfo) recv.loaderInfo = { get bytes() { return new WorkerByteArray(rawWorkerSwfBytes, rawWorkerSwfBytes.byteLength); } };',
+      '    };',
+      '    function WorkerMovieClip() { WorkerSprite.call(this); }',
+      '    WorkerMovieClip.prototype = Object.create(WorkerSprite.prototype);',
+      '    WorkerMovieClip.prototype.constructor = WorkerMovieClip;',
+      '    WorkerMovieClip.__nfIs = function(v) { return v instanceof WorkerMovieClip; };',
+      '    WorkerMovieClip.__nfInitialize = function(recv) { WorkerSprite.__nfInitialize(recv); };',
+      '    var wb = {',
+      '      __nfTrace: traceFn,',
+      '      __nfHasNativeProperty: function() { return false; },',
+      '      __nfIsNativeDisplay: function(v) { return v instanceof WorkerSprite; },',
+      '      __nfIsNativeInterface: function() { return false; },',
+      '      __nfNativeClassName: function() { return null; },',
+      '      __nfNativeTypeName: function() { return null; },',
+      '      "flash.events.EventDispatcher": SimpleDispatcher,',
+      '      "flash.events.Event": WorkerEvent,',
+      '      "flash.display.DisplayObject": WorkerSprite,',
+      '      "flash.display.InteractiveObject": WorkerSprite,',
+      '      "flash.display.DisplayObjectContainer": WorkerSprite,',
+      '      "flash.display.Sprite": WorkerSprite,',
+      '      "flash.display.MovieClip": WorkerMovieClip,',
+      '      "flash.system.Worker": WorkerClass,',
+      '      "flash.system.WorkerDomain": WorkerDomainClass,',
+      '      "flash.system.WorkerState": WorkerStateConst,',
+      '      "flash.system.MessageChannel": Object.assign(function(){}, { __nfIs: function(v){ return Boolean(v && typeof v.receive === "function"); } }),',
+      '      "flash.system.MessageChannelState": MessageChannelStateConst,',
+      '      "flash.utils.ByteArray": WorkerByteArray,',
+      '      "flash.utils.Endian": EndianConst,',
+      '      "flash.utils.getTimer": function() { return Math.floor(performance.now()); },',
+      '      "flash.concurrent.Mutex": WorkerMutex,',
+      '      "flash.concurrent.Condition": WorkerCondition',
+      '    };',
+      '    return wb;',
+      '  }',
+      '  function runSwfWorkerPayload(payload) {',
+      '    var instClass = new WeakMap(), superMap = new WeakMap(), classMeta = new WeakMap(), slotNames = new WeakMap(), anonSlots = new WeakMap(), protoOwner = new WeakMap(), methodOwner = new WeakMap(), boundSuper = new WeakMap();',
+      '    var __nfSwfFn = function(fn) { return typeof fn === "function" ? fn : function(){}; };',
+      '    var __nfSwfStubFn = function() { return function(){}; };',
+      '    var __nfSwfGet = function(o, k) {',
+      '      if (o == null) return undefined;',
+      '      var bs = typeof o === "function" ? boundSuper.get(o) : null;',
+      '      if (bs) return bs.supProto ? bs.supProto[k] : undefined;',
+      '      return o[k];',
+      '    };',
+      '    var __nfSwfSet = function(o, k, v) { if (o != null && k !== "__proto__" && k !== "constructor") o[k] = v; return v; };',
+      '    var __nfSwfHas = function(o, k) { return o != null && k in Object(o); };',
+      '    var __nfSwfHasOwn = function(o, k) { return o != null && Object.prototype.hasOwnProperty.call(o, k); };',
+      '    var __nfSwfDelete = function(o, k) { return o != null ? delete o[k] : false; };',
+      '    var __nfSwfKeys = function(o) { return o != null ? Object.keys(o) : []; };',
+      '    var __nfSwfApply = function(fn, recv, args) { return typeof fn === "function" ? Reflect.apply(fn, recv, args || []) : undefined; };',
+      '    var __nfSwfCall = function(o, k, args) {',
+      '      if (o == null) return undefined;',
+      '      var bs = typeof o === "function" ? boundSuper.get(o) : null;',
+      '      if (bs) { var sf = bs.supProto ? bs.supProto[k] : null; return typeof sf === "function" ? Reflect.apply(sf, bs.receiver, args || []) : undefined; }',
+      '      var fn = o[k]; return typeof fn === "function" ? Reflect.apply(fn, o, args || []) : undefined;',
+      '    };',
+      '    var __nfSwfNew = function(ctorOrObj, mName, args) {',
+      '      var c = mName ? (ctorOrObj ? ctorOrObj[mName] : null) : ctorOrObj;',
+      '      if (c === "Object") return {}; if (c === "Array") return [...(args || [])];',
+      '      if (typeof c !== "function") return {};',
+      '      return Reflect.construct(c, args || []);',
+      '    };',
+      '    var __nfSwfExtends = function(sub, sup) {',
+      '      if (typeof sub !== "function") return;',
+      '      var p = (typeof sup === "function" && sup.prototype) ? Object.create(sup.prototype) : Object.create(null);',
+      '      if (sub.prototype) Object.assign(p, sub.prototype);',
+      '      sub.prototype = p; protoOwner.set(p, sub); if (typeof sup === "function") superMap.set(sub, sup);',
+      '    };',
+      '    var __nfSwfSuper = function(selfFn, curThis) {',
+      '      var own = methodOwner.get(selfFn) || (curThis ? instClass.get(curThis) : null);',
+      '      var sup = own ? superMap.get(own) : null;',
+      '      if (typeof sup !== "function") return undefined;',
+      '      var sp = function() { return Reflect.apply(sup, curThis, arguments); };',
+      '      boundSuper.set(sp, { supProto: sup.prototype || null, receiver: curThis }); return sp;',
+      '    };',
+      '    var __nfSwfSuperConstruct = function() {};',
+      '    var __nfSwfTagInstance = function(t, c) { if (t && typeof t === "object" && c) instClass.set(t, c); };',
+      '    var __nfSwfSetClassMeta = function(c, q, s, sup) { if (typeof c === "function") classMeta.set(c, { qname: q, shortName: s, superShort: sup }); };',
+      '    var __nfSwfSlotMeta = function(o, pairs) {',
+      '      if (!o || typeof o !== "object") return o;',
+      '      var m = slotNames.get(o) || new Map(); slotNames.set(o, m);',
+      '      if (Array.isArray(pairs)) for (var i = 0; i < pairs.length; i++) m.set(pairs[i][0] | 0, String(pairs[i][1]));',
+      '      return o;',
+      '    };',
+      '    var __nfSwfGetSlot = function(o, sid) { var nm = slotNames.get(o)?.get(sid | 0); return nm ? o[nm] : anonSlots.get(o)?.get(sid | 0); };',
+      '    var __nfSwfSetSlot = function(o, sid, v) {',
+      '      var nm = slotNames.get(o)?.get(sid | 0); if (nm) { o[nm] = v; return v; }',
+      '      var a = anonSlots.get(o) || new Map(); anonSlots.set(o, a); a.set(sid | 0, v); return v;',
+      '    };',
+      '    var __nfSwfInstanceOf = function(v, c) {',
+      '      if (c === "*" || c === "Any") return true; if (v == null) return false;',
+      '      if (typeof c === "function") {',
+      '        if (typeof c.__nfIs === "function" && c.__nfIs(v)) return true;',
+      '        if (c.prototype && Object.prototype.isPrototypeOf.call(c.prototype, Object(v))) return true;',
+      '      }',
+      '      return false;',
+      '    };',
+      '    var swfEnv = Object.create(null);',
+      '    swfEnv.byteArrayCtor = WorkerByteArray;',
+      '    var workerRoot = { loaderInfo: { get bytes() { return new WorkerByteArray(rawWorkerSwfBytes, rawWorkerSwfBytes.byteLength); } }, addEventListener: function(){}, removeEventListener: function(){} };',
+      '    var dynNames = ["event","_root","_parent","trace","play","stop","gotoAndPlay","gotoAndStop","nextFrame","prevFrame","__nfAs2Method","__nfAs2Value","__nfProgram","__nfDisplay","__nfLegacy","__nfXML","__nfSwfGet","__nfSwfSet","__nfSwfHas","__nfSwfHasOwn","__nfSwfDelete","__nfSwfKeys","__nfSwfCall","__nfSwfApply","__nfSwfStubFn","__nfSwfFn","__nfSwfNew","__nfSwfExtends","__nfSwfSuper","__nfSwfSuperConstruct","__nfSwfInstanceOf","__nfSwfTagInstance","__nfSwfSetClassMeta","__nfSwfSlotMeta","__nfSwfGetSlot","__nfSwfSetSlot","__nfSwfGetURL","__nfSwfEnv"];',
+      '    var noop = function(){};',
+      '    var dynVals = [null,workerRoot,null,traceFn,noop,noop,noop,noop,noop,noop,noop,noop,null,{ alive: function(){ return true; }, descriptor: function(){ return { on_stage: false }; } },{},null,__nfSwfGet,__nfSwfSet,__nfSwfHas,__nfSwfHasOwn,__nfSwfDelete,__nfSwfKeys,__nfSwfCall,__nfSwfApply,__nfSwfStubFn,__nfSwfFn,__nfSwfNew,__nfSwfExtends,__nfSwfSuper,__nfSwfSuperConstruct,__nfSwfInstanceOf,__nfSwfTagInstance,__nfSwfSetClassMeta,__nfSwfSlotMeta,__nfSwfGetSlot,__nfSwfSetSlot,noop,swfEnv];',
+      '    var scripts = payload.scripts || [];',
+      '    for (var i = 0; i < scripts.length; i++) {',
+      '      var u = scripts[i];',
+      '      if (u.location === "avm2-abc-init") {',
+      '        var initFn = new Function(...dynNames, u.code);',
+      '        Reflect.apply(initFn, workerRoot, dynVals);',
+      '        if (swfEnv.builtins) {',
+      '          Object.assign(swfEnv.builtins, {',
+      '            Worker: WorkerClass, WorkerDomain: WorkerDomainClass, WorkerState: WorkerStateConst,',
+      '            MessageChannelState: MessageChannelStateConst, ByteArray: WorkerByteArray, Endian: EndianConst,',
+      '            Mutex: WorkerMutex, Condition: WorkerCondition',
+      '          });',
+      '          Object.assign(swfEnv.globals, {',
+      '            "flash.system.Worker": WorkerClass, Worker: WorkerClass,',
+      '            "flash.system.WorkerDomain": WorkerDomainClass, WorkerDomain: WorkerDomainClass,',
+      '            "flash.system.WorkerState": WorkerStateConst, WorkerState: WorkerStateConst,',
+      '            "flash.system.MessageChannelState": MessageChannelStateConst, MessageChannelState: MessageChannelStateConst,',
+      '            "flash.utils.ByteArray": WorkerByteArray, ByteArray: WorkerByteArray,',
+      '            "flash.concurrent.Mutex": WorkerMutex, Mutex: WorkerMutex,',
+      '            "flash.concurrent.Condition": WorkerCondition, Condition: WorkerCondition',
+      '          });',
+      '        }',
+      '      }',
+      '    }',
+      '    if (typeof swfEnv.bootAvm2Mount === "function") {',
+      '      swfEnv.bootAvm2Mount(workerRoot);',
+      '    } else {',
+      '      for (var j = 0; j < scripts.length; j++) {',
+      '        if (scripts[j].location !== "avm2-abc-init") {',
+      '          var fn = new Function(...dynNames, scripts[j].code);',
+      '          Reflect.apply(fn, workerRoot, dynVals);',
+      '        }',
+      '      }',
+      '    }',
+      '  }',
+      '  function runNeoFlashWorkerPayload(payload) {',
+      '    var bundle = payload.bundle || {};',
+      '    var wb = makeWorkerBuiltins();',
+      '    var prog = null;',
+      '    if (bundle.program && bundle.program.code) {',
+      '      prog = (new Function("__nfBuiltins", bundle.program.code))(wb);',
+      '    }',
+      '    var rootInst = new wb["flash.display.MovieClip"]();',
+      '    var docCls = (bundle.project && bundle.project.document_class) || "";',
+      '    if (!docCls && bundle.project && Array.isArray(bundle.project.symbols)) {',
+      '      var rSym = bundle.project.symbols.find(function(s){ return s.id === bundle.project.root; });',
+      '      if (rSym && rSym.class_name) docCls = rSym.class_name;',
+      '    }',
+      '    if (docCls && prog) {',
+      '      if (typeof prog.attach === "function") prog.attach(docCls, rootInst);',
+      '      else if (prog.classes && typeof prog.classes[docCls] === "function") rootInst = new prog.classes[docCls]();',
+      '    }',
+      '    var noop = function(){};',
+      '    var scriptList = Array.isArray(bundle.scripts) ? bundle.scripts : [];',
+      '    for (var i = 0; i < scriptList.length; i++) {',
+      '      var s = scriptList[i];',
+      '      if (!s || !s.code) continue;',
+      '      var fn = new Function("event","_root","_parent","trace","play","stop","gotoAndPlay","gotoAndStop","nextFrame","prevFrame","__nfAs2Method","__nfAs2Value","__nfProgram","__nfDisplay","__nfLegacy","__nfXML", s.code);',
+      '      Reflect.apply(fn, rootInst, [null,rootInst,null,traceFn,noop,noop,noop,noop,noop,noop,noop,noop,prog,null,{},null]);',
+      '    }',
+      '  }',
+      '  function handleIncomingMessage(msg) {',
       '    if (!msg || typeof msg !== "object") return;',
       '    if (msg.type === "init") {',
       '      workerId = msg.workerId || 2;',
+      '      if (msg.rawBytes instanceof Uint8Array) rawWorkerSwfBytes = msg.rawBytes;',
       '      var entries = Array.isArray(msg.sharedProps) ? msg.sharedProps : [];',
       '      for (var i = 0; i < entries.length; i++) {',
       '        sharedProps.set(entries[i][0], deserializeVal(entries[i][1]));',
       '      }',
       '      postOut({ type: "worker_ready", workerId: workerId });',
+      '      if (msg.payload) {',
+      '        try {',
+      '          if (msg.payload.kind === "swf") runSwfWorkerPayload(msg.payload);',
+      '          else if (msg.payload.kind === "neoflash") runNeoFlashWorkerPayload(msg.payload);',
+      '        } catch (err) {',
+      '          postOut({ type: "worker_error", message: String(err && err.stack || err) });',
+      '        }',
+      '      }',
       '    } else if (msg.type === "main_set_shared") {',
       '      sharedProps.set(String(msg.key), deserializeVal(msg.value));',
       '    } else if (msg.type === "main_channel_send") {',
-      '      var ch = getOrMakeChannel(msg.channelId);',
-      '      ch._pushIncoming(deserializeVal(msg.value));',
+      '      var ch = getOrMakeChannel(msg.channelId, msg.sab || null);',
+      '      ch._pushIncoming(deserializeVal(msg.value), msg.sabSeq);',
       '    }',
-      '  };',
+      '  }',
+      '  if (nodeParentPort) {',
+      '    nodeParentPort.on("message", function(msg) { handleIncomingMessage(msg); });',
+      '  } else {',
+      '    root.onmessage = function(ev) { handleIncomingMessage(ev && ev.data); };',
+      '  }',
       '})();',
     ].join('\n');
 
@@ -8304,11 +9622,20 @@
     const activeBlobUrls = new Set();
     const shareableBaSabMap = new WeakMap();
     const trackedShareableByteArrays = new Set();
+    const mutexSabMap = new WeakMap();
+
+    function canTransferSab() {
+      if (typeof SharedArrayBuffer !== 'function') return false;
+      if (typeof global.window !== 'undefined' || typeof global.document !== 'undefined') {
+        return global.crossOriginIsolated === true;
+      }
+      return true;
+    }
 
     function ensureShareableSabEntry(ba) {
       let entry = shareableBaSabMap.get(ba);
       const curBytes = binary?.toBytes ? binary.toBytes(ba) : new Uint8Array(0);
-      if (!entry && typeof SharedArrayBuffer === 'function') {
+      if (!entry && canTransferSab()) {
         const cap = Math.max(256, curBytes.byteLength * 2);
         const sab = new SharedArrayBuffer(cap);
         new Uint8Array(sab).set(curBytes, 0);
@@ -8316,7 +9643,7 @@
         shareableBaSabMap.set(ba, entry);
         trackedShareableByteArrays.add(ba);
       } else if (entry) {
-        if (curBytes.byteLength > entry.sab.byteLength && typeof SharedArrayBuffer === 'function') {
+        if (curBytes.byteLength > entry.sab.byteLength && canTransferSab()) {
           const nextSab = new SharedArrayBuffer(Math.max(entry.sab.byteLength * 2, curBytes.byteLength));
           new Uint8Array(nextSab).set(curBytes, 0);
           entry.sab = nextSab;
@@ -8369,11 +9696,11 @@
       if (arg === null || arg === undefined || typeof arg !== 'object') return arg;
       if (messageChannels.has(arg)) {
         const mcRec = messageChannels.get(arg);
-        return { __nfKind: 'messageChannel', id: mcRec.id };
+        return { __nfKind: 'messageChannel', id: mcRec.id, sab: mcRec.sab || null };
       }
       if (binary?.ByteArray?.__nfIs?.(arg)) {
         const endian = arg.endian === 'littleEndian' ? 'littleEndian' : 'bigEndian';
-        if (arg.shareable && typeof SharedArrayBuffer === 'function') {
+        if (arg.shareable && canTransferSab()) {
           const entry = ensureShareableSabEntry(arg);
           if (entry) {
             return { __nfKind: 'shareableByteArray', sab: entry.sab, length: entry.length, endian };
@@ -8381,7 +9708,13 @@
         }
         return { __nfKind: 'byteArrayCopy', bytes: binary.toBytes(arg), endian };
       }
-      if (mutexMap.has(arg) || conditionMap.has(arg)) {
+      if (mutexMap.has(arg)) {
+        if (!mutexSabMap.has(arg) && canTransferSab()) {
+          mutexSabMap.set(arg, new SharedArrayBuffer(16));
+        }
+        return { __nfKind: 'syncMutex', sab: canTransferSab() ? (mutexSabMap.get(arg) || null) : null };
+      }
+      if (conditionMap.has(arg)) {
         return { __nfKind: 'syncPrimitive' };
       }
       if (amf?.encode && amf?.decode) {
@@ -8438,6 +9771,7 @@
             activeNativeChannels.add(nativeChannel);
           } catch (_) {}
         }
+        const sab = canTransferSab() ? new SharedArrayBuffer(65536) : null;
         const rec = {
           generation,
           id,
@@ -8447,6 +9781,8 @@
           queue: [],
           queueLimit: -1,
           nativeChannel,
+          sab,
+          sabSeq: 0,
         };
         messageChannels.set(this, rec);
         messageChannelsById.set(id, this);
@@ -8468,13 +9804,30 @@
         const cloned = cloneWorkerSharedValue(arg);
         rec.queue.push(cloned);
         rec.state = res.state;
+        const serialized = serializeValueForNativeWorker(arg);
+        let sentSabSeq = undefined;
+        if (rec.sab && typeof Atomics === 'object') {
+          try {
+            const jsonBytes = new TextEncoder().encode(JSON.stringify(serialized));
+            if (jsonBytes.byteLength <= rec.sab.byteLength - 16) {
+              new Uint8Array(rec.sab, 16, jsonBytes.byteLength).set(jsonBytes);
+              const i32 = new Int32Array(rec.sab, 0, 4);
+              Atomics.store(i32, 1, jsonBytes.byteLength);
+              sentSabSeq = ++rec.sabSeq;
+              Atomics.store(i32, 0, sentSabSeq);
+              Atomics.notify(i32, 0, 1);
+            }
+          } catch (_) {}
+        }
         const recvWkRec = rec.receiver ? workersMap.get(rec.receiver) : null;
         if (recvWkRec && !recvWkRec.isPrimordial && recvWkRec.nativeWorker) {
           try {
             recvWkRec.nativeWorker.postMessage({
               type: 'main_channel_send',
               channelId: rec.id,
-              value: serializeValueForNativeWorker(arg),
+              sab: rec.sab || null,
+              sabSeq: sentSabSeq,
+              value: serialized,
             });
           } catch (_) {}
         }
@@ -8543,8 +9896,47 @@
       rec.threadReady = false;
     }
 
+    function spawnNativeWorkerInstance(rec) {
+      const WebWorkerCtor = options.Worker || global.Worker;
+      if (typeof WebWorkerCtor === 'function') {
+        let workerUrl = null;
+        if (
+          typeof global.Blob === 'function' &&
+          typeof global.URL?.createObjectURL === 'function' &&
+          !options.workerUseDataUrl &&
+          !options.Worker
+        ) {
+          try {
+            const blob = new global.Blob([WORKER_BOOTSTRAP_SOURCE], { type: 'application/javascript' });
+            workerUrl = global.URL.createObjectURL(blob);
+            rec.blobUrl = workerUrl;
+            activeBlobUrls.add(workerUrl);
+          } catch (_) {
+            workerUrl = null;
+          }
+        }
+        if (!workerUrl) {
+          workerUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(WORKER_BOOTSTRAP_SOURCE)}`;
+        }
+        return new WebWorkerCtor(workerUrl);
+      }
+      const NodeWorkerCtor = resolveNodeWorkerCtor();
+      if (typeof NodeWorkerCtor === 'function') {
+        const nw = new NodeWorkerCtor(WORKER_BOOTSTRAP_SOURCE, { eval: true });
+        nw.unref?.();
+        return nw;
+      }
+      return null;
+    }
+
     class Worker extends events.EventDispatcher {
-      constructor(id, isPrimordial = false, initialState = 'new', rawSwfBytes = null) {
+      constructor(token, id, isPrimordial = false, initialState = 'new', rawSwfBytes = null, compiledPayload = null) {
+        if (token !== workerConstructToken) {
+          const err = new Error('ArgumentError: Error #2012: Worker$ class cannot be instantiated.');
+          err.name = 'ArgumentError';
+          err.errorID = 2012;
+          throw err;
+        }
         super();
         ensureActive();
         registerDispatcher(this);
@@ -8555,6 +9947,7 @@
           state: initialState,
           sharedProps: new Map(),
           rawSwfBytes,
+          compiledPayload,
           nativeWorker: null,
           blobUrl: null,
           threadReady: false,
@@ -8568,7 +9961,7 @@
       static get current() {
         ensureActive();
         if (!primordialWorker || workersMap.get(primordialWorker)?.generation !== generation) {
-          primordialWorker = new Worker(1, true, 'running');
+          primordialWorker = new Worker(workerConstructToken, 1, true, 'running');
         }
         return primordialWorker;
       }
@@ -8623,101 +10016,91 @@
         const rec = wkState(this);
         const res = execKernel({ op: 'worker_op', action: 'start', id: rec.id });
         rec.state = res.state;
-        const WorkerCtor = options.Worker || global.Worker;
-        if (!rec.isPrimordial && typeof WorkerCtor === 'function') {
-          let workerUrl = null;
-          if (
-            typeof global.Blob === 'function' &&
-            typeof global.URL?.createObjectURL === 'function' &&
-            !options.workerUseDataUrl &&
-            !options.Worker
-          ) {
-            try {
-              const blob = new global.Blob([WORKER_BOOTSTRAP_SOURCE], { type: 'application/javascript' });
-              workerUrl = global.URL.createObjectURL(blob);
-              rec.blobUrl = workerUrl;
-              activeBlobUrls.add(workerUrl);
-            } catch (_) {
-              workerUrl = null;
-            }
-          }
-          if (!workerUrl) {
-            workerUrl = `data:text/javascript;charset=utf-8,${encodeURIComponent(WORKER_BOOTSTRAP_SOURCE)}`;
-          }
+        if (!rec.isPrimordial) {
           try {
-            const nw = new WorkerCtor(workerUrl);
-            rec.nativeWorker = nw;
-            activeNativeWorkers.add(nw);
-            const born = generation;
-            const onMsg = ev => {
-              if (disposed || generation !== born || rec.generation !== generation || rec.state !== 'running') return;
-              const msg = ev?.data ?? ev;
-              if (!msg || typeof msg !== 'object') return;
-              if (msg.type === 'worker_ready') {
-                rec.threadReady = true;
-                dispatchNow(this, makeBasicEvent('workerState'));
-                return;
-              }
-              if (msg.type === 'worker_sab_sync') {
-                syncAllShareableByteArraysFromSab(msg.length);
-                return;
-              }
-              if (msg.type === 'worker_set_shared' && typeof msg.key === 'string') {
-                syncAllShareableByteArraysFromSab();
-                rec.sharedProps.set(msg.key, deserializeValueFromNativeWorker(msg.value));
-                afterEvent();
-                return;
-              }
-              if (msg.type === 'worker_channel_consumed') {
-                const ch = messageChannelsById.get(msg.channelId);
-                const chRec = ch ? messageChannels.get(ch) : null;
-                if (chRec && chRec.queue.length > 0) {
-                  chRec.queue.shift();
-                  try { execKernel({ op: 'worker_op', action: 'channel_receive', id: chRec.id }); } catch (_) {}
+            const nw = spawnNativeWorkerInstance(rec);
+            if (nw) {
+              rec.nativeWorker = nw;
+              activeNativeWorkers.add(nw);
+              const born = generation;
+              const onMsg = ev => {
+                if (disposed || generation !== born || rec.generation !== generation || rec.state !== 'running') return;
+                const msg = ev?.data !== undefined ? ev.data : ev;
+                if (!msg || typeof msg !== 'object') return;
+                if (msg.type === 'worker_ready') {
+                  rec.threadReady = true;
+                  dispatchNow(this, makeBasicEvent('workerState'));
+                  return;
                 }
-                return;
-              }
-              if (msg.type === 'worker_channel_send') {
-                syncAllShareableByteArraysFromSab();
-                const ch = messageChannelsById.get(msg.channelId);
-                const chRec = ch ? messageChannels.get(ch) : null;
-                if (ch && chRec) {
-                  const kRes = execKernel({
-                    op: 'worker_op',
-                    action: 'channel_send',
-                    id: chRec.id,
-                    queueLimit: chRec.queueLimit,
-                  });
-                  chRec.queue.push(deserializeValueFromNativeWorker(msg.value));
-                  chRec.state = kRes.state;
-                  dispatchNow(ch, makeBasicEvent('channelMessage'));
+                if (msg.type === 'worker_trace' && typeof msg.text === 'string') {
+                  (options.onTrace || options.trace || options.onWorkerTrace)?.(msg.text);
+                  return;
                 }
-                return;
+                if (msg.type === 'worker_sab_sync') {
+                  syncAllShareableByteArraysFromSab(msg.length);
+                  return;
+                }
+                if (msg.type === 'worker_set_shared' && typeof msg.key === 'string') {
+                  syncAllShareableByteArraysFromSab();
+                  rec.sharedProps.set(msg.key, deserializeValueFromNativeWorker(msg.value));
+                  afterEvent();
+                  return;
+                }
+                if (msg.type === 'worker_channel_consumed') {
+                  const ch = messageChannelsById.get(msg.channelId);
+                  const chRec = ch ? messageChannels.get(ch) : null;
+                  if (chRec && chRec.queue.length > 0) {
+                    chRec.queue.shift();
+                    try { execKernel({ op: 'worker_op', action: 'channel_receive', id: chRec.id }); } catch (_) {}
+                  }
+                  return;
+                }
+                if (msg.type === 'worker_channel_send') {
+                  syncAllShareableByteArraysFromSab();
+                  const ch = messageChannelsById.get(msg.channelId);
+                  const chRec = ch ? messageChannels.get(ch) : null;
+                  if (ch && chRec) {
+                    const kRes = execKernel({
+                      op: 'worker_op',
+                      action: 'channel_send',
+                      id: chRec.id,
+                      queueLimit: chRec.queueLimit,
+                    });
+                    chRec.queue.push(deserializeValueFromNativeWorker(msg.value));
+                    chRec.state = kRes.state;
+                    dispatchNow(ch, makeBasicEvent('channelMessage'));
+                  }
+                  return;
+                }
+                if (msg.type === 'worker_channel_close') {
+                  const ch = messageChannelsById.get(msg.channelId);
+                  ch?.close();
+                  return;
+                }
+                if (msg.type === 'worker_self_terminated') {
+                  this.terminate();
+                }
+              };
+              if (typeof nw.on === 'function') {
+                nw.on('message', onMsg);
+              } else if (typeof nw.addEventListener === 'function') {
+                nw.addEventListener('message', onMsg);
+              } else {
+                nw.onmessage = onMsg;
               }
-              if (msg.type === 'worker_channel_close') {
-                const ch = messageChannelsById.get(msg.channelId);
-                ch?.close();
-                return;
+              const serializedProps = [];
+              for (const [k, v] of rec.sharedProps.entries()) {
+                serializedProps.push([k, serializeValueForNativeWorker(v)]);
               }
-              if (msg.type === 'worker_self_terminated') {
-                this.terminate();
-              }
-            };
-            if (typeof nw.addEventListener === 'function') {
-              nw.addEventListener('message', onMsg);
-            } else {
-              nw.onmessage = onMsg;
+              nw.postMessage({
+                type: 'init',
+                workerId: rec.id,
+                sharedProps: serializedProps,
+                rawBytes: rec.rawSwfBytes || null,
+                payload: rec.compiledPayload || null,
+              });
+              return;
             }
-            const serializedProps = [];
-            for (const [k, v] of rec.sharedProps.entries()) {
-              serializedProps.push([k, serializeValueForNativeWorker(v)]);
-            }
-            nw.postMessage({
-              type: 'init',
-              workerId: rec.id,
-              sharedProps: serializedProps,
-            });
-            return;
           } catch (_) {
             terminateNativeWorkerRecord(rec);
           }
@@ -8747,7 +10130,13 @@
     const workerDomains = new WeakSet();
     let currentWorkerDomain = null;
     class WorkerDomain {
-      constructor() {
+      constructor(token) {
+        if (token !== workerDomainConstructToken) {
+          const err = new Error('ArgumentError: Error #2012: WorkerDomain$ class cannot be instantiated.');
+          err.name = 'ArgumentError';
+          err.errorID = 2012;
+          throw err;
+        }
         ensureActive();
         workerDomains.add(this);
       }
@@ -8756,7 +10145,7 @@
       }
       static get current() {
         ensureActive();
-        if (!currentWorkerDomain) currentWorkerDomain = new WorkerDomain();
+        if (!currentWorkerDomain) currentWorkerDomain = new WorkerDomain(workerDomainConstructToken);
         return currentWorkerDomain;
       }
       createWorker(swf, giveAppPrivileges = false) {
@@ -8767,8 +10156,9 @@
         }
         const _priv = Boolean(giveAppPrivileges);
         const rawBytes = binary.toBytes ? binary.toBytes(swf) : null;
+        const compiledPayload = rawBytes ? extractWorkerExecutablePayload(rawBytes) : null;
         const created = execKernel({ op: 'worker_op', action: 'create_worker' });
-        return new Worker(created.id, false, created.state, rawBytes);
+        return new Worker(workerConstructToken, created.id, false, created.state, rawBytes, compiledPayload);
       }
       listWorkers() {
         ensureActive();

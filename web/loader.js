@@ -22,7 +22,7 @@
     const {player,events,net,binary,display,proxyForRef,referenceOf}=options;
     if(!player?.pixel_decode||!net?.loadBytes||!binary?.toBytes||!events?.create||!display)throw new TypeError('Loader requires the shared Rust image arena, display, transport and ByteArray services.');
     const schedule=options.schedule||(fn=>global.queueMicrotask(fn));
-    const loaders=new WeakMap(),infos=new WeakMap(),legacy=new WeakMap(),records=new Set(),targets=new Map(),contentInfos=new WeakMap();
+    const loaders=new WeakMap(),infos=new WeakMap(),legacy=new WeakMap(),records=new Set(),targets=new Map(),contentInfos=new WeakMap(),definitionInfos=new WeakMap();
     let generation=1,disposed=false,resetting=false,queuedBytes=0,rootRecord=null,fallbackDomain=null;
     const byteLoads=new Set();
     const token=Symbol('LoaderInfo');
@@ -35,10 +35,12 @@
     function infoState(info){open();const record=infos.get(info);if(!valid(record))throw new Error('This LoaderInfo belongs to a previous session or a removed display object.');return record;}
     function legacyState(receiver){open();const record=legacy.get(receiver);if(!record||record.generation!==generation)throw new Error('This MovieClipLoader belongs to a previous publication session.');return record;}
     function report(error){if(options.onError)options.onError(error);else throw error;}
-    function defaultApplicationDomain(){
+    function defaultApplicationDomain(isRoot=false){
       const AppDomain=options.getBuiltin?.('flash.system.ApplicationDomain');
-      if(AppDomain?.currentDomain)return AppDomain.currentDomain;
-      if(AppDomain){try{return new AppDomain();}catch(_){/* fallback below */}}
+      if(AppDomain){
+        if(isRoot&&AppDomain.currentDomain)return AppDomain.currentDomain;
+        try{return new AppDomain(AppDomain.currentDomain||null);}catch(_){if(AppDomain.currentDomain)return AppDomain.currentDomain;}
+      }
       if(!fallbackDomain)fallbackDomain=Object.freeze({parentDomain:null,getDefinition:name=>options.getBuiltin?.(String(name))||null,hasDefinition:name=>Boolean(options.getBuiltin?.(String(name)))});
       return fallbackDomain;
     }
@@ -126,14 +128,21 @@
       constructor(secret,record){super();if(secret!==token)unsupported('LoaderInfo construction; use contentLoaderInfo');infos.set(this,record);Object.assign(this,hub.methods(this));Object.defineProperty(this,'dispatchEvent',{writable:false,configurable:false,value:()=>{throw new TypeError('LoaderInfo.dispatchEvent is forbidden; its events are dispatched by Loader.');}});Object.seal(this);}
       static getLoaderInfoByDefinition(object){
         open();if(object===undefined||object===null)throw new TypeError('LoaderInfo.getLoaderInfoByDefinition requires a non-null object.');
+        if(typeof object==='object'||typeof object==='function'){
+          const direct=definitionInfos.get(object)||contentInfos.get(object);
+          if(direct&&valid(infos.get(direct)))return direct;
+          const ctor=typeof object==='object'&&object!==null?object.constructor:null;
+          const byCtor=(ctor&&typeof ctor==='function')?definitionInfos.get(ctor):null;
+          if(byCtor&&valid(infos.get(byCtor)))return byCtor;
+        }
         return ensureRootInfo();
       }
       get loader(){return infoState(this).target;}
       get content(){const record=infoState(this);return record.isRoot?(options.getRootDisplay?options.getRootDisplay():record.content):record.content;}
       get url(){return infoState(this).url;}
       get loaderURL(){infoState(this);return typeof global.location?.href==='string'?global.location.href:'app:///publication.swf';}
-      get bytesLoaded(){return infoState(this).bytesLoaded;}
-      get bytesTotal(){return infoState(this).bytesTotal;}
+      get bytesLoaded(){const record=infoState(this);if(record.isRoot)hydrateRootBytes(record);return record.bytesLoaded;}
+      get bytesTotal(){const record=infoState(this);if(record.isRoot)hydrateRootBytes(record);return record.bytesTotal;}
       get width(){const record=initialized(this);return record.isRoot&&options.getStageSize?Number(options.getStageSize().width)||record.width:record.width;}
       get height(){const record=initialized(this);return record.isRoot&&options.getStageSize?Number(options.getStageSize().height)||record.height:record.height;}
       get contentType(){return initialized(this).contentType;}
@@ -147,12 +156,25 @@
       get parameters(){return infoState(this).parameters;}
       get sharedEvents(){return infoState(this).sharedEvents;}
       get uncaughtErrorEvents(){const record=infoState(this);if(!record.uncaughtErrorEvents)record.uncaughtErrorEvents=createUncaughtErrorEvents();return record.uncaughtErrorEvents;}
-      get applicationDomain(){const record=infoState(this);if(!record.applicationDomain)record.applicationDomain=defaultApplicationDomain();return record.applicationDomain;}
-      get bytes(){const record=infoState(this);return binary.fromBytes(record.rawBytes||new Uint8Array(0));}
+      get applicationDomain(){const record=infoState(this);if(!record.applicationDomain)record.applicationDomain=defaultApplicationDomain(record.isRoot);return record.applicationDomain;}
+      get bytes(){const record=infoState(this);if(record.isRoot)hydrateRootBytes(record);return binary.fromBytes(record.rawBytes||new Uint8Array(0));}
       get childSandboxBridge(){return infoState(this).childSandboxBridge;}
       set childSandboxBridge(value){infoState(this).childSandboxBridge=value;}
       get parentSandboxBridge(){return infoState(this).parentSandboxBridge;}
       set parentSandboxBridge(value){infoState(this).parentSandboxBridge=value;}
+    }
+    function hydrateRootBytes(record){
+      if(!record||!record.isRoot||record._rootBytesHydrated)return;
+      record._rootBytesHydrated=true;
+      if(typeof options.getRootSwfBytes==='function'){
+        try{
+          const built=options.getRootSwfBytes();
+          if(built instanceof Uint8Array&&built.length>=8){
+            record.rawBytes=built;
+            record.bytesLoaded=record.bytesTotal=built.length;
+          }
+        }catch(_){}
+      }
     }
     function initialized(info){const record=infoState(info);if(!record.isRoot&&!record.content)throw new Error('LoaderInfo dimensions and contentType are available after INIT.');return record;}
     Object.defineProperties(LoaderInfo,{__nfIs:{value:value=>infos.has(value)},__nfInitialize:{value:()=>unsupported('LoaderInfo native subclassing')}});
@@ -305,9 +327,17 @@
       if(!name||!Array.isArray(options.project?.symbols))return null;
       return options.project.symbols.find(sym=>sym.kind==='movie_clip'&&(sym.linkage_id===name||(raw.startsWith('symbol:')&&(sym.id===name||sym.name===name))))||null;
     }
-    function applyContext(record,context){
+    function applyContext(record,context,isLoadBytes=false){
+      if(!record.isRoot)record.applicationDomain=null;
       if(context===undefined||context===null)return;
       if(typeof context!=='object')throw new TypeError('LoaderContext must be an object or null.');
+      if(isLoadBytes&&context.securityDomain!==undefined&&context.securityDomain!==null){
+        const SecErr=net?.SecurityError||Error;
+        const err=new SecErr('SecurityError: Error #2142: Security sandbox violation: Loader.loadBytes cannot use LoaderContext.securityDomain.');
+        err.name='SecurityError';
+        err.errorID=2142;
+        throw err;
+      }
       if(context.applicationDomain)record.applicationDomain=context.applicationDomain;
       if(context.parameters&&typeof context.parameters==='object')record.parameters={...context.parameters};
     }
@@ -553,7 +583,7 @@
       catch(error){throw retireCallbackFailure(op,error);}
     }
     function loadBytes(record,value,context=null){
-      applyContext(record,context);
+      applyContext(record,context,true);
       const bytes=binary.toBytes(value);if(bytes.length>16*1024*1024)throw new RangeError('Loader.loadBytes exceeds the 16 MiB encoded image limit.');
       if(byteLoads.size>=32||queuedBytes+bytes.length>64*1024*1024)throw new RangeError('Pending Loader.loadBytes snapshots exceed 32 loads or 64 MiB.');
       const op=begin(record,'');op.bytes=bytes;queuedBytes+=bytes.length;byteLoads.add(op);
@@ -701,9 +731,14 @@
         resetting=false;
       }
     }
+    function registerDefinition(defObj,info){
+      if((typeof defObj==='object'||typeof defObj==='function')&&defObj!==null&&infos.has(info)){
+        definitionInfos.set(defObj,info);
+      }
+    }
     function reset(){open();resetState();}
     function dispose(){if(disposed)return;disposed=true;resetState();}
-    return Object.freeze({Loader,LoaderInfo,MovieClipLoader,as2MovieMethods,loadPublish,urlForDisplay,methods,get,infoForDisplay:target=>{const info=contentInfos.get(target);if(info&&valid(infos.get(info)))return info;return target&&display.alive(target)?ensureRootInfo():null;},reset,dispose});
+    return Object.freeze({Loader,LoaderInfo,MovieClipLoader,as2MovieMethods,loadPublish,urlForDisplay,methods,get,registerDefinition,infoForDisplay:target=>{const info=contentInfos.get(target);if(info&&valid(infos.get(info)))return info;return target&&display.alive(target)?ensureRootInfo():null;},reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashLoader=api;
 })(globalThis);

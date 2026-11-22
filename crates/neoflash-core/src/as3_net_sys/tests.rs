@@ -345,3 +345,196 @@ fn x509_chain_verification_cross_domain_policy_and_netgroup_replication() {
         json!(128.0)
     );
 }
+
+#[test]
+fn drm_binary_headers_policy_return_and_fips_aes128_ctr_media_decryption() {
+    use super::file_print_sampler::aes128_ctr_xor;
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+
+    // 1. Verify NIST FIPS-197 Appendix B / C.1 exact AES-128 block cipher vector
+    let nist_key: [u8; 16] = [
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f,
+    ];
+    let nist_ctr0: [u8; 16] = [
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
+        0xff,
+    ];
+    let zeros = [0u8; 16];
+    let ks = aes128_ctr_xor(&nist_key, &nist_ctr0, &zeros);
+    assert_eq!(
+        ks,
+        vec![
+            0x69, 0xc4, 0xe0, 0xd8, 0x6a, 0x7b, 0x04, 0x30, 0xd8, 0xcd, 0xb7, 0x80, 0x70, 0xb4,
+            0xc5, 0x5a
+        ]
+    );
+
+    let mut kernel = As3NetSysKernel::new();
+
+    // 2. Parse Flash Access binary TLV metadata ("FADRM\x01") with deviceGroup
+    let mut fadrm = Vec::from(&b"FADRM\x01"[..]);
+    for (tag, val) in [
+        (1u8, "https://lic.example.org/drm"),
+        (2u8, "lic-fadrm-42"),
+        (3u8, "cinema-dom"),
+        (4u8, "usernameAndPassword"),
+        (5u8, "pol-hd"),
+        (6u8, "HD Rental"),
+        (7u8, "living-room-group"),
+    ] {
+        fadrm.push(tag);
+        fadrm.extend_from_slice(&(val.len() as u16).to_be_bytes());
+        fadrm.extend_from_slice(val.as_bytes());
+    }
+    let parsed_fadrm: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({ "op": "drm_parse_content", "base64": STANDARD.encode(&fadrm) })
+                    .to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(parsed_fadrm["licenseID"], "lic-fadrm-42");
+    assert_eq!(parsed_fadrm["authenticationMethod"], "usernameAndPassword");
+    assert_eq!(
+        parsed_fadrm["accessInfo"][0]["deviceGroup"]["name"],
+        "living-room-group"
+    );
+
+    // 3. Parse ISO-BMFF CENC v1 'pssh' box with KID
+    let mut pssh_body = Vec::new();
+    pssh_body.extend_from_slice(&[1, 0, 0, 0]); // version = 1
+    pssh_body.extend_from_slice(&[0xAA; 16]); // system_id
+    pssh_body.extend_from_slice(&1u32.to_be_bytes()); // kid_count = 1
+    pssh_body.extend_from_slice(&[0x12; 16]); // KID
+    pssh_body.extend_from_slice(&0u32.to_be_bytes()); // data_len = 0
+    let mut pssh = Vec::new();
+    pssh.extend_from_slice(&((8 + pssh_body.len()) as u32).to_be_bytes());
+    pssh.extend_from_slice(b"pssh");
+    pssh.extend_from_slice(&pssh_body);
+    let parsed_pssh: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({ "op": "drm_parse_content", "base64": STANDARD.encode(&pssh) }).to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        parsed_pssh["licenseID"],
+        "kid-12121212121212121212121212121212"
+    );
+
+    // 4. Encrypt media, verify refusal before authentication/voucher, authenticate, load voucher, decrypt, and revoke via return_voucher(policyID)
+    let cleartext = b"FLV\x01\x05\x00\x00\x00\x09decryption-verified-payload!";
+    let enc_res: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({
+                    "op": "drm_op",
+                    "action": "encrypt_media",
+                    "metadataBase64": STANDARD.encode(&fadrm),
+                    "cleartextBase64": STANDARD.encode(cleartext),
+                })
+                .to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    let enc_b64 = enc_res["encryptedBase64"].as_str().unwrap().to_owned();
+
+    let denied: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({ "op": "drm_op", "action": "decrypt_media", "base64": enc_b64, "nowMs": 1_762_000_100_000.0 })
+                    .to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(denied["ok"], false);
+    assert_eq!(denied["needsVoucher"], true);
+
+    kernel
+        .execute_json(
+            &json!({
+                "op": "drm_op",
+                "action": "authenticate",
+                "serverURL": "https://lic.example.org/drm",
+                "domain": "cinema-dom",
+                "username": "alice",
+                "password": "secret",
+            })
+            .to_string(),
+        )
+        .unwrap();
+    kernel
+        .execute_json(
+            &json!({
+                "op": "drm_op",
+                "action": "load_voucher",
+                "serverURL": "https://lic.example.org/drm",
+                "licenseID": "lic-fadrm-42",
+                "policyID": "pol-hd",
+                "domain": "cinema-dom",
+                "authenticationMethod": "usernameAndPassword",
+                "setting": "allowServer",
+                "nowMs": 1_762_000_000_000.0,
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+    let decrypted: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({ "op": "drm_op", "action": "decrypt_media", "base64": enc_b64, "nowMs": 1_762_000_100_000.0 })
+                    .to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(decrypted["ok"], true);
+    assert_eq!(
+        STANDARD
+            .decode(decrypted["cleartextBase64"].as_str().unwrap())
+            .unwrap(),
+        cleartext
+    );
+
+    // Non-matching policyID does NOT remove voucher; matching policyID removes it!
+    let ret_miss: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({
+                    "op": "drm_op",
+                    "action": "return_voucher",
+                    "serverURL": "https://lic.example.org/drm",
+                    "policyID": "pol-sd",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(ret_miss["removed"], 0);
+
+    let ret_hit: Value = serde_json::from_str(
+        &kernel
+            .execute_json(
+                &json!({
+                    "op": "drm_op",
+                    "action": "return_voucher",
+                    "serverURL": "https://lic.example.org/drm",
+                    "policyID": "pol-hd",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(ret_hit["removed"], 1);
+}

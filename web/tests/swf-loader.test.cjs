@@ -2220,3 +2220,458 @@ test('T-451 adversarial sandbox: child SWFs isolate Math, Object.registerClass, 
     player.free();
   }
 });
+
+test('Loader.load & Loader.loadBytes: raw SWF audio/ScreenVideo tags, AVM2 domain-memory & E4X opcodes, and cross-SWF ApplicationDomain / LoaderContext merging', async () => {
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+
+  const baseProject = {
+    format_version: 6,
+    name: 'T460 Loader Host',
+    width: 320,
+    height: 240,
+    fps: 24,
+    background: [0, 0, 0, 255],
+    root: 'root',
+    symbols: [
+      {
+        id: 'root',
+        name: 'Root',
+        kind: 'movie_clip',
+        timeline: {
+          frame_count: 2,
+          layers: [{ id: 'l0', name: 'Layer 1', visible: true, locked: false, keyframes: [{ frame: 0, label: '', tween: null, elements: [] }] }],
+          scripts: [],
+        },
+      },
+    ],
+  };
+
+  function ParentPreexistingClass() {
+    this.source = 'parent-wins';
+  }
+
+  const decodedAudioBuffers = [];
+  const startedAudioSources = [];
+  function createMockAudioContext() {
+    const ctx = {
+      state: 'running',
+      sampleRate: 22050,
+      currentTime: 0,
+      destination: { kind: 'destination' },
+      resume() { this.state = 'running'; return Promise.resolve(); },
+      close() { this.state = 'closed'; return Promise.resolve(); },
+      decodeAudioData(buf) {
+        decodedAudioBuffers.push(Buffer.from(buf));
+        return Promise.resolve({ numberOfChannels: 1, sampleRate: 22050, length: 2205, duration: 0.1 });
+      },
+      createGain() { return { kind: 'gain', gain: { value: 1 }, connect() {}, disconnect() {} }; },
+      createStereoPanner() { return { kind: 'pan', pan: { value: 0 }, connect() {}, disconnect() {} }; },
+      createBufferSource() {
+        const src = {
+          buffer: null,
+          loop: false,
+          loopStart: 0,
+          loopEnd: 0,
+          onended: null,
+          connect() {},
+          disconnect() {},
+          start() { startedAudioSources.push(src); },
+          stop() { queueMicrotask(() => src.onended?.()); },
+        };
+        return src;
+      },
+    };
+    return ctx;
+  }
+
+  const functionsMap = new Map();
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(baseProject));
+  const { host } = createRuntimeHost(root, player, [], {
+    project: baseProject,
+    audio: { createContext: createMockAudioContext, isUserGesture: () => true },
+    bundle: {
+      project: baseProject,
+      program: {
+        code: `return {
+          classes: { 'pkg.SharedType': (${ParentPreexistingClass.toString()}) },
+          type(name) { if (this.classes[name]) return this.classes[name]; if (!__nfBuiltins[name]) throw new TypeError('Unknown ' + name); return __nfBuiltins[name]; },
+          is(val, name) { return Boolean(__nfBuiltins[name]?.__nfIs?.(val)); }
+        };`,
+      },
+    },
+    functions: functionsMap,
+  });
+
+  try {
+    const prog = host.program();
+    const Loader = prog.type('flash.display.Loader');
+    const LoaderInfo = prog.type('flash.display.LoaderInfo');
+    const LoaderContext = prog.type('flash.system.LoaderContext');
+    const ApplicationDomain = prog.type('flash.system.ApplicationDomain');
+    const SecurityDomain = prog.type('flash.system.SecurityDomain');
+    const ByteArray = prog.type('flash.utils.ByteArray');
+    const BitmapData = prog.type('flash.display.BitmapData');
+    const rootClip = host.proxyFor([]);
+
+    const toBa = buf => {
+      const ba = new ByteArray();
+      for (const b of buf) ba.writeByte(b);
+      return ba;
+    };
+
+    // 1. SecurityError #2142 when loadBytes receives non-null LoaderContext.securityDomain
+    const secLoader = new Loader();
+    const badCtx = new LoaderContext(false, ApplicationDomain.currentDomain, SecurityDomain.currentDomain);
+    assert.throws(
+      () => secLoader.loadBytes(toBa(Buffer.from('FWS\x0c\x08\x00\x00\x00')), badCtx),
+      err => err && err.name === 'SecurityError' && err.errorID === 2142,
+    );
+
+    // 2. Raw SWF with DefineSound (PCM + ADPCM) + StartSound + SoundStreamHead2/Block + ScreenVideo (codec 3)
+    const defSndPcm = Buffer.alloc(7 + 8);
+    defSndPcm.writeUInt16LE(1, 0);
+    defSndPcm[2] = 0x3a; // PCM LE, 22050Hz, 16-bit, mono
+    defSndPcm.writeUInt32LE(4, 3);
+    defSndPcm.writeInt16LE(1200, 7);
+    defSndPcm.writeInt16LE(-1200, 9);
+    defSndPcm.writeInt16LE(2400, 11);
+    defSndPcm.writeInt16LE(-2400, 13);
+
+    const startSnd = Buffer.from([1, 0, 0x04, 2, 0]); // soundId=1, HasLoops, loops=2
+    const streamHead = Buffer.from([0x0a, 0x3a, 0x96, 0x03]);
+    const streamBlock = Buffer.from([0x10, 0x01, 0xf0, 0xfe, 0x20, 0x02, 0xe0, 0xfd]);
+
+    // 4x4 ScreenVideo (codec_id = 3) filled with pure bright cyan RGB(0, 200, 255) => BGR(255, 200, 0)
+    const svW = 4, svH = 4;
+    const defVid = Buffer.alloc(10);
+    defVid.writeUInt16LE(2, 0); // streamId = 2
+    defVid.writeUInt16LE(1, 2); // 1 frame
+    defVid.writeUInt16LE(svW, 4);
+    defVid.writeUInt16LE(svH, 6);
+    defVid[8] = 0;
+    defVid[9] = 3; // ScreenVideo
+
+    const bgrBlock = Buffer.alloc(svW * svH * 3);
+    for (let p = 0; p < svW * svH; p++) {
+      bgrBlock[p * 3] = 255;     // B
+      bgrBlock[p * 3 + 1] = 200; // G
+      bgrBlock[p * 3 + 2] = 0;   // R
+    }
+    const zBlock = zlib.deflateSync(bgrBlock);
+    const vidFrame = Buffer.alloc(4 + 4 + 2 + zBlock.length);
+    vidFrame.writeUInt16LE(2, 0); // streamId = 2
+    vidFrame.writeUInt16LE(0, 2); // frame 0
+    vidFrame.writeUInt16BE(svW, 4); // blockW=16 (0), imgW=4
+    vidFrame.writeUInt16BE(svH, 6); // blockH=16 (0), imgH=4
+    vidFrame.writeUInt16BE(zBlock.length, 8);
+    zBlock.copy(vidFrame, 10);
+
+    const placeVid = new BitWriter();
+    placeVid.writeU8(0x06); // HasCharacter | HasMatrix
+    placeVid.writeU16(1);   // depth 1
+    placeVid.writeU16(2);   // charId 2 (ScreenVideo symbol)
+    placeVid.writeTranslateMatrix(0, 0);
+
+    const mediaSwf = wrapSwf('FWS', 13, 64, 64, 24, 2, [
+      makeSwfTag(69, Buffer.from([0x08, 0, 0, 0])),
+      makeSwfTag(14, defSndPcm),
+      makeSwfTag(60, defVid),
+      makeSwfTag(61, vidFrame),
+      makeSwfTag(26, placeVid.toBuffer()),
+      makeSwfTag(15, startSnd),
+      makeSwfTag(45, streamHead),
+      makeSwfTag(19, streamBlock),
+      makeSwfTag(1, Buffer.alloc(0)),
+      makeSwfTag(19, streamBlock),
+      makeSwfTag(1, Buffer.alloc(0)),
+    ]);
+
+    await host.audio().resumeFromGesture();
+    const mediaLoader = new Loader();
+    rootClip.addChild(mediaLoader);
+    mediaLoader.loadBytes(toBa(mediaSwf));
+    await new Promise(r => setTimeout(r, 20));
+    player.tick();
+    host.dispatchScripts();
+    await new Promise(r => setTimeout(r, 20));
+
+    const vidSnap = new BitmapData(16, 16, true, 0);
+    vidSnap.draw(mediaLoader);
+    assert.equal(vidSnap.getPixel32(2, 2) >>> 0, 0xff00c8ff, 'ScreenVideo frame rendered exact RGB(0, 200, 255) pixel');
+    assert.ok(decodedAudioBuffers.length >= 2, 'DefineSound PCM + SoundStreamHead2/Block decoded through Web Audio');
+    assert.ok(
+      decodedAudioBuffers.every(b => b.subarray(0, 4).toString('ascii') === 'RIFF' && b.subarray(8, 12).toString('ascii') === 'WAVE'),
+      'SWF audio tags emitted valid RIFF/WAVE PCM buffers'
+    );
+    assert.ok(startedAudioSources.length >= 2, 'Both Event and Stream SWF audio sources scheduled on AudioContext');
+    vidSnap.dispose();
+    mediaLoader.unloadAndStop(true);
+
+    // 3. Build an AVM2 SWF exercising:
+    //    - Domain-memory opcodes (si8/li8/sxi8, si16/li16/sxi16, si32/li32, sf32/lf32, sf64/lf64, sxi1)
+    //    - E4X opcodes (XML construction, @attr QNameA read & write, getdescendants 0x59, esc_xelem 0x71 vs esc_xattr 0x72, checkfilter 0x78)
+    //    - Exported classes `pkg.ChildExport` and `pkg.SharedType` (to test child/same/isolated ApplicationDomain merging!)
+    const buildFastMemE4xDomainSwf = () => {
+      const abc = [16, 0, 46, 0];
+      writeU30(abc, 2); // ints: [1] = -123456789
+      // s32 LE varint for -123456789:
+      {
+        let v = -123456789 >>> 0;
+        for (let s = 0; s < 5; s++) {
+          let byte = v & 0x7f;
+          v >>>= 7;
+          if (s < 4) byte |= 0x80;
+          abc.push(byte);
+        }
+      }
+      writeU30(abc, 1); // uints
+      writeU30(abc, 2); // doubles: [1] = 3.25
+      const d325 = Buffer.alloc(8);
+      d325.writeDoubleLE(3.25, 0);
+      for (const b of d325) abc.push(b);
+
+      const strs = [
+        '',               // 0
+        '',               // 1: empty ns
+        'pkg',            // 2: pkg ns
+        'FastDoc',        // 3
+        'MovieClip',      // 4
+        'Object',         // 5
+        'ChildExport',    // 6
+        'SharedType',     // 7
+        'XML',            // 8
+        '<catalog><book id="b1"><price>25</price></book><book id="b2"><price>40</price></book></catalog>', // 9
+        'id',             // 10
+        'price',          // 11
+        'book',           // 12
+        'a&"<b>',         // 13
+        'memResults',     // 14
+        'e4xResults',     // 15
+        'sharedTag',      // 16
+        'source',         // 17
+        'child-attempt',  // 18
+        'tag',            // 19
+        'from-child-swf', // 20
+        'b9',             // 21
+        'urn:test',       // 22
+      ];
+      writeU30(abc, strs.length);
+      for (let i = 1; i < strs.length; i++) {
+        const b = Buffer.from(strs[i], 'utf8');
+        writeU30(abc, b.length);
+        for (const c of b) abc.push(c);
+      }
+      // namespaces: 1 = PackageNamespace(""), 2 = PackageNamespace("pkg")
+      writeU30(abc, 3);
+      abc.push(0x16); writeU30(abc, 1);
+      abc.push(0x16); writeU30(abc, 2);
+      writeU30(abc, 1); // ns_sets
+
+      // multinames:
+      // 1: FastDoc (ns 1, str 3)
+      // 2: MovieClip (ns 1, str 4)
+      // 3: Object (ns 1, str 5)
+      // 4: pkg.ChildExport (ns 2, str 6)
+      // 5: pkg.SharedType (ns 2, str 7)
+      // 6: XML (ns 1, str 8)
+      // 7: @id (QNameA 0x0D, ns 1, str 10)
+      // 8: price (ns 1, str 11)
+      // 9: book (ns 1, str 12)
+      // 10: memResults (ns 1, str 14)
+      // 11: e4xResults (ns 1, str 15)
+      // 12: sharedTag (ns 1, str 16)
+      // 13: source (ns 1, str 17)
+      // 14: tag (ns 1, str 19)
+      const mns = [
+        [0x07, 1, 3],
+        [0x07, 1, 4],
+        [0x07, 1, 5],
+        [0x07, 2, 6],
+        [0x07, 2, 7],
+        [0x07, 1, 8],
+        [0x0d, 1, 10], // QNameA @id!
+        [0x07, 1, 11],
+        [0x07, 1, 12],
+        [0x07, 1, 14],
+        [0x07, 1, 15],
+        [0x07, 1, 16],
+        [0x07, 1, 17],
+        [0x07, 1, 19],
+      ];
+      writeU30(abc, 1 + mns.length);
+      for (const [mk, mnsIdx, msIdx] of mns) {
+        abc.push(mk); writeU30(abc, mnsIdx); writeU30(abc, msIdx);
+      }
+
+      // methods: 0=cinit0, 1=FastDoc.iinit, 2=cinit1, 3=ChildExport.iinit, 4=cinit2, 5=SharedType.iinit, 6=script_init
+      writeU30(abc, 7);
+      for (let m = 0; m < 7; m++) {
+        writeU30(abc, 0); writeU30(abc, 0); writeU30(abc, 0); abc.push(0);
+      }
+      writeU30(abc, 0); // metadata
+
+      // 3 classes: 0=FastDoc(mn 1 : MovieClip mn 2), 1=pkg.ChildExport(mn 4 : Object mn 3), 2=pkg.SharedType(mn 5 : Object mn 3)
+      writeU30(abc, 3);
+      // class 0: FastDoc
+      writeU30(abc, 1); writeU30(abc, 2); abc.push(0); writeU30(abc, 0); writeU30(abc, 1); writeU30(abc, 0);
+      // class 1: pkg.ChildExport
+      writeU30(abc, 4); writeU30(abc, 3); abc.push(0); writeU30(abc, 0); writeU30(abc, 3); writeU30(abc, 0);
+      // class 2: pkg.SharedType
+      writeU30(abc, 5); writeU30(abc, 3); abc.push(0); writeU30(abc, 0); writeU30(abc, 5); writeU30(abc, 0);
+      // cinits for 3 classes:
+      writeU30(abc, 0); writeU30(abc, 0);
+      writeU30(abc, 2); writeU30(abc, 0);
+      writeU30(abc, 4); writeU30(abc, 0);
+      // 1 script: init=6
+      writeU30(abc, 1); writeU30(abc, 6); writeU30(abc, 0);
+
+      // ChildExport.iinit (method 3): this.tag = 'from-child-swf'
+      const childExportIinit = [0xd0, 0x49, 0, 0xd0, 0x2c, 20, 0x61, 14, 0x47];
+      // SharedType.iinit (method 5): this.source = 'child-attempt'
+      const sharedTypeIinit = [0xd0, 0x49, 0, 0xd0, 0x2c, 18, 0x61, 13, 0x47];
+
+      // FastDoc.iinit (method 1):
+      const fastDocIinit = [
+        0xd0, 0x30,
+        0xd0, 0x49, 0,
+        // Domain memory tests (on pre-attached 2048-byte domainMemory):
+        // si8(0xFE, 0); si16(0xFF80, 4); si32(-123456789, 8); sf32(3.25, 16); sf64(3.25, 24);
+        0x25, 0xfe, 0x01, 0x24, 0, 0x3a,       // si8(254, 0)
+        0x25, 0x80, 0xff, 0x03, 0x24, 4, 0x3b, // pushshort -128 (0xff80) -> wait: pushint or 0xFF80: let's pushshort -128 (s16: 0xFF80 => u30: 0x80, 0xFF, 0x03) at addr 4 -> si16
+        0x2d, 1, 0x24, 8, 0x3c,                // si32(-123456789, 8)
+        0x2f, 1, 0x24, 16, 0x3d,               // sf32(3.25, 16)
+        0x2f, 1, 0x24, 24, 0x3e,               // sf64(3.25, 24)
+        // Read back: [li8(0), sxi8(li8(0)), li16(4), sxi16(li16(4)), li32(8), lf32(16), lf64(24), sxi1(1), sxi1(2)]
+        0xd0,
+        0x24, 0, 0x35,             // li8(0) === 254
+        0x24, 0, 0x35, 0x51,       // sxi8(li8(0)) === -2
+        0x24, 4, 0x36,             // li16(4) === 65408 (0xFF80)
+        0x24, 4, 0x36, 0x52,       // sxi16(li16(4)) === -128
+        0x24, 8, 0x37,             // li32(8) === -123456789
+        0x24, 16, 0x38,            // lf32(16) === 3.25
+        0x24, 24, 0x39,            // lf64(24) === 3.25
+        0x24, 1, 0x50,             // sxi1(1) === -1
+        0x24, 2, 0x50,             // sxi1(2) === 0
+        0x56, 9,                   // newarray(9)
+        0x61, 10,                  // this.memResults = [...]
+
+        // E4X tests:
+        // dxns("urn:test"); dxns("") -> restore empty default ns
+        0x06, 22,
+        0x2c, 1, 0x07,
+        // local1 = new XML('<catalog>...')
+        0x5d, 6, 0x2c, 9, 0x4a, 6, 1, 0xd5,
+        // checkfilter(local1), pop
+        0xd1, 0x78, 0x29,
+        // local1.book[0].@id = "b9" -> local1.book is XMLList; getproperty(book=9), getproperty("0" runtime or first):
+        // Let's read String((local1..price)[1]) and String((local1..@id)[0]), then mutate local1.book[0].@id = 'b9'!
+        // Wait: (local1..@id) via 0x59 getdescendants(mn 7 = @id)!
+        0xd0,
+        // [0]: String(local1..@id) -> "b1b2"
+        0xd1, 0x59, 7, 0x70,
+        // [1]: String(local1..price)
+        0xd1, 0x59, 8, 0x70,
+        // [2]: esc_xelem('a&"<b>') -> 'a&amp;"&lt;b&gt;' (does NOT escape quote!)
+        0x2c, 13, 0x71,
+        // [3]: esc_xattr('a&"<b>') -> 'a&amp;&quot;&lt;b&gt;' (DOES escape quote!)
+        0x2c, 13, 0x72,
+        0x56, 4,
+        0x61, 11, // this.e4xResults = [...]
+
+        // Instantiate pkg.SharedType (mn 5): this.sharedTag = (new pkg.SharedType()).source
+        0xd0,
+        0x5d, 5, 0x4a, 5, 0, 0x66, 13,
+        0x61, 12,
+        0x47,
+      ];
+
+      writeU30(abc, 3);
+      for (const [mid, code] of [[1, fastDocIinit], [3, childExportIinit], [5, sharedTypeIinit]]) {
+        writeU30(abc, mid); writeU30(abc, 12); writeU30(abc, 4); writeU30(abc, 0); writeU30(abc, 4);
+        writeU30(abc, code.length);
+        for (const b of code) abc.push(b);
+        writeU30(abc, 0); writeU30(abc, 0);
+      }
+
+      const doAbc2 = makeSwfTag(82, Buffer.concat([Buffer.from([1, 0, 0, 0, ...Buffer.from('fast\0', 'utf8')]), Buffer.from(abc)]));
+      const sym = new BitWriter();
+      sym.writeU16(1); sym.writeU16(0); sym.writeCString('FastDoc');
+      return wrapSwf('FWS', 13, 100, 80, 24, 1, [
+        makeSwfTag(69, Buffer.from([0x08, 0, 0, 0])),
+        doAbc2,
+        makeSwfTag(76, sym.toBuffer()),
+        makeSwfTag(1, Buffer.alloc(0)),
+      ]);
+    };
+
+    const swfBytesBuf = buildFastMemE4xDomainSwf();
+    const preDecoded = JSON.parse(runtimeWasm.decode_swf_bundle_json(swfBytesBuf));
+    assert.deepEqual(preDecoded.warnings, [], 'zero unsupported AVM2 opcode warnings on fast-mem + E4X SWF');
+
+    // Case A: Default LoaderContext -> child ApplicationDomain (parentDomain === currentDomain)
+    const childDom = new ApplicationDomain(ApplicationDomain.currentDomain);
+    const domMemA = new ByteArray();
+    domMemA.length = 2048;
+    childDom.domainMemory = domMemA;
+
+    const loaderChild = new Loader();
+    rootClip.addChild(loaderChild);
+    loaderChild.loadBytes(toBa(swfBytesBuf), new LoaderContext(false, childDom));
+    await new Promise(r => setTimeout(r, 25));
+
+    assert.equal(loaderChild.contentLoaderInfo.applicationDomain, childDom);
+    assert.equal(childDom.parentDomain, ApplicationDomain.currentDomain);
+    assert.deepEqual(
+      Array.from(loaderChild.content.memResults),
+      [254, -2, 65408, -128, -123456789, 3.25, 3.25, -1, 0],
+      'all 13 AVM2 domain-memory & sign-extension opcodes produce exact IEEE-754 / two\'s-complement values',
+    );
+    assert.deepEqual(
+      Array.from(loaderChild.content.e4xResults),
+      ['b1b2', '<price>25</price>\n<price>40</price>', 'a&amp;"&lt;b&gt;', 'a&amp;&quot;&lt;b&gt;'],
+      'AVM2 E4X getdescendants (..@id, ..price), checkfilter, esc_xelem and esc_xattr match ECMA-357',
+    );
+    assert.equal(loaderChild.content.sharedTag, 'parent-wins', 'existing parent definition in parentDomain wins over duplicate child SWF class');
+    assert.equal(childDom.hasDefinition('pkg.ChildExport'), true, 'child domain receives exported child SWF class');
+    assert.equal(ApplicationDomain.currentDomain.hasDefinition('pkg.ChildExport'), false, 'child domain does NOT pollute ApplicationDomain.currentDomain');
+    const ChildExportA = childDom.getDefinition('pkg.ChildExport');
+    assert.equal(new ChildExportA().tag, 'from-child-swf');
+    assert.equal(LoaderInfo.getLoaderInfoByDefinition(ChildExportA), loaderChild.contentLoaderInfo, 'getLoaderInfoByDefinition resolves owning child LoaderInfo');
+
+    // Default loadBytes without LoaderContext creates a fresh child ApplicationDomain automatically
+    const loaderDefault = new Loader();
+    assert.equal(loaderDefault.contentLoaderInfo.applicationDomain.parentDomain, ApplicationDomain.currentDomain);
+    assert.notEqual(loaderDefault.contentLoaderInfo.applicationDomain, ApplicationDomain.currentDomain);
+
+    // Case B: Isolated ApplicationDomain(null) -> parent's pkg.SharedType is NOT visible, so child's own pkg.SharedType runs!
+    const isoDom = new ApplicationDomain(null);
+    const domMemIso = new ByteArray();
+    domMemIso.length = 2048;
+    isoDom.domainMemory = domMemIso;
+    assert.equal(isoDom.hasDefinition('pkg.SharedType'), false, 'isolated ApplicationDomain(null) does not inherit root program classes');
+    const loaderIso = new Loader();
+    rootClip.addChild(loaderIso);
+    loaderIso.loadBytes(toBa(swfBytesBuf), new LoaderContext(false, isoDom));
+    await new Promise(r => setTimeout(r, 25));
+    assert.equal(loaderIso.content.sharedTag, 'child-attempt', 'isolated ApplicationDomain(null) uses child SWF\'s own pkg.SharedType');
+
+    // Case C: Same-domain merge into ApplicationDomain.currentDomain
+    const domMemRoot = new ByteArray();
+    domMemRoot.length = 2048;
+    ApplicationDomain.currentDomain.domainMemory = domMemRoot;
+    const loaderSame = new Loader();
+    rootClip.addChild(loaderSame);
+    loaderSame.loadBytes(toBa(swfBytesBuf), new LoaderContext(false, ApplicationDomain.currentDomain));
+    await new Promise(r => setTimeout(r, 25));
+    assert.equal(ApplicationDomain.currentDomain.hasDefinition('pkg.ChildExport'), true, 'same-domain merge exports pkg.ChildExport into currentDomain');
+    assert.equal(new (ApplicationDomain.currentDomain.getDefinition('pkg.SharedType'))().source, 'parent-wins', 'same-domain merge preserves preexisting parent definition');
+
+    loaderChild.unloadAndStop(true);
+    loaderIso.unloadAndStop(true);
+    loaderSame.unloadAndStop(true);
+  } finally {
+    host.disposeFamily();
+    player.free();
+  }
+});

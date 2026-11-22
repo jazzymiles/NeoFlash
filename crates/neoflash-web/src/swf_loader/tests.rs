@@ -697,3 +697,143 @@ fn swf_loader_non_root_only_symbol_class_does_not_attach_child_class_to_root() {
         bundle.scripts
     );
 }
+
+#[test]
+fn decodes_raw_swf_audio_video_tags_and_avm2_fastmem_e4x_opcodes_cleanly() {
+    use neoflash_core::SoundSync;
+
+    // 1. DefineSound #1: 16-bit LE mono 22050 Hz PCM (format=3, rate=2, 16bit=1, mono=0 -> 0x3A)
+    let mut def_snd_pcm = Vec::new();
+    def_snd_pcm.extend_from_slice(&1u16.to_le_bytes());
+    def_snd_pcm.push(0x3A);
+    def_snd_pcm.extend_from_slice(&4u32.to_le_bytes());
+    for s in [1000i16, -1000, 2000, -2000] {
+        def_snd_pcm.extend_from_slice(&s.to_le_bytes());
+    }
+
+    // 2. DefineSound #2: SWF 4-bit ADPCM mono 22050 Hz (format=1, rate=2, 16bit=1, mono=0 -> 0x1A)
+    // Bitstream: code_bits=2 (0b10 -> 4-bit codes), init_sample=512 (SB16), init_idx=10 (UB6), 2 4-bit deltas
+    // 0b10 (2b) + 0x0200 (16b) + 0b001010 (6b) = 24 bits: [0b1000_0000, 0b1000_0000, 0b0000_1010] + [0x31]
+    let mut def_snd_adpcm = Vec::new();
+    def_snd_adpcm.extend_from_slice(&2u16.to_le_bytes());
+    def_snd_adpcm.push(0x1A);
+    def_snd_adpcm.extend_from_slice(&3u32.to_le_bytes());
+    def_snd_adpcm.extend_from_slice(&[0x80, 0x80, 0x0A, 0x31]);
+
+    // 3. StartSound #1 on frame 0 with loops=3 & stereo envelope
+    let mut start_snd = Vec::new();
+    start_snd.extend_from_slice(&1u16.to_le_bytes());
+    start_snd.push(0x04 | 0x08); // HasLoops | HasEnvelope
+    start_snd.extend_from_slice(&3u16.to_le_bytes());
+    start_snd.push(2); // 2 envelope points
+    start_snd.extend_from_slice(&0u32.to_le_bytes());
+    start_snd.extend_from_slice(&32768u16.to_le_bytes());
+    start_snd.extend_from_slice(&16384u16.to_le_bytes());
+    start_snd.extend_from_slice(&2000u32.to_le_bytes());
+    start_snd.extend_from_slice(&16384u16.to_le_bytes());
+    start_snd.extend_from_slice(&32768u16.to_le_bytes());
+
+    // 4. SoundStreamHead2 (PCM 16-bit mono 22050 Hz) + SoundStreamBlock
+    let stream_head = vec![0x0A, 0x3A, 0x96, 0x03];
+    let stream_blk = vec![0x10, 0x01, 0xF0, 0xFE, 0x20, 0x02, 0xE0, 0xFD];
+
+    // 5. DefineVideoStream #3 (2x2 ScreenVideo codec_id = 3) + VideoFrame #0
+    let mut def_vid = Vec::new();
+    def_vid.extend_from_slice(&3u16.to_le_bytes());
+    def_vid.extend_from_slice(&1u16.to_le_bytes()); // num_frames = 1
+    def_vid.extend_from_slice(&2u16.to_le_bytes()); // width = 2
+    def_vid.extend_from_slice(&2u16.to_le_bytes()); // height = 2
+    def_vid.push(0); // flags
+    def_vid.push(3); // codec_id = 3 (ScreenVideo)
+
+    // 2x2 BGR24 pixels (bottom-up): 4 pixels * 3 bytes = 12 bytes
+    let raw_bgr = [0u8, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255];
+    let zblock = neoflash_core::as_binary::binary_transform("compress", &raw_bgr, "", "zlib", 4096)
+        .expect("zlib compress ScreenVideo block");
+    let mut vid_frame = Vec::new();
+    vid_frame.extend_from_slice(&3u16.to_le_bytes()); // stream_id = 3
+    vid_frame.extend_from_slice(&0u16.to_le_bytes()); // frame_num = 0
+    vid_frame.extend_from_slice(&0x0002u16.to_be_bytes()); // block_w=16 (0), img_w=2
+    vid_frame.extend_from_slice(&0x0002u16.to_be_bytes()); // block_h=16 (0), img_h=2
+    vid_frame.extend_from_slice(&(zblock.len() as u16).to_be_bytes());
+    vid_frame.extend_from_slice(&zblock);
+
+    let swf = wrap_fws(
+        13,
+        2,
+        &[
+            make_tag(69, &[0x08, 0, 0, 0]),
+            make_tag(14, &def_snd_pcm),
+            make_tag(14, &def_snd_adpcm),
+            make_tag(60, &def_vid),
+            make_tag(61, &vid_frame),
+            minimal_place_object2_tag(3, 1),
+            make_tag(15, &start_snd),
+            make_tag(45, &stream_head),
+            make_tag(19, &stream_blk),
+            make_tag(1, &[]),
+            make_tag(19, &stream_blk),
+            make_tag(1, &[]),
+        ],
+    );
+
+    let bundle = decode_swf_bundle(&swf).expect("decode SWF audio + ScreenVideo bundle");
+    assert!(
+        bundle.warnings.is_empty(),
+        "warnings: {:?}",
+        bundle.warnings
+    );
+    bundle
+        .project
+        .validate_published_bundle()
+        .expect("decoded SWF audio/video project must pass validate_published_bundle");
+
+    assert!(
+        bundle
+            .project
+            .resources
+            .iter()
+            .filter(|r| r.is_audio())
+            .count()
+            >= 3,
+        "expected DefineSound PCM, ADPCM, and Stream WAV resources"
+    );
+    assert!(
+        bundle
+            .project
+            .resources
+            .iter()
+            .any(|r| r.is_video() && r.media_type == "video/x-flv"),
+        "expected FLV video resource from DefineVideoStream + VideoFrame"
+    );
+    let root_sym = bundle
+        .project
+        .symbols
+        .iter()
+        .find(|s| s.id == bundle.project.root)
+        .unwrap();
+    let has_ev = root_sym
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .any(|k| {
+            k.sound
+                .as_ref()
+                .is_some_and(|s| s.sync == SoundSync::Event && s.loops == 3)
+        });
+    let has_strm = root_sym
+        .timeline
+        .layers
+        .iter()
+        .flat_map(|l| &l.keyframes)
+        .any(|k| {
+            k.sound
+                .as_ref()
+                .is_some_and(|s| s.sync == SoundSync::Stream)
+        });
+    assert!(
+        has_ev && has_strm,
+        "expected Event and Stream FrameSounds on root timeline"
+    );
+}

@@ -581,8 +581,15 @@
         inTimestamp = 0
       ) {
         super(type, bubbles, cancelable);
+        let parsedMeta = inMetadata ?? null;
+        if (parsedMeta && (binary?.ByteArray?.__nfIs?.(parsedMeta) || parsedMeta instanceof Uint8Array)) {
+          const ContentDataCtor = options.getDRMContentData?.() || global.__nfDRMContentDataCtor || null;
+          if (typeof ContentDataCtor === 'function') {
+            parsedMeta = new ContentDataCtor(parsedMeta);
+          }
+        }
         drmMetaStates.set(this, {
-          drmMetadata: inMetadata ?? null,
+          drmMetadata: parsedMeta,
           timestamp: Number(inTimestamp),
         });
       }
@@ -728,11 +735,29 @@
       get isLocal() { return drmStatusStates.get(this).isLocal; }
       set isLocal(v) { drmStatusStates.get(this).isLocal = Boolean(v); }
       get detail() { return 'DRM.voucherObtained'; }
-      get isAnonymous() { return false; }
-      get isAvailableOffline() { return false; }
-      get offlineLeasePeriod() { return 0; }
-      get policies() { return null; }
-      get voucherEndDate() { return null; }
+      get isAnonymous() {
+        const cd = drmStatusStates.get(this).contentData;
+        return Boolean(cd && cd.authenticationMethod === 'anonymous');
+      }
+      get isAvailableOffline() {
+        const v = drmStatusStates.get(this).voucher;
+        return Boolean(v && v.offlineLeaseStartDate instanceof Date && v.offlineLeaseEndDate instanceof Date && v.offlineLeaseEndDate.getTime() > v.offlineLeaseStartDate.getTime());
+      }
+      get offlineLeasePeriod() {
+        const v = drmStatusStates.get(this).voucher;
+        if (!v || !(v.offlineLeaseStartDate instanceof Date) || !(v.offlineLeaseEndDate instanceof Date)) return 0;
+        const diffMs = v.offlineLeaseEndDate.getTime() - v.offlineLeaseStartDate.getTime();
+        return diffMs > 0 ? (Math.round(diffMs / 86400000) >>> 0) : 0;
+      }
+      get policies() {
+        const v = drmStatusStates.get(this).voucher;
+        return v && v.policies != null ? v.policies : null;
+      }
+      get voucherEndDate() {
+        const v = drmStatusStates.get(this).voucher;
+        if (!v || !(v.voucherEndDate instanceof Date)) return null;
+        return new Date(v.voucherEndDate.getTime());
+      }
       clone() {
         return new DRMStatusEvent(
           this.type,

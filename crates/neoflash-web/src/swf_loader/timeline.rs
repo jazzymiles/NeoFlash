@@ -1,5 +1,6 @@
 //! Font, text, sprite, placement, and timeline reconstruction for SWF Loader bundles.
 
+use super::media::{TimelineStreamCollector, build_event_sound_layers, decode_start_sound_tag};
 use super::tags_extra::{
     attach_element_object_script, build_glyph_path_commands, ensure_morph_ratio_symbol,
     parse_clip_actions_to_js, parse_glyph_shape_records,
@@ -11,8 +12,8 @@ use super::{
 };
 use neoflash_core::{
     BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FilterSpec, FrameLabelType,
-    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_OBJECT_FILTERS, PathCommand,
-    Symbol, SymbolKind, TextFormat, Timeline, Transform,
+    FrameSound, InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MAX_OBJECT_FILTERS,
+    PathCommand, Symbol, SymbolKind, TextFormat, Timeline, Transform,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -638,6 +639,11 @@ fn placement_to_element(
         tf.alpha =
             (p.cxform.multipliers[3] * *text_alpha + p.cxform.offsets[3] / 255.0).clamp(0.0, 1.0);
         tb_kind.clone()
+    } else if let Some(&(vw, vh)) = ctx.char_videos.get(&p.char_id) {
+        ElementKind::Video {
+            width: vw,
+            height: vh,
+        }
     } else if ctx.char_morphs.contains_key(&p.char_id) {
         let sym_id = ensure_morph_ratio_symbol(ctx, p.char_id, p.ratio);
         ElementKind::Instance {
@@ -696,6 +702,8 @@ pub(super) fn build_timeline_from_tags(
     let mut max_clip_by_depth: BTreeMap<u16, u16> = BTreeMap::new();
     let mut frame_labels: BTreeMap<u32, Vec<(String, FrameLabelType)>> = BTreeMap::new();
     let mut frame_actions: BTreeMap<u32, Vec<String>> = BTreeMap::new();
+    let mut event_sounds: Vec<(u32, FrameSound)> = Vec::new();
+    let mut stream_collector = TimelineStreamCollector::default();
     let mut pre_place_action_frames: BTreeSet<u32> = BTreeSet::new();
     let mut frame_saw_place = false;
     let mut frame_actions_before_place = false;
@@ -793,6 +801,19 @@ pub(super) fn build_timeline_from_tags(
                     }
                     frame_actions.entry(shown_frames).or_default().push(js);
                 }
+            }
+            15 | 89 => {
+                if event_sounds.len() < 4096
+                    && let Some(snd) = decode_start_sound_tag(ctx, payload, code == 89)
+                {
+                    event_sounds.push((shown_frames, snd));
+                }
+            }
+            18 | 45 => {
+                stream_collector.on_head(payload);
+            }
+            19 => {
+                stream_collector.on_block(shown_frames, payload);
             }
             1 if shown_frames < MAX_SWF_FRAMES => {
                 if frame_actions_before_place && frame_saw_place {
@@ -914,6 +935,18 @@ pub(super) fn build_timeline_from_tags(
         ));
     }
     final_layers.extend(label_layers);
+    let ev_sound_layers = build_event_sound_layers(ctx, scope_prefix, event_sounds, total_frames);
+    ctx.total_keyframes += ev_sound_layers
+        .iter()
+        .map(|l| l.keyframes.len())
+        .sum::<usize>();
+    final_layers.extend(ev_sound_layers);
+    let stream_layers = stream_collector.into_layers(ctx, scope_prefix, total_frames);
+    ctx.total_keyframes += stream_layers
+        .iter()
+        .map(|l| l.keyframes.len())
+        .sum::<usize>();
+    final_layers.extend(stream_layers);
     if final_layers.is_empty() {
         final_layers.push(Layer {
             id: format!("swf-{}-{scope_prefix}-empty", ctx.mount_seq),

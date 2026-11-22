@@ -20,6 +20,12 @@ struct DrmVoucherRecord {
     window_start_ms: f64,
     window_end_ms: f64,
     policies: BTreeMap<String, String>,
+    #[serde(default)]
+    content_key_base64: String,
+    #[serde(default)]
+    online_only: bool,
+    #[serde(default)]
+    no_time_window: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1196,80 +1202,7 @@ impl As3NetSysKernel {
                 } else {
                     STANDARD.decode(raw_b64.as_bytes()).unwrap_or_default()
                 };
-                if !raw.is_empty() {
-                    if let Ok(val) = serde_json::from_slice::<Value>(&raw)
-                        && let Some(obj) = val.as_object()
-                    {
-                        let server = obj
-                            .get("serverURL")
-                            .and_then(Value::as_str)
-                            .unwrap_or("https://drm.neoflash.local/license");
-                        let license = obj
-                            .get("licenseID")
-                            .and_then(Value::as_str)
-                            .unwrap_or("nf-license-default");
-                        let domain = obj
-                            .get("domain")
-                            .and_then(Value::as_str)
-                            .unwrap_or("default");
-                        let auth = obj
-                            .get("authenticationMethod")
-                            .and_then(Value::as_str)
-                            .unwrap_or("anonymous");
-                        let policy = obj
-                            .get("policyID")
-                            .and_then(Value::as_str)
-                            .unwrap_or("policy-standard");
-                        let display_name = obj
-                            .get("displayName")
-                            .and_then(Value::as_str)
-                            .unwrap_or("Standard Access");
-                        return Ok(json!({
-                            "serverURL": server,
-                            "licenseID": license,
-                            "domain": domain,
-                            "authenticationMethod": auth,
-                            "accessInfo": [{
-                                "authenticationMethod": auth,
-                                "displayName": display_name,
-                                "domain": domain,
-                                "policyID": policy,
-                            }]
-                        }));
-                    }
-                    // Arbitrary non-JSON raw header bytes: derive deterministic licenseID.
-                    if raw.len() < 4 {
-                        return Err(
-                            "ArgumentError: Error #3300: Invalid DRMContentData raw metadata."
-                                .into(),
-                        );
-                    }
-                    let lic = format!("lic-{}", hex_encode(&sha256(&raw)[..8]));
-                    return Ok(json!({
-                        "serverURL": "https://drm.neoflash.local/license",
-                        "licenseID": lic,
-                        "domain": "default",
-                        "authenticationMethod": "anonymous",
-                        "accessInfo": [{
-                            "authenticationMethod": "anonymous",
-                            "displayName": "Default Access",
-                            "domain": "default",
-                            "policyID": "policy-default",
-                        }]
-                    }));
-                }
-                Ok(json!({
-                    "serverURL": "https://drm.neoflash.local/license",
-                    "licenseID": "lic-default",
-                    "domain": "default",
-                    "authenticationMethod": "anonymous",
-                    "accessInfo": [{
-                        "authenticationMethod": "anonymous",
-                        "displayName": "Default Access",
-                        "domain": "default",
-                        "policyID": "policy-default",
-                    }]
-                }))
+                parse_drm_content_bytes(&raw)
             }
             "drm_op" => {
                 let action = req.get("action").and_then(Value::as_str).unwrap_or("");
@@ -1295,11 +1228,26 @@ impl As3NetSysKernel {
                     "set_token" => {
                         let server = req.get("serverURL").and_then(Value::as_str).unwrap_or("");
                         let domain = req.get("domain").and_then(Value::as_str).unwrap_or("");
+                        let clear = req.get("clear").and_then(Value::as_bool).unwrap_or(false);
+                        if clear {
+                            self.drm_tokens
+                                .remove(&(server.to_owned(), domain.to_owned()));
+                            return Ok(json!({ "ok": true, "cleared": true }));
+                        }
                         let b64 = req.get("tokenBase64").and_then(Value::as_str).unwrap_or("");
                         let bytes = STANDARD.decode(b64.as_bytes()).unwrap_or_default();
                         self.drm_tokens
                             .insert((server.to_owned(), domain.to_owned()), bytes);
-                        Ok(json!({ "ok": true }))
+                        Ok(json!({ "ok": true, "cleared": false }))
+                    }
+                    "get_token" => {
+                        let server = req.get("serverURL").and_then(Value::as_str).unwrap_or("");
+                        let domain = req.get("domain").and_then(Value::as_str).unwrap_or("");
+                        let tok = self
+                            .drm_tokens
+                            .get(&(server.to_owned(), domain.to_owned()))
+                            .map(|b| STANDARD.encode(b));
+                        Ok(json!({ "ok": true, "tokenBase64": tok }))
                     }
                     "load_voucher" => {
                         let server = req.get("serverURL").and_then(Value::as_str).unwrap_or("");
@@ -1336,11 +1284,14 @@ impl As3NetSysKernel {
                         if !preview
                             && setting != "forceRefresh"
                             && let Some(existing) = self.drm_vouchers.get(&key)
+                            && now_ms <= existing.voucher_end_ms
                         {
                             return Ok(json!({ "ok": true, "isLocal": true, "voucher": existing }));
                         }
                         if !preview && setting == "localOnly" {
-                            return Ok(json!({ "ok": false, "voucher": Value::Null }));
+                            return Ok(
+                                json!({ "ok": false, "isLocal": true, "voucher": Value::Null }),
+                            );
                         }
                         if auth_method == "usernameAndPassword"
                             && !self
@@ -1358,6 +1309,7 @@ impl As3NetSysKernel {
                         let mut policies = BTreeMap::new();
                         policies.insert("preview".into(), preview.to_string());
                         policies.insert("domain".into(), domain.to_owned());
+                        let cek = derive_drm_cek(server, license, policy);
                         let voucher = DrmVoucherRecord {
                             server_url: server.to_owned(),
                             license_id: license.to_owned(),
@@ -1365,12 +1317,19 @@ impl As3NetSysKernel {
                             domain: domain.to_owned(),
                             voucher_start_ms: now_ms,
                             voucher_end_ms: now_ms + 86_400_000.0 * 30.0,
-                            offline_start_ms: now_ms,
-                            offline_end_ms: now_ms + 86_400_000.0 * 7.0,
+                            offline_start_ms: if preview { 0.0 } else { now_ms },
+                            offline_end_ms: if preview {
+                                0.0
+                            } else {
+                                now_ms + 86_400_000.0 * 7.0
+                            },
                             window_period: 86_400,
                             window_start_ms: now_ms,
                             window_end_ms: now_ms + 86_400_000.0,
                             policies,
+                            content_key_base64: STANDARD.encode(cek),
+                            online_only: preview,
+                            no_time_window: false,
                         };
                         if !preview {
                             self.drm_vouchers.insert(key, voucher.clone());
@@ -1380,46 +1339,62 @@ impl As3NetSysKernel {
                     "store_voucher" => {
                         let b64 = req.get("base64").and_then(Value::as_str).unwrap_or("");
                         let raw = STANDARD.decode(b64.as_bytes()).unwrap_or_default();
+                        let is_local = req.get("isLocal").and_then(Value::as_bool).unwrap_or(true);
                         let now_ms = req
                             .get("nowMs")
                             .and_then(Value::as_f64)
                             .unwrap_or(1_762_000_000_000.0);
-                        let record: DrmVoucherRecord =
-                            serde_json::from_slice(&raw).unwrap_or_else(|_| DrmVoucherRecord {
-                                server_url: "https://drm.neoflash.local/license".into(),
-                                license_id: format!("stored-{}", hex_encode(&sha256(&raw)[..6])),
-                                policy_id: "policy-stored".into(),
-                                domain: "default".into(),
-                                voucher_start_ms: now_ms,
-                                voucher_end_ms: now_ms + 86_400_000.0 * 30.0,
-                                offline_start_ms: now_ms,
-                                offline_end_ms: now_ms + 86_400_000.0 * 7.0,
-                                window_period: 86_400,
-                                window_start_ms: now_ms,
-                                window_end_ms: now_ms + 86_400_000.0,
-                                policies: BTreeMap::new(),
+                        let mut record: DrmVoucherRecord = serde_json::from_slice(&raw)
+                            .unwrap_or_else(|_| {
+                                let lid = format!("stored-{}", hex_encode(&sha256(&raw)[..6]));
+                                let srv = "https://drm.neoflash.local/license";
+                                let pol = "policy-stored";
+                                DrmVoucherRecord {
+                                    server_url: srv.into(),
+                                    license_id: lid.clone(),
+                                    policy_id: pol.into(),
+                                    domain: "default".into(),
+                                    voucher_start_ms: now_ms,
+                                    voucher_end_ms: now_ms + 86_400_000.0 * 30.0,
+                                    offline_start_ms: now_ms,
+                                    offline_end_ms: now_ms + 86_400_000.0 * 7.0,
+                                    window_period: 86_400,
+                                    window_start_ms: now_ms,
+                                    window_end_ms: now_ms + 86_400_000.0,
+                                    policies: BTreeMap::new(),
+                                    content_key_base64: STANDARD
+                                        .encode(derive_drm_cek(srv, &lid, pol)),
+                                    online_only: false,
+                                    no_time_window: false,
+                                }
                             });
-                        let key = format!("{}|{}", record.server_url, record.license_id);
-                        self.drm_vouchers.insert(key, record.clone());
+                        if record.content_key_base64.is_empty() {
+                            record.content_key_base64 = STANDARD.encode(derive_drm_cek(
+                                &record.server_url,
+                                &record.license_id,
+                                &record.policy_id,
+                            ));
+                        }
+                        if is_local {
+                            let key = format!("{}|{}", record.server_url, record.license_id);
+                            self.drm_vouchers.insert(key, record.clone());
+                        }
                         Ok(json!({ "ok": true, "voucher": record }))
                     }
                     "return_voucher" => {
                         let server = req.get("serverURL").and_then(Value::as_str).unwrap_or("");
                         let license = req.get("licenseID").and_then(Value::as_str).unwrap_or("");
-                        let mut removed = 0usize;
-                        if !license.is_empty() {
-                            if self
-                                .drm_vouchers
-                                .remove(&format!("{server}|{license}"))
-                                .is_some()
-                            {
-                                removed += 1;
+                        let policy = req.get("policyID").and_then(Value::as_str).unwrap_or("");
+                        let before = self.drm_vouchers.len();
+                        self.drm_vouchers.retain(|_, v| {
+                            if v.server_url != server {
+                                return true;
                             }
-                        } else {
-                            let before = self.drm_vouchers.len();
-                            self.drm_vouchers.retain(|_, v| v.server_url != server);
-                            removed = before - self.drm_vouchers.len();
-                        }
+                            let lic_match = license.is_empty() || v.license_id == license;
+                            let pol_match = policy.is_empty() || v.policy_id == policy;
+                            !(lic_match && pol_match)
+                        });
+                        let removed = before - self.drm_vouchers.len();
                         Ok(json!({ "ok": true, "removed": removed }))
                     }
                     "reset_vouchers" => {
@@ -1436,6 +1411,150 @@ impl As3NetSysKernel {
                             self.drm_device_groups.insert(name.to_owned());
                         }
                         Ok(json!({ "ok": true, "joined": !remove }))
+                    }
+                    "encrypt_media" => {
+                        let meta_b64 = req
+                            .get("metadataBase64")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        let clear_b64 = req
+                            .get("cleartextBase64")
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        let meta_bytes = STANDARD.decode(meta_b64.as_bytes()).unwrap_or_default();
+                        let clear_bytes = STANDARD.decode(clear_b64.as_bytes()).unwrap_or_default();
+                        let parsed = parse_drm_content_bytes(&meta_bytes)?;
+                        let srv = parsed["serverURL"].as_str().unwrap_or("");
+                        let lic = parsed["licenseID"].as_str().unwrap_or("");
+                        let pol = parsed["accessInfo"][0]["policyID"]
+                            .as_str()
+                            .unwrap_or("policy-default");
+                        let key_bytes: [u8; 16] = if let Some(kb64) =
+                            req.get("keyBase64").and_then(Value::as_str)
+                            && !kb64.is_empty()
+                        {
+                            let dec = STANDARD.decode(kb64.as_bytes()).unwrap_or_default();
+                            let mut k = [0u8; 16];
+                            for (i, b) in dec.iter().take(16).enumerate() {
+                                k[i] = *b;
+                            }
+                            k
+                        } else {
+                            derive_drm_cek(srv, lic, pol)
+                        };
+                        let iv_seed =
+                            sha256(format!("iv:{srv}:{lic}:{}", clear_bytes.len()).as_bytes());
+                        let mut iv = [0u8; 16];
+                        iv.copy_from_slice(&iv_seed[..16]);
+                        let ciphertext = aes128_ctr_xor(&key_bytes, &iv, &clear_bytes);
+                        let tag = drm_auth_tag(&key_bytes, &iv, &ciphertext);
+                        let mut env = Vec::with_capacity(
+                            6 + 4 + meta_bytes.len() + 16 + 8 + ciphertext.len(),
+                        );
+                        env.extend_from_slice(b"NFDRM1");
+                        env.extend_from_slice(&(meta_bytes.len() as u32).to_be_bytes());
+                        env.extend_from_slice(&meta_bytes);
+                        env.extend_from_slice(&iv);
+                        env.extend_from_slice(&tag);
+                        env.extend_from_slice(&ciphertext);
+                        Ok(json!({
+                            "ok": true,
+                            "encryptedBase64": STANDARD.encode(&env),
+                            "contentKeyBase64": STANDARD.encode(key_bytes),
+                        }))
+                    }
+                    "decrypt_media" => {
+                        let b64 = req.get("base64").and_then(Value::as_str).unwrap_or("");
+                        let now_ms = req
+                            .get("nowMs")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(1_762_000_000_000.0);
+                        let raw = STANDARD.decode(b64.as_bytes()).unwrap_or_default();
+                        if raw.len() < 34 || &raw[0..6] != b"NFDRM1" {
+                            return Ok(json!({ "ok": false, "notEncrypted": true }));
+                        }
+                        let meta_len =
+                            u32::from_be_bytes([raw[6], raw[7], raw[8], raw[9]]) as usize;
+                        if 10 + meta_len + 24 > raw.len() {
+                            return Ok(json!({
+                                "ok": false,
+                                "errorID": 3300,
+                                "subErrorID": 1,
+                                "text": "Truncated NFDRM1 media header."
+                            }));
+                        }
+                        let meta_bytes = &raw[10..10 + meta_len];
+                        let parsed = match parse_drm_content_bytes(meta_bytes) {
+                            Ok(v) => v,
+                            Err(msg) => {
+                                return Ok(json!({
+                                    "ok": false,
+                                    "errorID": 3300,
+                                    "subErrorID": 2,
+                                    "text": msg
+                                }));
+                            }
+                        };
+                        let srv = parsed["serverURL"].as_str().unwrap_or("");
+                        let lic = parsed["licenseID"].as_str().unwrap_or("");
+                        let vkey = format!("{srv}|{lic}");
+                        let Some(voucher) = self.drm_vouchers.get(&vkey).cloned() else {
+                            return Ok(json!({
+                                "ok": false,
+                                "needsVoucher": true,
+                                "metadataBase64": STANDARD.encode(meta_bytes),
+                                "metadata": parsed,
+                                "errorID": 3305,
+                                "subErrorID": 404,
+                                "text": "No cached voucher for encrypted stream."
+                            }));
+                        };
+                        if now_ms > voucher.voucher_end_ms
+                            || (!voucher.no_time_window && now_ms > voucher.window_end_ms)
+                        {
+                            return Ok(json!({
+                                "ok": false,
+                                "expired": true,
+                                "metadataBase64": STANDARD.encode(meta_bytes),
+                                "metadata": parsed,
+                                "errorID": 3322,
+                                "subErrorID": 0,
+                                "text": "Cached DRM voucher has expired."
+                            }));
+                        }
+                        let mut iv = [0u8; 16];
+                        iv.copy_from_slice(&raw[10 + meta_len..10 + meta_len + 16]);
+                        let mut expected_tag = [0u8; 8];
+                        expected_tag.copy_from_slice(&raw[10 + meta_len + 16..10 + meta_len + 24]);
+                        let ciphertext = &raw[10 + meta_len + 24..];
+                        let cek_vec = STANDARD
+                            .decode(voucher.content_key_base64.as_bytes())
+                            .unwrap_or_default();
+                        let cek: [u8; 16] = if cek_vec.len() >= 16 {
+                            let mut k = [0u8; 16];
+                            k.copy_from_slice(&cek_vec[..16]);
+                            k
+                        } else {
+                            derive_drm_cek(srv, lic, &voucher.policy_id)
+                        };
+                        if drm_auth_tag(&cek, &iv, ciphertext) != expected_tag {
+                            return Ok(json!({
+                                "ok": false,
+                                "metadataBase64": STANDARD.encode(meta_bytes),
+                                "metadata": parsed,
+                                "errorID": 3307,
+                                "subErrorID": 1,
+                                "text": "Encrypted stream authentication tag mismatch."
+                            }));
+                        }
+                        let cleartext = aes128_ctr_xor(&cek, &iv, ciphertext);
+                        Ok(json!({
+                            "ok": true,
+                            "metadataBase64": STANDARD.encode(meta_bytes),
+                            "metadata": parsed,
+                            "voucher": voucher,
+                            "cleartextBase64": STANDARD.encode(&cleartext),
+                        }))
                     }
                     _ => Err(format!("Unknown drm_op {action}")),
                 }
@@ -2112,4 +2231,342 @@ impl As3NetSysKernel {
             _ => Err(format!("Unsupported As3NetSysKernel op '{op}'")),
         }
     }
+}
+
+fn parse_drm_content_bytes(raw: &[u8]) -> Result<Value, String> {
+    if raw.is_empty() {
+        return Ok(json!({
+            "serverURL": "https://drm.neoflash.local/license",
+            "licenseID": "lic-default",
+            "domain": "default",
+            "authenticationMethod": "anonymous",
+            "accessInfo": [{
+                "authenticationMethod": "anonymous",
+                "displayName": "Default Access",
+                "domain": "default",
+                "policyID": "policy-default",
+                "deviceGroup": Value::Null,
+            }]
+        }));
+    }
+    if let Ok(val) = serde_json::from_slice::<Value>(raw)
+        && let Some(obj) = val.as_object()
+    {
+        let server = obj
+            .get("serverURL")
+            .and_then(Value::as_str)
+            .unwrap_or("https://drm.neoflash.local/license");
+        let license = obj
+            .get("licenseID")
+            .and_then(Value::as_str)
+            .unwrap_or("nf-license-default");
+        let domain = obj
+            .get("domain")
+            .and_then(Value::as_str)
+            .unwrap_or("default");
+        let auth = obj
+            .get("authenticationMethod")
+            .and_then(Value::as_str)
+            .unwrap_or("anonymous");
+        let policy = obj
+            .get("policyID")
+            .and_then(Value::as_str)
+            .unwrap_or("policy-standard");
+        let display_name = obj
+            .get("displayName")
+            .and_then(Value::as_str)
+            .unwrap_or("Standard Access");
+        let top_dg = obj.get("deviceGroup").cloned().unwrap_or(Value::Null);
+        let access_info = if let Some(arr) = obj.get("accessInfo").and_then(Value::as_array)
+            && !arr.is_empty()
+        {
+            Value::Array(arr.clone())
+        } else {
+            json!([{
+                "authenticationMethod": auth,
+                "displayName": display_name,
+                "domain": domain,
+                "policyID": policy,
+                "deviceGroup": top_dg,
+            }])
+        };
+        return Ok(json!({
+            "serverURL": server,
+            "licenseID": license,
+            "domain": domain,
+            "authenticationMethod": auth,
+            "accessInfo": access_info,
+        }));
+    }
+    // Flash Access binary TLV metadata ("FADRM\x01" + [tag:u8][len:u16 BE][utf8]...)
+    if raw.starts_with(b"FADRM") {
+        if raw.len() < 9 || raw[5] != 0x01 {
+            return Err("ArgumentError: Error #3300: Invalid DRMContentData raw metadata.".into());
+        }
+        let mut server = String::from("https://drm.neoflash.local/license");
+        let mut license = String::new();
+        let mut domain = String::from("default");
+        let mut auth = String::from("anonymous");
+        let mut policy = String::from("policy-default");
+        let mut display_name = String::from("Flash Access Policy");
+        let mut device_group: Option<String> = None;
+        let mut pos = 6usize;
+        while pos < raw.len() {
+            if pos + 3 > raw.len() {
+                return Err(
+                    "ArgumentError: Error #3300: Invalid DRMContentData raw metadata.".into(),
+                );
+            }
+            let tag = raw[pos];
+            let len = usize::from(u16::from_be_bytes([raw[pos + 1], raw[pos + 2]]));
+            pos += 3;
+            if pos + len > raw.len() {
+                return Err(
+                    "ArgumentError: Error #3300: Invalid DRMContentData raw metadata.".into(),
+                );
+            }
+            let text = std::str::from_utf8(&raw[pos..pos + len])
+                .map_err(|_| {
+                    "ArgumentError: Error #3300: Invalid DRMContentData raw metadata.".to_owned()
+                })?
+                .to_owned();
+            pos += len;
+            match tag {
+                1 => server = text,
+                2 => license = text,
+                3 => domain = text,
+                4 => auth = text,
+                5 => policy = text,
+                6 => display_name = text,
+                7 => device_group = Some(text),
+                _ => {}
+            }
+        }
+        if license.is_empty() {
+            license = format!("lic-{}", hex_encode(&sha256(raw)[..8]));
+        }
+        let dg_val = device_group.map_or(Value::Null, |name| {
+            json!({
+                "name": name,
+                "serverURL": server,
+                "domain": domain,
+                "authenticationMethod": auth,
+            })
+        });
+        return Ok(json!({
+            "serverURL": server,
+            "licenseID": license,
+            "domain": domain,
+            "authenticationMethod": auth,
+            "accessInfo": [{
+                "authenticationMethod": auth,
+                "displayName": display_name,
+                "domain": domain,
+                "policyID": policy,
+                "deviceGroup": dg_val,
+            }]
+        }));
+    }
+    // ISO-BMFF / F4V 'pssh' or 'adkm' protection system header box
+    if raw.len() >= 12 && (&raw[4..8] == b"pssh" || &raw[4..8] == b"adkm") {
+        let box_len = u32::from_be_bytes([raw[0], raw[1], raw[2], raw[3]]) as usize;
+        if box_len < 12 || box_len > raw.len() {
+            return Err("ArgumentError: Error #3300: Invalid DRMContentData pssh/adkm box.".into());
+        }
+        let body = &raw[8..box_len];
+        if &raw[4..8] == b"pssh" && body.len() >= 24 {
+            let version = body[0];
+            let mut pos = 20usize; // 4 version/flags + 16 system_id
+            let mut kid_hex = String::new();
+            if version > 0 && pos + 4 <= body.len() {
+                let kid_cnt =
+                    u32::from_be_bytes([body[pos], body[pos + 1], body[pos + 2], body[pos + 3]])
+                        as usize;
+                pos += 4;
+                if kid_cnt > 0 && pos + 16 <= body.len() {
+                    kid_hex = format!("kid-{}", hex_encode(&body[pos..pos + 16]));
+                }
+                pos = pos.saturating_add(kid_cnt.saturating_mul(16));
+            }
+            if pos + 4 <= body.len() {
+                let dlen =
+                    u32::from_be_bytes([body[pos], body[pos + 1], body[pos + 2], body[pos + 3]])
+                        as usize;
+                pos += 4;
+                let data_slice = &body[pos..body.len().min(pos + dlen)];
+                if !data_slice.is_empty()
+                    && let Ok(mut inner) = parse_drm_content_bytes(data_slice)
+                {
+                    if !kid_hex.is_empty()
+                        && inner["licenseID"].as_str() == Some("nf-license-default")
+                    {
+                        inner["licenseID"] = Value::String(kid_hex);
+                    }
+                    return Ok(inner);
+                }
+            }
+            let lic = if kid_hex.is_empty() {
+                format!("pssh-{}", hex_encode(&sha256(raw)[..8]))
+            } else {
+                kid_hex
+            };
+            return Ok(json!({
+                "serverURL": "https://drm.neoflash.local/license",
+                "licenseID": lic,
+                "domain": "default",
+                "authenticationMethod": "anonymous",
+                "accessInfo": [{
+                    "authenticationMethod": "anonymous",
+                    "displayName": "ISO-BMFF CENC Access",
+                    "domain": "default",
+                    "policyID": "policy-cenc",
+                    "deviceGroup": Value::Null,
+                }]
+            }));
+        }
+        return parse_drm_content_bytes(&raw[8..box_len]);
+    }
+    if raw.len() < 4 {
+        return Err("ArgumentError: Error #3300: Invalid DRMContentData raw metadata.".into());
+    }
+    let lic = format!("lic-{}", hex_encode(&sha256(raw)[..8]));
+    Ok(json!({
+        "serverURL": "https://drm.neoflash.local/license",
+        "licenseID": lic,
+        "domain": "default",
+        "authenticationMethod": "anonymous",
+        "accessInfo": [{
+            "authenticationMethod": "anonymous",
+            "displayName": "Default Access",
+            "domain": "default",
+            "policyID": "policy-default",
+            "deviceGroup": Value::Null,
+        }]
+    }))
+}
+
+fn derive_drm_cek(server: &str, license: &str, policy: &str) -> [u8; 16] {
+    let digest = sha256(format!("nf-drm-cek-v1:{server}|{license}|{policy}").as_bytes());
+    let mut key = [0u8; 16];
+    key.copy_from_slice(&digest[..16]);
+    key
+}
+
+fn drm_auth_tag(key: &[u8; 16], iv: &[u8; 16], ciphertext: &[u8]) -> [u8; 8] {
+    let mut msg = Vec::with_capacity(32 + ciphertext.len());
+    msg.extend_from_slice(key);
+    msg.extend_from_slice(iv);
+    msg.extend_from_slice(ciphertext);
+    let d = sha256(&msg);
+    let mut tag = [0u8; 8];
+    tag.copy_from_slice(&d[..8]);
+    tag
+}
+
+const AES_SBOX: [u8; 256] = [
+    0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+    0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+    0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+    0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+    0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+    0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+    0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+    0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+    0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+    0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+    0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+    0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+    0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+    0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+    0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+    0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16,
+];
+
+fn aes128_expand_key(key: &[u8; 16]) -> [[u8; 16]; 11] {
+    const RCON: [u8; 10] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
+    let mut rk = [[0u8; 16]; 11];
+    rk[0] = *key;
+    for r in 1..=10 {
+        let prev = rk[r - 1];
+        let mut t = [
+            AES_SBOX[usize::from(prev[13])] ^ RCON[r - 1],
+            AES_SBOX[usize::from(prev[14])],
+            AES_SBOX[usize::from(prev[15])],
+            AES_SBOX[usize::from(prev[12])],
+        ];
+        let mut cur = [0u8; 16];
+        for c in 0..4 {
+            for b in 0..4 {
+                t[b] ^= prev[c * 4 + b];
+                cur[c * 4 + b] = t[b];
+            }
+        }
+        rk[r] = cur;
+    }
+    rk
+}
+
+fn gf_xtime(x: u8) -> u8 {
+    (x << 1) ^ if (x & 0x80) != 0 { 0x1b } else { 0 }
+}
+
+pub(crate) fn aes128_encrypt_block(rk: &[[u8; 16]; 11], input: &[u8; 16]) -> [u8; 16] {
+    let mut s = *input;
+    for i in 0..16 {
+        s[i] ^= rk[0][i];
+    }
+    for (round, rk_round) in rk.iter().enumerate().skip(1) {
+        for b in &mut s {
+            *b = AES_SBOX[usize::from(*b)];
+        }
+        // ShiftRows (column-major state)
+        let t = s;
+        s[1] = t[5];
+        s[5] = t[9];
+        s[9] = t[13];
+        s[13] = t[1];
+        s[2] = t[10];
+        s[6] = t[14];
+        s[10] = t[2];
+        s[14] = t[6];
+        s[3] = t[15];
+        s[7] = t[3];
+        s[11] = t[7];
+        s[15] = t[11];
+        if round < 10 {
+            for c in 0..4 {
+                let i = c * 4;
+                let (a0, a1, a2, a3) = (s[i], s[i + 1], s[i + 2], s[i + 3]);
+                let tm = a0 ^ a1 ^ a2 ^ a3;
+                s[i] ^= tm ^ gf_xtime(a0 ^ a1);
+                s[i + 1] ^= tm ^ gf_xtime(a1 ^ a2);
+                s[i + 2] ^= tm ^ gf_xtime(a2 ^ a3);
+                s[i + 3] ^= tm ^ gf_xtime(a3 ^ a0);
+            }
+        }
+        for i in 0..16 {
+            s[i] ^= rk_round[i];
+        }
+    }
+    s
+}
+
+pub(crate) fn aes128_ctr_xor(key: &[u8; 16], iv: &[u8; 16], data: &[u8]) -> Vec<u8> {
+    let rk = aes128_expand_key(key);
+    let mut ctr = *iv;
+    let mut out = vec![0u8; data.len()];
+    for (chunk_idx, chunk) in data.chunks(16).enumerate() {
+        let ks = aes128_encrypt_block(&rk, &ctr);
+        let base = chunk_idx * 16;
+        for (i, &b) in chunk.iter().enumerate() {
+            out[base + i] = b ^ ks[i];
+        }
+        for k in (0..16).rev() {
+            ctr[k] = ctr[k].wrapping_add(1);
+            if ctr[k] != 0 {
+                break;
+            }
+        }
+    }
+    out
 }
