@@ -141,10 +141,7 @@ pub(super) fn collect_pointer_actions_filtered(
             actions.extend(
                 conditions
                     .iter()
-                    .filter(|condition| {
-                        (condition.conditions == 0 && (btn_cond_mask & 0x000C) != 0)
-                            || (condition.conditions & btn_cond_mask) != 0
-                    })
+                    .filter(|condition| (condition.conditions & btn_cond_mask) != 0)
                     .map(|condition| (btn_scope.clone(), condition.actions.clone())),
             );
         }
@@ -177,7 +174,8 @@ pub(super) fn collect_key_actions_filtered(
 ) {
     for (&depth, slot) in display_list {
         let target = join_target_path(parent_target, &live_slot_segment(depth, slot));
-        if let Some(kc) = key_code
+        if clip_mask & CLIP_EVENT_KEY_PRESS != 0
+            && let Some(kc) = key_code
             && kc != 0
             && let Some(conditions) = buttons.get(&slot.character_id)
         {
@@ -198,10 +196,11 @@ pub(super) fn collect_key_actions_filtered(
                 slot.clip_handlers
                     .iter()
                     .filter(|handler| {
-                        (handler.event_flags & clip_mask) != 0
-                            && ((handler.event_flags & CLIP_EVENT_KEY_PRESS) == 0
-                                || key_code.is_none()
-                                || handler.key_code == key_code)
+                        let events = handler.event_flags & clip_mask;
+                        events & !CLIP_EVENT_KEY_PRESS != 0
+                            || (events & CLIP_EVENT_KEY_PRESS != 0
+                                && key_code.is_some()
+                                && handler.key_code == key_code)
                     })
                     .map(|handler| (target.clone(), handler.actions.clone())),
             );
@@ -1650,12 +1649,12 @@ pub(super) fn parse_button_actions(tag_code: u16, payload: &[u8]) -> Option<Pars
             btn_id,
             records,
             vec![ButtonCondAction {
-                conditions: 0,
+                conditions: 0x0008, // DefineButton actions run on release.
                 actions,
             }],
         ));
     }
-    let _flags = r.u8()?;
+    let track_as_menu = r.u8()? & 1 != 0;
     let off_pos = r.pos();
     let rel = usize::from(r.u16()?);
     let records_end = if rel == 0 {
@@ -1691,7 +1690,9 @@ pub(super) fn parse_button_actions(tag_code: u16, payload: &[u8]) -> Option<Pars
     let mut conds = Vec::new();
     while cond_slice.len() >= 4 {
         let size = usize::from(u16::from_le_bytes([cond_slice[0], cond_slice[1]]));
-        let conditions = u16::from_le_bytes([cond_slice[2], cond_slice[3]]);
+        // A push button captures drags; a menu button uses the two idle transitions.
+        let tracking_flags = if track_as_menu { !0x0070 } else { !0x0180 };
+        let conditions = u16::from_le_bytes([cond_slice[2], cond_slice[3]]) & tracking_flags;
         if size == 0 || size > cond_slice.len() {
             conds.push(ButtonCondAction {
                 conditions,

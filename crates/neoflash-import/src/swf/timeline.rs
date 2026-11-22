@@ -7,7 +7,7 @@ use super::avm1::{
     parse_and_decompile_clip_actions, script_language_for_swf,
 };
 use super::avm2::{RecoveredAs3Class, decompile_do_abc_tag};
-use super::bits::SwfSlice;
+use super::bits::{SwfSlice, symbol_class_bindings};
 use super::media::{
     SwfSoundAsset, SwfStreamSoundCollector, append_sound_stream_block, decode_define_sound_tag,
     decode_jpeg_bitmap_tag, decode_lossless_bitmap_tag, finalize_stream_sound, parse_sound_info,
@@ -146,6 +146,7 @@ struct SwfBuilder<'a> {
     init_actions: HashMap<u16, Vec<String>>,
     exports: Vec<(u16, String)>,
     symbol_classes: Vec<(u16, String)>,
+    character_by_class: HashMap<String, u16>,
     abc_classes: Vec<RecoveredAs3Class>,
     scenes_meta: Vec<(u32, String)>,
     scaling_grids: Vec<(u16, usize, usize, Option<[f64; 4]>)>,
@@ -235,6 +236,8 @@ pub(crate) fn build_project_from_swf(
         } else {
             None
         };
+    let tag_bytes = body.get(tags_offset..)?;
+    let symbol_classes = symbol_class_bindings(tag_bytes);
     let mut builder = SwfBuilder {
         swf_version: container.swf_version,
         location,
@@ -253,7 +256,11 @@ pub(crate) fn build_project_from_swf(
         button_sounds: HashMap::new(),
         init_actions: HashMap::new(),
         exports: Vec::new(),
-        symbol_classes: Vec::new(),
+        character_by_class: symbol_classes
+            .iter()
+            .map(|(id, name)| (name.clone(), *id))
+            .collect(),
+        symbol_classes,
         abc_classes: Vec::new(),
         scenes_meta: Vec::new(),
         scaling_grids: Vec::new(),
@@ -273,7 +280,6 @@ pub(crate) fn build_project_from_swf(
         unsupported_tag_warnings: 0,
     };
 
-    let tag_bytes = body.get(tags_offset..)?;
     let root_snapshots =
         builder.process_timeline_tags(tag_bytes, tags_offset, "root", (stage_dx, stage_dy));
     builder.finalize_pending_buttons();
@@ -1048,20 +1054,6 @@ impl SwfBuilder<'_> {
                         "External runtime SWF asset import (ImportAssets) cannot be resolved into local library symbols.",
                     );
                 }
-                // SymbolClass
-                76 if scope_uid == "root" => {
-                    let mut r = SwfSlice::new(payload);
-                    let count = usize::from(r.u16().unwrap_or(0));
-                    for _ in 0..count {
-                        let Some(cid) = r.u16() else { break };
-                        let Some((cname, _)) = r.c_string(9) else {
-                            break;
-                        };
-                        if !cname.is_empty() {
-                            self.symbol_classes.push((cid, cname));
-                        }
-                    }
-                }
                 // DefineScalingGrid
                 78 if scope_uid == "root" => {
                     let mut r = SwfSlice::new(payload);
@@ -1158,16 +1150,33 @@ impl SwfBuilder<'_> {
                         );
                     }
                 }
-                // StartSound2
+                // StartSound2 uses an embedded sound class in place of a character ID.
                 89 => {
-                    self.warn_unsupported_tag(
-                        "swf_sound_approximated",
-                        tag_code,
-                        tag_offset,
-                        scope_uid,
-                        cur_frame,
-                        "StartSound2 class-name sound trigger is not modeled on authored timeline keyframes.",
-                    );
+                    let mut reader = SwfSlice::new(payload);
+                    let class = reader.c_string(9).map(|(name, _)| name).unwrap_or_default();
+                    let sound = self
+                        .character_by_class
+                        .get(&class)
+                        .and_then(|id| self.sounds.get(id))
+                        .and_then(|asset| {
+                            parse_sound_info(&mut reader, asset, self.location, self.report)
+                        });
+                    if let Some(sound) = sound {
+                        pending_sounds.push(sound);
+                        saw_pending_frame_mutation = true;
+                    } else {
+                        let message = format!(
+                            "StartSound2 class '{class}' has no readable embedded sound or SOUNDINFO."
+                        );
+                        self.warn_unsupported_tag(
+                            "swf_sound_approximated",
+                            tag_code,
+                            tag_offset,
+                            scope_uid,
+                            cur_frame,
+                            &message,
+                        );
+                    }
                 }
                 // DefineVideoStream (60)
                 60 if scope_uid == "root" && payload.len() >= 8 => {

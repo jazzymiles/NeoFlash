@@ -639,6 +639,16 @@ pub(crate) fn parse_sound_info(
     location: &str,
     report: &mut ImportReport,
 ) -> Option<FrameSound> {
+    read_sound_info(r, sound, |message| {
+        report.warning("swf_frame_sound", location, message)
+    })
+}
+
+pub(super) fn read_sound_info(
+    r: &mut SwfSlice<'_>,
+    sound: &SwfSoundAsset,
+    mut warn: impl FnMut(String),
+) -> Option<FrameSound> {
     r.align();
     let _reserved = r.ub(2)?;
     let sync_stop = r.bit()?;
@@ -680,25 +690,17 @@ pub(crate) fn parse_sound_info(
         _ => None,
     };
     if trim_invalid {
-        report.warning(
-            "swf_frame_sound",
-            location,
-            "SWF SOUNDINFO in/out trim points were out of range and omitted.",
-        );
+        warn("SWF SOUNDINFO in/out trim points were out of range and omitted.".to_owned());
     }
 
     let raw_loops = if has_loops { u32::from(r.u16()?) } else { 1 };
     let (loops, loop_forever) = if raw_loops >= 0x7FFF {
         (1, true)
     } else if raw_loops > FrameSound::MAX_LOOPS {
-        report.warning(
-            "swf_frame_sound",
-            location,
-            format!(
-                "SWF sound repeat count {raw_loops} clamped to {}.",
-                FrameSound::MAX_LOOPS
-            ),
-        );
+        warn(format!(
+            "SWF sound repeat count {raw_loops} clamped to {}.",
+            FrameSound::MAX_LOOPS
+        ));
         (FrameSound::MAX_LOOPS, false)
     } else {
         (raw_loops.max(1), false)
@@ -713,7 +715,7 @@ pub(crate) fn parse_sound_info(
             let right = r.u16()?;
             pts.push((pos44, left, right));
         }
-        classify_swf_envelope(pts, sound.duration_44, location, report)
+        classify_swf_envelope(pts, sound.duration_44, &mut warn)
     } else {
         (SoundEffect::None, None)
     };
@@ -741,8 +743,7 @@ pub(crate) fn parse_sound_info(
 fn classify_swf_envelope(
     mut pts: Vec<(u64, u16, u16)>,
     duration_44: u64,
-    location: &str,
-    report: &mut ImportReport,
+    warn: &mut impl FnMut(String),
 ) -> (SoundEffect, Option<Vec<[f64; 3]>>) {
     if pts.is_empty() || pts.iter().all(|&(_, l, r)| l == 32_768 && r == 32_768) {
         return (SoundEffect::None, None);
@@ -757,14 +758,10 @@ fn classify_swf_envelope(
     pts.sort_by_key(|p| p.0);
     if pts.len() > FrameSound::MAX_ENVELOPE_POINTS {
         pts.truncate(FrameSound::MAX_ENVELOPE_POINTS);
-        report.warning(
-            "swf_frame_sound",
-            location,
-            format!(
-                "SWF custom sound envelope truncated to {} control points.",
-                FrameSound::MAX_ENVELOPE_POINTS
-            ),
-        );
+        warn(format!(
+            "SWF custom sound envelope truncated to {} control points.",
+            FrameSound::MAX_ENVELOPE_POINTS
+        ));
     }
     let max_mark = pts.iter().map(|p| p.0).max().unwrap_or(0);
     let denom = duration_44.max(max_mark);

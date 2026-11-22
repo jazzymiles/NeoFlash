@@ -2103,6 +2103,74 @@ impl SwfBytecodePlayer {
         }
     }
 
+    /// AVM2 Add converts objects before choosing numeric addition or concatenation.
+    pub(super) fn avm2_add_operand(
+        &mut self,
+        value: Avm1Value,
+        abc: usize,
+        steps: &mut usize,
+        depth: usize,
+    ) -> Avm1Value {
+        if !matches!(value, Avm1Value::Object(_)) {
+            return match &value {
+                Avm1Value::MovieClip(_)
+                | Avm1Value::MovieClipIdentity(_)
+                | Avm1Value::Super { .. } => {
+                    Avm1Value::String(avm2_convert_string(&value, &self.avm1_objects))
+                }
+                Avm1Value::String(s) if is_avm2_fn_token(s) => {
+                    Avm1Value::String(avm2_convert_string(&value, &self.avm1_objects))
+                }
+                _ => value,
+            };
+        }
+        for name in ["valueOf", "toString"] {
+            if !self.avm2_has_property(&value, name) {
+                if name == "toString" {
+                    return Avm1Value::String(avm2_convert_string(&value, &self.avm1_objects));
+                }
+                continue;
+            }
+            let method = self.get_avm2_property_eval(&value, name, steps, depth);
+            if self.avm2_thrown.is_some() {
+                return Avm1Value::Undefined;
+            }
+            if matches!(&method, Avm1Value::String(s) if is_avm2_fn_token(s)) {
+                let v = self.invoke_avm2_callable_with_this(
+                    &method,
+                    value.clone(),
+                    Vec::new(),
+                    steps,
+                    depth,
+                );
+                if self.avm2_thrown.is_some()
+                    || matches!(
+                        &v,
+                        Avm1Value::Number(_)
+                            | Avm1Value::Null
+                            | Avm1Value::Undefined
+                            | Avm1Value::Bool(_)
+                    )
+                    || matches!(&v, Avm1Value::String(s) if !is_avm2_fn_token(s))
+                {
+                    return v;
+                }
+            }
+        }
+        let error = self.construct_avm2_named(
+            abc,
+            "",
+            "TypeError",
+            vec![Avm1Value::String(
+                "Cannot convert object to primitive value".to_owned(),
+            )],
+            steps,
+            depth,
+        );
+        self.avm2_thrown = Some(error);
+        Avm1Value::Undefined
+    }
+
     pub(super) fn call_avm2_property(
         &mut self,
         abc_idx: usize,
@@ -2625,8 +2693,7 @@ impl SwfBytecodePlayer {
                 return Avm1Value::Undefined;
             }
             "stopAll" => {
-                self.stream_sound_active = false;
-                self.stop_all_sounds_pending = true;
+                self.stop_swf_sounds();
                 return Avm1Value::Undefined;
             }
             _ => {}
@@ -4015,14 +4082,12 @@ impl SwfBytecodePlayer {
                             5 | 28 => {
                                 let _ = self.apply_remove_tag(tag.code, &tag.payload);
                             }
-                            15 => {
-                                self.apply_start_sound(&tag.payload, f);
-                            }
                             _ => {}
                         }
                     }
                 }
             }
+            self.apply_root_audio(clamped);
             self.last_applied_frame = Some(clamped);
             self.avm2_sync_goto_handled = true;
             self.sync_avm2_container_with_display_list(oid, "_root", steps, depth);

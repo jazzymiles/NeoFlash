@@ -1695,6 +1695,9 @@ fn avm2_equality_coercions_types_iteration_lookupswitch_multinames_and_classes()
     let s_case1 = pool.str_idx("sw1");
     let s_casedef = pool.str_idx("swdef");
     let s_base_tag = pool.str_idx("B:");
+    let s_value_of = pool.str_idx("valueOf");
+    let mn_undefined = pool.qname("", "undefined");
+    let s_undefined = pool.str_idx("undefined");
     let s_der_tag = pool.str_idx("+D");
     let _ = (pool.int_idx(-1), pool.uint_idx(16));
 
@@ -1936,6 +1939,24 @@ fn avm2_equality_coercions_types_iteration_lookupswitch_multinames_and_classes()
     m8.extend_from_slice(&[0xD2, 0xB2]);
     write_u30(&mut m8, mn_base);
     emit_trace_top(&mut m8); // "true"
+    // Addition resolves an ordinary object's default string and calls an authored valueOf.
+    m8.extend_from_slice(&[0x55, 0, 0x24, 2, 0xa0]);
+    emit_trace_top(&mut m8);
+    m8.push(0x2c);
+    write_u30(&mut m8, s_value_of);
+    m8.extend_from_slice(&[0x40, 2, 0x55, 1, 0x24, 2, 0xa0]);
+    emit_trace_top(&mut m8);
+    m8.push(0x60); // The global undefined binding plus a number.
+    write_u30(&mut m8, mn_undefined);
+    m8.extend_from_slice(&[0x24, 2, 0xa0]);
+    emit_trace_top(&mut m8);
+    // An authored nearer scope can shadow that global, including with a primitive.
+    m8.push(0x2c);
+    write_u30(&mut m8, s_undefined);
+    m8.extend_from_slice(&[0x24, 5, 0x55, 1, 0x30, 0x60]);
+    write_u30(&mut m8, mn_undefined);
+    m8.extend_from_slice(&[0x1d, 0x24, 2, 0xa0]);
+    emit_trace_top(&mut m8);
     m8.push(0x47);
 
     let mut abc = Vec::new();
@@ -2098,6 +2119,10 @@ fn avm2_equality_coercions_types_iteration_lookupswitch_multinames_and_classes()
             "36",
             "B:20+D",
             "true",
+            "[object Object]2",
+            "B:undefined2",
+            "NaN",
+            "7",
         ]
     );
 }

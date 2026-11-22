@@ -249,6 +249,8 @@ function makeAvm2DoAbc2Tag() {
     'avm2-ctor', // 8
     'avm2-f1', // 9
     'avm2-f2', // 10
+    'valueOf', // 11
+    'undefined', // 12
   ];
   writeU30(abc, strings.length);
   for (let i = 1; i < strings.length; i++) {
@@ -271,7 +273,7 @@ function makeAvm2DoAbc2Tag() {
   // 4: QName(ns 1, "stop"=5)
   // 5: QName(ns 1, "addFrameScript"=6)
   // 6: QName(ns 1, "avm2Count"=7)
-  const mnStrIds = [2, 3, 4, 5, 6, 7];
+  const mnStrIds = [2, 3, 4, 5, 6, 7, 12]; // QName 7: undefined
   writeU30(abc, 1 + mnStrIds.length);
   for (const sid of mnStrIds) {
     abc.push(0x07); // QName
@@ -279,9 +281,9 @@ function makeAvm2DoAbc2Tag() {
     writeU30(abc, sid);
   }
 
-  // methods: 5 methods (0: cinit, 1: iinit, 2: script_init, 3: frame1Fn, 4: frame2Fn)
-  writeU30(abc, 5);
-  for (let m = 0; m < 5; m++) {
+  // methods: 0 cinit, 1 iinit, 2 script_init, 3 frame1Fn, 4 frame2Fn, 5 valueOf
+  writeU30(abc, 6);
+  for (let m = 0; m < 6; m++) {
     writeU30(abc, 0); // param_count
     writeU30(abc, 0); // return_type
     writeU30(abc, 0); // name
@@ -328,8 +330,19 @@ function makeAvm2DoAbc2Tag() {
   const f1Code = [
     0x5d, 3, 0x2c, 9, 0x4f, 3, 1,
     0x5d, 4, 0x4f, 4, 0,
-    0x47,
   ];
+  // Real frame bytecode: Number arithmetic keeps NaN, int operations wrap to 32 bits.
+  for (const ops of [
+    [0x2c, 11, 0x40, 5, 0x55, 1, 0x24, 2, 0xa0], // ({valueOf: () => 7}) + 2
+    [0x2c, 12, 0x24, 5, 0x55, 1, 0x30, 0x60, 7, 0x1d, 0x24, 2, 0xa0], // lexical undefined shadows the global
+    [0x21, 0x24, 2, 0xa2],                     // undefined * 2
+    [0x24, 1, 0x24, 31, 0xa5, 0xc1],         // decrement_i(int.MIN_VALUE)
+    [0x24, 1, 0x24, 30, 0xa5, 0x24, 8, 0xc7], // multiply_i(1 << 30, 8)
+    [0x24, 1, 0x24, 31, 0xa5, 0x24, 1, 0xc6], // subtract_i(int.MIN_VALUE, 1)
+  ]) {
+    f1Code.push(0x5d, 3, ...ops, 0x4f, 3, 1);
+  }
+  f1Code.push(0x47);
   // Method 4 (frame2Fn):
   //   findpropstrict(trace=3), pushstring("avm2-f2"=10), callpropvoid(trace=3, 1)
   //   getlocal_0, pushshort(202 => u30/s32: 0xCA, 0x01), setproperty(avm2Count=6)
@@ -344,6 +357,7 @@ function makeAvm2DoAbc2Tag() {
     [1, iinitCode],
     [3, f1Code],
     [4, f2Code],
+    [5, [0x24, 7, 0x48]], // valueOf returns 7
   ];
   writeU30(abc, bodies.length);
   for (const [mid, code] of bodies) {
@@ -415,6 +429,8 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     makeSwfTag(39, Buffer.concat([spriteHdr, spriteSub])), // DefineSprite 3
     makeSwfTag(59, Buffer.concat([Buffer.from([3, 0]), avm1PushStr('avm1-init'), Buffer.from([0x26, 0])])),
     makeDefineEditTextTag(4, 70, 24, 'Hello SWF'),
+    makeSwfTag(34, Buffer.from([5, 0, 1, 0, 0, 0])), // DefineButton2 with menu tracking
+    makePlaceObject2({ depth: 4, charId: 5, txPx: 0, tyPx: 0, name: 'menu' }),
     makeSwfTag(43, Buffer.from('intro\0', 'utf8')),
     makePlaceObject2({ depth: 1, charId: 1, txPx: 10, tyPx: 10, name: 'box' }),
     makeSwfTag(12, doActionF1),
@@ -506,6 +522,7 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     assert.equal(mc1.totalFrames, 3);
     assert.equal(mc1.currentFrame, 1);
     assert.equal(mc1.avm1State, 'f1', 'AVM1 DoAction frame 1 executed');
+    assert.equal(mc1.getChildByName('menu').trackAsMenu, true);
     assert.ok(traceCalls.some(row => row[0] === 'avm1-1'));
 
     // Verify frame 1 Stage rendering: red square at (10..40, 10..40)
@@ -602,6 +619,9 @@ test('Loader.loadBytes and Loader.load execute FWS, CWS, and ZWS SWFs with timel
     assert.equal(mc2.avm2Count, 7, 'AVM2 document constructor set avm2Count = 7');
     assert.ok(traceCalls.some(row => row[0] === 'avm2-ctor'));
     assert.ok(traceCalls.some(row => row[0] === 'avm2-f1'));
+    const frameTrace = traceCalls.map(row => row[0]);
+    const firstFrame = frameTrace.indexOf('avm2-f1');
+    assert.deepEqual(frameTrace.slice(firstFrame + 1, firstFrame + 7), ['9', '7', 'NaN', '2147483647', '0', '2147483647']);
 
     const zSnap1 = new BitmapData(100, 60, true, 0);
     zSnap1.draw(zwsLoader);
