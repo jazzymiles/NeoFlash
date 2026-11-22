@@ -225,6 +225,40 @@ pub(super) fn patch_avm2_s24(
     Ok(())
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum AbcOptDefault {
+    Undefined,
+    Null,
+    Bool(bool),
+    Int(i32),
+    Float(f64),
+    Str(String),
+}
+
+impl AbcOptDefault {
+    pub(super) fn encode(&self, pool: &mut AbcPoolBuilder) -> (u32, u8) {
+        match self {
+            Self::Undefined => (0, 0x00),
+            Self::Null => (0x0C, 0x0C),
+            Self::Bool(true) => (0x0B, 0x0B),
+            Self::Bool(false) => (0x0A, 0x0A),
+            Self::Int(v) => (pool.add_int(*v), 0x03),
+            Self::Float(v) => (pool.add_double(*v), 0x06),
+            Self::Str(s) => (pool.add_string(s), 0x01),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(super) struct AbcMethodMeta {
+    pub(super) is_private: bool,
+    pub(super) is_override: bool,
+    pub(super) min_arity: usize,
+    pub(super) max_arity: Option<usize>,
+    pub(super) rest_param: Option<String>,
+    pub(super) opt_defaults: Vec<AbcOptDefault>,
+}
+
 #[derive(Clone, Default)]
 pub(super) struct AbcClassSpec {
     pub(super) pkg: String,
@@ -233,8 +267,11 @@ pub(super) struct AbcClassSpec {
     pub(super) super_pkg: String,
     pub(super) super_name: String,
     pub(super) interfaces: Vec<(String, String)>,
-    pub(super) interface_methods: Vec<(String, Vec<String>)>,
-    pub(super) override_methods: HashSet<String>,
+    pub(super) interface_methods: Vec<(String, Vec<String>, AbcMethodMeta)>,
+    pub(super) method_meta: HashMap<String, AbcMethodMeta>,
+    pub(super) ctor_rest_param: Option<String>,
+    pub(super) ctor_opt_defaults: Vec<AbcOptDefault>,
+    pub(super) static_method_meta: HashMap<String, AbcMethodMeta>,
     pub(super) imported_classes: HashMap<String, String>,
     pub(super) wildcard_packages: Vec<String>,
     pub(super) ctor_params: Vec<String>,
@@ -448,15 +485,73 @@ fn resolve_parsed_as3_type_ref(
     (current_pkg.to_owned(), raw.to_owned())
 }
 
-fn parse_as3_param_list(parser: &mut SwfParser) -> Result<Vec<String>, String> {
+fn expr_to_abc_opt_default(expr: &SwfExpr, pname: &str) -> Result<AbcOptDefault, String> {
+    match expr {
+        SwfExpr::Undefined => Ok(AbcOptDefault::Undefined),
+        SwfExpr::Null => Ok(AbcOptDefault::Null),
+        SwfExpr::Bool(b) => Ok(AbcOptDefault::Bool(*b)),
+        SwfExpr::Int(i) => Ok(AbcOptDefault::Int(*i)),
+        SwfExpr::Float(f) => Ok(AbcOptDefault::Float(*f)),
+        SwfExpr::Str(s) => Ok(AbcOptDefault::Str(s.clone())),
+        SwfExpr::Ident(id) if id == "NaN" => Ok(AbcOptDefault::Float(f64::NAN)),
+        SwfExpr::Ident(id) if id == "Infinity" => Ok(AbcOptDefault::Float(f64::INFINITY)),
+        SwfExpr::Unary {
+            op: SwfUnaryOp::Neg,
+            expr: inner,
+        } => match inner.as_ref() {
+            SwfExpr::Int(i) => Ok(i.checked_neg().map_or_else(
+                || AbcOptDefault::Float(-(f64::from(*i))),
+                AbcOptDefault::Int,
+            )),
+            SwfExpr::Float(f) => Ok(AbcOptDefault::Float(-*f)),
+            SwfExpr::Ident(id) if id == "Infinity" => Ok(AbcOptDefault::Float(f64::NEG_INFINITY)),
+            _ => Err(format!(
+                "ActionScript 3 optional parameter '{pname}' initializer must be a compile-time constant"
+            )),
+        },
+        SwfExpr::Unary {
+            op: SwfUnaryOp::Pos,
+            expr: inner,
+        } => match inner.as_ref() {
+            SwfExpr::Int(i) => Ok(AbcOptDefault::Int(*i)),
+            SwfExpr::Float(f) => Ok(AbcOptDefault::Float(*f)),
+            _ => Err(format!(
+                "ActionScript 3 optional parameter '{pname}' initializer must be a compile-time constant"
+            )),
+        },
+        _ => Err(format!(
+            "ActionScript 3 optional parameter '{pname}' initializer must be a compile-time constant"
+        )),
+    }
+}
+
+fn parse_as3_param_list(parser: &mut SwfParser) -> Result<(Vec<String>, AbcMethodMeta), String> {
     parser.expect(&SwfToken::LParen)?;
     let mut params = Vec::new();
+    let mut min_arity = 0usize;
+    let mut opt_defaults = Vec::new();
+    let mut rest_param = None;
     if !parser.eat(&SwfToken::RParen) {
         loop {
+            if parser.eat(&SwfToken::DotDot) {
+                parser.expect(&SwfToken::Dot)?;
+                let rname = parser.expect_ident()?;
+                parser.skip_type_annotation()?;
+                rest_param = Some(rname);
+                parser.expect(&SwfToken::RParen)?;
+                break;
+            }
             let pname = parser.expect_ident()?;
             parser.skip_type_annotation()?;
             if parser.eat(&SwfToken::Assign) {
-                let _ = parser.parse_expr()?;
+                let def_expr = parser.parse_expr()?;
+                opt_defaults.push(expr_to_abc_opt_default(&def_expr, &pname)?);
+            } else if !opt_defaults.is_empty() {
+                return Err(format!(
+                    "ActionScript 3 required parameter '{pname}' cannot follow an optional parameter"
+                ));
+            } else {
+                min_arity += 1;
             }
             params.push(pname);
             if parser.eat(&SwfToken::Comma) {
@@ -467,7 +562,22 @@ fn parse_as3_param_list(parser: &mut SwfParser) -> Result<Vec<String>, String> {
         }
     }
     parser.skip_type_annotation()?;
-    Ok(params)
+    let max_arity = if rest_param.is_some() {
+        None
+    } else {
+        Some(params.len())
+    };
+    Ok((
+        params,
+        AbcMethodMeta {
+            is_private: false,
+            is_override: false,
+            min_arity,
+            max_arity,
+            rest_param,
+            opt_defaults,
+        },
+    ))
 }
 
 pub(super) fn parse_as3_source_to_spec_strict(
@@ -621,14 +731,14 @@ pub(super) fn parse_as3_source_to_spec_strict(
                 ));
             }
             let fn_name = parser.expect_ident()?;
-            let params = parse_as3_param_list(&mut parser)?;
+            let (params, parsed_meta) = parse_as3_param_list(&mut parser)?;
             if parser.peek() == Some(&SwfToken::LBrace) {
                 return Err(format!(
                     "ActionScript 3 interface method '{iface_name}.{fn_name}' cannot have an implementation body"
                 ));
             }
             parser.consume_optional_semi();
-            interface_methods.push((fn_name, params));
+            interface_methods.push((fn_name, params, parsed_meta));
         }
         parser.expect(&SwfToken::RBrace)?;
         if has_package_brace {
@@ -682,13 +792,16 @@ pub(super) fn parse_as3_source_to_spec_strict(
     parser.expect(&SwfToken::LBrace)?;
 
     let mut ctor_params = Vec::new();
+    let mut ctor_rest_param = None;
+    let mut ctor_opt_defaults = Vec::new();
     let mut has_explicit_ctor = false;
     let mut ctor_statements = Vec::new();
     let mut instance_fields = Vec::new();
     let mut static_fields = Vec::new();
     let mut static_methods = Vec::new();
+    let mut static_method_meta = HashMap::new();
     let mut extra_methods = Vec::new();
-    let mut override_methods = HashSet::new();
+    let mut method_meta = HashMap::new();
 
     while parser.peek().is_some() && parser.peek() != Some(&SwfToken::RBrace) {
         if parser.eat(&SwfToken::Semi) {
@@ -704,6 +817,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
         }
         let mut is_static = false;
         let mut is_override = false;
+        let mut is_private = false;
         while let Some(SwfToken::Ident(m)) = parser.peek() {
             if matches!(
                 m.as_str(),
@@ -720,6 +834,8 @@ pub(super) fn parse_as3_source_to_spec_strict(
                     is_static = true;
                 } else if m == "override" {
                     is_override = true;
+                } else if m == "private" {
+                    is_private = true;
                 }
                 parser.pos += 1;
             } else {
@@ -729,25 +845,28 @@ pub(super) fn parse_as3_source_to_spec_strict(
         if parser.peek() == Some(&SwfToken::Ident("function".to_owned())) {
             parser.pos += 1;
             let fn_name = parser.expect_ident()?;
-            let params = parse_as3_param_list(&mut parser)?;
+            let (params, mut parsed_meta) = parse_as3_param_list(&mut parser)?;
+            parsed_meta.is_private = is_private;
+            parsed_meta.is_override = is_override;
             parser.expect(&SwfToken::LBrace)?;
             let body = parser.parse_stmt_list(true)?;
             parser.expect(&SwfToken::RBrace)?;
-            if is_override && (is_static || fn_name == class_name) {
+            if is_override && (is_static || is_private || fn_name == class_name) {
                 return Err(format!(
-                    "ActionScript 3 'override' modifier is only valid on instance methods ('{class_name}.{fn_name}')"
+                    "ActionScript 3 'override' modifier is only valid on non-private instance methods ('{class_name}.{fn_name}')"
                 ));
             }
             if fn_name == class_name && !is_static {
                 ctor_params = params;
+                ctor_rest_param = parsed_meta.rest_param;
+                ctor_opt_defaults = parsed_meta.opt_defaults;
                 has_explicit_ctor = true;
                 ctor_statements.extend(body);
             } else if is_static {
+                static_method_meta.insert(fn_name.clone(), parsed_meta);
                 static_methods.push((fn_name, params, body));
             } else {
-                if is_override {
-                    override_methods.insert(fn_name.clone());
-                }
+                method_meta.insert(fn_name.clone(), parsed_meta);
                 extra_methods.push((fn_name, params, body));
             }
         } else if matches!(parser.peek(), Some(SwfToken::Ident(kw)) if kw == "var" || kw == "const")
@@ -788,9 +907,6 @@ pub(super) fn parse_as3_source_to_spec_strict(
         ));
     }
 
-    if extra_methods.is_empty() && static_methods.is_empty() {
-        extra_methods.push(("init".to_owned(), Vec::new(), Vec::new()));
-    }
     let has_explicit_super = stmts_contain_super_ctor(&ctor_statements);
 
     extract_script_imports(source, &mut imported_classes, &mut wildcard_packages);
@@ -803,7 +919,10 @@ pub(super) fn parse_as3_source_to_spec_strict(
         super_name,
         interfaces,
         interface_methods: Vec::new(),
-        override_methods,
+        method_meta,
+        ctor_rest_param,
+        ctor_opt_defaults,
+        static_method_meta,
         imported_classes,
         wildcard_packages,
         ctor_params,
@@ -820,8 +939,10 @@ pub(super) fn parse_as3_source_to_spec_strict(
 
 pub(super) struct AbcMethodSpec {
     pub(super) param_names: Vec<u32>,
+    pub(super) opt_defaults: Vec<(u32, u8)>,
     pub(super) needs_activation: bool,
     pub(super) uses_dxns: bool,
+    pub(super) rest_param: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -852,11 +973,22 @@ pub(super) struct Avm2CompilerState {
 
 impl Avm2CompilerState {
     pub(super) fn alloc_method(&mut self, param_names: Vec<u32>) -> u32 {
+        self.alloc_method_sig(param_names, Vec::new(), None)
+    }
+
+    pub(super) fn alloc_method_sig(
+        &mut self,
+        param_names: Vec<u32>,
+        opt_defaults: Vec<(u32, u8)>,
+        rest_param: Option<String>,
+    ) -> u32 {
         let idx = self.methods.len() as u32;
         self.methods.push(AbcMethodSpec {
             param_names,
+            opt_defaults,
             needs_activation: false,
             uses_dxns: false,
+            rest_param,
         });
         idx
     }
@@ -907,10 +1039,13 @@ pub(super) struct Avm2ImportCtx {
     pub(super) current_pkg: String,
     pub(super) imported_classes: HashMap<String, String>,
     pub(super) wildcard_packages: Vec<String>,
+    pub(super) private_ns_name: String,
+    pub(super) private_methods: HashSet<String>,
 }
 
 pub(super) struct Avm2LexicalEnv {
     pub(super) init_scope_depth: u32,
+    pub(super) compile_depth: usize,
     pub(super) needs_activation: bool,
     pub(super) uses_dxns: bool,
     pub(super) act_reg: Option<u32>,
@@ -957,6 +1092,12 @@ impl Avm2LexicalEnv {
     }
 
     pub(super) fn resolve_ident_multiname(&self, pool: &mut AbcPoolBuilder, name: &str) -> u32 {
+        if self.imports.private_methods.contains(name) && !self.imports.private_ns_name.is_empty() {
+            let pub_ns = pool.add_namespace(0x16, "");
+            let priv_ns = pool.add_namespace(0x05, &self.imports.private_ns_name);
+            let ns_set = pool.add_ns_set(vec![pub_ns, priv_ns]);
+            return pool.add_multiname(name, ns_set);
+        }
         if let Some(imp_pkg) = self.imports.imported_classes.get(name) {
             return pool.add_qname(imp_pkg, name);
         }
@@ -1312,6 +1453,10 @@ where
     let mut own_slots = HashMap::new();
     let mut activation_traits = Vec::new();
     let mut captured_param_copies: Vec<(u32, u32)> = Vec::new();
+    let rest_param_opt = state
+        .methods
+        .get(method_idx as usize)
+        .and_then(|m| m.rest_param.clone());
     let mut next_reg = (params.len() as u32) + 1;
     let mut seen_decls = HashSet::new();
 
@@ -1330,10 +1475,26 @@ where
             local_regs.insert(pname.clone(), p_reg);
         }
     }
+    if let Some(rname) = &rest_param_opt {
+        let r_reg = next_reg;
+        next_reg += 1;
+        if seen_decls.insert(rname.clone()) {
+            if child_free.contains(rname) {
+                let slot_id = (activation_traits.len() + 1) as u32;
+                let qn = pool.add_qname("", rname);
+                activation_traits.push((qn, slot_id));
+                own_slots.insert(rname.clone(), slot_id);
+                captured_param_copies.push((r_reg, slot_id));
+            } else {
+                local_regs.insert(rname.clone(), r_reg);
+            }
+        }
+    }
 
     let mut declared_names: HashSet<String> = params
         .iter()
         .cloned()
+        .chain(rest_param_opt.iter().cloned())
         .chain(own_funcs.iter().cloned())
         .chain(own_vars.iter().cloned())
         .collect();
@@ -1395,6 +1556,7 @@ where
             .is_some_and(|ps| stmts_have_dxns(&ps.field_stmts));
     let mut env = Avm2LexicalEnv {
         init_scope_depth,
+        compile_depth: 0,
         needs_activation,
         uses_dxns,
         act_reg,
@@ -1416,8 +1578,12 @@ where
     compile_avm2_stmt_list(pool, stmts, &mut code, state, &mut env)?;
     code.u8(0x47); // returnvoid
 
-    let (max_stack, computed_locals, max_pushed_scopes) =
-        compute_avm2_method_metrics(&code.buf, params.len() as u32, pool, &env.exceptions);
+    let (max_stack, computed_locals, max_pushed_scopes) = compute_avm2_method_metrics(
+        &code.buf,
+        (params.len() + usize::from(rest_param_opt.is_some())) as u32,
+        pool,
+        &env.exceptions,
+    );
     let local_count = computed_locals.max(env.next_temp_reg).max(1);
     let min_pushed_scopes =
         (if env.needs_activation { 2 } else { 1 }) + (env.max_catch_scopes as u32);
@@ -1454,10 +1620,23 @@ pub(super) fn try_compile_avm2_source(
     let chain_len = chain.len() as u32;
     let cinit_scope_depth = 2 + chain_len;
     let method_scope_depth = 3 + chain_len;
+    let private_methods: HashSet<String> = spec
+        .method_meta
+        .iter()
+        .filter(|(_, m)| m.is_private)
+        .map(|(n, _)| n.clone())
+        .collect();
+    let private_ns_name = if spec.pkg.is_empty() {
+        spec.class_name.clone()
+    } else {
+        format!("{}:{}", spec.pkg, spec.class_name)
+    };
     let imports = Avm2ImportCtx {
         current_pkg: spec.pkg.clone(),
         imported_classes: spec.imported_classes.clone(),
         wildcard_packages: spec.wildcard_packages.clone(),
+        private_ns_name,
+        private_methods,
     };
 
     let mut cinit_stmts = Vec::new();
@@ -1495,7 +1674,12 @@ pub(super) fn try_compile_avm2_source(
         .iter()
         .map(|p| pool.add_string(p))
         .collect();
-    let ctor_m = state.alloc_method(ctor_p_indices);
+    let ctor_opts: Vec<(u32, u8)> = spec
+        .ctor_opt_defaults
+        .iter()
+        .map(|d| d.encode(&mut pool))
+        .collect();
+    let ctor_m = state.alloc_method_sig(ctor_p_indices, ctor_opts, spec.ctor_rest_param.clone());
     let effective_ctor = build_effective_ctor_stmts(&spec);
     let post_super = spec.has_explicit_super.then(|| Avm2PostSuperInit {
         frame_bindings: Vec::new(),
@@ -1516,9 +1700,19 @@ pub(super) fn try_compile_avm2_source(
         |_, _| Ok(()),
     )?;
 
-    for (_, sm_params, sm_stmts) in &spec.static_methods {
+    for (sm_name, sm_params, sm_stmts) in &spec.static_methods {
         let p_indices: Vec<u32> = sm_params.iter().map(|p| pool.add_string(p)).collect();
-        let m_idx = state.alloc_method(p_indices);
+        let sm_meta = spec
+            .static_method_meta
+            .get(sm_name)
+            .cloned()
+            .unwrap_or_default();
+        let sm_opts: Vec<(u32, u8)> = sm_meta
+            .opt_defaults
+            .iter()
+            .map(|d| d.encode(&mut pool))
+            .collect();
+        let m_idx = state.alloc_method_sig(p_indices, sm_opts, sm_meta.rest_param);
         compile_avm2_scoped_unit(
             &mut pool,
             &mut state,
@@ -1533,9 +1727,15 @@ pub(super) fn try_compile_avm2_source(
             |_, _| Ok(()),
         )?;
     }
-    for (_, m_params, m_stmts) in &spec.extra_methods {
+    for (m_name, m_params, m_stmts) in &spec.extra_methods {
         let p_indices: Vec<u32> = m_params.iter().map(|p| pool.add_string(p)).collect();
-        let m_idx = state.alloc_method(p_indices);
+        let m_meta = spec.method_meta.get(m_name).cloned().unwrap_or_default();
+        let m_opts: Vec<(u32, u8)> = m_meta
+            .opt_defaults
+            .iter()
+            .map(|d| d.encode(&mut pool))
+            .collect();
+        let m_idx = state.alloc_method_sig(p_indices, m_opts, m_meta.rest_param);
         compile_avm2_scoped_unit(
             &mut pool,
             &mut state,

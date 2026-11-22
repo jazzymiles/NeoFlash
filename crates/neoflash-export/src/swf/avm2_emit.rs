@@ -128,6 +128,12 @@ fn resolve_avm2_member_multiname(
         } else {
             pool.add_qname_attr("", prop)
         }
+    } else if env.imports.private_methods.contains(prop) && !env.imports.private_ns_name.is_empty()
+    {
+        let pub_ns = pool.add_namespace(0x16, "");
+        let priv_ns = pool.add_namespace(0x05, &env.imports.private_ns_name);
+        let ns_set = pool.add_ns_set(vec![pub_ns, priv_ns]);
+        pool.add_multiname(prop, ns_set)
     } else if env.uses_dxns {
         let ns_set = env.open_package_ns_set(pool);
         pool.add_multiname(prop, ns_set)
@@ -206,6 +212,24 @@ fn compile_avm2_type_rhs(
 }
 
 pub(super) fn compile_avm2_expr(
+    pool: &mut AbcPoolBuilder,
+    expr: &SwfExpr,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    if env.compile_depth >= MAX_SWF_PARSE_DEPTH {
+        return Err(format!(
+            "expression exceeds maximum compilation depth ({MAX_SWF_PARSE_DEPTH}) in bounded SWF compiler"
+        ));
+    }
+    env.compile_depth += 1;
+    let res = compile_avm2_expr_inner(pool, expr, code, state, env);
+    env.compile_depth -= 1;
+    res
+}
+
+fn compile_avm2_expr_inner(
     pool: &mut AbcPoolBuilder,
     expr: &SwfExpr,
     code: &mut SwfBitWriter,
@@ -692,7 +716,7 @@ pub(super) fn compile_avm2_call(
             return Ok(());
         }
 
-        let fn_mn = pool.add_qname("", short_fn);
+        let fn_mn = resolve_avm2_member_multiname(pool, env, short_fn, false);
         code.u8(0x60); // getlex
         code.u32_v(fn_mn);
         code.u8(0xD0); // getlocal_0 (receiver)
@@ -712,7 +736,7 @@ pub(super) fn compile_avm2_call(
         for a in args {
             compile_avm2_expr(pool, a, code, state, env)?;
         }
-        let mn = pool.add_qname("", method_name);
+        let mn = resolve_avm2_member_multiname(pool, env, method_name, false);
         code.u8(if discard_result { 0x4F } else { 0x46 }); // callpropvoid / callproperty
         code.u32_v(mn);
         code.u32_v(args.len() as u32);
@@ -989,6 +1013,24 @@ fn emit_avm2_catch_prologue(
 }
 
 pub(super) fn compile_avm2_stmt(
+    pool: &mut AbcPoolBuilder,
+    stmt: &SwfStmt,
+    code: &mut SwfBitWriter,
+    state: &mut Avm2CompilerState,
+    env: &mut Avm2LexicalEnv,
+) -> Result<(), String> {
+    if env.compile_depth >= MAX_SWF_PARSE_DEPTH {
+        return Err(format!(
+            "statement exceeds maximum compilation depth ({MAX_SWF_PARSE_DEPTH}) in bounded SWF compiler"
+        ));
+    }
+    env.compile_depth += 1;
+    let res = compile_avm2_stmt_inner(pool, stmt, code, state, env);
+    env.compile_depth -= 1;
+    res
+}
+
+fn compile_avm2_stmt_inner(
     pool: &mut AbcPoolBuilder,
     stmt: &SwfStmt,
     code: &mut SwfBitWriter,

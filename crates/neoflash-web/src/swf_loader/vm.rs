@@ -1164,6 +1164,8 @@ struct AbcTrait {
 struct AbcInstanceInfo {
     name: String,
     super_name: String,
+    is_interface: bool,
+    interfaces: Vec<String>,
     iinit: u32,
     traits: Vec<AbcTrait>,
     cinit: u32,
@@ -1437,19 +1439,24 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
     }
 
     let ns_count = r.read_u30()? as usize;
+    let mut ns_kinds = vec![0u8];
     let mut ns_names = vec![String::new()];
     for _ in 1..ns_count.min(16384) {
-        let _kind = r.read_u8()?;
+        let kind = r.read_u8()?;
         let name_idx = r.read_u30()? as usize;
+        ns_kinds.push(kind);
         ns_names.push(strings.get(name_idx).cloned().unwrap_or_default());
     }
 
     let nsset_count = r.read_u30()? as usize;
+    let mut ns_sets: Vec<Vec<usize>> = vec![Vec::new()];
     for _ in 1..nsset_count.min(16384) {
-        let cnt = r.read_u30()? as usize;
+        let cnt = (r.read_u30()? as usize).min(1024);
+        let mut set = Vec::with_capacity(cnt);
         for _ in 0..cnt {
-            let _ = r.read_u30()?;
+            set.push(r.read_u30()? as usize);
         }
+        ns_sets.push(set);
     }
 
     let mn_count = r.read_u30()? as usize;
@@ -1467,8 +1474,9 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
                 let ns_idx = r.read_u30()? as usize;
                 let name_idx = r.read_u30()? as usize;
                 let local = strings.get(name_idx).cloned().unwrap_or_default();
+                let ns_kind = ns_kinds.get(ns_idx).copied().unwrap_or(0);
                 let pkg = ns_names.get(ns_idx).cloned().unwrap_or_default();
-                let full = if pkg.is_empty() || is_attr {
+                let full = if pkg.is_empty() || is_attr || matches!(ns_kind, 0x05 | 0x08) {
                     local
                 } else {
                     format!("{pkg}.{local}")
@@ -1499,9 +1507,28 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
             }
             0x09 | 0x0E => {
                 let name_idx = r.read_u30()? as usize;
-                let _ns_set = r.read_u30()?;
+                let ns_set_idx = r.read_u30()? as usize;
+                let local = strings.get(name_idx).cloned().unwrap_or_default();
+                let single_pkg = if !is_attr
+                    && let Some(set) = ns_sets.get(ns_set_idx)
+                    && set.len() == 1
+                {
+                    let nsi = set[0];
+                    if matches!(ns_kinds.get(nsi).copied().unwrap_or(0), 0x05 | 0x08) {
+                        String::new()
+                    } else {
+                        ns_names.get(nsi).cloned().unwrap_or_default()
+                    }
+                } else {
+                    String::new()
+                };
+                let full = if single_pkg.is_empty() {
+                    local
+                } else {
+                    format!("{single_pkg}.{local}")
+                };
                 multinames.push(AbcMultiname {
-                    name: strings.get(name_idx).cloned().unwrap_or_default(),
+                    name: full,
                     runtime_name: false,
                     runtime_ns: false,
                     is_attr,
@@ -1585,12 +1612,19 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
         let name_mn = r.read_u30()? as usize;
         let super_mn = r.read_u30()? as usize;
         let flags = r.read_u8()?;
+        let is_interface = (flags & 0x04) != 0;
         if (flags & 0x08) != 0 {
             let _protected_ns = r.read_u30()?;
         }
-        let intrf_count = r.read_u30()? as usize;
+        let intrf_count = (r.read_u30()? as usize).min(1024);
+        let mut interfaces = Vec::with_capacity(intrf_count);
         for _ in 0..intrf_count {
-            let _ = r.read_u30()?;
+            let imn = r.read_u30()? as usize;
+            if let Some(m) = multinames.get(imn)
+                && !m.name.is_empty()
+            {
+                interfaces.push(m.name.clone());
+            }
         }
         let iinit = r.read_u30()?;
         let traits = r.read_traits(&multinames, &ints, &uints, &doubles, &strings)?;
@@ -1603,6 +1637,8 @@ pub(super) fn parse_abc_tag(data: &[u8], is_do_abc2: bool) -> Result<AbcFile, St
         instances.push(AbcInstanceInfo {
             name: cls_name,
             super_name: sup_name,
+            is_interface,
+            interfaces,
             iinit,
             traits,
             cinit: 0,
@@ -2070,6 +2106,7 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
   __nfSwfEnv.nextInstId = 0;\n\
   __nfSwfEnv.docAttached = new WeakSet();\n\
   __nfSwfEnv.entryOf = new WeakMap();\n\
+  __nfSwfEnv.ctorEntries = new WeakMap();\n\
   __nfSwfEnv.classOf = new WeakMap();\n\
   __nfSwfEnv.preSuper = new WeakSet();\n\
   __nfSwfEnv.superConstructed = new WeakSet();\n\
@@ -2159,6 +2196,93 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     if (qname && dom.hasDefinition(qname)) return dom.getDefinition(qname);\n\
     if (sname && dom.hasDefinition(sname)) return dom.getDefinition(sname);\n\
     return undefined;\n\
+  };\n\
+  __nfSwfEnv.resolveTypeEntry = (tp, qnameHint) => {\n\
+    if (typeof tp === 'function') {\n\
+      const ce = __nfSwfEnv.ctorEntries.get(tp);\n\
+      if (ce) return ce;\n\
+    }\n\
+    const candidates = [];\n\
+    if (qnameHint) candidates.push(String(qnameHint));\n\
+    if (typeof tp === 'string' && tp && tp !== qnameHint) candidates.push(tp);\n\
+    for (const cand of candidates) {\n\
+      const hasPkg = cand.includes('.');\n\
+      const shortC = cand.split('.').pop();\n\
+      const direct = __nfSwfEnv.classes[cand] || (!hasPkg && shortC ? __nfSwfEnv.classes[shortC] : null);\n\
+      if (direct) return direct;\n\
+      for (const abcKey of Object.keys(__nfSwfEnv.abcs)) {\n\
+        const abcObj = __nfSwfEnv.abcs[abcKey];\n\
+        if (!abcObj || !abcObj.specs) continue;\n\
+        for (const sk of Object.keys(abcObj.specs)) {\n\
+          const sp = abcObj.specs[sk];\n\
+          if (sp && (sp.qname === cand || (!hasPkg && (sp.shortName === cand || (shortC && sp.shortName === shortC))))) {\n\
+            abcObj.buildClass(Number(sk), [__nfSwfEnv.globals], null);\n\
+            if (abcObj.built[Number(sk)]) return abcObj.built[Number(sk)];\n\
+          }\n\
+        }\n\
+      }\n\
+    }\n\
+    return null;\n\
+  };\n\
+  __nfSwfEnv.entryImplements = (entry, targetEntry, targetName) => {\n\
+    if (!entry) return false;\n\
+    const tQ = targetEntry?.spec?.qname || String(targetName || '');\n\
+    const tS = targetEntry?.spec?.shortName || tQ.split('.').pop() || '';\n\
+    if (!tQ && !tS) return false;\n\
+    const seenEntries = new Set();\n\
+    const seenIfaces = new Set();\n\
+    const ifaceQueue = [];\n\
+    let cur = entry;\n\
+    while (cur && !seenEntries.has(cur)) {\n\
+      seenEntries.add(cur);\n\
+      if (targetEntry && cur === targetEntry) return true;\n\
+      if (cur.spec) {\n\
+        if ((tQ && cur.spec.qname === tQ) || (tS && !tQ.includes('.') && cur.spec.shortName === tS)) return true;\n\
+        for (const iname of (cur.spec.interfaces || [])) {\n\
+          if (!seenIfaces.has(iname)) { seenIfaces.add(iname); ifaceQueue.push(iname); }\n\
+        }\n\
+      }\n\
+      cur = cur.superEntry;\n\
+    }\n\
+    while (ifaceQueue.length > 0) {\n\
+      const iname = ifaceQueue.shift();\n\
+      const iShort = iname.split('.').pop();\n\
+      if ((tQ && iname === tQ) || (tS && (iname === tS || (!tQ.includes('.') && iShort === tS) || (!iname.includes('.') && iShort === tS)))) {\n\
+        return true;\n\
+      }\n\
+      const iEntry = __nfSwfEnv.resolveTypeEntry(iname, iname);\n\
+      if (targetEntry && iEntry === targetEntry) return true;\n\
+      if (iEntry?.spec) {\n\
+        if (tQ && iEntry.spec.qname === tQ) return true;\n\
+        for (const supI of (iEntry.spec.interfaces || [])) {\n\
+          if (!seenIfaces.has(supI)) { seenIfaces.add(supI); ifaceQueue.push(supI); }\n\
+        }\n\
+      }\n\
+    }\n\
+    return false;\n\
+  };\n\
+  __nfSwfEnv.instanceOf = (val, tp) => {\n\
+    if (val == null || tp == null) return false;\n\
+    const tEntry = __nfSwfEnv.resolveTypeEntry(tp, '');\n\
+    if (tEntry?.spec?.isInterface) return false;\n\
+    return __nfSwfInstanceOf(val, tp);\n\
+  };\n\
+  __nfSwfEnv.isType = (val, tp, qnameHint) => {\n\
+    if (qnameHint === '*' || tp === '*') return true;\n\
+    if (val == null) return false;\n\
+    const tEntry = __nfSwfEnv.resolveTypeEntry(tp, qnameHint);\n\
+    if (!tEntry?.spec?.isInterface && tp != null && __nfSwfInstanceOf(val, tp)) return true;\n\
+    if (typeof val === 'object' || typeof val === 'function') {\n\
+      const vEntry = __nfSwfEnv.entryOf.get(val);\n\
+      if (vEntry && __nfSwfEnv.entryImplements(vEntry, tEntry, qnameHint || (typeof tp === 'string' ? tp : ''))) {\n\
+        return true;\n\
+      }\n\
+      const builtInShort = (typeof tp === 'string' ? tp : (qnameHint || '')).split('.').pop();\n\
+      if ((builtInShort === 'IEventDispatcher' || builtInShort === 'IBitmapDrawable') && (__nfDisplay?.alive?.(val) || __nfSwfEnv.synthParent.has(val) || val === __nfSwfEnv.stageProxy)) {\n\
+        return true;\n\
+      }\n\
+    }\n\
+    return false;\n\
   };\n\
   __nfSwfEnv.domMem = () => {\n\
     const dom = __nfSwfEnv.applicationDomain || __nfSwfEnv.appDomainCtor?.currentDomain;\n\
@@ -2830,8 +2954,15 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
             }
         }
 
+        let interfaces_js: Vec<String> = inst
+            .interfaces
+            .iter()
+            .map(|s| js_string_literal(s))
+            .collect();
         out.push_str(&format!(
-            "__abc.specs[{ci}] = {{ qname: {qname_lit}, shortName: {short_lit}, superQname: {sup_qname_lit}, superShort: {sup_short_lit}, iinit: {}, cinit: {}, instSlots: [{}], instMethods: [{}], instGetters: [{}], instSetters: [{}], staticSlots: [{}], staticMethods: [{}], staticGetters: [{}], staticSetters: [{}] }};\n",
+            "__abc.specs[{ci}] = {{ qname: {qname_lit}, shortName: {short_lit}, superQname: {sup_qname_lit}, superShort: {sup_short_lit}, isInterface: {}, interfaces: [{}], iinit: {}, cinit: {}, instSlots: [{}], instMethods: [{}], instGetters: [{}], instSetters: [{}], staticSlots: [{}], staticMethods: [{}], staticGetters: [{}], staticSetters: [{}] }};\n",
+            inst.is_interface,
+            interfaces_js.join(","),
             inst.iinit,
             inst.cinit,
             inst_slots_js.join(","),
@@ -2926,7 +3057,8 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     entry.runIinit(this, cArgs);\n\
   });\n\
   entry.ctor = ctor;\n\
-  if (superEntry) __nfSwfExtends(ctor, superEntry.ctor);\n\
+  __nfSwfEnv.ctorEntries.set(ctor, entry);\n\
+  if (superEntry && !spec.isInterface) __nfSwfExtends(ctor, superEntry.ctor);\n\
   entry.proto = __nfSwfGet(ctor, 'prototype');\n\
   __nfSwfSetClassMeta(ctor, spec.qname, spec.shortName, spec.superShort);\n\
   entry.cinitScopes = [...scopes, ctor];\n\
@@ -2938,6 +3070,7 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
   __nfSwfEnv.classes[spec.shortName] = entry;\n\
   const existingDomCtor = (spec.qname && (!__nfSwfEnv.rootDocTarget || __nfSwfEnv.rootDocTarget.clsName !== spec.qname)) ? __nfSwfEnv.resolveDomainDef(spec.qname, null) : undefined;\n\
   const effectiveCtor = typeof existingDomCtor === 'function' ? existingDomCtor : ctor;\n\
+  if (effectiveCtor !== ctor) __nfSwfEnv.ctorEntries.set(effectiveCtor, entry);\n\
   __nfSwfEnv.globals[spec.qname] = effectiveCtor;\n\
   __nfSwfEnv.globals[spec.shortName] = effectiveCtor;\n\
   for (const [mn, mid] of spec.instMethods) {\n\
@@ -2985,8 +3118,10 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     const ssf = __abc.methods[ssmid];\n\
     if (ssf) sEntry.setters[ssn] = ssf(entry.cinitScopes, entry);\n\
   }\n\
-  const ciFn = __abc.methods[spec.cinit];\n\
-  if (ciFn) __nfSwfApply(ciFn(entry.cinitScopes, entry), ctor, []);\n\
+  if (!spec.isInterface) {\n\
+    const ciFn = __abc.methods[spec.cinit];\n\
+    if (ciFn) __nfSwfApply(ciFn(entry.cinitScopes, entry), ctor, []);\n\
+  }\n\
   return ctor;\n\
 };\n",
     );
@@ -3565,7 +3700,7 @@ fn compile_avm2_method_factory(
                 } else {
                     let name_lit = js_string_literal(&sname);
                     js.push_str(&format!(
-                        "        const __recv = __st.pop() ?? this;\n        let __r;\n        if (__isHostBuiltin({name_lit}) && (__recv === this || __recv === __nfSwfEnv.globals) && !__nfSwfHasOwn(__recv, {name_lit})) {{\n          __r = __callHostGlobal({name_lit}, __args);\n        }} else if ((__recv === __nfSwfEnv.globals || __recv === __nfSwfEnv.builtins) && __args.length === 1 && (__nfSwfEnv.classes[{name_lit}] || typeof __nfSwfEnv.builtins[{name_lit}] === 'string')) {{\n          const __cv = __args[0];\n          __r = (__cv == null) ? ({name_lit} === 'Object' ? {{}} : null) : (__nfSwfInstanceOf(__cv, __nfSwfEnv.globals[{name_lit}] ?? {name_lit}) ? __cv : null);\n        }} else {{\n          __r = __nfSwfEnv.avm2Call(__recv, {name_lit}, __args, this);\n        }}\n"
+                        "        const __recv = __st.pop() ?? this;\n        let __r;\n        if (__isHostBuiltin({name_lit}) && (__recv === this || __recv === __nfSwfEnv.globals) && !__nfSwfHasOwn(__recv, {name_lit})) {{\n          __r = __callHostGlobal({name_lit}, __args);\n        }} else if ((__recv === __nfSwfEnv.globals || __recv === __nfSwfEnv.builtins) && __args.length === 1 && (__nfSwfEnv.classes[{name_lit}] || typeof __nfSwfEnv.builtins[{name_lit}] === 'string')) {{\n          const __cv = __args[0];\n          __r = (__cv == null) ? ({name_lit} === 'Object' ? {{}} : null) : (__nfSwfEnv.isType(__cv, __nfSwfEnv.globals[{name_lit}] ?? {name_lit}, {name_lit}) ? __cv : null);\n        }} else {{\n          __r = __nfSwfEnv.avm2Call(__recv, {name_lit}, __args, this);\n        }}\n"
                     ));
                 }
                 if push_ret {
@@ -3712,14 +3847,15 @@ fn compile_avm2_method_factory(
             0x89 => js.push_str("      { const __v = __st.pop(); __st.push(__v === undefined ? null : __v); }\n"),
             0x85 => js.push_str("      { const __v = __st.pop(); __st.push(__v == null ? null : __nfSwfEnv.toStr(__v)); }\n"),
             0x86 => {
-                let (_, sname, _) = mn_full_short(0);
+                let (qname, sname, _) = mn_full_short(0);
+                let qlit = js_string_literal(&qname);
                 let slit = js_string_literal(&sname);
                 js.push_str(&format!(
-                    "      {{ const __v = __st.pop(); __st.push(__nfSwfInstanceOf(__v, __nfSwfEnv.globals[{slit}] ?? {slit}) ? __v : null); }}\n"
+                    "      {{ const __v = __st.pop(); __st.push(__nfSwfEnv.isType(__v, __nfSwfEnv.globals[{qlit}] ?? __nfSwfEnv.globals[{slit}] ?? {qlit}, {qlit}) ? __v : null); }}\n"
                 ));
             }
             0x87 => {
-                js.push_str("      { const __tp = __st.pop(), __v = __st.pop(); __st.push(__nfSwfInstanceOf(__v, __tp) ? __v : null); }\n");
+                js.push_str("      { const __tp = __st.pop(), __v = __st.pop(); __st.push(__nfSwfEnv.isType(__v, __tp, '') ? __v : null); }\n");
             }
             0xAB => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__nfSwfEnv.avm2Eq(__a, __b)); }\n"),
             0xAC => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a === __b); }\n"),
@@ -3727,17 +3863,21 @@ fn compile_avm2_method_factory(
             0xAE => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a <= __b); }\n"),
             0xAF => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a > __b); }\n"),
             0xB0 => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); __st.push(__a >= __b); }\n"),
-            0xB1 | 0xB3 => {
-                js.push_str("      { const __tp = __st.pop(), __v = __st.pop(); __st.push(__nfSwfInstanceOf(__v, __tp)); }\n");
+            0xB1 => {
+                js.push_str("      { const __tp = __st.pop(), __v = __st.pop(); __st.push(__nfSwfEnv.instanceOf(__v, __tp)); }\n");
+            }
+            0xB3 => {
+                js.push_str("      { const __tp = __st.pop(), __v = __st.pop(); __st.push(__nfSwfEnv.isType(__v, __tp, '')); }\n");
             }
             0xB2 => {
-                let (_, sname, _) = mn_full_short(0);
+                let (qname, sname, _) = mn_full_short(0);
                 if sname.is_empty() || sname == "*" {
                     js.push_str("      __st.pop(); __st.push(true);\n");
                 } else {
+                    let qlit = js_string_literal(&qname);
                     let slit = js_string_literal(&sname);
                     js.push_str(&format!(
-                        "      {{ const __v = __st.pop(); __st.push(__nfSwfInstanceOf(__v, __nfSwfEnv.globals[{slit}] ?? {slit})); }}\n"
+                        "      {{ const __v = __st.pop(); __st.push(__nfSwfEnv.isType(__v, __nfSwfEnv.globals[{qlit}] ?? __nfSwfEnv.globals[{slit}] ?? {qlit}, {qlit})); }}\n"
                     ));
                 }
             }

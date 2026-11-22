@@ -29,10 +29,32 @@ fn as3_spec_extends_target(
     false
 }
 
+fn arity_compatible(
+    impl_min: usize,
+    impl_max: Option<usize>,
+    req_min: usize,
+    req_max: Option<usize>,
+) -> bool {
+    impl_min <= req_min
+        && match (impl_max, req_max) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(im), Some(rm)) => im >= rm,
+        }
+}
+
+fn format_arity_range(min_arity: usize, max_arity: Option<usize>) -> String {
+    match max_arity {
+        None => format!("{min_arity}.."),
+        Some(mx) if mx == min_arity => format!("{min_arity}"),
+        Some(mx) => format!("{min_arity}..={mx}"),
+    }
+}
+
 fn collect_required_interface_methods(
     iface_qname: &str,
     known: &BTreeMap<String, AbcClassSpec>,
-    out: &mut Vec<String>,
+    out: &mut Vec<(String, AbcMethodMeta)>,
     seen: &mut HashSet<String>,
 ) {
     if !seen.insert(iface_qname.to_owned()) {
@@ -44,9 +66,9 @@ fn collect_required_interface_methods(
     if !ispec.is_interface {
         return;
     }
-    for (m_name, _) in &ispec.interface_methods {
-        if !out.contains(m_name) {
-            out.push(m_name.clone());
+    for (m_name, _, m_meta) in &ispec.interface_methods {
+        if !out.iter().any(|(n, _)| n == m_name) {
+            out.push((m_name.clone(), m_meta.clone()));
         }
     }
     for (spkg, sname) in &ispec.interfaces {
@@ -60,11 +82,27 @@ fn collect_required_interface_methods(
 }
 
 fn validate_as3_oop_hierarchy(
-    known: &BTreeMap<String, AbcClassSpec>,
+    raw_known: &BTreeMap<String, AbcClassSpec>,
     source_loc_by_qname: &BTreeMap<String, String>,
     report: &mut FlaCompatibilityReport,
 ) {
-    for (qname, spec) in known {
+    let resolved_specs =
+        order_and_resolve_abc_classes(&raw_known.values().cloned().collect::<Vec<_>>());
+    let mut known_resolved = BTreeMap::new();
+    for s in resolved_specs {
+        let qn = if s.pkg.is_empty() {
+            s.class_name.clone()
+        } else {
+            format!("{}.{}", s.pkg, s.class_name)
+        };
+        known_resolved.insert(qn, s);
+    }
+    let known = &known_resolved;
+
+    for qname in raw_known.keys() {
+        let Some(spec) = known.get(qname) else {
+            continue;
+        };
         let loc = source_loc_by_qname
             .get(qname)
             .cloned()
@@ -104,20 +142,34 @@ fn validate_as3_oop_hierarchy(
         let mut cur = spec;
         let mut chain_seen = HashSet::new();
         chain_seen.insert(qname.clone());
-        let mut all_instance_methods: HashSet<String> = HashSet::new();
+        let mut all_public_methods: HashMap<String, AbcMethodMeta> = HashMap::new();
+        let mut ancestor_public_methods: HashMap<String, (String, AbcMethodMeta)> = HashMap::new();
         let mut reaches_builtin_display = false;
+        let mut is_self = true;
+        let cur_qname_fn = |c: &AbcClassSpec| -> String {
+            if c.pkg.is_empty() {
+                c.class_name.clone()
+            } else {
+                format!("{}.{}", c.pkg, c.class_name)
+            }
+        };
         loop {
-            let only_synthetic_init = !cur.has_explicit_ctor
-                && cur.static_methods.is_empty()
-                && cur.extra_methods.len() == 1
-                && cur.extra_methods[0].0 == "init"
-                && cur.extra_methods[0].1.is_empty()
-                && cur.extra_methods[0].2.is_empty();
-            if !only_synthetic_init {
-                for (m_name, _, _) in &cur.extra_methods {
-                    all_instance_methods.insert(m_name.clone());
+            let cur_qn = cur_qname_fn(cur);
+            for (m_name, _, _) in &cur.extra_methods {
+                let meta = cur.method_meta.get(m_name).cloned().unwrap_or_default();
+                if meta.is_private {
+                    continue;
+                }
+                all_public_methods
+                    .entry(m_name.clone())
+                    .or_insert_with(|| meta.clone());
+                if !is_self {
+                    ancestor_public_methods
+                        .entry(m_name.clone())
+                        .or_insert_with(|| (cur_qn.clone(), meta));
                 }
             }
+            is_self = false;
             if cur.super_name.is_empty() || (cur.super_pkg.is_empty() && cur.super_name == "Object")
             {
                 break;
@@ -157,6 +209,64 @@ fn validate_as3_oop_hierarchy(
             }
         }
 
+        for (m_name, _, _) in &spec.extra_methods {
+            let meta = spec.method_meta.get(m_name).cloned().unwrap_or_default();
+            if meta.is_private {
+                continue;
+            }
+            if let Some((anc_qn, anc_meta)) = ancestor_public_methods.get(m_name) {
+                if !meta.is_override {
+                    report.push(
+                        "swf_as3_missing_override",
+                        FlaCompatibilityCategory::Scripts,
+                        FlaCompatibilityStatus::Blocking,
+                        loc.clone(),
+                        format!(
+                            "AS3 method '{qname}.{m_name}' overrides '{anc_qn}.{m_name}' and must be declared with 'override'."
+                        ),
+                    );
+                }
+                if !arity_compatible(
+                    meta.min_arity,
+                    meta.max_arity,
+                    anc_meta.min_arity,
+                    anc_meta.max_arity,
+                ) {
+                    report.push(
+                        "swf_as3_incompatible_method_arity",
+                        FlaCompatibilityCategory::Scripts,
+                        FlaCompatibilityStatus::Blocking,
+                        loc.clone(),
+                        format!(
+                            "AS3 override '{qname}.{m_name}' accepts {} argument(s), incompatible with base method '{anc_qn}.{m_name}' ({} argument(s)).",
+                            format_arity_range(meta.min_arity, meta.max_arity),
+                            format_arity_range(anc_meta.min_arity, anc_meta.max_arity),
+                        ),
+                    );
+                }
+            } else if meta.is_override && !reaches_builtin_display {
+                let builtin_object_method = matches!(
+                    m_name.as_str(),
+                    "toString"
+                        | "valueOf"
+                        | "hasOwnProperty"
+                        | "isPrototypeOf"
+                        | "propertyIsEnumerable"
+                );
+                if !builtin_object_method {
+                    report.push(
+                        "swf_as3_invalid_override",
+                        FlaCompatibilityCategory::Scripts,
+                        FlaCompatibilityStatus::Blocking,
+                        loc.clone(),
+                        format!(
+                            "AS3 method '{qname}.{m_name}' is marked 'override' but no inherited method '{m_name}' exists on its superclass chain."
+                        ),
+                    );
+                }
+            }
+        }
+
         for (ipkg, iname) in &spec.interfaces {
             let iqname = if ipkg.is_empty() {
                 iname.clone()
@@ -183,7 +293,7 @@ fn validate_as3_oop_hierarchy(
                         &mut req_methods,
                         &mut seen_ifaces,
                     );
-                    for req_m in req_methods {
+                    for (req_m, req_meta) in req_methods {
                         let inherited_builtin = (reaches_builtin_display
                             && is_avm2_inherited_builtin_member(&req_m))
                             || matches!(
@@ -195,7 +305,26 @@ fn validate_as3_oop_hierarchy(
                                     | "propertyIsEnumerable"
                                     | "setPropertyIsEnumerable"
                             );
-                        if !all_instance_methods.contains(&req_m) && !inherited_builtin {
+                        if let Some(impl_meta) = all_public_methods.get(&req_m) {
+                            if !arity_compatible(
+                                impl_meta.min_arity,
+                                impl_meta.max_arity,
+                                req_meta.min_arity,
+                                req_meta.max_arity,
+                            ) {
+                                report.push(
+                                    "swf_as3_incompatible_method_arity",
+                                    FlaCompatibilityCategory::Scripts,
+                                    FlaCompatibilityStatus::Blocking,
+                                    loc.clone(),
+                                    format!(
+                                        "AS3 class '{qname}' method '{req_m}' accepts {} argument(s), incompatible with interface '{iqname}.{req_m}' ({} argument(s)).",
+                                        format_arity_range(impl_meta.min_arity, impl_meta.max_arity),
+                                        format_arity_range(req_meta.min_arity, req_meta.max_arity),
+                                    ),
+                                );
+                            }
+                        } else if !inherited_builtin {
                             report.push(
                                 "swf_as3_unimplemented_interface_method",
                                 FlaCompatibilityCategory::Scripts,

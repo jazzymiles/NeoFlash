@@ -269,11 +269,17 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                 format!("{}:{}", cls.pkg, cls.class_name)
             };
             let mut trait_methods = Vec::with_capacity(cls.interface_methods.len());
-            for (m_name, m_params) in &cls.interface_methods {
+            for (m_name, m_params, m_meta) in &cls.interface_methods {
                 let fn_mn = pool.add_ns_qname(0x08, &iface_ns_name, m_name);
                 let param_name_indices: Vec<u32> =
                     m_params.iter().map(|p| pool.add_string(p)).collect();
-                let m_idx = state.alloc_method(param_name_indices);
+                let m_opts: Vec<(u32, u8)> = m_meta
+                    .opt_defaults
+                    .iter()
+                    .map(|d| d.encode(&mut pool))
+                    .collect();
+                let m_idx =
+                    state.alloc_method_sig(param_name_indices, m_opts, m_meta.rest_param.clone());
                 trait_methods.push((fn_mn, m_idx, false));
             }
             compiled_classes.push(CompiledClass {
@@ -301,10 +307,23 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         let chain_len = ancestor_mns.len() as u32;
         let cinit_scope_depth = 2 + chain_len;
         let method_scope_depth = 3 + chain_len;
+        let private_methods: HashSet<String> = cls
+            .method_meta
+            .iter()
+            .filter(|(_, m)| m.is_private)
+            .map(|(n, _)| n.clone())
+            .collect();
+        let private_ns_name = if cls.pkg.is_empty() {
+            cls.class_name.clone()
+        } else {
+            format!("{}:{}", cls.pkg, cls.class_name)
+        };
         let class_imports = Avm2ImportCtx {
             current_pkg: cls.pkg.clone(),
             imported_classes: cls.imported_classes.clone(),
             wildcard_packages: cls.wildcard_packages.clone(),
+            private_ns_name,
+            private_methods,
         };
 
         // 1. cinit + static slots & static methods
@@ -349,7 +368,17 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
             let fn_mn = pool.add_qname("", sm_name);
             let param_name_indices: Vec<u32> =
                 sm_params.iter().map(|p| pool.add_string(p)).collect();
-            let sm_idx = state.alloc_method(param_name_indices);
+            let sm_meta = cls
+                .static_method_meta
+                .get(sm_name)
+                .cloned()
+                .unwrap_or_default();
+            let sm_opts: Vec<(u32, u8)> = sm_meta
+                .opt_defaults
+                .iter()
+                .map(|d| d.encode(&mut pool))
+                .collect();
+            let sm_idx = state.alloc_method_sig(param_name_indices, sm_opts, sm_meta.rest_param);
             compile_avm2_scoped_unit(
                 &mut pool,
                 &mut state,
@@ -401,8 +430,10 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                     reserved_instance_names.insert(n.clone());
                 }
                 for (n, _, _) in &anc.extra_methods {
-                    reserved_instance_names.insert(n.clone());
-                    ancestor_method_names.insert(n.clone());
+                    if !anc.method_meta.get(n).is_some_and(|m| m.is_private) {
+                        reserved_instance_names.insert(n.clone());
+                        ancestor_method_names.insert(n.clone());
+                    }
                 }
                 for (f_idx, _) in &anc.frame_scripts {
                     let fname = format!("frame{}", f_idx + 1);
@@ -489,10 +520,20 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         }
 
         for (m_name, m_params, m_stmts) in &cls.extra_methods {
-            let fn_mn = pool.add_qname("", m_name);
+            let meta = cls.method_meta.get(m_name).cloned().unwrap_or_default();
+            let fn_mn = if meta.is_private {
+                pool.add_ns_qname(0x05, &class_imports.private_ns_name, m_name)
+            } else {
+                pool.add_qname("", m_name)
+            };
             let param_name_indices: Vec<u32> =
                 m_params.iter().map(|p| pool.add_string(p)).collect();
-            let m_idx = state.alloc_method(param_name_indices);
+            let m_opts: Vec<(u32, u8)> = meta
+                .opt_defaults
+                .iter()
+                .map(|d| d.encode(&mut pool))
+                .collect();
+            let m_idx = state.alloc_method_sig(param_name_indices, m_opts, meta.rest_param);
 
             compile_avm2_scoped_unit(
                 &mut pool,
@@ -514,14 +555,20 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
                 ))
             })?;
             let is_override =
-                cls.override_methods.contains(m_name) || ancestor_method_names.contains(m_name);
+                !meta.is_private && (meta.is_override || ancestor_method_names.contains(m_name));
             trait_methods.push((fn_mn, m_idx, is_override));
         }
 
         // 3. iinit (constructor)
         let ctor_param_indices: Vec<u32> =
             cls.ctor_params.iter().map(|p| pool.add_string(p)).collect();
-        let iinit_method = state.alloc_method(ctor_param_indices);
+        let ctor_opts: Vec<(u32, u8)> = cls
+            .ctor_opt_defaults
+            .iter()
+            .map(|d| d.encode(&mut pool))
+            .collect();
+        let iinit_method =
+            state.alloc_method_sig(ctor_param_indices, ctor_opts, cls.ctor_rest_param.clone());
         let effective_ctor_stmts = build_effective_ctor_stmts(cls);
         let has_explicit_super = cls.has_explicit_super;
         let post_super = has_explicit_super.then(|| Avm2PostSuperInit {
@@ -715,6 +762,12 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         if m.needs_activation {
             flags |= 0x02; // NEED_ACTIVATION
         }
+        if m.rest_param.is_some() {
+            flags |= 0x04; // NEED_REST
+        }
+        if !m.opt_defaults.is_empty() {
+            flags |= 0x08; // HAS_OPTIONAL
+        }
         if m.uses_dxns {
             flags |= 0x40; // SET_DXNS
         }
@@ -722,6 +775,13 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
             flags |= 0x80; // HAS_PARAM_NAMES
         }
         w.u8(flags);
+        if !m.opt_defaults.is_empty() {
+            w.u32_v(m.opt_defaults.len() as u32);
+            for &(val, kind) in &m.opt_defaults {
+                w.u32_v(val);
+                w.u8(kind);
+            }
+        }
         if !m.param_names.is_empty() {
             for &pn_idx in &m.param_names {
                 w.u32_v(pn_idx);

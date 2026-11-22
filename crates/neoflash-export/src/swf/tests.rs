@@ -859,6 +859,7 @@ fn avm1_and_avm2_logical_operators_short_circuit_rhs_evaluation() {
         let mut state = Avm2CompilerState::default();
         let mut env = Avm2LexicalEnv {
             init_scope_depth: 1,
+            compile_depth: 0,
             needs_activation: false,
             uses_dxns: false,
             act_reg: None,

@@ -1453,7 +1453,6 @@ fn compile_swf_document(
                     super_pkg: "flash.display".to_owned(),
                     super_name: "MovieClip".to_owned(),
                     frame_scripts: root_as3_scripts,
-                    extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
                     ..Default::default()
                 });
             }
@@ -1527,7 +1526,6 @@ fn compile_swf_document(
                     super_pkg: "flash.display".to_owned(),
                     super_name: super_name.to_owned(),
                     frame_scripts,
-                    extra_methods: vec![("init".to_owned(), Vec::new(), Vec::new())],
                     ..Default::default()
                 });
             }

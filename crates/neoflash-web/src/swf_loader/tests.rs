@@ -837,3 +837,364 @@ fn decodes_raw_swf_audio_video_tags_and_avm2_fastmem_e4x_opcodes_cleanly() {
         "expected Event and Stream FrameSounds on root timeline"
     );
 }
+
+#[test]
+fn swf_loader_executes_avm2_interfaces_super_is_as_instanceof_and_skips_interface_cinit() {
+    // Build a multi-class/interface ABC 46.16 stream:
+    //   0: interface pkg.contracts.IScorable  (flags = 0x05, cinit deliberately traces "BAD_IFACE_CINIT")
+    //   1: interface pkg.contracts.ITaggable extends pkg.contracts.IScorable (flags = 0x05)
+    //   2: interface pkg.other.IScorable      (flags = 0x05, distinct package with same short name)
+    //   3: class Base                         (compute(x) => x + 10)
+    //   4: class Child extends Base implements pkg.contracts.ITaggable
+    //                                         (override compute(x) => super.compute(x) + 5)
+    //   5: class DocMain extends MovieClip    (traces super.compute, is, as, instanceof)
+    let mut abc = vec![16, 0, 46, 0];
+    push_u30(&mut abc, 1); // ints
+    push_u30(&mut abc, 1); // uints
+    push_u30(&mut abc, 1); // doubles
+    let strs = [
+        "",                        // 1
+        "pkg.contracts",           // 2
+        "pkg.other",               // 3
+        "flash.display",           // 4
+        "IScorable",               // 5
+        "ITaggable",               // 6
+        "Base",                    // 7
+        "Child",                   // 8
+        "DocMain",                 // 9
+        "Object",                  // 10
+        "MovieClip",               // 11
+        "compute",                 // 12
+        "trace",                   // 13
+        "BAD_IFACE_CINIT",         // 14
+        "pkg.contracts:IScorable", // 15
+    ];
+    push_u30(&mut abc, (strs.len() + 1) as u32);
+    for s in strs {
+        push_u30(&mut abc, s.len() as u32);
+        abc.extend_from_slice(s.as_bytes());
+    }
+
+    // Namespaces:
+    //   1: PackageNamespace("")
+    //   2: PackageNamespace("pkg.contracts")
+    //   3: PackageNamespace("pkg.other")
+    //   4: PackageNamespace("flash.display")
+    //   5: Namespace("pkg.contracts:IScorable") (0x08)
+    push_u30(&mut abc, 6);
+    abc.extend_from_slice(&[
+        0x16, 1, // ns 1
+        0x16, 2, // ns 2
+        0x16, 3, // ns 3
+        0x16, 4, // ns 4
+        0x08, 15, // ns 5
+    ]);
+
+    // Namespace sets for CONSTANT_Multiname (0x09) interface entries:
+    //   1: [ns 2] ("pkg.contracts")
+    //   2: [ns 3] ("pkg.other")
+    push_u30(&mut abc, 3);
+    abc.extend_from_slice(&[1, 2, 1, 3]);
+
+    // Multinames:
+    //   1: QName(ns 2, "IScorable")   -> pkg.contracts.IScorable
+    //   2: QName(ns 2, "ITaggable")   -> pkg.contracts.ITaggable
+    //   3: QName(ns 3, "IScorable")   -> pkg.other.IScorable
+    //   4: QName(ns 1, "Base")        -> Base
+    //   5: QName(ns 1, "Child")       -> Child
+    //   6: QName(ns 1, "DocMain")     -> DocMain
+    //   7: QName(ns 1, "Object")      -> Object
+    //   8: QName(ns 4, "MovieClip")   -> flash.display.MovieClip
+    //   9: QName(ns 1, "compute")     -> compute
+    //  10: QName(ns 1, "trace")       -> trace
+    //  11: Multiname("IScorable", ns_set 1) -> interface ref pkg.contracts.IScorable
+    //  12: Multiname("ITaggable", ns_set 1) -> interface ref pkg.contracts.ITaggable
+    //  13: QName(ns 5, "compute")     -> interface method trait
+    push_u30(&mut abc, 14);
+    abc.extend_from_slice(&[
+        0x07, 2, 5, // 1
+        0x07, 2, 6, // 2
+        0x07, 3, 5, // 3
+        0x07, 1, 7, // 4
+        0x07, 1, 8, // 5
+        0x07, 1, 9, // 6
+        0x07, 1, 10, // 7
+        0x07, 4, 11, // 8
+        0x07, 1, 12, // 9
+        0x07, 1, 13, // 10
+        0x09, 5, 1, // 11
+        0x09, 6, 1, // 12
+        0x07, 5, 12, // 13
+    ]);
+
+    // Methods:
+    //   0: IScorable.cinit (0 params)
+    //   1: IScorable.iinit (0 params)
+    //   2: IScorable.compute (1 param, bodyless)
+    //   3: ITaggable.cinit
+    //   4: ITaggable.iinit
+    //   5: other.IScorable.cinit
+    //   6: other.IScorable.iinit
+    //   7: Base.cinit
+    //   8: Base.iinit
+    //   9: Base.compute (1 param)
+    //  10: Child.cinit
+    //  11: Child.iinit
+    //  12: Child.compute (1 param)
+    //  13: DocMain.cinit
+    //  14: DocMain.iinit
+    //  15: script_init
+    push_u30(&mut abc, 16);
+    for mid in 0..16 {
+        if matches!(mid, 2 | 9 | 12) {
+            abc.extend_from_slice(&[1, 0, 0, 0, 0]); // 1 param, ret=*, p0=*, name=0, flags=0
+        } else {
+            abc.extend_from_slice(&[0, 0, 0, 0]);
+        }
+    }
+
+    push_u30(&mut abc, 0); // metadata
+
+    // 6 Instances:
+    push_u30(&mut abc, 6);
+    // 0: IScorable (name=1, super=0, flags=0x05, intf=0, iinit=1, 1 method trait mn=13 -> m=2)
+    abc.extend_from_slice(&[1, 0, 0x05, 0, 1, 1, 13, 0x01, 0, 2]);
+    // 1: ITaggable extends IScorable (name=2, super=0, flags=0x05, intf=1 [11], iinit=4, 0 traits)
+    abc.extend_from_slice(&[2, 0, 0x05, 1, 11, 4, 0]);
+    // 2: pkg.other.IScorable (name=3, super=0, flags=0x05, intf=0, iinit=6, 0 traits)
+    abc.extend_from_slice(&[3, 0, 0x05, 0, 6, 0]);
+    // 3: Base extends Object (name=4, super=7, flags=0x00, intf=0, iinit=8, 1 trait compute->9)
+    abc.extend_from_slice(&[4, 7, 0x00, 0, 8, 1, 9, 0x01, 0, 9]);
+    // 4: Child extends Base implements ITaggable (name=5, super=4, flags=0x00, intf=1 [12], iinit=11, 1 override trait compute->12)
+    abc.extend_from_slice(&[5, 4, 0x00, 1, 12, 11, 1, 9, 0x21, 0, 12]);
+    // 5: DocMain extends MovieClip (name=6, super=8, flags=0x00, intf=0, iinit=14, 0 traits)
+    abc.extend_from_slice(&[6, 8, 0x00, 0, 14, 0]);
+
+    // 6 Classes (cinit + 0 static traits):
+    for cinit_id in [0u8, 3, 5, 7, 10, 13] {
+        abc.extend_from_slice(&[cinit_id, 0]);
+    }
+
+    // 1 Script (init=15, 6 class traits):
+    push_u30(&mut abc, 1);
+    push_u30(&mut abc, 15);
+    push_u30(&mut abc, 6);
+    for (slot_id, (mn_id, cls_idx)) in [(1u8, 0u8), (2, 1), (3, 2), (4, 3), (5, 4), (6, 5)]
+        .into_iter()
+        .enumerate()
+    {
+        abc.extend_from_slice(&[mn_id, 0x04, (slot_id + 1) as u8, cls_idx]);
+    }
+
+    // Method bodies:
+    // m0 (IScorable.cinit): findpropstrict trace(10), pushstring "BAD_IFACE_CINIT"(14), callpropvoid trace(10, 1), returnvoid
+    let bad_iface_cinit = vec![0xD0, 0x30, 0x5D, 10, 0x2C, 14, 0x4F, 10, 1, 0x47];
+    let ret_void = vec![0x47];
+    let std_iinit = vec![0xD0, 0x30, 0xD0, 0x49, 0, 0x47]; // getlocal_0, pushscope, getlocal_0, constructsuper 0, returnvoid
+    // m9 (Base.compute): getlocal_1, pushbyte 10, add (0xA0), returnvalue (0x48)
+    let base_compute = vec![0xD0, 0x30, 0xD1, 0x24, 10, 0xA0, 0x48];
+    // m12 (Child.compute): getlocal_0, getlocal_1, callsuper compute(9, 1), pushbyte 5, add, returnvalue
+    let child_compute = vec![0xD0, 0x30, 0xD0, 0xD1, 0x45, 9, 1, 0x24, 5, 0xA0, 0x48];
+    // m14 (DocMain.iinit):
+    //   constructsuper 0
+    //   loc1 = new Child()  (findpropstrict 5, constructprop 5 0, setlocal_1)
+    //   loc2 = new Base()   (findpropstrict 4, constructprop 4 0, setlocal_2)
+    //   trace(loc1.compute(7))                      -> "22"
+    //   trace(loc1 is pkg.contracts.IScorable [0xB2 1]) -> "true"
+    //   trace(loc1 is ITaggable [getlex 2, 0xB3])       -> "true"
+    //   trace(loc1 is pkg.other.IScorable [0xB2 3])     -> "false"
+    //   trace((loc1 as pkg.contracts.IScorable [0x86 1]) === loc1) -> "true"
+    //   trace((loc1 as ITaggable [getlex 2, 0x87]) === loc1)       -> "true"
+    //   trace((loc2 as pkg.contracts.IScorable [0x86 1]) === null) -> "true"
+    //   trace(loc1 instanceof pkg.contracts.IScorable [getlex 1, 0xB1]) -> "false"
+    //   trace(loc1 instanceof Base [getlex 4, 0xB1])    -> "true"
+    let doc_iinit = vec![
+        0xD0, 0x30, 0xD0, 0x49, 0, // super()
+        0x5D, 5, 0x4A, 5, 0, 0xD5, // loc1 = new Child()
+        0x5D, 4, 0x4A, 4, 0, 0xD6, // loc2 = new Base()
+        // 1) trace(loc1.compute(7))
+        0x5D, 10, 0xD1, 0x24, 7, 0x46, 9, 1, 0x4F, 10, 1,
+        // 2) trace(loc1 is pkg.contracts.IScorable) via 0xB2 istype
+        0x5D, 10, 0xD1, 0xB2, 1, 0x4F, 10, 1,
+        // 3) trace(loc1 is pkg.contracts.ITaggable) via 0xB3 istypelate
+        0x5D, 10, 0xD1, 0x60, 2, 0xB3, 0x4F, 10, 1,
+        // 4) trace(loc1 is pkg.other.IScorable) via 0xB2 istype
+        0x5D, 10, 0xD1, 0xB2, 3, 0x4F, 10, 1,
+        // 5) trace((loc1 as pkg.contracts.IScorable) === loc1) via 0x86 astype
+        0x5D, 10, 0xD1, 0x86, 1, 0xD1, 0xAC, 0x4F, 10, 1,
+        // 6) trace((loc1 as pkg.contracts.ITaggable) === loc1) via 0x87 astypelate
+        0x5D, 10, 0xD1, 0x60, 2, 0x87, 0xD1, 0xAC, 0x4F, 10, 1,
+        // 7) trace((loc2 as pkg.contracts.IScorable) === null)
+        0x5D, 10, 0xD2, 0x86, 1, 0x20, 0xAC, 0x4F, 10, 1,
+        // 8) trace(loc1 instanceof pkg.contracts.IScorable) via 0xB1 instanceof
+        0x5D, 10, 0xD1, 0x60, 1, 0xB1, 0x4F, 10, 1,
+        // 9) trace(loc1 instanceof Base) via 0xB1 instanceof
+        0x5D, 10, 0xD1, 0x60, 4, 0xB1, 0x4F, 10, 1, 0x47,
+    ];
+    // m15 (script_init): initialize all 6 classes in topological order
+    let sinit = vec![
+        0xD0, 0x30, // getlocal_0, pushscope
+        0x65, 0, 0x20, 0x58, 0, 0x68, 1, // IScorable
+        0x65, 0, 0x20, 0x58, 1, 0x68, 2, // ITaggable
+        0x65, 0, 0x20, 0x58, 2, 0x68, 3, // other.IScorable
+        0x65, 0, 0x60, 7, 0x30, 0x60, 7, 0x58, 3, 0x1D, 0x68, 4, // Base
+        0x65, 0, 0x60, 7, 0x30, 0x60, 4, 0x30, 0x60, 4, 0x58, 4, 0x1D, 0x1D, 0x68, 5, // Child
+        0x65, 0, 0x60, 7, 0x30, 0x60, 8, 0x58, 5, 0x1D, 0x68, 6, // DocMain
+        0x47,
+    ];
+
+    let bodies: [(u32, Vec<u8>); 12] = [
+        (0, bad_iface_cinit),
+        (3, ret_void.clone()),
+        (5, ret_void.clone()),
+        (7, ret_void.clone()),
+        (8, std_iinit.clone()),
+        (9, base_compute),
+        (10, ret_void.clone()),
+        (11, std_iinit),
+        (12, child_compute),
+        (13, ret_void),
+        (14, doc_iinit),
+        (15, sinit),
+    ];
+    push_u30(&mut abc, bodies.len() as u32);
+    for (mid, code) in bodies {
+        push_u30(&mut abc, mid);
+        abc.extend_from_slice(&[8, 6, 1, 6]);
+        push_u30(&mut abc, code.len() as u32);
+        abc.extend_from_slice(&code);
+        abc.extend_from_slice(&[0, 0]);
+    }
+
+    let mut do_abc2 = vec![1, 0, 0, 0, b'f', 0];
+    do_abc2.extend_from_slice(&abc);
+    let mut sym_cls = Vec::new();
+    sym_cls.extend_from_slice(&1u16.to_le_bytes());
+    sym_cls.extend_from_slice(&0u16.to_le_bytes());
+    sym_cls.extend_from_slice(b"DocMain\0");
+
+    let swf = wrap_fws(
+        13,
+        1,
+        &[
+            make_tag(69, &[0x08, 0, 0, 0]),
+            make_tag(82, &do_abc2),
+            make_tag(76, &sym_cls),
+            make_tag(1, &[]),
+        ],
+    );
+    let bundle = decode_swf_bundle(&swf).expect("decode interface + super SWF");
+    assert!(
+        bundle.warnings.is_empty(),
+        "unexpected warnings: {:?}",
+        bundle.warnings
+    );
+
+    let init_unit = bundle
+        .scripts
+        .iter()
+        .find(|u| u.location == "avm2-abc-init")
+        .expect("avm2-abc-init script unit");
+    let ctor_unit = bundle
+        .scripts
+        .iter()
+        .find(|u| u.location.starts_with("avm2-doc-ctor"))
+        .expect("avm2-doc-ctor script unit");
+    assert!(
+        init_unit
+            .code
+            .contains("qname: \"pkg.contracts.ITaggable\", shortName: \"ITaggable\", superQname: \"\", superShort: \"\", isInterface: true, interfaces: [\"pkg.contracts.IScorable\"]"),
+        "{}",
+        init_unit.code
+    );
+    assert!(
+        init_unit.code.contains("if (!spec.isInterface)"),
+        "{}",
+        init_unit.code
+    );
+
+    // Execute generated JS in Node with sandbox helper shims matching web/runtime.js
+    let js_harness = format!(
+        r#"
+"use strict";
+const traces = [];
+const trace = (...a) => traces.push(a.join(" "));
+const swfClassMeta = new WeakMap();
+const swfSuperMap = new WeakMap();
+const swfInstanceClass = new WeakMap();
+const swfSlots = new WeakMap();
+const __nfSwfEnv = Object.create(null);
+const __nfDisplay = null;
+const __nfXML = null;
+const __nfSwfFn = fn => fn;
+const __nfSwfStubFn = () => () => undefined;
+const __nfSwfHas = (o, k) => o != null && k in Object(o);
+const __nfSwfHasOwn = (o, k) => o != null && Object.prototype.hasOwnProperty.call(Object(o), k);
+const __nfSwfGet = (o, k) => o != null ? o[k] : undefined;
+const __nfSwfSet = (o, k, v) => {{ if (o != null) o[k] = v; return v; }};
+const __nfSwfDelete = (o, k) => o != null ? delete o[k] : true;
+const __nfSwfKeys = o => o != null ? Object.keys(o) : [];
+const __nfSwfApply = (fn, recv, args) => typeof fn === "function" ? Reflect.apply(fn, recv, args || []) : undefined;
+const __nfSwfCall = (o, m, args) => (o != null && typeof o[m] === "function") ? Reflect.apply(o[m], o, args || []) : undefined;
+const __nfSwfExtends = (sub, sup) => {{
+  if (typeof sub === "function" && typeof sup === "function") {{
+    sub.prototype = Object.create(sup.prototype || null);
+    sub.prototype.constructor = sub;
+    swfSuperMap.set(sub, sup);
+  }}
+}};
+const __nfSwfSetClassMeta = (ctor, qname, shortName, superShort) => {{
+  if (typeof ctor === "function") swfClassMeta.set(ctor, {{ qname, shortName, superShort }});
+}};
+const __nfSwfTagInstance = (inst, ctor) => {{ if (inst && typeof ctor === "function") swfInstanceClass.set(inst, ctor); }};
+const __nfSwfSlotMeta = (obj, pairs) => {{ if (obj) swfSlots.set(obj, new Map(pairs)); }};
+const __nfSwfGetSlot = (obj, sid) => {{ const m = swfSlots.get(obj); const k = m && m.get(sid); return k ? obj[k] : undefined; }};
+const __nfSwfSetSlot = (obj, sid, v) => {{ const m = swfSlots.get(obj); const k = m && m.get(sid); if (k) obj[k] = v; }};
+const __nfSwfGetURL = () => undefined;
+const __nfSwfNew = (ctorOrObj, methodName, args) => {{
+  const ctor = methodName ? ctorOrObj[methodName] : ctorOrObj;
+  if (typeof ctor !== "function") return {{}};
+  const inst = Object.create(ctor.prototype || null);
+  swfInstanceClass.set(inst, ctor);
+  const ret = Reflect.apply(ctor, inst, args || []);
+  return (ret !== null && (typeof ret === "object" || typeof ret === "function")) ? ret : inst;
+}};
+const __nfSwfInstanceOf = (val, ctorOrName) => {{
+  if (val == null || ctorOrName == null) return false;
+  const typeName = typeof ctorOrName === "string" ? ctorOrName : (typeof ctorOrName === "function" ? (swfClassMeta.get(ctorOrName)?.shortName || "") : "");
+  if (typeName === "Object") return typeof val === "object" || typeof val === "function";
+  if (typeof val !== "object" && typeof val !== "function") return false;
+  if (typeof ctorOrName === "function") {{
+    if (ctorOrName.prototype && Object.prototype.isPrototypeOf.call(ctorOrName.prototype, val)) return true;
+    for (let cur = swfInstanceClass.get(val), g = 0; cur && g < 32; g++) {{
+      if (cur === ctorOrName) return true;
+      cur = swfSuperMap.get(cur);
+    }}
+  }}
+  return false;
+}};
+const rootClip = Object.create(null);
+(function() {{ {init_code} }}).call(rootClip);
+(function() {{ {ctor_code} }}).call(rootClip);
+process.stdout.write(JSON.stringify(traces));
+"#,
+        init_code = init_unit.code,
+        ctor_code = ctor_unit.code,
+    );
+
+    let out = std::process::Command::new("node")
+        .arg("-e")
+        .arg(&js_harness)
+        .output()
+        .expect("execute generated SWF AVM2 JS in node");
+    assert!(
+        out.status.success(),
+        "node execution failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        stdout, r#"["22","true","true","false","true","true","true","false","true"]"#,
+        "expected super.compute + transitive interface is/as + false interface instanceof without running interface cinit"
+    );
+}

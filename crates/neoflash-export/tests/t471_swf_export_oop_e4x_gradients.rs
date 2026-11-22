@@ -1861,3 +1861,389 @@ fn t471_combined_oop_e4x_class_and_duplicate_ratio_20_stop_export_swf_file_round
         vec!["FEED_OK=true|prod:107,8".to_owned()]
     );
 }
+
+#[test]
+fn t471_deeply_nested_500_expr_stmt_and_e4x_interpolations_fail_cleanly_without_stack_overflow() {
+    let depth = 500usize;
+
+    // 1) 500-deep parenthesized expression `((((...1...))))`
+    let deep_parens = format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
+    // 2) 500-deep unary expression `!!!!...true`
+    let deep_unary = format!("{}true", "!".repeat(depth));
+    // 3) 500-deep nested block statement `{{{...var x:int = 1;...}}}`
+    let deep_blocks = format!("{}var x:int = 1;{}", "{".repeat(depth), "}".repeat(depth));
+    // 4) 500-deep E4X attribute interpolation `<a x={<a x={...}/>}/>`
+    let mut deep_e4x_attr = "\"leaf\"".to_owned();
+    for _ in 0..depth {
+        deep_e4x_attr = format!("<a x={{{deep_e4x_attr}}}/>");
+    }
+    // 5) 500-deep E4X element content interpolation `<a>{<a>{...}</a>}</a>`
+    let mut deep_e4x_elem = "\"leaf\"".to_owned();
+    for _ in 0..depth {
+        deep_e4x_elem = format!("<a>{{{deep_e4x_elem}}}</a>");
+    }
+
+    let publish = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer10Avm2,
+        compression: SwfCompression::UncompressedFws,
+        ..SwfPublishOptions::default()
+    };
+
+    for (label, body_stmt) in [
+        ("deep_parens", format!("var v:* = {deep_parens};")),
+        ("deep_unary", format!("var v:* = {deep_unary};")),
+        ("deep_blocks", deep_blocks),
+        ("deep_e4x_attr", format!("var v:XML = {deep_e4x_attr};")),
+        ("deep_e4x_elem", format!("var v:XML = {deep_e4x_elem};")),
+    ] {
+        let mut p = Project::blank();
+        p.document_class = Some("DeepProbe".into());
+        p.sources = vec![SourceUnit {
+            id: format!("src_{label}"),
+            path: "DeepProbe.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: format!(
+                "package {{ import flash.display.MovieClip; public class DeepProbe extends MovieClip {{ public function DeepProbe() {{ super(); {body_stmt} }} }} }}"
+            ),
+        }];
+
+        let preflight = preflight_swf_publish(&p, &publish);
+        assert!(
+            preflight.has_blocking(),
+            "expected clean blocking preflight diagnostic for 500-deep '{label}', got: {:?}",
+            preflight.items
+        );
+        assert!(
+            preflight
+                .items
+                .iter()
+                .any(|i| i.message.contains("nesting depth")),
+            "expected nesting depth diagnostic for '{label}', got: {:?}",
+            preflight.items
+        );
+
+        let err = publish_swf_bytes(&p, &publish)
+            .expect_err("500-deep script must return clean Err without stack overflow");
+        assert!(
+            err.to_string().contains("nesting depth") || err.to_string().contains("Blocking"),
+            "unexpected error message for '{label}': {err}"
+        );
+    }
+}
+
+#[test]
+fn t471_as3_private_methods_synthetic_init_freedom_and_override_arity_validation() {
+    let publish = SwfPublishOptions {
+        profile: SwfPublishProfile::FlashPlayer10Avm2,
+        compression: SwfCompression::UncompressedFws,
+        ..SwfPublishOptions::default()
+    };
+
+    // Part A: Positive end-to-end compile, ABC traits check, execution & round-trip:
+    // - `Base` has explicit ctor, 0 public methods except `compute(x:int)`, and `private function secret():int`
+    // - `Child extends Base implements IInitable, ICalculable`:
+    //   - defines its OWN `private function secret():int` WITHOUT `override` (per-class 0x05 PrivateNs, NO TRAIT_Override!)
+    //   - defines `public function init(seed:int = 4):int` (no collision with any synthetic "init"!)
+    //   - overrides `compute(x:int, bonus:int = 5):int` (optional default satisfies 1-arg `Base.compute` & `ICalculable.compute`!)
+    //   - implements `variadic(tag:String, ...rest):String` (`NEED_REST = 0x04` satisfies 2-arg interface method!)
+    let mut project = Project::blank();
+    project.document_class = Some("MainF05".into());
+    project.sources = vec![
+        SourceUnit {
+            id: "s_ifaces".into(),
+            path: "IInitable.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package {
+    public interface IInitable {
+        function init(seed:int):int;
+    }
+}"#
+            .into(),
+        },
+        SourceUnit {
+            id: "s_icalc".into(),
+            path: "ICalculable.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package {
+    public interface ICalculable {
+        function compute(x:int):int;
+        function acceptPair(a:int, b:int):int;
+    }
+}"#
+            .into(),
+        },
+        SourceUnit {
+            id: "s_base".into(),
+            path: "BaseBox.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package {
+    public class BaseBox {
+        public var baseVal:int = 0;
+        public function BaseBox(v:int = 10) {
+            this.baseVal = v;
+        }
+        private function secret():int {
+            return 100;
+        }
+        public function readBaseSecret():int {
+            return this.secret() + this.baseVal;
+        }
+        public function compute(x:int):int {
+            return x + this.baseVal;
+        }
+    }
+}"#
+            .into(),
+        },
+        SourceUnit {
+            id: "s_child".into(),
+            path: "ChildBox.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package {
+    public class ChildBox extends BaseBox implements IInitable, ICalculable {
+        public function ChildBox(v:int = 20) {
+            super(v);
+        }
+        private function secret():int {
+            return 250;
+        }
+        public function init(seed:int = 4):int {
+            return this.secret() + seed;
+        }
+        override public function compute(x:int, bonus:int = 5):int {
+            return super.compute(x) + bonus;
+        }
+        public function acceptPair(...rest):int {
+            return 42;
+        }
+    }
+}"#
+            .into(),
+        },
+        SourceUnit {
+            id: "s_main".into(),
+            path: "MainF05.as".into(),
+            language: ScriptLanguage::ActionScript3,
+            source: r#"package {
+    import flash.display.MovieClip;
+    public class MainF05 extends MovieClip {
+        public function MainF05() {
+            super();
+            var b:BaseBox = new BaseBox();
+            var c:ChildBox = new ChildBox();
+            var asInit:IInitable = c as IInitable;
+            var asCalc:ICalculable = c as ICalculable;
+            trace("BASE:" + b.readBaseSecret() + "|COMPUTE1:" + c.compute(7) + "|COMPUTE2:" + c.compute(7, 9));
+            trace("INIT_DEF:" + c.init() + "|INIT_IFACE:" + asInit.init(6) + "|PAIR:" + asCalc.acceptPair(1, 2));
+        }
+    }
+}"#
+            .into(),
+        },
+    ];
+
+    let report = preflight_swf_publish(&project, &publish);
+    assert!(
+        !report.has_blocking(),
+        "valid private methods + init() + optional/rest overrides must pass preflight: {:?}",
+        report.items
+    );
+
+    let (swf_bytes, _) = publish_swf_bytes(&project, &publish).expect("publish MainF05 SWF");
+    let abc = parse_abc_summary(&extract_do_abc2_bytes(&swf_bytes));
+
+    // Verify `BaseBox` and `ChildBox` private `secret` traits use 0x05 `CONSTANT_PrivateNs` and NEVER set `TRAIT_Override` (0x20),
+    // and `ChildBox.init` does NOT set `TRAIT_Override` (no synthetic "init" on `BaseBox`)!
+    let base_inst = abc
+        .instances
+        .iter()
+        .find(|i| abc.mn_short_name(i.name_mn) == "BaseBox")
+        .expect("BaseBox instance");
+    assert!(
+        !base_inst
+            .traits
+            .iter()
+            .any(|tr| abc.mn_short_name(tr.name_mn) == "init"),
+        "BaseBox with explicit ctor must NOT have a synthetic 'init' trait: {:?}",
+        base_inst.traits
+    );
+    let child_inst = abc
+        .instances
+        .iter()
+        .find(|i| abc.mn_short_name(i.name_mn) == "ChildBox")
+        .expect("ChildBox instance");
+    for tr in &child_inst.traits {
+        let local_name = abc.mn_short_name(tr.name_mn);
+        let (ns_kind, _) = abc.mn_qname_ns(tr.name_mn);
+        if local_name == "secret" {
+            assert_eq!(
+                ns_kind, 0x05,
+                "private method trait must use 0x05 CONSTANT_PrivateNs"
+            );
+            assert_eq!(
+                tr.kind_byte & 0x20,
+                0,
+                "private method must NEVER emit TRAIT_Override (0x20)"
+            );
+        } else if local_name == "init" {
+            assert_eq!(
+                tr.kind_byte & 0x20,
+                0,
+                "ChildBox.init must NOT emit TRAIT_Override when BaseBox has no init()"
+            );
+        } else if local_name == "compute" {
+            assert_ne!(
+                tr.kind_byte & 0x20,
+                0,
+                "ChildBox.compute override must emit TRAIT_Override (0x20)"
+            );
+        }
+    }
+    // Verify HAS_OPTIONAL (0x08) and NEED_REST (0x04) flags are emitted in MethodInfo
+    assert!(
+        abc.method_flags.iter().any(|&f| (f & 0x08) != 0),
+        "expected HAS_OPTIONAL (0x08) in ABC MethodInfo flags"
+    );
+    assert!(
+        abc.method_flags.iter().any(|&f| (f & 0x04) != 0),
+        "expected NEED_REST (0x04) in ABC MethodInfo flags"
+    );
+
+    let play = play_swf_bytes(&swf_bytes, 1).expect("play MainF05 SWF");
+    assert_eq!(
+        play.trace_output,
+        vec![
+            "BASE:110|COMPUTE1:32|COMPUTE2:36".to_owned(),
+            "INIT_DEF:254|INIT_IFACE:256|PAIR:42".to_owned(),
+        ]
+    );
+
+    // Re-import & re-export round-trip must preserve HAS_OPTIONAL defaults & arity compatibility!
+    let reimported = import_swf_bytes(&swf_bytes).expect("re-import MainF05 SWF");
+    reimported.validate().expect("reimported validates");
+    let (reexported_swf, _) =
+        publish_swf_bytes(&reimported, &publish).expect("re-export decompiled MainF05 SWF");
+    let replay = play_swf_bytes(&reexported_swf, 1).expect("play re-exported MainF05 SWF");
+    assert_eq!(replay.trace_output, play.trace_output);
+
+    // Part B: Negative strict preflight validations for [F-05]:
+    let check_blocking_code = |sources: Vec<(&str, &str)>, expected_code: &str| {
+        let mut p = Project::blank();
+        p.document_class = Some("Doc".into());
+        p.sources = sources
+            .into_iter()
+            .enumerate()
+            .map(|(i, (path, src))| SourceUnit {
+                id: format!("u_{i}"),
+                path: path.into(),
+                language: ScriptLanguage::ActionScript3,
+                source: src.into(),
+            })
+            .collect();
+        let rep = preflight_swf_publish(&p, &publish);
+        assert!(
+            rep.items.iter().any(|it| it.code == expected_code),
+            "expected blocking diagnostic '{expected_code}', got: {:?}",
+            rep.items
+        );
+    };
+
+    // 1) Explicit-ctor class implementing interface requiring `init()` without defining `init()` -> unimplemented!
+    check_blocking_code(
+        vec![
+            (
+                "IInit.as",
+                "package { public interface IInit { function init():void; } }",
+            ),
+            (
+                "Doc.as",
+                "package { import flash.display.MovieClip; public class Doc extends MovieClip implements IInit { public function Doc() { super(); } } }",
+            ),
+        ],
+        "swf_as3_unimplemented_interface_method",
+    );
+
+    // 2) `private` method does NOT satisfy a public interface requirement!
+    check_blocking_code(
+        vec![
+            (
+                "IFoo.as",
+                "package { public interface IFoo { function compute(x:int):int; } }",
+            ),
+            (
+                "Doc.as",
+                "package { import flash.display.MovieClip; public class Doc extends MovieClip implements IFoo { private function compute(x:int):int { return x; } } }",
+            ),
+        ],
+        "swf_as3_unimplemented_interface_method",
+    );
+
+    // 3) `override private` is rejected as invalid AS3 syntax!
+    check_blocking_code(
+        vec![
+            (
+                "Base.as",
+                "package { public class Base { private function f():void {} } }",
+            ),
+            (
+                "Doc.as",
+                "package { public class Doc extends Base { override private function f():void {} } }",
+            ),
+        ],
+        "swf_as3_source_unsupported_syntax",
+    );
+
+    // 4) Orphan `override` on a class whose user superclass chain has no such method!
+    check_blocking_code(
+        vec![(
+            "Doc.as",
+            "package { public class Doc { override public function nonExistent():void {} } }",
+        )],
+        "swf_as3_invalid_override",
+    );
+
+    // 5) Missing `override` when shadowing a non-private ancestor method!
+    check_blocking_code(
+        vec![
+            (
+                "Base.as",
+                "package { public class Base { public function step(x:int):int { return x; } } }",
+            ),
+            (
+                "Doc.as",
+                "package { public class Doc extends Base { public function step(x:int):int { return x + 1; } } }",
+            ),
+        ],
+        "swf_as3_missing_override",
+    );
+
+    // 6) Incompatible override arity (requires 2 args when base accepts 1 arg)!
+    check_blocking_code(
+        vec![
+            (
+                "Base.as",
+                "package { public class Base { public function step(x:int):int { return x; } } }",
+            ),
+            (
+                "Doc.as",
+                "package { public class Doc extends Base { override public function step(x:int, y:int):int { return x + y; } } }",
+            ),
+        ],
+        "swf_as3_incompatible_method_arity",
+    );
+
+    // 7) Incompatible interface implementation arity (accepts 0 args when interface requires 1 arg)!
+    check_blocking_code(
+        vec![
+            (
+                "IFoo.as",
+                "package { public interface IFoo { function compute(x:int):int; } }",
+            ),
+            (
+                "Doc.as",
+                "package { import flash.display.MovieClip; public class Doc extends MovieClip implements IFoo { public function compute():int { return 0; } } }",
+            ),
+        ],
+        "swf_as3_incompatible_method_arity",
+    );
+}

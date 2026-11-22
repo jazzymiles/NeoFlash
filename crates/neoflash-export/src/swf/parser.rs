@@ -871,10 +871,13 @@ fn scan_xml_literal(source: &str, start: usize) -> Result<(SwfToken, usize), Str
     Ok((SwfToken::XmlLiteral { is_list, pieces }, p))
 }
 
+pub(super) const MAX_SWF_PARSE_DEPTH: usize = 40;
+
 pub(super) struct SwfParser {
     pub(super) tokens: Vec<SwfToken>,
     pub(super) pos: usize,
     pub(super) is_avm2: bool,
+    pub(super) depth: usize,
     pub(super) function_depth: usize,
     pub(super) in_function_expression: bool,
     pub(super) allow_in: bool,
@@ -882,14 +885,34 @@ pub(super) struct SwfParser {
 
 impl SwfParser {
     pub(super) fn new(tokens: Vec<SwfToken>, is_avm2: bool) -> Self {
+        Self::with_depth(tokens, is_avm2, 0)
+    }
+
+    pub(super) fn with_depth(tokens: Vec<SwfToken>, is_avm2: bool, depth: usize) -> Self {
         Self {
             tokens,
             pos: 0,
             is_avm2,
+            depth,
             function_depth: 0,
             in_function_expression: false,
             allow_in: true,
         }
+    }
+
+    fn with_recursion_guard<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, String>,
+    ) -> Result<T, String> {
+        if self.depth >= MAX_SWF_PARSE_DEPTH {
+            return Err(format!(
+                "script exceeds maximum nesting depth ({MAX_SWF_PARSE_DEPTH}) in bounded SWF compiler"
+            ));
+        }
+        self.depth += 1;
+        let res = f(self);
+        self.depth -= 1;
+        res
     }
 
     pub(super) fn peek(&self) -> Option<&SwfToken> {
@@ -1002,6 +1025,10 @@ impl SwfParser {
     }
 
     pub(super) fn parse_stmt_into(&mut self, out: &mut Vec<SwfStmt>) -> Result<(), String> {
+        self.with_recursion_guard(|this| this.parse_stmt_into_inner(out))
+    }
+
+    fn parse_stmt_into_inner(&mut self, out: &mut Vec<SwfStmt>) -> Result<(), String> {
         while let Some(SwfToken::Ident(m)) = self.peek() {
             if matches!(
                 m.as_str(),
@@ -1681,7 +1708,7 @@ impl SwfParser {
     }
 
     pub(super) fn parse_expr(&mut self) -> Result<SwfExpr, String> {
-        self.parse_ternary()
+        self.with_recursion_guard(Self::parse_ternary)
     }
 
     pub(super) fn parse_ternary(&mut self) -> Result<SwfExpr, String> {
@@ -1693,7 +1720,7 @@ impl SwfParser {
             self.allow_in = saved_in;
             let then_expr = then_expr?;
             self.expect(&SwfToken::Colon)?;
-            let else_expr = self.parse_ternary()?;
+            let else_expr = self.with_recursion_guard(Self::parse_ternary)?;
             return Ok(SwfExpr::Ternary {
                 cond: Box::new(cond),
                 then_expr: Box::new(then_expr),
@@ -1875,14 +1902,14 @@ impl SwfParser {
 
     pub(super) fn parse_unary(&mut self) -> Result<SwfExpr, String> {
         if self.eat(&SwfToken::Not) {
-            let expr = self.parse_unary()?;
+            let expr = self.with_recursion_guard(Self::parse_unary)?;
             return Ok(SwfExpr::Unary {
                 op: SwfUnaryOp::Not,
                 expr: Box::new(expr),
             });
         }
         if self.eat(&SwfToken::Tilde) {
-            let expr = self.parse_unary()?;
+            let expr = self.with_recursion_guard(Self::parse_unary)?;
             return Ok(match expr {
                 SwfExpr::Int(v) => SwfExpr::Int(!v),
                 other => SwfExpr::Unary {
@@ -1893,7 +1920,7 @@ impl SwfParser {
         }
         if self.peek() == Some(&SwfToken::Ident("typeof".to_owned())) {
             self.pos += 1;
-            let expr = self.parse_unary()?;
+            let expr = self.with_recursion_guard(Self::parse_unary)?;
             return Ok(SwfExpr::Unary {
                 op: SwfUnaryOp::Typeof,
                 expr: Box::new(expr),
@@ -1901,12 +1928,12 @@ impl SwfParser {
         }
         if self.peek() == Some(&SwfToken::Ident("delete".to_owned())) {
             self.pos += 1;
-            let expr = self.parse_unary()?;
+            let expr = self.with_recursion_guard(Self::parse_unary)?;
             let target = expr_to_lvalue(expr)?;
             return Ok(SwfExpr::Delete(Box::new(target)));
         }
         if self.eat(&SwfToken::Minus) {
-            let expr = self.parse_unary()?;
+            let expr = self.with_recursion_guard(Self::parse_unary)?;
             return Ok(match expr {
                 SwfExpr::Int(v) if v != i32::MIN => SwfExpr::Int(-v),
                 SwfExpr::Float(2_147_483_648.0) => SwfExpr::Int(i32::MIN),
@@ -1918,7 +1945,7 @@ impl SwfParser {
             });
         }
         if self.eat(&SwfToken::Plus) {
-            let expr = self.parse_unary()?;
+            let expr = self.with_recursion_guard(Self::parse_unary)?;
             return Ok(match expr {
                 SwfExpr::Int(v) => SwfExpr::Int(v),
                 SwfExpr::Float(v) => SwfExpr::Float(v),
@@ -2117,11 +2144,11 @@ impl SwfParser {
                     match piece {
                         SwfXmlRawPiece::Raw(s) => compiled.push(SwfXmlCompiledPiece::Raw(s)),
                         SwfXmlRawPiece::ElemExpr(src) => {
-                            let e = parse_swf_expr_strict(&src, true)?;
+                            let e = parse_swf_expr_strict_with_depth(&src, true, self.depth + 1)?;
                             compiled.push(SwfXmlCompiledPiece::ElemExpr(Box::new(e)));
                         }
                         SwfXmlRawPiece::AttrExpr(src) => {
-                            let e = parse_swf_expr_strict(&src, true)?;
+                            let e = parse_swf_expr_strict_with_depth(&src, true, self.depth + 1)?;
                             compiled.push(SwfXmlCompiledPiece::AttrExpr(Box::new(e)));
                         }
                     }
@@ -2275,9 +2302,18 @@ pub(super) fn expr_to_lvalue(expr: SwfExpr) -> Result<SwfLValue, String> {
     }
 }
 
-pub(super) fn parse_swf_expr_strict(source: &str, is_avm2: bool) -> Result<SwfExpr, String> {
+pub(super) fn parse_swf_expr_strict_with_depth(
+    source: &str,
+    is_avm2: bool,
+    depth: usize,
+) -> Result<SwfExpr, String> {
+    if depth >= MAX_SWF_PARSE_DEPTH {
+        return Err(format!(
+            "script exceeds maximum nesting depth ({MAX_SWF_PARSE_DEPTH}) in bounded SWF compiler"
+        ));
+    }
     let tokens = tokenize_swf_script(source)?;
-    let mut parser = SwfParser::new(tokens, is_avm2);
+    let mut parser = SwfParser::with_depth(tokens, is_avm2, depth);
     let expr = parser.parse_expr()?;
     if parser.pos < parser.tokens.len() {
         return Err(format!(
