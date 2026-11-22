@@ -731,6 +731,12 @@ impl Editor {
         }
     }
 
+    pub(crate) fn has_standalone_swf_preview(&self) -> bool {
+        self.authored_preview
+            .as_ref()
+            .is_some_and(|p| p.standalone_swf_stage.is_some() && p.swf_player.is_some())
+    }
+
     pub(crate) fn reset_authored_preview(&mut self) {
         let had_swf_or_standalone = self
             .authored_preview
@@ -1758,7 +1764,8 @@ impl Editor {
     /// authoring preview. A paused independent MovieClip can differ from the
     /// static frame derived from its parent's playhead.
     pub(crate) fn presented_instance_frame(&self, element: &Id) -> Option<u32> {
-        self.valid_authored_preview()?
+        self.valid_authored_preview()
+            .filter(|preview| preview.standalone_swf_stage.is_none())?
             .playback
             .clip_frame(std::slice::from_ref(element))
     }
@@ -1767,6 +1774,7 @@ impl Editor {
     /// An empty map means static authored evaluation is sufficient.
     pub(crate) fn presented_clip_frames(&self) -> HashMap<Vec<Id>, u32> {
         self.valid_authored_preview()
+            .filter(|preview| preview.standalone_swf_stage.is_none())
             .map(|preview| preview.playback.clip_frames())
             .unwrap_or_default()
     }
@@ -1779,6 +1787,9 @@ impl Editor {
         mut base: AuthoredScene,
         show_masking: bool,
     ) -> AuthoredScene {
+        if self.has_standalone_swf_preview() {
+            return AuthoredScene::default();
+        }
         prepare_stage_path_fingerprints(&mut base);
         if !self.timeline_edit.edit_multiple {
             return base;

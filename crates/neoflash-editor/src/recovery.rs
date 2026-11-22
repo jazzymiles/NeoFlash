@@ -714,7 +714,7 @@ impl RecoveryManager {
             return Ok(());
         };
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        let project_json = project.to_json().map_err(|e| e.to_string())?;
+        let project_bytes = project.to_nflash_bytes().map_err(|e| e.to_string())?;
         let sidecar = RecoverySidecar {
             original_path: original_path.map(Path::to_path_buf),
             document_name: document_name.to_owned(),
@@ -731,7 +731,7 @@ impl RecoveryManager {
         atomic_write(
             &dir.join(format!("{id}.nflash.tmp")),
             &dir.join(format!("{id}.nflash")),
-            project_json.as_bytes(),
+            &project_bytes,
         )?;
         if !self
             .tracked_ids
@@ -778,10 +778,7 @@ impl RecoveryManager {
             else {
                 continue;
             };
-            let project = match std::fs::read_to_string(&path)
-                .map_err(|e| e.to_string())
-                .and_then(|raw| Project::from_json(&raw).map_err(|e| e.to_string()))
-            {
+            let project = match crate::app::read_nflash_project_file(&path) {
                 Ok(project) => project,
                 Err(e) => {
                     warnings.push(format!("Recovery file {} skipped: {e}", path.display()));
@@ -1493,10 +1490,9 @@ impl Editor {
             }
             neoflash_import::import_project(path).map_err(|error| error.to_string())?
         } else {
-            let raw = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
-            match Project::from_json(&raw) {
+            match crate::app::read_nflash_project_file(path) {
                 Ok(project) => project,
-                Err(json_err) => {
+                Err(nflash_err) => {
                     let is_json_ext = path
                         .extension()
                         .and_then(|s| s.to_str())
@@ -1523,7 +1519,7 @@ impl Editor {
                         }
                         neoflash_import::import_project(path).map_err(|error| error.to_string())?
                     } else {
-                        return Err(json_err.to_string());
+                        return Err(nflash_err);
                     }
                 }
             }

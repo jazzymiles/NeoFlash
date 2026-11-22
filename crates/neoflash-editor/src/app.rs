@@ -87,23 +87,6 @@ fn atomic_save_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     crate::windows_platform::atomic_replace_file(path, bytes)
 }
 
-pub(crate) fn file_has_nflash_bundle_prefix(path: &Path) -> bool {
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut prefix = [0u8; 8];
-    let mut read = 0usize;
-    while read < prefix.len() {
-        match std::io::Read::read(&mut file, &mut prefix[read..]) {
-            Ok(0) => break,
-            Ok(n) => read += n,
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(_) => return false,
-        }
-    }
-    neoflash_core::has_nflash_bundle_prefix(&prefix[..read])
-}
-
 /// Bounded `.nflash` / `.json` project loader supporting both ordinary UTF-8 JSON (`<= 128 MiB`)
 /// and self-contained `NFLASHB1` binary bundles (`<= 640 MiB`) (`T-471`).
 pub(crate) fn read_nflash_project_file(path: &Path) -> Result<Project, String> {
@@ -903,6 +886,10 @@ impl Editor {
         self.transact_named("Edit", f);
     }
     pub fn transact_named(&mut self, label: impl Into<String>, f: impl FnOnce(&mut Self)) {
+        if self.has_standalone_swf_preview() {
+            self.playing = false;
+            self.reset_authored_preview();
+        }
         self.finish_property_edit();
         self.finish_selection_gesture();
         self.finish_stage_text_typing();
@@ -1428,16 +1415,7 @@ impl Editor {
             self.standalone_script || Self::is_actionscript_source_path(&disk_path);
         let canonical_path = self.path.clone();
         let preserved_import_source = self.import_source.clone();
-        let loaded_disk = if !was_standalone_script
-            && !Self::is_non_native_graphic_document_path(&disk_path)
-            && !Self::is_legacy_flash_path(&disk_path)
-            && file_has_nflash_bundle_prefix(&disk_path)
-        {
-            read_nflash_project_file(&disk_path).map(|project| (project, Vec::new()))
-        } else {
-            Self::load_project_from_disk_path(&disk_path)
-        };
-        match loaded_disk {
+        match Self::load_project_from_disk_path(&disk_path) {
             Ok((project, diagnostics)) => {
                 self.cancel_edits();
                 for diagnostic in diagnostics {

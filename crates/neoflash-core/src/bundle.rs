@@ -58,14 +58,14 @@ pub fn is_nflash_bundle_bytes(bytes: &[u8]) -> bool {
     bytes.starts_with(NFLASH_BUNDLE_MAGIC)
 }
 
-/// True when `bytes` looks like a complete, versioned, or truncated `NFLASHB*` binary prefix
-/// rather than a UTF-8 JSON document.
+/// True when `bytes` looks like a complete, versioned, or truncated `NFLASH` / `NFLASHB*` binary
+/// header (`>= 6` bytes) rather than a UTF-8 JSON document.
 #[must_use]
 pub fn has_nflash_bundle_prefix(bytes: &[u8]) -> bool {
     if bytes.starts_with(b"NFLASHB") {
         return true;
     }
-    !bytes.is_empty()
+    bytes.len() >= 6
         && bytes.len() < NFLASH_BUNDLE_MAGIC.len()
         && NFLASH_BUNDLE_MAGIC.starts_with(bytes)
 }
@@ -75,8 +75,9 @@ impl Project {
     ///
     /// Emits ordinary UTF-8 JSON bytes (100% identical to [`Project::to_json`]) whenever the
     /// project does not opt into `large_bundle`, passes standard inline [`Project::validate`], and
-    /// fits within `MAX_PROJECT_JSON_BYTES` (`128 MiB`). Otherwise validates against bundle limits
-    /// ([`Project::validate_for_bundle`]) and emits a self-contained `NFLASHB1` binary bundle.
+    /// fits within `MAX_PROJECT_JSON_BYTES` (`128 MiB`). Otherwise validates via
+    /// [`Project::validate`] (honoring `is_large_bundle()`) and emits a self-contained `NFLASHB1`
+    /// binary bundle.
     pub fn to_nflash_bytes(&self) -> Result<Vec<u8>, ProjectError> {
         if !self.is_large_bundle() && crate::validation::validate_inline_only(self).is_empty() {
             match self.to_json() {
@@ -110,7 +111,7 @@ impl Project {
     }
 
     fn encode_nflash_bundle(&self) -> Result<Vec<u8>, ProjectError> {
-        self.validate_for_bundle()?;
+        self.validate()?;
 
         let total_blob_bytes = self
             .resources
@@ -412,7 +413,7 @@ fn decode_nflash_bundle(bytes: &[u8]) -> Result<Project, ProjectError> {
         };
     }
 
-    project.validate_for_bundle()?;
+    project.validate()?;
     Ok(project)
 }
 
@@ -427,6 +428,14 @@ mod tests {
         assert!(!is_nflash_bundle_bytes(&plain_bytes));
         assert_eq!(plain_bytes, demo.to_json().unwrap().into_bytes());
         assert_eq!(Project::from_nflash_bytes(&plain_bytes).unwrap(), demo);
+
+        assert!(!has_nflash_bundle_prefix(b""));
+        assert!(!has_nflash_bundle_prefix(b"N"));
+        assert!(!has_nflash_bundle_prefix(b"NaN"));
+        assert!(!has_nflash_bundle_prefix(b"NFLAS"));
+        assert!(has_nflash_bundle_prefix(b"NFLASH"));
+        assert!(has_nflash_bundle_prefix(b"NFLASHB"));
+        assert!(has_nflash_bundle_prefix(b"NFLASHB1"));
 
         let mut large = Project::blank();
         large.set_large_bundle(true);
@@ -447,6 +456,7 @@ mod tests {
         let restored = Project::from_nflash_bytes(&bundled).expect("decode NFLASHB1");
         assert_eq!(restored, large);
         assert!(restored.is_large_bundle());
+        restored.validate().expect("decoded project must validate");
         let restored_blob = restored
             .resources
             .iter()
@@ -465,8 +475,64 @@ mod tests {
             .to_string();
         assert!(err.contains("SHA-256 mismatch"), "got: {err}");
 
+        // Unopted project with >16 MiB resource fails closed on `to_nflash_bytes()`
+        // and tampered `NFLASHB1` omitting `large_bundle` on >16 MiB resource fails `from_nflash_bytes()`.
+        let big_payload = vec![0x11u8; crate::MAX_RESOURCE_BYTES + 1024];
+        let mut unopted = Project::blank();
+        unopted.resources.push(
+            ResourceUnit::new_large(
+                "too-big",
+                "media/big.bin",
+                "application/octet-stream",
+                &big_payload,
+            )
+            .unwrap(),
+        );
+        assert!(unopted.validate().is_err());
+        assert!(unopted.to_nflash_bytes().is_err());
+
+        let mut opted_big = unopted;
+        opted_big.set_large_bundle(true);
+        let valid_big_bundle = opted_big.to_nflash_bytes().unwrap();
+        // Strip `"publish/settings.json"` (`large_bundle: true`) from the skeleton & manifest while keeping valid SHA-256 on `too-big`!
+        let mut skeleton = Project::blank();
+        skeleton.resources.push(ResourceUnit {
+            id: "too-big".into(),
+            path: "media/big.bin".into(),
+            media_type: "application/octet-stream".into(),
+            data_base64: Arc::from(""),
+            audio_export: None,
+            bitmap_export: None,
+        });
+        let skel_bytes = serde_json::to_vec(&skeleton).unwrap();
+        let tampered_manifest = serde_json::to_vec(&NflashBundleManifest {
+            version: NFLASH_BUNDLE_VERSION,
+            resources: vec![NflashBundleEntry {
+                id: "too-big".into(),
+                path: "media/big.bin".into(),
+                media_type: "application/octet-stream".into(),
+                offset: 0,
+                len: big_payload.len() as u64,
+                sha256: Sha256::digest_hex(&big_payload),
+            }],
+        })
+        .unwrap();
+        let mut forged = Vec::new();
+        forged.extend_from_slice(NFLASH_BUNDLE_MAGIC);
+        forged.extend_from_slice(&NFLASH_BUNDLE_VERSION.to_le_bytes());
+        forged.extend_from_slice(&(skel_bytes.len() as u64).to_le_bytes());
+        forged.extend_from_slice(&(tampered_manifest.len() as u64).to_le_bytes());
+        forged.extend_from_slice(&skel_bytes);
+        forged.extend_from_slice(&tampered_manifest);
+        forged.extend_from_slice(&big_payload);
+        assert!(Project::from_nflash_bytes(&valid_big_bundle).is_ok());
+        assert!(
+            Project::from_nflash_bytes(&forged).is_err(),
+            "forged NFLASHB1 with >16 MiB resource and large_bundle == false must fail from_nflash_bytes()"
+        );
+
         // Truncated header & truncated payload rejected cleanly.
-        for cut in [4usize, 8, 16, 27, bundled.len() - 1] {
+        for cut in [6usize, 7, 8, 16, 27, bundled.len() - 1] {
             assert!(
                 Project::from_nflash_bytes(&bundled[..cut]).is_err(),
                 "expected truncation failure at cut={cut}"

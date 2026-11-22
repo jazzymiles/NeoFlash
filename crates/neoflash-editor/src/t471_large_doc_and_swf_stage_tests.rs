@@ -304,21 +304,41 @@ fn t471_large_nflash_bundle_80mib_round_trips_editor_and_headless_while_preservi
     assert_eq!(bad_json["ok"], false);
     assert_eq!(bad_json["error"]["code"], "invalid_bundle");
 
-    for trunc_len in [4usize, 8, 20, 27, 128] {
+    for trunc_len in [6usize, 7, 8, 20, 27, 128] {
         assert!(
             Project::from_nflash_bytes(&bundle_bytes[..trunc_len]).is_err(),
             "truncated NFLASHB1 ({trunc_len} bytes) must be rejected"
         );
     }
     let trunc_path = tmp.0.join("truncated_hdr.nflash");
-    fs::write(&trunc_path, &bundle_bytes[..12]).unwrap();
-    let (trunc_code, _, _) = run_headless(&[
+    fs::write(&trunc_path, &bundle_bytes[..7]).unwrap();
+    let (trunc_code, trunc_out, _) = run_headless(&[
         "--headless",
-        "inspect",
+        "validate",
         "--project",
         trunc_path.to_str().unwrap(),
     ]);
     assert_eq!(trunc_code, 1);
+    let trunc_json: Value = serde_json::from_str(&trunc_out).unwrap();
+    assert_eq!(trunc_json["error"]["code"], "invalid_bundle");
+
+    // Short text starting with `'N'` (`"N"`, `"NaN"`) must classify as `invalid_json`, not `invalid_bundle` (`[F-10a]`).
+    for short_text in ["N", "NaN"] {
+        let short_path = tmp.0.join(format!("short_{short_text}.nflash"));
+        fs::write(&short_path, short_text.as_bytes()).unwrap();
+        let (short_code, short_out, _) = run_headless(&[
+            "--headless",
+            "validate",
+            "--project",
+            short_path.to_str().unwrap(),
+        ]);
+        assert_eq!(short_code, 1);
+        let short_json: Value = serde_json::from_str(&short_out).unwrap();
+        assert_eq!(
+            short_json["error"]["code"], "invalid_json",
+            "short text '{short_text}' must report invalid_json, got: {short_out}"
+        );
+    }
 
     // 6. Editor open / save / revert / reopen + `--headless inspect` and `--headless validate`!
     let bundle_path = tmp.0.join("large_scene.nflash");
@@ -877,4 +897,234 @@ fn t471_swf_stage_seek_step_restart_audio_sync_and_unreconstructible_fallback() 
         restored_authored_scene.draws[0].item.transform,
         authored_scene_baseline.draws[0].item.transform
     );
+}
+
+#[test]
+fn t471_remediation_recovery_autosave_opt_in_invariants_and_standalone_swf_session_safety() {
+    let tmp = TempDirGuard::new("remediation");
+    let ctx = egui::Context::default();
+
+    // 1. `[F-02]`: `large_bundle == false` project holding a `ResourceUnit::new_large` (> 16 MiB)
+    //    MUST fail closed in `to_nflash_bytes()` AND `from_nflash_bytes()` (never returning a
+    //    `Project` that subsequently fails `validate()`!).
+    let oversized_blob = vec![0x77u8; 18 * 1024 * 1024];
+    let mut unopted = Project::blank();
+    assert!(!unopted.is_large_bundle());
+    unopted.resources.push(
+        ResourceUnit::new_large(
+            "oversized-unopted",
+            "media/oversized.bin",
+            "application/octet-stream",
+            &oversized_blob,
+        )
+        .unwrap(),
+    );
+    assert!(unopted.validate().is_err());
+    assert!(
+        unopted.to_nflash_bytes().is_err(),
+        "to_nflash_bytes must reject >16 MiB resource when large_bundle == false"
+    );
+
+    // Also craft an opted-in `NFLASHB1` (> 96 MiB binary resources so base64 JSON > 128 MiB!)
+    // to exercise `[F-01]` crash-recovery autosave (`> 128 MiB` JSON!), startup scan, and external reload!
+    let mut recovery_proj = Project::blank();
+    recovery_proj.name = "RecoveryBundle100MiB".into();
+    recovery_proj.set_large_bundle(true);
+    let blob_50m_a = vec![0x31u8; 50 * 1024 * 1024];
+    let blob_50m_b = vec![0x52u8; 50 * 1024 * 1024];
+    recovery_proj.resources.push(
+        ResourceUnit::new_large(
+            "rec-a",
+            "media/a.bin",
+            "application/octet-stream",
+            &blob_50m_a,
+        )
+        .unwrap(),
+    );
+    recovery_proj.resources.push(
+        ResourceUnit::new_large(
+            "rec-b",
+            "media/b.bin",
+            "application/octet-stream",
+            &blob_50m_b,
+        )
+        .unwrap(),
+    );
+    recovery_proj
+        .validate()
+        .expect("100 MiB large_bundle validates");
+    // Base64 JSON for 100 MiB is ~133.3 MiB > `MAX_PROJECT_JSON_BYTES` (`128 MiB`), so `to_json()` MUST fail!
+    assert!(
+        recovery_proj.to_json().is_err(),
+        "100 MiB binary resources must exceed 128 MiB inline JSON limit"
+    );
+
+    // `[F-01]`: `RecoveryManager` autosave (`write_active`) + `scan_on_launch` + external reload!
+    let rec_dir = tmp.0.join("recovery_store");
+    let disk_nflash = tmp.0.join("ExternalReloadBundle.nflash");
+    let mut rec_writer = crate::recovery::RecoveryManager::default();
+    rec_writer.set_dir(Some(rec_dir.clone()));
+    rec_writer.retarget(Some(&disk_nflash));
+    rec_writer
+        .write_active(
+            &recovery_proj,
+            Some(&disk_nflash),
+            "ExternalReloadBundle.nflash",
+            1_700_000_000,
+        )
+        .expect("RecoveryManager::write_active must serialize >128 MiB JSON projects as NFLASHB1");
+
+    let mut rec_scanner = crate::recovery::RecoveryManager::default();
+    rec_scanner.set_dir(Some(rec_dir));
+    let scan_warnings = rec_scanner.scan_on_launch();
+    assert!(
+        scan_warnings.is_empty(),
+        "scan_on_launch must decode NFLASHB1 recovery snapshots without warnings, got: {scan_warnings:?}"
+    );
+    let restored_cand = rec_scanner
+        .pop_prompt()
+        .expect("scan_on_launch must surface NFLASHB1 recovery candidate");
+    assert_eq!(restored_cand.project, recovery_proj);
+    restored_cand
+        .project
+        .validate()
+        .expect("recovered project must satisfy validate()");
+
+    // Save `recovery_proj` to `disk_nflash`, open in `Editor`, modify externally on disk as `NFLASHB1`,
+    // and verify `reload_external_modification` reloads it cleanly!
+    let mut rel_editor = Editor::from_project(&ctx, recovery_proj.clone());
+    assert!(rel_editor.save_to_path(disk_nflash.clone()));
+    let mut ext_modified = recovery_proj;
+    ext_modified.name = "ExternallyUpdatedNflashBundle".into();
+    fs::write(&disk_nflash, ext_modified.to_nflash_bytes().unwrap()).unwrap();
+    assert!(
+        rel_editor.reload_external_modification(&ctx),
+        "reload_external_modification must reload NFLASHB1 bundles cleanly"
+    );
+    assert_eq!(rel_editor.project.name, "ExternallyUpdatedNflashBundle");
+    drop(rel_editor);
+    drop(ext_modified);
+
+    // 2. `[F-08]`: `standalone_swf_stage` session tab switch clamps `self.frame`, blocks synthetic
+    //    picking in `presented_interactive_authored_scene`, detaches on `Escape` (`cancel_edits`),
+    //    and detaches cleanly before authored `add_element` / `transact`!
+    let shape1 = minimal_define_shape_payload(1);
+
+    let mut stub99 = Vec::new();
+    stub99.extend_from_slice(&99_u16.to_le_bytes());
+    stub99.extend_from_slice(&1_u16.to_le_bytes());
+    swf_tag(&mut stub99, 1, &[]);
+    swf_tag(&mut stub99, 0, &[]);
+
+    let mut cyc99 = Vec::new();
+    cyc99.extend_from_slice(&99_u16.to_le_bytes());
+    cyc99.extend_from_slice(&1_u16.to_le_bytes());
+    let mut po_cyc = vec![0x06];
+    po_cyc.extend_from_slice(&1_u16.to_le_bytes());
+    po_cyc.extend_from_slice(&99_u16.to_le_bytes());
+    po_cyc.push(0x00);
+    swf_tag(&mut cyc99, 26, &po_cyc);
+    swf_tag(&mut cyc99, 1, &[]);
+    swf_tag(&mut cyc99, 0, &[]);
+
+    let mut swf_tags = Vec::new();
+    swf_tag(&mut swf_tags, 2, &shape1);
+    swf_tag(&mut swf_tags, 39, &stub99);
+    swf_tag(&mut swf_tags, 39, &cyc99);
+    let mut po_s1 = vec![0x06];
+    po_s1.extend_from_slice(&1_u16.to_le_bytes());
+    po_s1.extend_from_slice(&1_u16.to_le_bytes());
+    po_s1.push(0x00);
+    swf_tag(&mut swf_tags, 26, &po_s1);
+    for _ in 0..5 {
+        swf_tag(&mut swf_tags, 1, &[]);
+    }
+    let fallback_swf = tmp.0.join("five_frame_unreconstructible.swf");
+    fs::write(&fallback_swf, build_swf(8, 5, &swf_tags)).unwrap();
+    assert!(neoflash_import::import_project(&fallback_swf).is_err());
+
+    let mut one_frame_proj = Project::blank();
+    one_frame_proj.symbols[0].timeline.frame_count = 1;
+    let mut tab_ed = Editor::from_project(&ctx, one_frame_proj);
+    tab_ed.add_element(
+        ElementKind::Rectangle {
+            width: 50.0,
+            height: 50.0,
+            fill: [10, 120, 240, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        15.0,
+        25.0,
+    );
+    assert_eq!(tab_ed.symbol().timeline.frame_count, 1);
+    let tab1_idx = tab_ed.new_document_session(&ctx);
+    assert_eq!(tab1_idx, 1);
+    assert!(tab_ed.switch_session_tab(&ctx, 0));
+
+    // Attach 5-frame unreconstructible SWF onto 1-frame Tab 0 and seek to Frame 4 (`> frame_count`)!
+    tab_ed
+        .open_swf_with_bounded_preview_fallback(&fallback_swf, &ctx)
+        .unwrap();
+    tab_ed.seek_swf_preview(4).unwrap();
+    assert_eq!(tab_ed.frame, 4);
+    assert!(tab_ed.has_standalone_swf_preview());
+    // Stage painting sees the SWF draw, while Stage interactive hit-testing sees 0 pickable draws!
+    assert_eq!(tab_ed.current_authored_scene(true).draws.len(), 1);
+    assert!(
+        tab_ed
+            .presented_interactive_authored_scene(true)
+            .draws
+            .is_empty(),
+        "interactive_authored_scene must not expose synthetic standalone SWF proxy IDs"
+    );
+
+    // Switch to Tab 1 and back to Tab 0 -> `self.frame` MUST be clamped to `0` (`frame_count - 1`)
+    // and the authored rectangle MUST render (not a blank Stage at `frame = 4`)!
+    assert!(tab_ed.switch_session_tab(&ctx, 1));
+    assert!(!tab_ed.has_standalone_swf_preview());
+    assert!(tab_ed.switch_session_tab(&ctx, 0));
+    assert!(!tab_ed.has_standalone_swf_preview());
+    assert_eq!(tab_ed.frame, 0);
+    assert_eq!(tab_ed.current_authored_scene(true).draws.len(), 1);
+    assert_eq!(
+        tab_ed
+            .presented_interactive_authored_scene(true)
+            .draws
+            .len(),
+        1
+    );
+
+    // Re-attach, seek to Frame 4 (paused), and press `Escape` (`cancel_edits()`) -> detaches & clamps!
+    tab_ed
+        .open_swf_with_bounded_preview_fallback(&fallback_swf, &ctx)
+        .unwrap();
+    tab_ed.seek_swf_preview(4).unwrap();
+    assert_eq!(tab_ed.frame, 4);
+    tab_ed.cancel_edits();
+    assert!(!tab_ed.has_standalone_swf_preview());
+    assert_eq!(tab_ed.frame, 0);
+    assert_eq!(tab_ed.current_authored_scene(true).draws.len(), 1);
+
+    // Re-attach, seek to Frame 4, and perform an authored edit (`add_element`) -> detaches & clamps
+    // BEFORE mutating so the new element lands cleanly on authored Frame 0!
+    tab_ed
+        .open_swf_with_bounded_preview_fallback(&fallback_swf, &ctx)
+        .unwrap();
+    tab_ed.seek_swf_preview(4).unwrap();
+    tab_ed.add_element(
+        ElementKind::Ellipse {
+            width: 30.0,
+            height: 30.0,
+            fill: [240, 180, 20, 255],
+            stroke: [0, 0, 0, 255],
+            stroke_width: 1.0,
+        },
+        80.0,
+        25.0,
+    );
+    assert!(!tab_ed.has_standalone_swf_preview());
+    assert_eq!(tab_ed.frame, 0);
+    assert_eq!(tab_ed.symbol().timeline.frame_count, 1);
+    assert_eq!(tab_ed.current_authored_scene(true).draws.len(), 2);
 }

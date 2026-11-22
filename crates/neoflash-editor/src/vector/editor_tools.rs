@@ -115,6 +115,10 @@ impl Editor {
         };
     }
     pub(crate) fn cancel_edits(&mut self) {
+        if self.has_standalone_swf_preview() {
+            self.playing = false;
+            self.reset_authored_preview();
+        }
         self.cancel_shape_hint_drag();
         self.cancel_motion_drags();
         self.authoring_tools.cancel();
@@ -151,6 +155,9 @@ impl Editor {
             return;
         }
         if tool != self.tool {
+            if !self.playing && self.has_standalone_swf_preview() {
+                self.reset_authored_preview();
+            }
             self.finish_edits();
             if tool != Tool::Text {
                 self.exit_stage_text_edit();

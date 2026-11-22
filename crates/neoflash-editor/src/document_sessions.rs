@@ -416,6 +416,7 @@ impl Editor {
         self.scale9_guide_drag = None;
         self.cancel_guide_drag();
         self.set_playing(false);
+        self.reset_authored_preview();
         self.timeline_audio.stop_all();
         self.timeline_video.follow_preview(None);
         self.timeline_key_drag = None;
