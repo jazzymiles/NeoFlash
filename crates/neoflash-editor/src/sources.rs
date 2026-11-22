@@ -1099,7 +1099,7 @@ impl Editor {
                     ui.push_id(
                         ("nf2-standalone-script-tab", &self.clipboard.session),
                         |ui| {
-                            let _ = (nf::ScriptTab {
+                            let response = (nf::ScriptTab {
                                 label,
                                 pinned: false,
                                 active: true,
@@ -1108,6 +1108,11 @@ impl Editor {
                                 ui,
                                 neoflash_ui::icons::i16::FILE_CODE,
                                 false,
+                            );
+                            neoflash_ui::theme::focus_ring_inside(
+                                ui,
+                                &response.tab,
+                                neoflash_ui::tokens::radius::sm(),
                             );
                         },
                     );
@@ -1181,6 +1186,21 @@ impl Editor {
                                         active: *active,
                                     }
                                     .show_interactive(ui, *icon, loc_opt.is_some());
+                                    for control in
+                                        std::iter::once(&resp.tab).chain(resp.pin.as_ref())
+                                    {
+                                        neoflash_ui::theme::focus_ring_inside(
+                                            ui,
+                                            control,
+                                            neoflash_ui::tokens::radius::sm(),
+                                        );
+                                        if control.gained_focus()
+                                            && neoflash_ui::theme::keyboard_focus(ui, control)
+                                            && !ui.clip_rect().contains_rect(control.rect)
+                                        {
+                                            control.scroll_to_me(None);
+                                        }
+                                    }
                                     if let Some(loc) = loc_opt {
                                         if resp.pin.as_ref().is_some_and(egui::Response::clicked) {
                                             action = Some(TabAction::TogglePin(loc.clone()));
@@ -2332,6 +2352,15 @@ fn code_editor(
         hint_state = HintState::default();
     }
     let focused = ctx.memory(|memory| memory.has_focus(id));
+    // A Tab that enters the editor is navigation. Some backends also send its text event.
+    if !focused && ctx.input(|input| input.key_pressed(egui::Key::Tab)) {
+        ctx.input_mut(|input| {
+            input
+                .events
+                .retain(|event| !matches!(event, egui::Event::Text(text) if text == "\t"))
+        });
+    }
+
     if !focused
         || !ui.is_enabled()
         || host.has_modal_dialog
@@ -2403,6 +2432,9 @@ fn code_editor(
         let selection = state.cursor.char_range().map_or((end, end), |r| {
             (r.secondary.index.min(end), r.primary.index.min(end))
         });
+        if let Some(response) = ctx.read_response(id) {
+            neoflash_ui::theme::keyboard_focus(ui, &response);
+        }
         let outcome =
             crate::code_tools::step_esc_chord_input(&mut esc_chord_phase, &ctx, source, selection);
         if let Some(msg) = outcome.status {
@@ -2637,7 +2669,7 @@ fn code_editor(
                             egui::TextEdit::multiline(source)
                                 .id(id)
                                 .code_editor()
-                                .lock_focus(true)
+                                .lock_focus(focused)
                                 .font(font_id.clone())
                                 .layouter(&mut layouter)
                                 .frame(false)

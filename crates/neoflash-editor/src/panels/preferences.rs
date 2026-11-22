@@ -1927,6 +1927,13 @@ fn prefs_shortcuts(ui: &mut Ui, area: PageArea, draft: &mut PreferencesDraft) {
                                     row = row.conflict(note);
                                 }
                                 let resp = row.show(ui, w);
+                                for control in [&resp.row, &resp.cell] {
+                                    neoflash_ui::theme::focus_ring_inside(
+                                        ui,
+                                        control,
+                                        radius::sm(),
+                                    );
+                                }
                                 if state.scroll_to == Some(cmd) {
                                     resp.row.scroll_to_me(Some(egui::Align::Center));
                                     state.scroll_to = None;

@@ -349,6 +349,36 @@ impl ScrollTheme for egui::ScrollArea {
     }
 }
 pub(crate) struct ThemedScrollArea(egui::ScrollArea);
+/// Reveal the newly focused descendant in its own scroll area. Forward Tab transfers
+/// focus while drawing the next widget. Shift+Tab and arrow traversal may assign it at
+/// the start of the pass, so listen for FocusGained emitted by the contents as well.
+pub(crate) fn reveal_keyboard_focus<R>(
+    ui: &mut egui::Ui,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let previous = ui.memory(|memory| memory.focused());
+    let events_start = ui.output(|output| output.events.len());
+    let result = content(ui);
+    if let Some(focus) = ui.memory(|memory| memory.focused())
+        && let Some(control) = ui.ctx().read_response(focus)
+        && control.layer_id == ui.layer_id()
+        && control.gained_focus()
+        && neoflash_ui::theme::keyboard_focus(ui, &control)
+        && !ui.clip_rect().contains_rect(control.rect)
+        && (Some(focus) != previous
+            || ui.output(|output| {
+                output
+                    .events
+                    .iter()
+                    .skip(events_start)
+                    .any(|event| matches!(event, egui::output::OutputEvent::FocusGained(_)))
+            }))
+    {
+        control.scroll_to_me(None);
+    }
+    result
+}
+
 impl ThemedScrollArea {
     pub fn show<R>(
         self,

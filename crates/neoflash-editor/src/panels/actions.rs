@@ -117,7 +117,11 @@ impl Editor {
                             .inner_margin(
                                 egui::Margin::same(neoflash_ui::tokens::space::s4() as i8),
                             )
-                            .show(ui, |ui| self.properties(ui, &ctx));
+                            .show(ui, |ui| {
+                                crate::theme::reveal_keyboard_focus(ui, |ui| {
+                                    self.properties(ui, &ctx)
+                                })
+                            });
                     });
             }
             PanelId::Actions => self.actions_contents(ui),
@@ -1275,7 +1279,7 @@ impl Editor {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.;
-                self.js_ts_toolbox_tree(ui, language);
+                crate::theme::reveal_keyboard_focus(ui, |ui| self.js_ts_toolbox_tree(ui, language));
             });
         let p = neoflash_ui::palette(ui.ctx());
         ui.add_space(space::s1());
@@ -1296,7 +1300,9 @@ impl Editor {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.;
-                self.js_ts_script_navigator(ui, current_label);
+                crate::theme::reveal_keyboard_focus(ui, |ui| {
+                    self.js_ts_script_navigator(ui, current_label)
+                });
             });
     }
 
@@ -2831,6 +2837,49 @@ mod tests {
         ctx.memory_mut(|m| m.request_focus(editor_id));
         let _ = run_actions(&mut editor, Some(1.0), vec![]);
         assert!(ctx.memory(|m| m.has_focus(editor_id)));
+
+        let tab_event = |shift| egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers {
+                shift,
+                ..Default::default()
+            },
+        };
+        ctx.memory_mut(|memory| memory.surrender_focus(editor_id));
+        for step in 1..140 {
+            run_actions(
+                &mut editor,
+                Some(1.0 + step as f64 * 0.00005),
+                vec![tab_event(false), egui::Event::Text("\t".into())],
+            );
+            if ctx.memory(|m| m.has_focus(editor_id)) {
+                break;
+            }
+        }
+        assert!(ctx.memory(|m| m.has_focus(editor_id)));
+        assert!(editor.symbol().timeline.scripts.is_empty());
+        assert!(!editor.history.can_undo());
+
+        // A keyboard user can leave the editor in either direction without inserting a tab.
+        for shift in [false, true] {
+            ctx.memory_mut(|m| m.request_focus(editor_id));
+            run_actions(&mut editor, Some(1.01), vec![]);
+            run_actions(&mut editor, Some(1.02), vec![esc_event()]);
+            run_actions(
+                &mut editor,
+                Some(1.03),
+                vec![tab_event(shift), egui::Event::Text("\t".into())],
+            );
+            run_actions(&mut editor, Some(1.04), vec![]);
+            assert!(ctx.memory(|m| m.focused().is_some() && !m.has_focus(editor_id)));
+            assert!(editor.symbol().timeline.scripts.is_empty());
+            assert!(!editor.history.can_undo());
+        }
+        ctx.memory_mut(|m| m.request_focus(editor_id));
+        run_actions(&mut editor, Some(1.05), vec![]);
 
         // 1. `<ESC>` -> `f` -> `n`: keeps focus, shows prompts, leaves zero literal `"fn"`,
         //    inserts `function name ( ) {\n\t\n}`, selects `name`, and undoes in 1 step!

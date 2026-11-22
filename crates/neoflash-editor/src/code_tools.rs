@@ -3088,7 +3088,7 @@ pub(crate) fn diagnostics_and_quick_fixes(
 pub(crate) const ESC_CHORD_TIMEOUT_SECS: f64 = 5.0;
 
 pub(crate) const ESC_CHORD_ARMED_PROMPT: &str =
-    "ESC shortcut: type 2 keys (fn = function, tr = trace, st = stop, if, fr…)";
+    "Type two shortcut keys (fn, tr, st…) or press Tab / Shift+Tab to leave the editor.";
 
 pub(crate) const ESC_CHORD_CANCELLED_STATUS: &str = "ESC shortcut cancelled.";
 
@@ -3694,6 +3694,7 @@ pub(crate) fn step_esc_chord_input(
     let mut cur_sel = (selection.0.min(selection.1), selection.0.max(selection.1));
     let mut did_edit = false;
     let mut status: Option<String> = None;
+    let mut leave_editor = None;
 
     let mut feed_char = |phase: &mut EscChordPhase, status: &mut Option<String>, ch: char| {
         let norm = normalize_esc_chord_char(ch);
@@ -3764,6 +3765,23 @@ pub(crate) fn step_esc_chord_input(
                     }
                 }
                 egui::Event::Key {
+                    key: egui::Key::Tab,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } if matches!(phase, EscChordPhase::Armed { .. })
+                    && (modifiers.is_none() || modifiers == egui::Modifiers::SHIFT) =>
+                {
+                    leave_editor = Some(if modifiers.shift {
+                        egui::FocusDirection::Previous
+                    } else {
+                        egui::FocusDirection::Next
+                    });
+                    *phase = EscChordPhase::Idle;
+                    status = Some("Keyboard focus left the code editor.".into());
+                }
+                egui::Event::Text(ref text) if leave_editor.is_some() && text == "\t" => {}
+                egui::Event::Key {
                     key,
                     pressed: true,
                     modifiers,
@@ -3819,6 +3837,9 @@ pub(crate) fn step_esc_chord_input(
         input.events = kept;
     });
 
+    if let Some(direction) = leave_editor {
+        ctx.memory_mut(|memory| memory.move_focus(direction));
+    }
     if let Some(armed_at) = phase.armed_at() {
         let remaining = (ESC_CHORD_TIMEOUT_SECS - (now - armed_at)).max(0.05);
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(remaining));

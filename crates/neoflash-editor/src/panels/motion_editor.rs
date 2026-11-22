@@ -168,7 +168,7 @@ impl Editor {
             .themed()
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(space::s2(), space::s2());
-                self.motion_editor(ui);
+                crate::theme::reveal_keyboard_focus(ui, |ui| self.motion_editor(ui));
             });
         self.end_property_interaction(&ctx);
     }

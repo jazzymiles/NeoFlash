@@ -149,7 +149,7 @@ impl Editor {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.;
-                self.toolbox_tree(ui, language);
+                crate::theme::reveal_keyboard_focus(ui, |ui| self.toolbox_tree(ui, language));
             });
         let p = neoflash_ui::palette(ui.ctx());
         ui.add_space(space::s1());
@@ -170,7 +170,9 @@ impl Editor {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.;
-                self.script_navigator(ui, current_label);
+                crate::theme::reveal_keyboard_focus(ui, |ui| {
+                    self.script_navigator(ui, current_label)
+                });
             });
     }
 

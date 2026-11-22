@@ -2371,6 +2371,112 @@ fn t383_motion_rotate_reset_to_auto_or_none_and_motion_track_flags_sync() {
 }
 
 #[test]
+fn tab_reveals_offscreen_controls_in_properties_motion_and_actions() {
+    use egui::{Event, Key, Pos2, Rect};
+    for (panel, target_label, size) in [
+        (
+            PanelId::Actions,
+            "Symbol definitions",
+            egui::vec2(920., 380.),
+        ),
+        (
+            PanelId::Properties,
+            "Link padding values",
+            egui::vec2(340., 400.),
+        ),
+        (PanelId::MotionEditor, "Graph size", egui::vec2(920., 235.)),
+    ] {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = match panel {
+            PanelId::MotionEditor => motion_editor(),
+            PanelId::Actions => Editor::from_project(&ctx, Project::demo()),
+            _ => {
+                let mut editor = Editor::from_project(&ctx, Project::demo());
+                let text = editor.editable_targets().into_iter().next().unwrap();
+                editor.set_selection(vec![text]);
+                editor
+            }
+        };
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        editor.workspace.theme.apply(&ctx);
+        let project = editor.project.clone();
+        let bounds = Rect::from_min_size(Pos2::ZERO, size);
+        let mut time = 0.;
+        let mut render = |events| {
+            time += 1. / 30.;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(bounds),
+                    events,
+                    time: Some(time),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .show(ctx, |ui| editor.dock_panel_contents(ui, panel));
+                },
+            )
+        };
+        let mut targets = std::collections::HashSet::new();
+        for _ in 0..3 {
+            let output = render(vec![]);
+            if let Some(tree) = output.platform_output.accesskit_update {
+                for (id, node) in tree.nodes {
+                    if node.label() == Some(target_label) {
+                        targets.insert(id);
+                    }
+                }
+            }
+        }
+        assert!(!targets.is_empty(), "{panel:?}: {target_label}");
+        let tab = |pressed, shift| Event::Key {
+            key: Key::Tab,
+            physical_key: Some(Key::Tab),
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers {
+                shift,
+                ..Default::default()
+            },
+        };
+        let focused_target = || {
+            ctx.memory(|m| m.focused())
+                .filter(|id| targets.contains(&egui::accesskit::NodeId(id.value())))
+        };
+        for _ in 0..130 {
+            render(vec![tab(true, false)]);
+            render(vec![tab(false, false)]);
+            if focused_target().is_some() {
+                break;
+            }
+        }
+        let reached = focused_target().expect("Tab reaches target");
+        for reverse in [false, true] {
+            if reverse {
+                render(vec![tab(true, false)]);
+                render(vec![tab(false, false)]);
+                render(vec![tab(true, true)]);
+                render(vec![tab(false, true)]);
+                assert_eq!(focused_target(), Some(reached));
+            }
+            for _ in 0..15 {
+                render(vec![]);
+            }
+            let control = ctx.read_response(reached).unwrap();
+            assert!(
+                bounds.contains_rect(control.rect)
+                    && control.interact_rect.contains_rect(control.rect),
+                "{panel:?}: {target_label} retains hidden focus at {:?} / {:?}",
+                control.rect,
+                control.interact_rect
+            );
+        }
+        assert_eq!(editor.project, project);
+    }
+}
+
+#[test]
 fn timeline_keyboard_focus_follows_rows_toggles_grid_and_ruler() {
     check_panel_keyboard_rings(
         PanelId::Timeline,
