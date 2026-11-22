@@ -436,6 +436,11 @@ impl Editor {
                     return;
                 }
                 let open_row = ui.add(c::MenuItem::new("Open").checked(undo_len == 0));
+                neoflash_ui::theme::focus_ring_inside(
+                    ui,
+                    &open_row,
+                    neoflash_ui::tokens::radius::sm(),
+                );
                 if open_row.clicked() && undo_len > 0 {
                     target_step = Some(0);
                 }
@@ -443,6 +448,11 @@ impl Editor {
                     let is_current = i + 1 == undo_len;
                     let can_replay = self.history.step_command(i).is_some();
                     let response = ui.add(c::MenuItem::new(label).checked(is_current));
+                    neoflash_ui::theme::focus_ring_inside(
+                        ui,
+                        &response,
+                        neoflash_ui::tokens::radius::sm(),
+                    );
                     if response.clicked() && !is_current {
                         target_step = Some(i + 1);
                     }

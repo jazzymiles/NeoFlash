@@ -2492,6 +2492,73 @@ fn every_panel_preview_and_dialog_opens_and_closes() {
 }
 
 #[test]
+fn history_menu_rows_show_keyboard_focus_on_the_edit_target() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.transact_named("Resize document", |e| e.project.width += 1);
+    let mut nodes = std::collections::HashMap::new();
+    let mut seen = Vec::new();
+    for step in 0..12 {
+        let events = if step > 1 {
+            [true, false]
+                .map(|pressed| Event::Key {
+                    key: egui::Key::Tab,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                })
+                .into()
+        } else {
+            Vec::new()
+        };
+        let out = ctx.run(
+            egui::RawInput {
+                events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| editor.dock_panel_contents(ui, PanelId::History));
+            },
+        );
+        let tree = out
+            .platform_output
+            .accesskit_update
+            .expect("focused History control");
+        nodes.extend(tree.nodes);
+        let Some(node) = nodes.get(&tree.focus) else {
+            continue;
+        };
+        let label = node.label().unwrap_or_default();
+        if !matches!(label, "Open" | "Resize document") {
+            continue;
+        }
+        let bounds = node.bounds().expect("row bounds");
+        let center = egui::pos2(
+            (bounds.x0 + bounds.x1) as f32 * 0.5,
+            (bounds.y0 + bounds.y1) as f32 * 0.5,
+        );
+        assert!(
+            out.shapes
+                .iter()
+                .any(|s| matches!(&s.shape, egui::Shape::Rect(r)
+                 if r.rect.contains(center) && (r.rect.center().y-center.y).abs() < 1.0
+                 && r.stroke.color==neoflash_ui::palette(&ctx).border_focus)),
+            "no visible Tab focus on {label}"
+        );
+        if !seen.contains(&label.to_string()) {
+            seen.push(label.to_string());
+        }
+        if seen.len() == 2 {
+            break;
+        }
+    }
+    assert_eq!(seen, ["Open", "Resize document"]);
+}
+
+#[test]
 fn history_panel_lists_named_steps_jumps_back_and_forward_clears_and_updates_edit_menu() {
     let mut d = Driver::new();
     d.editor = Editor::from_project(&d.ctx, Project::blank());
