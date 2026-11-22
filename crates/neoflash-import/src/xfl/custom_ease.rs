@@ -307,13 +307,7 @@ impl Parser<'_> {
 
             if spec.single_ease && spec.curves.len() == 1 && spec.curves[0].target == "all" {
                 let pts = &spec.curves[0].points;
-                match try_subdivide_global_xfl_custom_ease(
-                    layer,
-                    key_idx,
-                    pts,
-                    has_motion_guide,
-                    &self.symbols,
-                ) {
+                match try_subdivide_global_xfl_custom_ease(layer, key_idx, pts, has_motion_guide) {
                     Ok(()) => {}
                     Err(_) => {
                         let mut by_target = BTreeMap::new();
@@ -323,7 +317,6 @@ impl Parser<'_> {
                             key_idx,
                             &by_target,
                             spec.base_ease,
-                            &self.symbols,
                             &mut self.motion_pose_budget,
                         ) {
                             self.report.warning(
@@ -418,7 +411,6 @@ impl Parser<'_> {
                 key_idx,
                 &by_target,
                 spec.base_ease,
-                &self.symbols,
                 &mut self.motion_pose_budget,
             ) {
                 self.report.warning(
@@ -447,6 +439,7 @@ fn can_represent_as_motion_property_eases(
     symbols: &HashMap<String, (String, SymbolKind)>,
 ) -> bool {
     if !start_kf.tween_scale
+        || start_kf.orient_to_path
         || start_kf.classic_rotate_turns != 0
         || start_kf.classic_rotate_dir != ClassicRotateDirection::Auto
     {
@@ -507,8 +500,6 @@ fn interpolate_element_with_eases(
     a_el: &Element,
     b_el: &Element,
     tween_scale: bool,
-    is_graphic_symbol: bool,
-    frame_offset: u32,
     v_pos: f64,
     v_scale: f64,
     v_rot: f64,
@@ -575,19 +566,9 @@ fn interpolate_element_with_eases(
             .next()
             .map_or_else(|| a_el.filters.clone(), |sampled| sampled.filters)
     };
-    if is_graphic_symbol && let ElementKind::Instance { playback, .. } = &mut el.kind {
-        *playback = match *playback {
-            InstancePlayback::Loop => InstancePlayback::LoopFrom(frame_offset),
-            InstancePlayback::LoopFrom(f0) => {
-                InstancePlayback::LoopFrom(f0.saturating_add(frame_offset))
-            }
-            InstancePlayback::PlayOnce => InstancePlayback::PlayOnceFrom(frame_offset),
-            InstancePlayback::PlayOnceFrom(f0) => {
-                InstancePlayback::PlayOnceFrom(f0.saturating_add(frame_offset))
-            }
-            other => other,
-        };
-    }
+    // Cloned elements preserve `a_el.id` and `a_el.kind` (`InstancePlayback`), so
+    // `neoflash_core::placement_start` tracks continuous placement age (`frame - start_frame`)
+    // without inflating `firstFrame`.
     match (&a_el.kind, &b_el.kind, &mut el.kind) {
         (
             ElementKind::Rectangle {
@@ -661,7 +642,6 @@ fn try_subdivide_global_xfl_custom_ease(
     key_idx: usize,
     pts: &[[f64; 2]],
     has_motion_guide: bool,
-    symbols: &HashMap<String, (String, SymbolKind)>,
 ) -> Result<(), &'static str> {
     if has_motion_guide {
         return Err("guided multi-segment custom ease");
@@ -746,29 +726,17 @@ fn try_subdivide_global_xfl_custom_ease(
     let end_kf = layer.keyframes[key_idx + 1].clone();
     let a_el = &start_kf.elements[0];
     let b_el = &end_kf.elements[0];
-    let is_graphic = match &a_el.kind {
-        ElementKind::Instance { symbol_id, .. } => symbols
-            .values()
-            .any(|(sid, kind)| sid == symbol_id && *kind == SymbolKind::Graphic),
-        _ => false,
-    };
+    let rot_delta = shortest_rotation_delta(a_el.transform.rotation, b_el.transform.rotation);
+    let target_end_rot = a_el.transform.rotation + rot_delta;
+    if (target_end_rot - b_el.transform.rotation).abs() > 1e-6 && end_kf.tween.is_some() {
+        return Err("branch-cut rotation continues into subsequent tween");
+    }
 
     let mut inserted = Vec::with_capacity(splits.len().saturating_sub(2));
     for idx in 1..splits.len() - 1 {
         let k_off = splits[idx];
         let v = split_v[idx];
-        let el = interpolate_element_with_eases(
-            a_el,
-            b_el,
-            start_kf.tween_scale,
-            is_graphic,
-            k_off,
-            v,
-            v,
-            v,
-            v,
-            v,
-        );
+        let el = interpolate_element_with_eases(a_el, b_el, start_kf.tween_scale, v, v, v, v, v);
         inserted.push(Keyframe {
             frame: start_frame + k_off,
             elements: vec![el],
@@ -785,6 +753,7 @@ fn try_subdivide_global_xfl_custom_ease(
     layer.keyframes[key_idx].tween = Some(sub_eases[0]);
     layer.keyframes[key_idx].classic_rotate_dir = ClassicRotateDirection::Auto;
     layer.keyframes[key_idx].classic_rotate_turns = 0;
+    layer.keyframes[key_idx + 1].elements[0].transform.rotation = target_end_rot;
     layer.keyframes.splice(key_idx + 1..key_idx + 1, inserted);
     Ok(())
 }
@@ -794,7 +763,6 @@ fn bake_custom_eased_poses(
     key_idx: usize,
     by_target: &BTreeMap<&str, &[[f64; 2]]>,
     base_ease: Easing,
-    symbols: &HashMap<String, (String, SymbolKind)>,
     budget: &mut usize,
 ) -> bool {
     let start_frame = layer.keyframes[key_idx].frame;
@@ -813,12 +781,6 @@ fn bake_custom_eased_poses(
         return false;
     }
 
-    let is_graphic = match &a_el.kind {
-        ElementKind::Instance { symbol_id, .. } => symbols
-            .values()
-            .any(|(sid, kind)| sid == symbol_id && *kind == SymbolKind::Graphic),
-        _ => false,
-    };
     let tween_scale = layer.keyframes[key_idx].tween_scale;
 
     let eval_prop = |name: &str, u: f64, fallback: f64| -> f64 {
@@ -843,8 +805,6 @@ fn bake_custom_eased_poses(
             &a_el,
             &b_el,
             tween_scale,
-            is_graphic,
-            step,
             v_pos,
             v_scale,
             v_rot,

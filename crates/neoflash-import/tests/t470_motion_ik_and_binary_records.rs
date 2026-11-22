@@ -1383,3 +1383,677 @@ fn xfl_between_frame_matrix_list_and_animation_core_filter_curves_sample_cleanly
         other => panic!("expected animated Blur filter at frame 2, got {other:?}"),
     }
 }
+
+#[test]
+fn xfl_custom_ease_branch_cut_rotation_and_orient_to_path_guard() {
+    let mat_rot = |deg: f64, tx: f64, ty: f64| -> String {
+        let (s, c) = deg.to_radians().sin_cos();
+        format!(
+            r#"<Matrix a="{c:.8}" b="{s:.8}" c="{ms:.8}" d="{c:.8}" tx="{tx}" ty="{ty}"/>"#,
+            ms = -s
+        )
+    };
+    let m_pos170 = mat_rot(170.0, 50.0, 100.0);
+    let m_neg170 = mat_rot(-170.0, 250.0, 100.0);
+    let m_neg150 = mat_rot(-150.0, 350.0, 100.0);
+    let m_pos45_a = mat_rot(45.0, 20.0, 200.0);
+    let m_pos45_b = mat_rot(45.0, 220.0, 200.0);
+
+    let dom = format!(
+        r##"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="550" height="400" frameRate="24" xflVersion="2.2">
+  <symbols>
+    <Include href="SpinBox.xml"/>
+  </symbols>
+  <timelines>
+    <DOMTimeline name="Scene 1">
+      <layers>
+        <DOMLayer name="SubdividedBranchCut">
+          <frames>
+            <DOMFrame index="0" duration="10" tweenType="motion" hasCustomEase="true" useSingleEaseCurve="true">
+              <tweens>
+                <CustomEase target="all">
+                  <Point x="0" y="0"/>
+                  <Point x="0.2" y="0.2"/>
+                  <Point x="0.3" y="0.3"/>
+                  <Point x="0.5" y="0.5"/>
+                  <Point x="0.7" y="0.7"/>
+                  <Point x="0.8" y="0.8"/>
+                  <Point x="1" y="1"/>
+                </CustomEase>
+              </tweens>
+              <elements>
+                <DOMSymbolInstance libraryItemName="SpinBox" name="sb1">
+                  <matrix>{m_pos170}</matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="10" duration="1">
+              <elements>
+                <DOMSymbolInstance libraryItemName="SpinBox" name="sb1">
+                  <matrix>{m_neg170}</matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+
+        <DOMLayer name="ChainedBranchCut">
+          <frames>
+            <DOMFrame index="0" duration="6" tweenType="motion" hasCustomEase="true" useSingleEaseCurve="true">
+              <tweens>
+                <CustomEase target="all">
+                  <Point x="0" y="0"/>
+                  <Point x="0.15" y="0.15"/>
+                  <Point x="0.35" y="0.35"/>
+                  <Point x="0.5" y="0.5"/>
+                  <Point x="0.65" y="0.65"/>
+                  <Point x="0.85" y="0.85"/>
+                  <Point x="1" y="1"/>
+                </CustomEase>
+              </tweens>
+              <elements>
+                <DOMSymbolInstance libraryItemName="SpinBox" name="sb2">
+                  <matrix>{m_pos170}</matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="6" duration="4" tweenType="motion">
+              <elements>
+                <DOMSymbolInstance libraryItemName="SpinBox" name="sb2">
+                  <matrix>{m_neg170}</matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="10" duration="1">
+              <elements>
+                <DOMSymbolInstance libraryItemName="SpinBox" name="sb2">
+                  <matrix>{m_neg150}</matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+
+        <DOMLayer name="UnguidedOrientPerProp">
+          <frames>
+            <DOMFrame index="0" duration="10" tweenType="motion" motionTweenOrientToPath="true" hasCustomEase="true" useSingleEaseCurve="false">
+              <tweens>
+                <CustomEase target="position">
+                  <Point x="0" y="0"/>
+                  <Point x="0.1" y="0.8"/>
+                  <Point x="0.3" y="0.95"/>
+                  <Point x="1" y="1"/>
+                </CustomEase>
+              </tweens>
+              <elements>
+                <DOMSymbolInstance libraryItemName="SpinBox" name="sb3">
+                  <matrix>{m_pos45_a}</matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="10" duration="1">
+              <elements>
+                <DOMSymbolInstance libraryItemName="SpinBox" name="sb3">
+                  <matrix>{m_pos45_b}</matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timelines>
+</DOMDocument>"##
+    );
+
+    let tmp = TempDir::new();
+    let spin_sym = box_symbol_xml("SpinBox", 30, 10, "#3377DD");
+    write_xfl_dir(
+        &tmp.0,
+        &[
+            ("DOMDocument.xml", &dom),
+            ("LIBRARY/SpinBox.xml", &spin_sym),
+        ],
+    );
+
+    let proj = import_project(&tmp.0).unwrap();
+    proj.validate().unwrap();
+    let tl = &proj.symbol(&proj.root).unwrap().timeline;
+
+    // 1. SubdividedBranchCut: +170 -> +180 -> +190 (never spins -350 backwards!)
+    let sub_layer = tl
+        .layers
+        .iter()
+        .find(|l| l.name == "SubdividedBranchCut")
+        .unwrap();
+    assert_eq!(sub_layer.keyframes.len(), 3);
+    for frame in 0..=10_u32 {
+        let expected = 170.0 + 2.0 * f64::from(frame);
+        let actual = sample_layer(sub_layer, frame)[0].transform.rotation;
+        assert!(
+            (actual - expected).abs() < 0.25,
+            "frame {frame}: expected smooth branch-cut rotation {expected}, got {actual}"
+        );
+    }
+
+    // 2. ChainedBranchCut: bails out to baking on 0..6 so frame 6..10 still tweens -170 -> -150 cleanly!
+    let ch_layer = tl
+        .layers
+        .iter()
+        .find(|l| l.name == "ChainedBranchCut")
+        .unwrap();
+    for frame in 0..=10_u32 {
+        let rot = sample_layer(ch_layer, frame)[0].transform.rotation;
+        let norm = ((rot + 180.0).rem_euclid(360.0)) - 180.0;
+        // Must stay in [+170..+180] U [-180..-150], never near 0 deg (which a -350 spin crosses!).
+        assert!(
+            !(norm > -145.0 && norm < 165.0),
+            "chained branch-cut spun backwards at frame {frame}: rot={rot} (norm={norm})"
+        );
+    }
+
+    // 3. UnguidedOrientPerProp: unguided classic tween ignores orient_to_path and preserves 45 deg!
+    let op_layer = tl
+        .layers
+        .iter()
+        .find(|l| l.name == "UnguidedOrientPerProp")
+        .unwrap();
+    for frame in 0..=10_u32 {
+        let rot = sample_layer(op_layer, frame)[0].transform.rotation;
+        assert!(
+            (rot - 45.0).abs() < 0.1,
+            "unguided orient_to_path must keep 45 deg at frame {frame}, got {rot}"
+        );
+    }
+}
+
+#[test]
+fn graphic_symbol_playback_wraps_and_advances_cleanly_on_ik_and_custom_ease() {
+    let graphic_1f = r##"<DOMSymbolItem xmlns="http://ns.adobe.com/xfl/2008/" name="StaticGraphic" symbolType="graphic">
+  <timeline>
+    <DOMTimeline name="StaticGraphic">
+      <layers>
+        <DOMLayer name="Layer 1">
+          <frames>
+            <DOMFrame index="0" duration="1">
+              <elements>
+                <DOMRectangleObject objectWidth="20" objectHeight="10">
+                  <fill><SolidColor color="#AA2244"/></fill>
+                </DOMRectangleObject>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>"##;
+
+    let graphic_4f = r##"<DOMSymbolItem xmlns="http://ns.adobe.com/xfl/2008/" name="CycleGraphic" symbolType="graphic">
+  <timeline>
+    <DOMTimeline name="CycleGraphic">
+      <layers>
+        <DOMLayer name="Layer 1">
+          <frames>
+            <DOMFrame index="0" duration="1"><elements><DOMRectangleObject objectWidth="10" objectHeight="10"><fill><SolidColor color="#112233"/></fill></DOMRectangleObject></elements></DOMFrame>
+            <DOMFrame index="1" duration="1"><elements><DOMRectangleObject objectWidth="20" objectHeight="10"><fill><SolidColor color="#224466"/></fill></DOMRectangleObject></elements></DOMFrame>
+            <DOMFrame index="2" duration="1"><elements><DOMRectangleObject objectWidth="30" objectHeight="10"><fill><SolidColor color="#336699"/></fill></DOMRectangleObject></elements></DOMFrame>
+            <DOMFrame index="3" duration="1"><elements><DOMRectangleObject objectWidth="40" objectHeight="10"><fill><SolidColor color="#4488CC"/></fill></DOMRectangleObject></elements></DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timeline>
+</DOMSymbolItem>"##;
+
+    let dom = r##"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="550" height="400" frameRate="24" xflVersion="2.2">
+  <symbols>
+    <Include href="StaticGraphic.xml"/>
+    <Include href="CycleGraphic.xml"/>
+  </symbols>
+  <timelines>
+    <DOMTimeline name="Scene 1">
+      <layers>
+        <DOMLayer name="IkGraphicArmature" layerType="armature">
+          <DOMIKTree name="GTree">
+            <bones>
+              <DOMBone id="b_loop" target="g_loop_ik" x="50" y="50" length="40" rotation="0"/>
+              <DOMBone id="b_once" parent="b_loop" target="g_once_ik" length="40" rotation="0"/>
+              <DOMBone id="b_one" parent="b_once" target="g_static_ik" length="40" rotation="0"/>
+            </bones>
+          </DOMIKTree>
+          <frames>
+            <DOMFrame index="0" duration="9">
+              <ikNode bone="b_loop" rotation="0"/>
+              <ikNode bone="b_once" rotation="0"/>
+              <ikNode bone="b_one" rotation="0"/>
+              <elements>
+                <DOMSymbolInstance libraryItemName="CycleGraphic" name="g_loop_ik" symbolType="graphic" loop="loop">
+                  <matrix><Matrix tx="50" ty="50"/></matrix>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="CycleGraphic" name="g_once_ik" symbolType="graphic" loop="play once">
+                  <matrix><Matrix tx="90" ty="50"/></matrix>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="StaticGraphic" name="g_static_ik" symbolType="graphic" loop="loop">
+                  <matrix><Matrix tx="130" ty="50"/></matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="9" duration="1">
+              <ikNode bone="b_loop" rotation="45"/>
+              <ikNode bone="b_once" rotation="-20"/>
+              <ikNode bone="b_one" rotation="10"/>
+              <elements>
+                <DOMSymbolInstance libraryItemName="CycleGraphic" name="g_loop_ik" symbolType="graphic" loop="loop">
+                  <matrix><Matrix tx="50" ty="50"/></matrix>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="CycleGraphic" name="g_once_ik" symbolType="graphic" loop="play once">
+                  <matrix><Matrix tx="90" ty="50"/></matrix>
+                </DOMSymbolInstance>
+                <DOMSymbolInstance libraryItemName="StaticGraphic" name="g_static_ik" symbolType="graphic" loop="loop">
+                  <matrix><Matrix tx="130" ty="50"/></matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+
+        <DOMLayer name="CustomEaseGraphicLoop">
+          <frames>
+            <DOMFrame index="0" duration="9" tweenType="motion" hasCustomEase="true" useSingleEaseCurve="false">
+              <tweens>
+                <CustomEase target="position">
+                  <Point x="0" y="0"/>
+                  <Point x="0.1" y="0.6"/>
+                  <Point x="0.2" y="0.8"/>
+                  <Point x="0.5" y="0.9"/>
+                  <Point x="0.7" y="0.95"/>
+                  <Point x="0.9" y="0.99"/>
+                  <Point x="1" y="1"/>
+                </CustomEase>
+              </tweens>
+              <elements>
+                <DOMSymbolInstance libraryItemName="CycleGraphic" name="g_baked_ce" symbolType="graphic" loop="loop">
+                  <matrix><Matrix tx="20" ty="250"/></matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+            <DOMFrame index="9" duration="1">
+              <elements>
+                <DOMSymbolInstance libraryItemName="CycleGraphic" name="g_baked_ce" symbolType="graphic" loop="loop">
+                  <matrix><Matrix tx="220" ty="250"/></matrix>
+                </DOMSymbolInstance>
+              </elements>
+            </DOMFrame>
+          </frames>
+        </DOMLayer>
+      </layers>
+    </DOMTimeline>
+  </timelines>
+</DOMDocument>"##;
+
+    let tmp = TempDir::new();
+    write_xfl_dir(
+        &tmp.0,
+        &[
+            ("DOMDocument.xml", dom),
+            ("LIBRARY/StaticGraphic.xml", graphic_1f),
+            ("LIBRARY/CycleGraphic.xml", graphic_4f),
+        ],
+    );
+
+    let rep = inspect(&tmp.0).unwrap();
+    assert!(rep.can_import, "{:?}", rep.diagnostics);
+    assert!(
+        rep.diagnostics
+            .iter()
+            .all(|d| d.code != "xfl_playback_frame_clamped"
+                && d.code != "ambiguous_instance_continuity"),
+        "valid Graphic firstFrame=0 must never emit xfl_playback_frame_clamped or ambiguous_instance_continuity: {:?}",
+        rep.diagnostics
+    );
+
+    let proj = import_project(&tmp.0).unwrap();
+    proj.validate().unwrap();
+    let root_tl = &proj.symbol(&proj.root).unwrap().timeline;
+    let ik_g_layer = root_tl
+        .layers
+        .iter()
+        .find(|l| l.name == "IkGraphicArmature")
+        .unwrap();
+    let ce_g_layer = root_tl
+        .layers
+        .iter()
+        .find(|l| l.name == "CustomEaseGraphicLoop")
+        .unwrap();
+
+    for frame in 0..10_u32 {
+        let eval_inst_frame = |layer: &neoflash_core::Layer, inst_name: &str| -> u32 {
+            let eid = layer.keyframes[0]
+                .elements
+                .iter()
+                .find(|e| e.name == inst_name)
+                .unwrap()
+                .id
+                .as_str();
+            neoflash_core::evaluate_instance_pose(&proj, &proj.root, frame, &layer.id, eid)
+                .unwrap()
+                .frame
+        };
+        assert_eq!(
+            eval_inst_frame(ik_g_layer, "g_loop_ik"),
+            frame % 4,
+            "4-frame looping Graphic on IK armature must wrap modulo 4 at frame {frame}"
+        );
+        assert_eq!(
+            eval_inst_frame(ik_g_layer, "g_once_ik"),
+            frame.min(3),
+            "4-frame play-once Graphic on IK armature must advance then clamp to 3 at frame {frame}"
+        );
+        assert_eq!(
+            eval_inst_frame(ik_g_layer, "g_static_ik"),
+            0,
+            "1-frame static Graphic must stay at frame 0 at frame {frame}"
+        );
+        assert_eq!(
+            eval_inst_frame(ce_g_layer, "g_baked_ce"),
+            frame % 4,
+            "4-frame looping Graphic on baked CustomEase must wrap modulo 4 at frame {frame}"
+        );
+    }
+
+    // Binary FLA: 2-frame Graphic (`symbol_type = 0`) with `PlayOnce` (`loop_mode = 1`) and
+    // `Loop` (`loop_mode = 0`) on a 4-frame IK `pose_matrices` span must NOT emit `fla_graphic_first_frame`!
+    let mut g2_sym = PageWriter::new();
+    g2_sym.begin("CPicPage");
+    g2_sym.base_start();
+    g2_sym.begin("CPicLayer");
+    g2_sym.base_start();
+    for _ in 0..2 {
+        g2_sym.begin("CPicFrame");
+        g2_sym.base_start();
+        g2_sym.base_end();
+        g2_sym.empty_shape();
+        g2_sym.bytes.push(1);
+        u16b(&mut g2_sym.bytes, 1);
+        g2_sym.bytes.push(0);
+    }
+    g2_sym.base_end();
+    g2_sym.bytes.push(2);
+    mfc_str(&mut g2_sym.bytes, "GLayer");
+    g2_sym.bytes.extend_from_slice(&[1, 0, 0, 0, 1]);
+    g2_sym.base_end();
+    g2_sym.bytes.push(1);
+    u16b(&mut g2_sym.bytes, 1);
+
+    let mut contents = Vec::new();
+    contents.push(0x3f);
+    u32b(&mut contents, 1);
+    u32b(&mut contents, 0);
+    contents.push(0);
+    contents.push(0);
+    for _ in [0x21, 0x2b, 0x3b] {
+        u32b(&mut contents, 0);
+    }
+    mfc_class(&mut contents, "CDocumentPage");
+    push_cdocument_page_rev5(&mut contents, "Page 1", "Scene 1", 0, 2);
+    u16b(&mut contents, 0);
+    u16b(&mut contents, 1);
+    u16b(&mut contents, 1);
+    u16b(&mut contents, 2);
+    u16b(&mut contents, 0x8001);
+    push_cdocument_page_rev5(&mut contents, "Symbol 1", "Graphic2F", 100, 0); // 0 = Graphic!
+    u16b(&mut contents, 0);
+    u16b(&mut contents, 101);
+    u16b(&mut contents, 0);
+    u16b(&mut contents, 1);
+    u16b(&mut contents, 0);
+    contents.push(0);
+    for word in [0_i32, 11000, 0, 8000] {
+        i32b(&mut contents, word);
+    }
+    u32b(&mut contents, 20 * 65536);
+    contents.extend_from_slice(&[0; 5]);
+    contents.extend_from_slice(&[0; 16]);
+    contents.extend_from_slice(&[0; 4]);
+    i32b(&mut contents, 65536);
+    u16b(&mut contents, 0);
+    u16b(&mut contents, 0);
+    u32b(&mut contents, 0xffffffff);
+    u32b(&mut contents, 0);
+    u32b(&mut contents, 24 * 65536);
+    contents.extend_from_slice(&[0; 3]);
+    i32b(&mut contents, 20);
+
+    let push_graphic_inst = |w: &mut PageWriter, tx_twips: i32, loop_mode: u16, name: &str| {
+        w.begin("CPicSymbol");
+        w.base_start();
+        w.base_end_with_reg(tx_twips, 1000);
+        w.bytes.push(7);
+        for m in [65536_i32, 0, 0, 65536, tx_twips, 1000] {
+            i32b(&mut w.bytes, m);
+        }
+        u16b(&mut w.bytes, 0); // first_frame = 0
+        u16b(&mut w.bytes, loop_mode); // 0 = Loop, 1 = PlayOnce
+        w.bytes.push(1);
+        for mv in [256_i16, 0, 256, 0, 256, 0, 256, 0] {
+            u16b(&mut w.bytes, mv as u16);
+        }
+        u16b(&mut w.bytes, 0);
+        u16b(&mut w.bytes, 0);
+        u32b(&mut w.bytes, 0);
+        mfc_str(&mut w.bytes, name);
+        u32b(&mut w.bytes, 100);
+    };
+
+    let mut page = PageWriter::new();
+    page.begin("CPicPage");
+    page.base_start();
+    page.begin("CPicLayer");
+    page.base_start();
+    page.begin("CPicFrame");
+    page.base_start();
+    push_graphic_inst(&mut page, 1000, 0, "g_fla_loop");
+    push_graphic_inst(&mut page, 3000, 1, "g_fla_once");
+    page.base_end();
+    page.empty_shape();
+    page.bytes.push(29);
+    u16b(&mut page.bytes, 4); // 4 frames
+    u16b(&mut page.bytes, 4); // IK pose
+    u16b(&mut page.bytes, 0);
+    u16b(&mut page.bytes, 0);
+    u16b(&mut page.bytes, 0);
+    u16b(&mut page.bytes, 1);
+    page.bytes.push(0);
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 0);
+    u16b(&mut page.bytes, 0);
+    mfc_utf16(&mut page.bytes, "");
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 2);
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 0);
+    u16b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 0);
+    u16b(&mut page.bytes, 0);
+    mfc_str(&mut page.bytes, "");
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 1);
+    u32b(&mut page.bytes, 0);
+    u32b(&mut page.bytes, 2); // 2 elements x 4 frames
+    for step in 0..4_i32 {
+        for m in [65536_i32, 0, 0, 65536, step * 200, 0] {
+            i32b(&mut page.bytes, m);
+        }
+    }
+    for step in 0..4_i32 {
+        for m in [65536_i32, 0, 0, 65536, 0, step * 200] {
+            i32b(&mut page.bytes, m);
+        }
+    }
+    u32b(&mut page.bytes, 0);
+    mfc_str(&mut page.bytes, "");
+    page.base_end();
+    page.bytes.push(2);
+    mfc_str(&mut page.bytes, "FlaGraphicIk");
+    page.bytes.extend_from_slice(&[1, 0, 0, 0, 1]);
+    page.base_end();
+    page.bytes.push(1);
+    u16b(&mut page.bytes, 1);
+
+    let fla_path = tmp.0.join("graphic_ik.fla");
+    write_cfb_file(
+        &fla_path,
+        &[
+            ("Contents", &contents),
+            ("Page 1", &page.bytes),
+            ("Symbol 1", &g2_sym.bytes),
+        ],
+    );
+    let fla_rep = inspect(&fla_path).unwrap();
+    assert!(
+        fla_rep
+            .diagnostics
+            .iter()
+            .all(|d| d.code != "fla_graphic_first_frame"),
+        "2-frame Graphic on 4-frame IK pose_matrices must not emit fla_graphic_first_frame: {:?}",
+        fla_rep.diagnostics
+    );
+    let fla_proj = import_project(&fla_path).unwrap();
+    fla_proj.validate().unwrap();
+    let fla_layer = &fla_proj.symbol(&fla_proj.root).unwrap().timeline.layers[0];
+    let loop_id = fla_layer.keyframes[0].elements[0].id.clone();
+    let once_id = fla_layer.keyframes[0].elements[1].id.clone();
+    for frame in 0..4_u32 {
+        let f_loop = neoflash_core::evaluate_instance_pose(
+            &fla_proj,
+            &fla_proj.root,
+            frame,
+            &fla_layer.id,
+            &loop_id,
+        )
+        .unwrap()
+        .frame;
+        let f_once = neoflash_core::evaluate_instance_pose(
+            &fla_proj,
+            &fla_proj.root,
+            frame,
+            &fla_layer.id,
+            &once_id,
+        )
+        .unwrap()
+        .frame;
+        assert_eq!(f_loop, frame % 2);
+        assert_eq!(f_once, frame.min(1));
+    }
+}
+
+#[test]
+fn xfl_motion_object_audits_attribute_namespaces_and_unknown_fl_motion_elements() {
+    let box_sym = box_symbol_xml("Box", 20, 20, "#336699");
+
+    // 1. Namespaced attribute inside a valid sampled `<MotionObjectXML><AnimationCore>` MUST fail with `unsupported_attribute_namespace`.
+    let dom_ns_attr = r##"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="550" height="400" frameRate="24" xflVersion="2.2">
+  <symbols><Include href="Box.xml"/></symbols>
+  <timelines><DOMTimeline name="Scene 1"><layers><DOMLayer name="L1"><frames>
+    <DOMFrame index="0" duration="3" tweenType="motion object">
+      <MotionObjectXML xmlns:e="urn:unrecognized">
+        <AnimationCore Version="1" TimeScale="24000" duration="3000">
+          <Property id="Motion_X" enabled="1">
+            <Keyframe timevalue="0" anchor="0,0" e:anchor="0,999"/>
+            <Keyframe timevalue="2000" anchor="0,40"/>
+          </Property>
+        </AnimationCore>
+      </MotionObjectXML>
+      <elements><DOMSymbolInstance libraryItemName="Box"/></elements>
+    </DOMFrame>
+  </frames></DOMLayer></layers></DOMTimeline></timelines>
+</DOMDocument>"##;
+    let tmp1 = TempDir::new();
+    write_xfl_dir(
+        &tmp1.0,
+        &[
+            ("DOMDocument.xml", dom_ns_attr),
+            ("LIBRARY/Box.xml", &box_sym),
+        ],
+    );
+    let rep1 = inspect(&tmp1.0).unwrap();
+    assert!(!rep1.can_import, "{:?}", rep1.diagnostics);
+    assert!(
+        rep1.diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Error && d.code == "unsupported_attribute_namespace"),
+        "{:?}",
+        rep1.diagnostics
+    );
+
+    // 2. Unknown tag `<Bogus/>` inside `<Motion xmlns="fl.motion.*">` MUST fail `unknown_namespace`.
+    let dom_unknown_fl_ns = r##"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="550" height="400" frameRate="24" xflVersion="2.2">
+  <symbols><Include href="Box.xml"/></symbols>
+  <timelines><DOMTimeline name="Scene 1"><layers><DOMLayer name="L1"><frames>
+    <DOMFrame index="0" duration="3" tweenType="motion object">
+      <DOMMotionObject>
+        <Motion duration="3" xmlns="fl.motion.*">
+          <Bogus/>
+          <Keyframe index="0" x="0"/>
+          <Keyframe index="2" x="40"/>
+        </Motion>
+      </DOMMotionObject>
+      <elements><DOMSymbolInstance libraryItemName="Box"/></elements>
+    </DOMFrame>
+  </frames></DOMLayer></layers></DOMTimeline></timelines>
+</DOMDocument>"##;
+    let tmp2 = TempDir::new();
+    write_xfl_dir(
+        &tmp2.0,
+        &[
+            ("DOMDocument.xml", dom_unknown_fl_ns),
+            ("LIBRARY/Box.xml", &box_sym),
+        ],
+    );
+    let rep2 = inspect(&tmp2.0).unwrap();
+    assert!(!rep2.can_import, "{:?}", rep2.diagnostics);
+    assert!(
+        rep2.diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Error && d.code == "unknown_namespace"),
+        "{:?}",
+        rep2.diagnostics
+    );
+
+    // 3. Unknown tag `<Bogus/>` inside unnamespaced `<Motion>` / `<Keyframe>` MUST emit `motion_object_not_supported` (`unknown motion XML element`).
+    let dom_unknown_unns = r##"<DOMDocument xmlns="http://ns.adobe.com/xfl/2008/" width="550" height="400" frameRate="24" xflVersion="2.2">
+  <symbols><Include href="Box.xml"/></symbols>
+  <timelines><DOMTimeline name="Scene 1"><layers><DOMLayer name="L1"><frames>
+    <DOMFrame index="0" duration="3" tweenType="motion object">
+      <DOMMotionObject>
+        <Motion duration="3">
+          <Keyframe index="0" x="0"><Bogus/></Keyframe>
+          <Keyframe index="2" x="40"/>
+        </Motion>
+      </DOMMotionObject>
+      <elements><DOMSymbolInstance libraryItemName="Box"/></elements>
+    </DOMFrame>
+  </frames></DOMLayer></layers></DOMTimeline></timelines>
+</DOMDocument>"##;
+    let tmp3 = TempDir::new();
+    write_xfl_dir(
+        &tmp3.0,
+        &[
+            ("DOMDocument.xml", dom_unknown_unns),
+            ("LIBRARY/Box.xml", &box_sym),
+        ],
+    );
+    let rep3 = inspect(&tmp3.0).unwrap();
+    assert!(
+        rep3.diagnostics.iter().any(|d| {
+            d.code == "motion_object_not_supported"
+                && d.message.contains("unknown motion XML element")
+        }),
+        "expected motion_object_not_supported(unknown motion XML element): {:?}",
+        rep3.diagnostics
+    );
+}

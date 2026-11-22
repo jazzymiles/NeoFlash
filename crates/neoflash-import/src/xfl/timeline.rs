@@ -30,6 +30,7 @@ impl Parser<'_> {
             view_angle_3d: self.view_angle_3d,
             vanishing_point_3d: self.vanishing_point_3d,
         };
+        self.audit_unmodeled_xfl_subtree(wrapper, file);
         let sampled = crate::motion_xml::sample_poses(
             wrapper,
             key,
@@ -66,7 +67,6 @@ impl Parser<'_> {
                 res.poses
             }
             Err(reason) => {
-                self.audit_unmodeled_xfl_subtree(wrapper, file);
                 self.report.warning(
                     "motion_object_not_supported",
                     location,
@@ -717,6 +717,40 @@ impl Parser<'_> {
                     TweenKind::Motion => {}
                 }
             }
+            if is_armature_layer && raw_keys.len() > 1 {
+                for idx in 0..raw_keys.len() - 1 {
+                    if raw_keys[idx].1 == raw_keys[idx + 1].0
+                        && raw_keys[idx].4.elements.len() == raw_keys[idx + 1].4.elements.len()
+                        && raw_keys[idx]
+                            .4
+                            .elements
+                            .iter()
+                            .zip(raw_keys[idx + 1].4.elements.iter())
+                            .all(|(a, b)| classic_tween_matches(a, b))
+                    {
+                        let prev_ids: Vec<Id> = raw_keys[idx]
+                            .4
+                            .elements
+                            .iter()
+                            .map(|e| e.id.clone())
+                            .collect();
+                        for (ei, continued_id) in prev_ids.into_iter().enumerate() {
+                            let prev_elem_id = std::mem::replace(
+                                &mut raw_keys[idx + 1].4.elements[ei].id,
+                                continued_id.clone(),
+                            );
+                            for bf in &mut raw_keys[idx + 1].4.bitmap_fills {
+                                if bf.element_id == prev_elem_id {
+                                    bf.element_id = continued_id.clone();
+                                }
+                            }
+                            if let Some(slot) = raw_keys[idx + 1].3.get_mut(ei) {
+                                slot.0 = continued_id;
+                            }
+                        }
+                    }
+                }
+            }
             // Record true instance placement lifetimes (continuous classic-tween chains
             // share one element ID and do not end/restart at intermediate tween keys).
             let mut active_instances: HashMap<Id, (Id, u32)> = HashMap::new();
@@ -797,7 +831,6 @@ impl Parser<'_> {
                         &elem_metas,
                         &effective_layer_bones,
                         end - frame,
-                        &self.symbols,
                         &mut self.motion_pose_budget,
                     )
                 } else {
@@ -827,7 +860,6 @@ impl Parser<'_> {
                     &all_metas,
                     &all_pose_overrides,
                     &effective_layer_bones,
-                    &self.symbols,
                     &mut self.motion_pose_budget,
                 ) {
                     self.report.warning(
@@ -1428,11 +1460,15 @@ pub(super) fn normalize_xfl_playback(symbols: &mut [Symbol], report: &mut Import
                     {
                         let max_idx = fc.saturating_sub(1);
                         match playback {
-                            InstancePlayback::SingleFrame(f)
-                            | InstancePlayback::LoopFrom(f)
-                            | InstancePlayback::PlayOnceFrom(f)
-                                if *f >= fc =>
-                            {
+                            InstancePlayback::LoopFrom(f) if *f >= fc => {
+                                let rem = *f % fc;
+                                *playback = if rem == 0 {
+                                    InstancePlayback::Loop
+                                } else {
+                                    InstancePlayback::LoopFrom(rem)
+                                };
+                            }
+                            InstancePlayback::SingleFrame(f) if *f >= fc => {
                                 *f = max_idx;
                                 report.warning(
                                     "xfl_playback_frame_clamped",
@@ -1442,6 +1478,27 @@ pub(super) fn normalize_xfl_playback(symbols: &mut [Symbol], report: &mut Import
                                         max_idx + 1
                                     ),
                                 );
+                            }
+                            InstancePlayback::PlayOnceFrom(f) if *f >= fc => {
+                                *playback = if max_idx == 0 {
+                                    InstancePlayback::PlayOnce
+                                } else {
+                                    InstancePlayback::PlayOnceFrom(max_idx)
+                                };
+                                report.warning(
+                                    "xfl_playback_frame_clamped",
+                                    format!("{sym_name}:frame {}", key.frame + 1),
+                                    format!(
+                                        "Graphic instance firstFrame clamped to last frame ({}) of target symbol.",
+                                        max_idx + 1
+                                    ),
+                                );
+                            }
+                            InstancePlayback::PlayOnceFrom(0) => {
+                                *playback = InstancePlayback::PlayOnce;
+                            }
+                            InstancePlayback::LoopFrom(0) => {
+                                *playback = InstancePlayback::Loop;
                             }
                             _ => {}
                         }

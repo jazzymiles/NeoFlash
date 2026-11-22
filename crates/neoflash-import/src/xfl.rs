@@ -1703,6 +1703,32 @@ impl Parser<'_> {
 
 fn is_fl_motion_namespace_element(node: Node<'_, '_>, ns: &str) -> bool {
     ns == "fl.motion.*"
+        && matches!(
+            node.tag_name().name(),
+            "Motion"
+                | "source"
+                | "Source"
+                | "dimensions"
+                | "GeomRectangle"
+                | "transformationPoint"
+                | "Point"
+                | "tweens"
+                | "SimpleEase"
+                | "CustomEase"
+                | "Ease"
+                | "TimeMap"
+                | "Keyframe"
+                | "color"
+                | "Color"
+                | "filters"
+                | "BlurFilter"
+                | "GlowFilter"
+                | "DropShadowFilter"
+                | "BevelFilter"
+                | "GradientGlowFilter"
+                | "GradientBevelFilter"
+                | "AdjustColorFilter"
+        )
         && node
             .ancestors()
             .any(|a| a.is_element() && a.tag_name().name() == "Motion")

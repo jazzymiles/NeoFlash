@@ -2429,8 +2429,6 @@ impl Context<'_> {
                         key,
                         duration,
                         cursor,
-                        &self.library,
-                        &self.library_kinds,
                         &mut self.motion_pose_budget,
                     );
                     if let Some(ik_poses) = sampled_ik {
@@ -2514,13 +2512,8 @@ impl Context<'_> {
             for (key_idx, saved_frame, saved_at) in pending_custom_eases.into_iter().rev() {
                 if key_idx < layer.keyframes.len()
                     && layer.keyframes[key_idx].tween.is_some()
-                    && let Err(reason) = try_split_multi_segment_custom_ease(
-                        &mut layer,
-                        key_idx,
-                        &saved_frame,
-                        &self.library,
-                        &self.library_kinds,
-                    )
+                    && let Err(reason) =
+                        try_split_multi_segment_custom_ease(&mut layer, key_idx, &saved_frame)
                 {
                     self.report.warning(
                         "fla_tween_easing",
@@ -4265,15 +4258,12 @@ fn parse_contents_3d_perspective(
     (view_angle, vanishing_point)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn sample_fla_ik_pose_matrices(
     original_bytes: &[u8],
     span: TimelineByteSpan,
     key: &Keyframe,
     duration: u32,
     cursor: u32,
-    library: &BTreeMap<u32, String>,
-    library_kinds: &BTreeMap<u32, SymbolKind>,
     budget: &mut usize,
 ) -> Option<Vec<Keyframe>> {
     if duration <= 1
@@ -4347,30 +4337,6 @@ fn sample_fla_ik_pose_matrices(
                 tr.color_transform = base_el.transform.color_transform;
                 el.transform = tr;
             }
-            if let ElementKind::Instance {
-                symbol_id,
-                playback,
-            } = &mut el.kind
-            {
-                let is_graphic = library
-                    .iter()
-                    .find(|(_, sid)| *sid == symbol_id)
-                    .and_then(|(lid, _)| library_kinds.get(lid))
-                    .is_some_and(|&k| k == SymbolKind::Graphic);
-                if is_graphic {
-                    *playback = match *playback {
-                        InstancePlayback::Loop => InstancePlayback::LoopFrom(step),
-                        InstancePlayback::LoopFrom(f0) => {
-                            InstancePlayback::LoopFrom(f0.saturating_add(step))
-                        }
-                        InstancePlayback::PlayOnce => InstancePlayback::PlayOnceFrom(step),
-                        InstancePlayback::PlayOnceFrom(f0) => {
-                            InstancePlayback::PlayOnceFrom(f0.saturating_add(step))
-                        }
-                        other => other,
-                    };
-                }
-            }
             frame_elems.push(el);
         }
         poses.push(Keyframe {
@@ -4431,8 +4397,6 @@ fn try_split_multi_segment_custom_ease(
     layer: &mut Layer,
     key_idx: usize,
     f: &TimelineFrame,
-    library: &BTreeMap<u32, String>,
-    library_kinds: &BTreeMap<u32, SymbolKind>,
 ) -> Result<(), String> {
     if layer.properties.motion_guide.is_some() {
         return Err("Guided multi-segment custom easing is not supported".into());
@@ -4613,15 +4577,6 @@ fn try_split_multi_segment_custom_ease(
         return Err("Directed multi-turn rotation continues into a subsequent tween".into());
     }
 
-    let is_graphic_symbol = match &a_el.kind {
-        ElementKind::Instance { symbol_id, .. } => library
-            .iter()
-            .find(|(_, sid)| *sid == symbol_id)
-            .and_then(|(lid, _)| library_kinds.get(lid))
-            .is_some_and(|&k| k == SymbolKind::Graphic),
-        _ => false,
-    };
-
     let lerp_f = |a: f64, b: f64, t: f64| a + (b - a) * t;
     let mut inserted = Vec::with_capacity(splits.len().saturating_sub(2));
     for idx in 1..splits.len() - 1 {
@@ -4683,19 +4638,6 @@ fn try_split_multi_segment_custom_ease(
                 .next()
                 .map_or_else(|| a_el.filters.clone(), |sampled| sampled.filters)
         };
-        if is_graphic_symbol && let ElementKind::Instance { playback, .. } = &mut el.kind {
-            *playback = match *playback {
-                InstancePlayback::Loop => InstancePlayback::LoopFrom(k_off),
-                InstancePlayback::LoopFrom(f0) => {
-                    InstancePlayback::LoopFrom(f0.saturating_add(k_off))
-                }
-                InstancePlayback::PlayOnce => InstancePlayback::PlayOnceFrom(k_off),
-                InstancePlayback::PlayOnceFrom(f0) => {
-                    InstancePlayback::PlayOnceFrom(f0.saturating_add(k_off))
-                }
-                other => other,
-            };
-        }
         match (&a_el.kind, &b_el.kind, &mut el.kind) {
             (
                 ElementKind::Rectangle {

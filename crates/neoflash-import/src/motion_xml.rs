@@ -1022,6 +1022,12 @@ fn read_animation_core(root: Node<'_, '_>) -> Result<ParsedMotion, &'static str>
         return Err("motion XML exceeds the sampling limit");
     }
 
+    for desc in root.descendants().filter(Node::is_element) {
+        if desc.tag_name().namespace() != root.tag_name().namespace() {
+            return Err("unknown motion XML namespace");
+        }
+    }
+
     let mut time_maps = Vec::new();
     for tm_node in root
         .children()
@@ -1183,15 +1189,24 @@ fn read_animation_core(root: Node<'_, '_>) -> Result<ParsedMotion, &'static str>
     })
 }
 
-fn parse_fl_motion_tweens(tweens_node: Node<'_, '_>) -> Option<SegmentEase> {
+fn parse_fl_motion_tweens(tweens_node: Node<'_, '_>) -> Result<Option<SegmentEase>, &'static str> {
+    let mut found = None;
     for ch in tweens_node.children().filter(Node::is_element) {
         match ch.tag_name().name() {
             "SimpleEase" => {
+                if ch.children().any(|c| c.is_element()) {
+                    return Err("unknown motion XML element");
+                }
                 let raw = ch.attribute("ease").and_then(number).unwrap_or(0.0);
                 let scaled = if raw.abs() <= 1.0 { raw * 100.0 } else { raw };
-                return Some(SegmentEase::Flash(scaled.clamp(-100.0, 100.0)));
+                if found.is_none() {
+                    found = Some(SegmentEase::Flash(scaled.clamp(-100.0, 100.0)));
+                }
             }
             "Ease" => {
+                if ch.children().any(|c| c.is_element()) {
+                    return Err("unknown motion XML element");
+                }
                 let method = ch.attribute("method").unwrap_or("Quadratic").to_owned();
                 let intensity = ch
                     .attribute("intensity")
@@ -1205,27 +1220,121 @@ fn parse_fl_motion_tweens(tweens_node: Node<'_, '_>) -> Option<SegmentEase> {
                         }
                     })
                     .unwrap_or(100.0);
-                return Some(SegmentEase::Named(method, intensity));
-            }
-            "CustomEase" => {
-                let pts: Vec<[f64; 2]> = ch
-                    .children()
-                    .filter(|p| p.is_element() && p.has_tag_name("Point"))
-                    .filter_map(|p| {
-                        Some([
-                            p.attribute("x").unwrap_or("0").parse::<f64>().ok()?,
-                            p.attribute("y").unwrap_or("0").parse::<f64>().ok()?,
-                        ])
-                    })
-                    .collect();
-                if pts.len() >= 4 && (pts.len() - 1).is_multiple_of(3) {
-                    return Some(SegmentEase::CubicPoints(pts));
+                if found.is_none() {
+                    found = Some(SegmentEase::Named(method, intensity));
                 }
             }
-            _ => {}
+            "CustomEase" => {
+                let mut pts = Vec::new();
+                for p in ch.children().filter(Node::is_element) {
+                    if !p.has_tag_name("Point") || p.children().any(|c| c.is_element()) {
+                        return Err("unknown motion XML element");
+                    }
+                    if let (Some(x), Some(y)) = (
+                        p.attribute("x").unwrap_or("0").parse::<f64>().ok(),
+                        p.attribute("y").unwrap_or("0").parse::<f64>().ok(),
+                    ) {
+                        pts.push([x, y]);
+                    }
+                }
+                if pts.len() >= 4 && (pts.len() - 1).is_multiple_of(3) && found.is_none() {
+                    found = Some(SegmentEase::CubicPoints(pts));
+                }
+            }
+            _ => return Err("unknown motion XML element"),
         }
     }
-    None
+    Ok(found)
+}
+
+fn validate_fl_motion_tree(root: Node<'_, '_>) -> Result<(), &'static str> {
+    for desc in root.descendants().filter(Node::is_element) {
+        if desc.tag_name().namespace() != root.tag_name().namespace() {
+            return Err("unknown motion XML namespace");
+        }
+    }
+    for ch in root.children().filter(Node::is_element) {
+        match ch.tag_name().name() {
+            "source" => {
+                for src in ch.children().filter(Node::is_element) {
+                    if !src.has_tag_name("Source") {
+                        return Err("unknown motion XML element");
+                    }
+                    for sc in src.children().filter(Node::is_element) {
+                        match sc.tag_name().name() {
+                            "dimensions" => {
+                                if sc.children().filter(Node::is_element).any(|r| {
+                                    !r.has_tag_name("GeomRectangle")
+                                        || r.children().any(|c| c.is_element())
+                                }) {
+                                    return Err("unknown motion XML element");
+                                }
+                            }
+                            "transformationPoint" => {
+                                if sc.children().filter(Node::is_element).any(|p| {
+                                    !p.has_tag_name("Point") || p.children().any(|c| c.is_element())
+                                }) {
+                                    return Err("unknown motion XML element");
+                                }
+                            }
+                            "color" => {
+                                if sc.children().filter(Node::is_element).any(|c| {
+                                    !c.has_tag_name("Color") || c.children().any(|d| d.is_element())
+                                }) {
+                                    return Err("unknown motion XML element");
+                                }
+                            }
+                            _ => return Err("unknown motion XML element"),
+                        }
+                    }
+                }
+            }
+            "tweens" => {}
+            "TimeMap" => {
+                for tc in ch.descendants().skip(1).filter(Node::is_element) {
+                    if !matches!(
+                        tc.tag_name().name(),
+                        "Property" | "PropertyContainer" | "Keyframe"
+                    ) {
+                        return Err("unknown motion XML element");
+                    }
+                }
+            }
+            "Keyframe" => {
+                for kc in ch.children().filter(Node::is_element) {
+                    match kc.tag_name().name() {
+                        "tweens" => {}
+                        "color" => {
+                            if kc.children().filter(Node::is_element).any(|c| {
+                                !c.has_tag_name("Color") || c.children().any(|d| d.is_element())
+                            }) {
+                                return Err("unknown motion XML element");
+                            }
+                        }
+                        "filters" => {
+                            if kc.children().filter(Node::is_element).any(|f| {
+                                !matches!(
+                                    f.tag_name().name(),
+                                    "BlurFilter"
+                                        | "GlowFilter"
+                                        | "DropShadowFilter"
+                                        | "BevelFilter"
+                                        | "GradientGlowFilter"
+                                        | "GradientBevelFilter"
+                                        | "AdjustColorFilter"
+                                ) || f.children().any(|c| c.is_element())
+                            }) {
+                                return Err("unknown motion XML element");
+                            }
+                        }
+                        _ => return Err("unknown motion XML element"),
+                    }
+                }
+            }
+            _ => return Err("unknown motion XML element"),
+        }
+    }
+    Ok(())
 }
 
 fn read_fl_motion(root: Node<'_, '_>, span_duration: u32) -> Result<ParsedMotion, &'static str> {
@@ -1234,6 +1343,7 @@ fn read_fl_motion(root: Node<'_, '_>, span_duration: u32) -> Result<ParsedMotion
     {
         return Err("motion XML exceeds the sampling limit");
     }
+    validate_fl_motion_tree(root)?;
     let dur_frames = root
         .attribute("duration")
         .and_then(number)
@@ -1291,7 +1401,7 @@ fn read_fl_motion(root: Node<'_, '_>, span_duration: u32) -> Result<ParsedMotion
 
     for ch in root.children().filter(Node::is_element) {
         if ch.has_tag_name("tweens") {
-            global_ease = parse_fl_motion_tweens(ch);
+            global_ease = parse_fl_motion_tweens(ch)?;
         } else if ch.has_tag_name("TimeMap") {
             time_map = Some(parse_time_map_node(ch, total)?);
         }
@@ -1339,11 +1449,14 @@ fn read_fl_motion(root: Node<'_, '_>, span_duration: u32) -> Result<ParsedMotion
         if matches!(kf.attribute("orientToPath"), Some("1" | "true")) {
             orient = true;
         }
-        let kf_ease = kf
+        let kf_ease = match kf
             .children()
             .find(|c| c.is_element() && c.has_tag_name("tweens"))
-            .and_then(parse_fl_motion_tweens)
-            .or_else(|| global_ease.clone());
+        {
+            Some(tw) => parse_fl_motion_tweens(tw)?,
+            None => None,
+        }
+        .or_else(|| global_ease.clone());
 
         for (attr, track_id, scale) in [
             ("x", "Motion_X", 1.0),
@@ -1538,12 +1651,20 @@ fn read_fl_motion(root: Node<'_, '_>, span_duration: u32) -> Result<ParsedMotion
 
 fn read_motion(node: Node<'_, '_>, duration: u32) -> Result<ParsedMotion, &'static str> {
     let target = match node.tag_name().name() {
-        "MotionObjectXML" | "motionObjectXML" | "DOMMotionObject" => node
-            .children()
-            .find(|c| {
-                c.is_element() && (c.has_tag_name("AnimationCore") || c.has_tag_name("Motion"))
-            })
-            .ok_or("missing AnimationCore")?,
+        "MotionObjectXML" | "motionObjectXML" | "DOMMotionObject" => {
+            let elems: Vec<_> = node.children().filter(Node::is_element).collect();
+            if elems.is_empty() {
+                return Err("missing AnimationCore");
+            }
+            if elems.len() > 1 {
+                return Err("unknown motion XML element");
+            }
+            let child = elems[0];
+            if !child.has_tag_name("AnimationCore") && !child.has_tag_name("Motion") {
+                return Err("missing AnimationCore");
+            }
+            child
+        }
         _ => node,
     };
     if target.has_tag_name("AnimationCore") {

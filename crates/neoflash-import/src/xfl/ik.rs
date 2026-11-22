@@ -2,9 +2,7 @@
 //! `<IKTree>`, `<DOMIKTree>`, `<bones><DOMBone>`, `<ikNode>`, and
 //! `<betweenFrameMatrixList>`) forward-kinematics and pose-matrix baking.
 use super::{child, elements};
-use neoflash_core::{
-    Element, ElementKind, InstancePlayback, Keyframe, SymbolKind, Transform, transform_matrix,
-};
+use neoflash_core::{Element, Keyframe, Transform, transform_matrix};
 use roxmltree::Node;
 use std::collections::HashMap;
 
@@ -119,35 +117,6 @@ fn apply_ik_state_ease(ease_type: Option<&str>, ease_val: f64, u: f64) -> f64 {
                 let k = -a;
                 u * (1.0 - k) + (u * u) * k
             }
-        }
-    }
-}
-
-fn advance_graphic_playback(
-    el: &mut Element,
-    frame_offset: u32,
-    symbols: &HashMap<String, (String, SymbolKind)>,
-) {
-    if let ElementKind::Instance {
-        symbol_id,
-        playback,
-    } = &mut el.kind
-    {
-        let is_graphic = symbols
-            .values()
-            .any(|(sid, kind)| sid == symbol_id && *kind == SymbolKind::Graphic);
-        if is_graphic {
-            *playback = match *playback {
-                InstancePlayback::Loop => InstancePlayback::LoopFrom(frame_offset),
-                InstancePlayback::LoopFrom(f0) => {
-                    InstancePlayback::LoopFrom(f0.saturating_add(frame_offset))
-                }
-                InstancePlayback::PlayOnce => InstancePlayback::PlayOnceFrom(frame_offset),
-                InstancePlayback::PlayOnceFrom(f0) => {
-                    InstancePlayback::PlayOnceFrom(f0.saturating_add(frame_offset))
-                }
-                other => other,
-            };
         }
     }
 }
@@ -590,14 +559,12 @@ fn eval_bone_state_at_frame(states: &[IkStateSample], f: u32) -> (Option<[f64; 2
 
 /// Sample a single `<DOMFrame>` IK pose span (`duration > 1`) using `<betweenFrameMatrixList>`
 /// or `<IKTree>` / `<DOMIKTree>` arrays/states.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn sample_single_frame_ik_span(
     frame_node: Node<'_, '_>,
     key: &Keyframe,
     metas: &[PlacedElementMeta],
     layer_bones: &[IkBoneNode],
     duration: u32,
-    symbols: &HashMap<String, (String, SymbolKind)>,
     budget: &mut usize,
 ) -> Option<Vec<Keyframe>> {
     if duration <= 1 || key.elements.is_empty() {
@@ -641,7 +608,6 @@ pub(super) fn sample_single_frame_ik_span(
                         tr.color_transform = base_el.transform.color_transform;
                         el.transform = tr;
                     }
-                    advance_graphic_playback(&mut el, f, symbols);
                     frame_elems.push(el);
                 }
                 poses.push(Keyframe {
@@ -817,7 +783,6 @@ pub(super) fn sample_single_frame_ik_span(
                     el.transform = tr;
                 }
             }
-            advance_graphic_playback(&mut el, f, symbols);
             frame_elems.push(el);
         }
         poses.push(Keyframe {
@@ -878,7 +843,6 @@ pub(super) fn bake_multi_keyframe_armature_layer(
     metas_per_key: &[Vec<PlacedElementMeta>],
     pose_overrides: &[FrameIkPoseOverride],
     layer_bones: &[IkBoneNode],
-    symbols: &HashMap<String, (String, SymbolKind)>,
     budget: &mut usize,
 ) -> bool {
     if layer_bones.is_empty() || keyframes.is_empty() {
@@ -1026,46 +990,42 @@ pub(super) fn bake_multi_keyframe_armature_layer(
         }
     }
 
-    let solve_pose_elems =
-        |local_angs: &[f64], root_positions: &[[f64; 2]], frame_off: u32| -> Vec<Element> {
-            let mut wpos = vec![[0.0_f64, 0.0]; layer_bones.len()];
-            let mut wang = vec![0.0_f64; layer_bones.len()];
-            for (b_idx, b) in layer_bones.iter().enumerate() {
-                if let Some(p_idx) = b.parent {
-                    let (ps, pc) = wang[p_idx].sin_cos();
-                    let lo = local_bind_offsets[b_idx];
-                    wpos[b_idx] = [
-                        wpos[p_idx][0] + pc * lo[0] - ps * lo[1],
-                        wpos[p_idx][1] + ps * lo[0] + pc * lo[1],
-                    ];
-                    wang[b_idx] = wang[p_idx] + local_angs[b_idx];
-                } else {
-                    wpos[b_idx] = root_positions[b_idx];
-                    wang[b_idx] = local_angs[b_idx];
+    let solve_pose_elems = |local_angs: &[f64], root_positions: &[[f64; 2]]| -> Vec<Element> {
+        let mut wpos = vec![[0.0_f64, 0.0]; layer_bones.len()];
+        let mut wang = vec![0.0_f64; layer_bones.len()];
+        for (b_idx, b) in layer_bones.iter().enumerate() {
+            if let Some(p_idx) = b.parent {
+                let (ps, pc) = wang[p_idx].sin_cos();
+                let lo = local_bind_offsets[b_idx];
+                wpos[b_idx] = [
+                    wpos[p_idx][0] + pc * lo[0] - ps * lo[1],
+                    wpos[p_idx][1] + ps * lo[0] + pc * lo[1],
+                ];
+                wang[b_idx] = wang[p_idx] + local_angs[b_idx];
+            } else {
+                wpos[b_idx] = root_positions[b_idx];
+                wang[b_idx] = local_angs[b_idx];
+            }
+        }
+        let mut out_elems = Vec::with_capacity(base_elems.len());
+        for (e_idx, base_el) in base_elems.iter().enumerate() {
+            let mut el = base_el.clone();
+            if let Some(b_idx) = elem_to_bone[e_idx]
+                && let Some(inv_b0) = inv_affine(bone_mats_0[b_idx])
+            {
+                let bf = rigid_matrix(wpos[b_idx], wang[b_idx]);
+                let delta = mul_affine(bf, inv_b0);
+                let composed = mul_affine(delta, transform_matrix(base_el.transform));
+                if let Some(mut tr) = Transform::from_matrix(composed) {
+                    tr.alpha = base_el.transform.alpha;
+                    tr.color_transform = base_el.transform.color_transform;
+                    el.transform = tr;
                 }
             }
-            let mut out_elems = Vec::with_capacity(base_elems.len());
-            for (e_idx, base_el) in base_elems.iter().enumerate() {
-                let mut el = base_el.clone();
-                if let Some(b_idx) = elem_to_bone[e_idx]
-                    && let Some(inv_b0) = inv_affine(bone_mats_0[b_idx])
-                {
-                    let bf = rigid_matrix(wpos[b_idx], wang[b_idx]);
-                    let delta = mul_affine(bf, inv_b0);
-                    let composed = mul_affine(delta, transform_matrix(base_el.transform));
-                    if let Some(mut tr) = Transform::from_matrix(composed) {
-                        tr.alpha = base_el.transform.alpha;
-                        tr.color_transform = base_el.transform.color_transform;
-                        el.transform = tr;
-                    }
-                }
-                if frame_off > 0 {
-                    advance_graphic_playback(&mut el, frame_off, symbols);
-                }
-                out_elems.push(el);
-            }
-            out_elems
-        };
+            out_elems.push(el);
+        }
+        out_elems
+    };
 
     let start_frame_0 = keyframes[0].frame;
     let total_baked_frames = keyframes
@@ -1087,8 +1047,7 @@ pub(super) fn bake_multi_keyframe_armature_layer(
         kf.tween = None;
         kf.tween_kind = neoflash_core::TweenKind::Classic;
         kf.orient_to_path = false;
-        let off = kf.frame.saturating_sub(start_frame_0);
-        kf.elements = solve_pose_elems(&key_local_angles[k_idx], &key_root_pos[k_idx], off);
+        kf.elements = solve_pose_elems(&key_local_angles[k_idx], &key_root_pos[k_idx]);
         expanded.push(kf);
 
         if k_idx + 1 < keyframes.len() {
@@ -1123,11 +1082,7 @@ pub(super) fn bake_multi_keyframe_armature_layer(
                     let frame_num = f_a + step;
                     expanded.push(Keyframe {
                         frame: frame_num,
-                        elements: solve_pose_elems(
-                            &interp_angs,
-                            &interp_roots,
-                            frame_num.saturating_sub(start_frame_0),
-                        ),
+                        elements: solve_pose_elems(&interp_angs, &interp_roots),
                         ..Default::default()
                     });
                 }
