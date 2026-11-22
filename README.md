@@ -31,10 +31,10 @@ Each capability group lists its user-visible functions; a group is closed only w
 
 | Language | Now (areas 1–6 working) | All Flash Player areas working | Partial / missing | Outside target (never in %) |
 | --- | ---: | ---: | ---: | --- |
-| ActionScript 3 — Flash Player | 1,928 of 1,939 (99.4%) | 3,756 of 4,164 (90.2%) | 408 / 0 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
-| ActionScript 2 — Flash Player | 925 of 925 (100.0%) | 1,222 of 1,238 (98.7%) | 16 / 0 | AS2 UI components 1,044 · Other libraries and extensions 25 |
+| ActionScript 3 — Flash Player | 1,939 of 1,939 (100.0%) | 4,051 of 4,164 (97.3%) | 113 / 0 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
+| ActionScript 2 — Flash Player | 925 of 925 (100.0%) | 1,238 of 1,238 (100.0%) | 0 / 0 | AS2 UI components 1,044 · Other libraries and extensions 25 |
 
-Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-21. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).
+Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-22. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).
 
 [Current coverage](https://jazzymiles.github.io/NeoFlash/progress.html) · [Detailed registry](docs/progress/DETAILS.md) · [ActionScript details](docs/progress/ACTIONSCRIPT.md) · [Counting rules](docs/progress/README.md)
 

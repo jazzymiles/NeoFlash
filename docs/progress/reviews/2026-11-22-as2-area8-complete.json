@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "cce2e4c72b442a1f0125dfd68ab03d33c895a1a84da354c4662114668d6a80f3",
+  "reviews": [
+    {
+      "id": "AS2-AREA8-SECURITY-XMLSOCKET-20261122",
+      "date": "2026-11-22",
+      "commit": "8aa13792aef9feb65729ba945bf8a5e2a8143e1f",
+      "title": "Promote AS2 System.security, XMLSocket and MMExecute to working",
+      "summary": "Implements NUL-delimited RFC 6455 WebSocket XMLSocket framing with timeout, boolean send() and overrideable onData/onXML dispatch, HTTP crossdomain.xml policy loading and domain matching in System.security, and authoring-bridged MMExecute returning empty string in standalone playback.",
+      "tests": [
+        "crates/neoflash-core/src/as2_connections.rs",
+        "crates/neoflash-core/src/as2_platform.rs",
+        "crates/neoflash-script/tests/as2-project-input.mjs",
+        "web/tests/as2-area8-conformance.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:System/security.html#allowDomain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#allowInsecureDomain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#loadPolicyFile()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:System/security.html#sandboxType",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#XMLSocket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#class",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onClose",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onConnect",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onData",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#event:onXML",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:XMLSocket.html#timeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "as2:global_functions.html#MMExecute()",
+          "status": "working"
+        }
+      ]
+    }
+  ]
+}

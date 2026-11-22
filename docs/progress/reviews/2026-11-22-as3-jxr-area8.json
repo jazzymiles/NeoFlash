@@ -1,0 +1,1216 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "7abb6a47d1e4b190dcdb03b4ccfd046148e75efffe5a626a6f419498f4e6617d",
+  "reviews": [
+    {
+      "id": "AS3-JXR-AREA8-CONFORMANCE-20261122",
+      "date": "2026-11-22",
+      "commit": "8aa13792aef9feb65729ba945bf8a5e2a8143e1f",
+      "title": "Promote ITU-T T.832 JPEG-XR and AS3 Area 8 sockets, security, sampler and NetStream",
+      "summary": "Implements jxrlib-verified ITU-T Rec. T.832 JPEG-XR encoding/decoding in BitmapData.encode, WebSocket/X.509 Socket/SecureSocket/XMLSocket, host-scoped Security policies, System, flash.sampler/profiler, NetStream playlist/FPS/transfer-byte contracts, NetGroup mesh replication, AVURLLoader, and updated Loader SWF notes.",
+      "tests": [
+        "crates/neoflash-core/src/pixels/jxr.rs",
+        "crates/neoflash-core/src/pixels/pipeline.rs",
+        "crates/neoflash-core/src/as3_net_sys/tests.rs",
+        "crates/neoflash-web/src/swf_loader/tests.rs",
+        "crates/neoflash-script/tests/bitmap-pixels.mjs",
+        "crates/neoflash-script/tests/media-netstream.mjs",
+        "web/tests/as3-area8-conformance.test.cjs",
+        "web/tests/media-netstream.test.cjs",
+        "web/tests/swf-loader.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "AS3:method:flash/display/BitmapData.html#encode()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/JPEGXREncoderOptions.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/display/JPEGXREncoderOptions.html#JPEGXREncoderOptions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#colorSpace",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#quantization",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/display/JPEGXREncoderOptions.html#trimFlexBits",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/display/BitmapEncodingColorSpace.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_0",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_2_2",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_4_4_4",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constant:flash/display/BitmapEncodingColorSpace.html#COLORSPACE_AUTO",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/AVDictionaryDataEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/AVHTTPStatusEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/NetMonitorEvent.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AVTagData.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AVURLLoader.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/media/AVURLStream.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/GroupSpecifier.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetConnection.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetGroup.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetGroupInfo.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetGroupReceiveMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetGroupReplicationStrategy.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetGroupSendMode.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetGroupSendResult.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetMonitor.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/NetStreamMulticastInfo.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/SecureSocket.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/Socket.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/XMLSocket.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/profiler/Telemetry.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/sampler/DeleteObjectSample.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/sampler/NewObjectSample.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/sampler/Sample.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/sampler/StackFrame.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/Security.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/SecurityDomain.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/SecurityPanel.html#",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/AVHTTPStatusEvent.html#AVHTTPStatusEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/NetMonitorEvent.html#NetMonitorEvent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/media/AVURLLoader.html#AVURLLoader()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/GroupSpecifier.html#GroupSpecifier()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/NetConnection.html#NetConnection()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/NetGroup.html#NetGroup()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/SecureSocket.html#SecureSocket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/Socket.html#Socket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/XMLSocket.html#XMLSocket()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AVURLLoader.html#event:complete",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AVURLLoader.html#event:httpStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AVURLLoader.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AVURLLoader.html#event:open",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AVURLLoader.html#event:progress",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/media/AVURLLoader.html#event:securityError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetConnection.html#event:asyncError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetConnection.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetConnection.html#event:netStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetConnection.html#event:securityError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetGroup.html#event:netStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetMonitor.html#event:netStreamCreate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SecureSocket.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SecureSocket.html#event:connect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SecureSocket.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SecureSocket.html#event:securityError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/SecureSocket.html#event:socketData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/Socket.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/Socket.html#event:connect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/Socket.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/Socket.html#event:securityError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/Socket.html#event:socketData",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/XMLSocket.html#event:close",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/XMLSocket.html#event:connect",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/XMLSocket.html#event:data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/XMLSocket.html#event:ioError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/XMLSocket.html#event:securityError",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/profiler/package.html#showRedrawRegions()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#clearSamples()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#getGetterInvocationCount()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#getInvocationCount()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#getMemberNames()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#getSampleCount()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#getSamples()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#getSetterInvocationCount()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#getSize()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#isGetterSetter()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#pauseSampling()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#startSampling()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:function:flash/sampler/package.html#stopSampling()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/AVHTTPStatusEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/AVHTTPStatusEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NetMonitorEvent.html#clone()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/NetMonitorEvent.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/AVURLLoader.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/AVURLLoader.html#load()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/media/AVURLStream.html#load()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#addBootstrapPeer()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#addIPMulticastAddress()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#authorizations()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#encodeBootstrapPeerIDSpec()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#encodeIPMulticastAddressSpec()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#encodePostingAuthorization()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#encodePublishAuthorization()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#groupspecWithAuthorizations()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#groupspecWithoutAuthorizations()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#makeUnique()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#setPostingPassword()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#setPublishPassword()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/GroupSpecifier.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetConnection.html#addHeader()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetConnection.html#call()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetConnection.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetConnection.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#addHaveObjects()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#addMemberHint()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#addNeighbor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#addWantObjects()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#convertPeerIDToGroupAddress()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#denyRequestedObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#post()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#removeHaveObjects()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#removeWantObjects()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#sendToAllNeighbors()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#sendToNearest()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#sendToNeighbor()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroup.html#writeRequestedObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetGroupInfo.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetMonitor.html#listStreams()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#attach()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#attachAudio()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#attachCamera()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#onPeerConnect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#play2()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#publish()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#receiveVideoFPS()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStreamMulticastInfo.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SecureSocket.html#addBinaryChainBuildingCertificate()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SecureSocket.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#getRemote()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#flush()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readUnsignedByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#readUnsignedShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeBoolean()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeDouble()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeFloat()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeMultiByte()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeObject()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeShort()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeUTF()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeUTFBytes()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/Socket.html#writeUnsignedInt()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/XMLSocket.html#close()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/XMLSocket.html#connect()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/XMLSocket.html#send()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/profiler/Telemetry.html#registerCommandHandler()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/profiler/Telemetry.html#sendMetric()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/profiler/Telemetry.html#sendSpanMetric()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/sampler/StackFrame.html#toString()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Security.html#allowDomain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Security.html#allowInsecureDomain()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Security.html#loadPolicyFile()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Security.html#showSettings()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/System.html#exit()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/System.html#gc()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/System.html#pause()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/System.html#pauseForGCIfCollectionImminent()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/System.html#resume()",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/AVDictionaryDataEvent.html#dictionary",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/AVDictionaryDataEvent.html#time",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/AVHTTPStatusEvent.html#status",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/NetMonitorEvent.html#netStream",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/AVTagData.html#data",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/media/AVTagData.html#localTime",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#ipMulticastMemberUpdatesEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#maxSupportedGroupspecVersion",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#minGroupspecVersion",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#multicastEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#objectReplicationEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#peerToPeerDisabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#postingEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#routingEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/GroupSpecifier.html#serverChannelEnabled",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#client",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#connected",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#connectedProxyType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#defaultObjectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#farID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#farNonce",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#maxPeerConnections",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#nearID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#nearNonce",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#objectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#protocol",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#proxyType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#unconnectedPeerStreams",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#uri",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetConnection.html#usingTLS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroup.html#estimatedMemberCount",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroup.html#info",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroup.html#localCoverageFrom",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroup.html#localCoverageTo",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroup.html#neighborCount",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroup.html#receiveMode",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroup.html#replicationStrategy",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#objectReplicationReceiveBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#objectReplicationSendBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#postingReceiveControlBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#postingReceiveDataBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#postingSendControlBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#postingSendDataBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#routingReceiveBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetGroupInfo.html#routingSendBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#audioReliable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#audioSampleAccess",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#currentFPS",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#dataReliable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#farID",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#farNonce",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#liveDelay",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#multicastAvailabilitySendToAll",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#multicastAvailabilityUpdatePeriod",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#multicastFetchPeriod",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#multicastInfo",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#multicastPushNeighborLimit",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#multicastRelayMarginDuration",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#multicastWindowDuration",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#nearNonce",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#peerStreams",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#useHardwareDecoder",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#useJitterBuffer",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#videoReliable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#videoSampleAccess",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStream.html#videoStreamSettings",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#bytesPushedFromPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#bytesPushedToPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#bytesReceivedFromIPMulticast",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#bytesReceivedFromServer",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#bytesRequestedByPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#bytesRequestedFromPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#fragmentsPushedFromPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#fragmentsPushedToPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#fragmentsReceivedFromIPMulticast",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#fragmentsReceivedFromServer",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#fragmentsRequestedByPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#fragmentsRequestedFromPeers",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#receiveControlBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#receiveDataBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#receiveDataBytesPerSecondFromIPMulticast",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#receiveDataBytesPerSecondFromServer",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#sendControlBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#sendControlBytesPerSecondToServer",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/NetStreamMulticastInfo.html#sendDataBytesPerSecond",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SecureSocket.html#isSupported",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SecureSocket.html#serverCertificate",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/SecureSocket.html#serverCertificateStatus",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#bytesAvailable",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#bytesPending",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#connected",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#endian",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#objectEncoding",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/Socket.html#timeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/XMLSocket.html#connected",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/XMLSocket.html#timeout",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/profiler/Telemetry.html#connected",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/profiler/Telemetry.html#spanMarker",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sampler/NewObjectSample.html#object",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/sampler/NewObjectSample.html#size",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Security.html#exactSettings",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Security.html#pageDomain",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/Security.html#sandboxType",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/SecurityDomain.html#currentDomain",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#freeMemory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#privateMemory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#totalMemory",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#totalMemoryNumber",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/System.html#useCodePage",
+          "status": "working"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "partial",
+          "note": "Loads PNG/JPEG/GIF/WebP/JXR images, NeoFlash HTML5 child bundles, and FWS/CWS/ZWS SWF movies (shapes, morphs, embedded font glyphs, buttons, PlaceObject3 filters/blends, dynamic graphics, and isolated AVM1/AVM2 closures, clip events, and root/non-root SymbolClass trees with unload cleanup); raw-SWF audio/video streams, E4X/domain-memory opcodes, and cross-SWF ApplicationDomain merging emit warnings."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "partial",
+          "note": "Loads PNG/JPEG/GIF/WebP/JXR images, NeoFlash HTML5 child bundles, and FWS/CWS/ZWS SWF movies (shapes, morphs, embedded font glyphs, buttons, PlaceObject3 filters/blends, dynamic graphics, and isolated AVM1/AVM2 closures, clip events, and root/non-root SymbolClass trees with unload cleanup); raw-SWF audio/video streams, E4X/domain-memory opcodes, and cross-SWF ApplicationDomain merging emit warnings."
+        }
+      ]
+    }
+  ]
+}
