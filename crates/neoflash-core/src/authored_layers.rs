@@ -224,6 +224,190 @@ impl AuthoredScene {
         }
         draw.clip_ids.iter().all(|id| inside(self, id, point, 0))
     }
+
+    /// Evaluate `symbol` at `frame` as Flash's editable authoring stage (`t.currentFrame = f;
+    /// exportPNG(..., true, true)`): placed `Graphic` symbols and synced layers advance with the
+    /// parent timeline, while independent `MovieClip` instances remain on frame `0` and scripts do
+    /// not run.
+    pub fn evaluate_editable_stage(
+        project: &Project,
+        symbol: &str,
+        frame: u32,
+        include_guides: bool,
+        show_masking: bool,
+    ) -> Self {
+        Self::evaluate_editable_stage_with_filters(
+            project,
+            symbol,
+            frame,
+            include_guides,
+            show_masking,
+        )
+        .0
+    }
+
+    /// Evaluate `symbol` at `frame` in editable-stage mode alongside any active display-subtree
+    /// filter chains `(instance_path, filters, outer_clip_ids, element_blend_mode)`.
+    #[allow(clippy::type_complexity)]
+    pub fn evaluate_editable_stage_with_filters(
+        project: &Project,
+        symbol: &str,
+        frame: u32,
+        include_guides: bool,
+        show_masking: bool,
+    ) -> (
+        Self,
+        Vec<(Vec<Id>, Vec<FilterSpec>, Vec<String>, BlendMode)>,
+    ) {
+        let evaluation = crate::evaluate::snapshot_mode_with_overrides(
+            project,
+            None,
+            symbol,
+            frame,
+            &|_| Some(0),
+            &|_| None,
+            crate::evaluate::EvaluationMode {
+                include_guides,
+                publishing: false,
+                show_masking,
+            },
+        );
+        let filter_nodes = collect_filter_nodes(&evaluation, show_masking);
+        let scene = scene_from_evaluation(project, evaluation, show_masking, Some(symbol));
+        (scene, filter_nodes)
+    }
+
+    /// Resolve active display-subtree filter chains `(instance_path, filters, outer_clip_ids,
+    /// element_blend_mode)` for a specific timeline evaluation or live `AuthoredPlayback` snapshot.
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    pub fn resolve_node_filters(
+        project: &Project,
+        symbol: &str,
+        frame: u32,
+        freeze_independent_clips: bool,
+        clip_frames: Option<&HashMap<Vec<Id>, u32>>,
+        live_scripts: bool,
+        include_guides: bool,
+        show_masking: bool,
+    ) -> Vec<(Vec<Id>, Vec<FilterSpec>, Vec<String>, BlendMode)> {
+        let evaluation = crate::evaluate::snapshot_mode_with_overrides(
+            project,
+            None,
+            symbol,
+            frame,
+            &|path| {
+                if let Some(cf) = clip_frames {
+                    cf.get(path).copied()
+                } else if freeze_independent_clips {
+                    Some(0)
+                } else {
+                    None
+                }
+            },
+            &|_| None,
+            crate::evaluate::EvaluationMode {
+                include_guides,
+                publishing: live_scripts,
+                show_masking,
+            },
+        );
+        collect_filter_nodes(&evaluation, show_masking)
+    }
+
+    /// Resolve active display-subtree filter chains matching an already-materialized `AuthoredScene`.
+    /// When `frame_hint` is `None` (e.g. `render_authored_scene_with_video_rgba`), locates the
+    /// timeline frame matching `self.draws` so tweened or later-keyframe filters stay accurate.
+    #[allow(clippy::type_complexity)]
+    pub fn resolve_node_filters_for_scene(
+        &self,
+        project: &Project,
+        symbol: &str,
+        frame_hint: Option<u32>,
+    ) -> Vec<(Vec<Id>, Vec<FilterSpec>, Vec<String>, BlendMode)> {
+        if self.draws.is_empty() || !project_has_any_filters(project) {
+            return Vec::new();
+        }
+        let show_masking = !self.clips.is_empty();
+        let frame = frame_hint.unwrap_or_else(|| infer_matching_scene_frame(self, project, symbol));
+        let mut nodes = Self::resolve_node_filters(
+            project,
+            symbol,
+            frame,
+            false,
+            None,
+            false,
+            false,
+            show_masking,
+        );
+        let mut seen: HashSet<Vec<Id>> = nodes.iter().map(|(p, _, _, _)| p.clone()).collect();
+        for (freeze, live) in [(true, false), (false, true)] {
+            if freeze && frame == 0 {
+                continue;
+            }
+            for entry in Self::resolve_node_filters(
+                project,
+                symbol,
+                frame,
+                freeze,
+                None,
+                live,
+                false,
+                show_masking,
+            ) {
+                if seen.insert(entry.0.clone()) {
+                    nodes.push(entry);
+                }
+            }
+        }
+        nodes.retain(|(path, _, _, _)| {
+            self.draws
+                .iter()
+                .any(|draw| draw.item.instance_path.starts_with(path))
+        });
+        nodes
+    }
+}
+
+fn project_has_any_filters(project: &Project) -> bool {
+    project.symbols.iter().any(|sym| {
+        sym.timeline.layers.iter().any(|layer| {
+            layer.properties.filters.iter().any(FilterSpec::is_enabled)
+                || layer.keyframes.iter().any(|kf| {
+                    kf.filters.iter().any(FilterSpec::is_enabled)
+                        || kf
+                            .elements
+                            .iter()
+                            .any(|el| el.filters.iter().any(FilterSpec::is_enabled))
+                })
+        })
+    })
+}
+
+fn infer_matching_scene_frame(scene: &AuthoredScene, project: &Project, symbol: &str) -> u32 {
+    let Some(sym) = project.symbol(symbol) else {
+        return 0;
+    };
+    let count = sym.timeline.frame_count.clamp(1, 512);
+    if count <= 1 {
+        return 0;
+    }
+    let matches_eval = |items: &[DrawItem]| -> bool {
+        items.len() == scene.draws.len()
+            && items.iter().zip(&scene.draws).all(|(a, b)| {
+                a.instance_path == b.item.instance_path
+                    && a.transform
+                        .iter()
+                        .zip(&b.item.transform)
+                        .all(|(x, y)| (x - y).abs() < 1e-4)
+            })
+    };
+    for f in 0..count {
+        let items = crate::evaluate::evaluate(project, symbol, f);
+        if matches_eval(&items) {
+            return f;
+        }
+    }
+    0
 }
 
 pub fn bt709_luminance(r: u8, g: u8, b: u8) -> f64 {
@@ -604,6 +788,80 @@ fn authored_ancestors(path: &[Id]) -> impl Iterator<Item = &[Id]> {
     (0..=path.len()).rev().map(|end| &path[..end])
 }
 
+fn has_mask_fill(kind: &ElementKind, has_bitmap_fill: bool) -> bool {
+    if has_bitmap_fill {
+        return true;
+    }
+    match kind {
+        ElementKind::Rectangle { fill, .. }
+        | ElementKind::Ellipse { fill, .. }
+        | ElementKind::Path { fill, .. } => fill[3] > 0,
+        ElementKind::PaintedPath {
+            fill,
+            fill_gradient,
+            ..
+        } => fill[3] > 0 || fill_gradient.is_some(),
+        _ => true,
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn collect_filter_nodes(
+    evaluation: &crate::evaluate::Evaluation,
+    show_masking: bool,
+) -> Vec<(Vec<Id>, Vec<FilterSpec>, Vec<String>, BlendMode)> {
+    if !evaluation.nodes.iter().any(|n| {
+        !n.path.is_empty() && n.effective_visible && n.filters.iter().any(FilterSpec::is_enabled)
+    }) {
+        return Vec::new();
+    }
+    let mut source_roots = HashSet::new();
+    let mut targets = MaskTargets::new();
+    if show_masking {
+        for plan in &evaluation.masks {
+            for root in &plan.sources {
+                source_roots.insert(root.as_slice());
+            }
+            for (index, (_, roots)) in plan.target_groups.iter().enumerate() {
+                targets.add(
+                    target_clip_id(&plan.id, plan.target_groups.len(), index),
+                    roots.iter().map(Vec::as_slice),
+                );
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for node in &evaluation.nodes {
+        if node.path.is_empty()
+            || !node.effective_visible
+            || !node.filters.iter().any(FilterSpec::is_enabled)
+        {
+            continue;
+        }
+        if show_masking
+            && authored_ancestors(&node.path).any(|ancestor| source_roots.contains(ancestor))
+        {
+            continue;
+        }
+        let outer_clips = if show_masking {
+            targets
+                .indices(authored_ancestors(&node.path))
+                .into_iter()
+                .map(|i| targets.clip_ids[i].clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        out.push((
+            node.path.clone(),
+            node.filters.clone(),
+            outer_clips,
+            node.element_blend_mode,
+        ));
+    }
+    out
+}
+
 fn scene_from_evaluation_with_overrides(
     project: &Project,
     symbol_overrides: Option<&HashMap<String, Symbol>>,
@@ -722,6 +980,7 @@ fn scene_from_evaluation_with_overrides(
             } else {
                 sources
                     .iter()
+                    .filter(|draw| has_mask_fill(&draw.item.kind, draw.item.bitmap_fill.is_some()))
                     .filter_map(|draw| {
                         crate::runtime_graph::clipping::vector_path(&draw.item.kind).map(
                             |(commands, fill_rule)| ClipComponent {
@@ -960,15 +1219,25 @@ pub(crate) fn apply_runtime_masks(snapshot: &mut RuntimeSnapshot, plans: &[Runti
             sources
                 .iter()
                 .filter_map(|draw| {
+                    let has_bm = draw.item.bitmap_fill.is_some();
                     let geometry = match &draw.item.kind {
-                        RuntimeDrawKind::Element(kind) => {
+                        RuntimeDrawKind::Element(kind) if has_mask_fill(kind, has_bm) => {
                             crate::runtime_graph::clipping::vector_path(kind)
                         }
                         RuntimeDrawKind::GradientPath {
                             commands,
                             fill_rule,
+                            fill,
+                            fill_gradient,
+                            fill_bitmap,
                             ..
-                        } => Some((commands.clone(), *fill_rule)),
+                        } if fill[3] > 0
+                            || fill_gradient.is_some()
+                            || fill_bitmap.is_some()
+                            || has_bm =>
+                        {
+                            Some((commands.clone(), *fill_rule))
+                        }
                         _ => None,
                     };
                     geometry.map(|(commands, fill_rule)| ClipComponent {

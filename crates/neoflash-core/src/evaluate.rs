@@ -1584,7 +1584,7 @@ fn next_key(layer: &Layer, frame: u32) -> Option<&Keyframe> {
     layer
         .keyframes
         .iter()
-        .filter(|k| k.frame > frame)
+        .filter(|k| k.frame > frame && layer.properties.end_frame.is_none_or(|end| k.frame < end))
         .min_by_key(|k| k.frame)
 }
 

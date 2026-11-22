@@ -6,8 +6,11 @@ licensed Animate, then compare DIRECTORY. Without --folder the input is the
 pinned corpus, including its independently recorded companion SWF trace oracles.
 With --folder, stage individual FLA files only and use anonymous case IDs.
 inventory indexes an additional source/reference collection without executing it.
-compare writes every outcome to comparison.json. Its exit status reports
-measurement errors; visual or playback differences are reported per case.
+compare writes every outcome to comparison.json, separating static editable_stage
+composition (matching Adobe's t.currentFrame = f; exportPNG(..., true, true))
+from scripted_playback (runtime MovieClip clocks, frame/instance scripts, and
+companion SWF trace oracles). Its exit status reports measurement errors; visual
+or playback differences are reported per case.
 """
 import argparse
 import collections
@@ -24,6 +27,16 @@ ROOT = Path(__file__).resolve().parents[1]
 CORPUS = ROOT / "examples/fla-corpus"
 JSFL = ROOT / "scripts/fixtures/animate-oracle/corpus.jsfl"
 DEFAULT_HELPER = ROOT / "target/release/examples/compare_fla_corpus"
+CACHE_SCHEMA = "v2-editable-vs-scripted"
+
+EDITABLE_STAGE_BASIS = (
+    "static authoring stage (t.currentFrame = f; exportPNG(..., true, true); "
+    "MovieClip instances at frame 0, Graphic instances synchronized)"
+)
+SCRIPTED_PLAYBACK_BASIS = (
+    "runtime playback (AuthoredPlayback advancing MovieClip timelines and "
+    "frame/instance scripts, plus SwfBytecodePlayer companion trace oracle when present)"
+)
 
 
 def save(path, value):
@@ -133,6 +146,46 @@ def behavior(case, source, cli):
             "trace_equal": match, "diagnostics": result["diagnostics"]}
 
 
+def build_scripted_playback(native, behavior_row):
+    rt = native.get("scripted_playback") or {
+        "engine": "AuthoredPlayback",
+        "has_scripts": False,
+        "has_independent_movie_clips": False,
+        "divergent_frames": 0,
+        "traces": [],
+        "diagnostics": [],
+        "scenes": [],
+    }
+    divergent = int(rt.get("divergent_frames", 0))
+    b_status = behavior_row.get("status")
+    if b_status == "match":
+        status = "trace_match"
+    elif b_status == "difference":
+        status = "trace_difference"
+    elif divergent > 0:
+        status = "diverges_from_editable_stage"
+    else:
+        status = "matches_editable_stage"
+    return {
+        "status": status,
+        "basis": SCRIPTED_PLAYBACK_BASIS,
+        "explains_editable_vs_runtime_gap": divergent > 0,
+        "divergent_frames": divergent,
+        "runtime_timeline": rt,
+        "trace_oracle": behavior_row,
+    }
+
+
+def index_scripted_frames(native):
+    lookup = {}
+    rt = native.get("scripted_playback") or {}
+    for scene_entry in rt.get("scenes", []):
+        scene_idx = scene_entry.get("scene")
+        for f_entry in scene_entry.get("frames", []):
+            lookup[(scene_idx, f_entry.get("step"))] = f_entry
+    return lookup
+
+
 def compare_case(case, source, cli, helper_hash):
     staged = case / source["staged"]
     if source_digest(staged) != source["source_sha256"]:
@@ -142,14 +195,22 @@ def compare_case(case, source, cli, helper_hash):
     if staged.is_file() and not staged.stat().st_size:
         row["editable"] = {"status": "empty input"}
         row["visual"] = {"status": "unavailable", "reason": "empty input"}
+        row["editable_stage"] = {"status": "empty input", "basis": EDITABLE_STAGE_BASIS}
+        row["scripted_playback"] = {
+            "status": "empty input",
+            "basis": SCRIPTED_PLAYBACK_BASIS,
+            "explains_editable_vs_runtime_gap": False,
+            "divergent_frames": 0,
+            "trace_oracle": row["behavior"],
+        }
         return row
     try:
         cached = case / "native-result.json"
         cache = json.loads(cached.read_text()) if cached.is_file() else {}
-        signature = [helper_hash, source["source_sha256"]]
+        signature = [CACHE_SCHEMA, helper_hash, source["source_sha256"]]
         if cache.get("signature") == signature and all(
                 (case / f"native-s{idx}-f{frame}.png").is_file()
-                for idx, scene in enumerate(cache["result"]["scenes"])
+                for idx, scene in enumerate(cache["result"].get("scenes", []))
                 for frame in {0, (scene[0] - 1) // 2, scene[0] - 1}):
             native = cache["result"]
         else:
@@ -158,6 +219,19 @@ def compare_case(case, source, cli, helper_hash):
     except (ValueError, subprocess.TimeoutExpired) as error:
         row["editable"] = {"status": "import or render failed", "reason": str(error)}
         row["visual"] = {"status": "unavailable"}
+        row["editable_stage"] = {
+            "status": "import or render failed",
+            "basis": EDITABLE_STAGE_BASIS,
+            "reason": str(error),
+        }
+        row["scripted_playback"] = {
+            "status": "unavailable",
+            "basis": SCRIPTED_PLAYBACK_BASIS,
+            "reason": str(error),
+            "explains_editable_vs_runtime_gap": False,
+            "divergent_frames": 0,
+            "trace_oracle": row["behavior"],
+        }
         return row
     mark = case / "complete.txt"
     adobe = mark.read_text().strip() if mark.is_file() else "Adobe capture missing"
@@ -166,19 +240,29 @@ def compare_case(case, source, cli, helper_hash):
             raise ValueError("Adobe capture belongs to a different source or capture command")
         row["editable"] = {"status": "native only", "native": native, "reason": adobe}
         row["visual"] = {"status": "unavailable", "reason": adobe}
+        row["editable_stage"] = {
+            "status": "native only",
+            "basis": EDITABLE_STAGE_BASIS,
+            "native": native,
+            "reason": adobe,
+        }
+        row["scripted_playback"] = build_scripted_playback(native, row["behavior"])
         return row
     stage_fields = (case / "stage.tsv").read_text().strip().split("\t")
     stage = list(map(float, stage_fields[:3]))
     background = stage_fields[3].lower()
     adobe_scenes = [list(map(int, line.split("\t"))) for line in (case / "scenes.tsv").read_text().splitlines()]
     same_lengths = [scene[0] for scene in native["scenes"]] == [scene[0] for scene in adobe_scenes]
+    stage_equal = native["stage"] == stage and same_lengths
     row["adobe_host"] = (case / "host.txt").read_text().strip()
-    row["editable"] = {"status": "stage match" if native["stage"] == stage and same_lengths else "stage difference",
+    row["editable"] = {"status": "stage match" if stage_equal else "stage difference",
                        "adobe_stage": stage, "adobe_background": background,
                        "background_equal": background == native["background"], "native": native,
                        "adobe_scenes": adobe_scenes, "layout_equal": native["scenes"] == adobe_scenes}
     frames = []
-    failed = {(error["scene"], error["frame"]) for error in native["render_errors"]}
+    editable_stage_frames = []
+    pb_lookup = index_scripted_frames(native)
+    failed = {(error["scene"], error["frame"]) for error in native.get("render_errors", [])}
     for scene, layout in enumerate(adobe_scenes):
         last = layout[0] - 1
         for frame in sorted({0, last // 2, last}):
@@ -186,13 +270,34 @@ def compare_case(case, source, cli, helper_hash):
             reference = case / f"adobe-s{scene}-f{frame}.png"
             pixels = helper(cli, "pixels", image, reference) if (scene, frame) not in failed and image.is_file() and reference.is_file() else {
                 "status": "missing frame"}
-            frames.append({"scene": scene, "frame": frame, **pixels})
+            frame_row = {"scene": scene, "frame": frame, **pixels}
             if reference.is_file():
-                frames[-1]["adobe_sha256"] = digest(reference)
+                frame_row["adobe_sha256"] = digest(reference)
             if image.is_file() and (scene, frame) not in failed:
-                frames[-1]["native_sha256"] = digest(image)
-    row["visual"] = {"status": "exact" if all(f.get("different_rgba_pixels") == 0 for f in frames)
-                     else "difference", "frames": frames}
+                frame_row["native_sha256"] = digest(image)
+            frames.append(frame_row)
+            pb_info = pb_lookup.get((scene, frame), {})
+            editable_stage_frames.append({
+                **frame_row,
+                "scripted_playback_diverges": bool(pb_info.get("diverges_from_editable_stage", False)),
+                "scripted_playback_causes": list(pb_info.get("divergence_causes", [])),
+                "scripted_playhead_frame": pb_info.get("playhead_frame", frame),
+                "different_rgba_pixels_vs_scripted": pb_info.get("different_rgba_pixels_vs_editable", 0),
+            })
+    visual_exact = all(f.get("different_rgba_pixels") == 0 for f in frames)
+    row["visual"] = {"status": "exact" if visual_exact else "difference", "frames": frames}
+    row["editable_stage"] = {
+        "status": "exact" if (stage_equal and visual_exact) else ("stage difference" if not stage_equal else "difference"),
+        "basis": EDITABLE_STAGE_BASIS,
+        "stage_equal": stage_equal,
+        "background_equal": background == native["background"],
+        "layout_equal": native["scenes"] == adobe_scenes,
+        "adobe_stage": stage,
+        "adobe_background": background,
+        "adobe_scenes": adobe_scenes,
+        "frames": editable_stage_frames,
+    }
+    row["scripted_playback"] = build_scripted_playback(native, row["behavior"])
     return row
 
 
@@ -204,6 +309,8 @@ def compare(destination, cli, jobs=1):
     host = destination / "host.txt"
     report = {"adobe_host": host.read_text().strip() if host.is_file() else None,
               "frame_basis": "first, middle and last authored frame of each scene, zero-based, transparent stage",
+              "editable_stage_basis": EDITABLE_STAGE_BASIS,
+              "scripted_playback_basis": SCRIPTED_PLAYBACK_BASIS,
               "scene_fields": ["frames", "layers", "keys", "labels", "frame scripts"],
               "helper_sha256": digest(cli), "capture_recipe_sha256": recipe_hash, "cases": []}
     def measure(source):
@@ -215,7 +322,7 @@ def compare(destination, cli, jobs=1):
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         report["cases"] = list(pool.map(measure, sources))
     summary = {key: dict(collections.Counter(c.get(key, {}).get("status", "error") for c in report["cases"]))
-               for key in ("editable", "visual", "behavior")}
+               for key in ("editable", "visual", "behavior", "editable_stage", "scripted_playback")}
     report["summary"] = summary
     report["adobe_hosts"] = sorted({row["adobe_host"] for row in report["cases"] if "adobe_host" in row})
     if not report["adobe_host"] and len(report["adobe_hosts"]) == 1:
@@ -231,6 +338,20 @@ def compare(destination, cli, jobs=1):
                                for frame in row.get("visual", {}).get("frames", [])),
         "exact_frames": sum(frame.get("different_rgba_pixels") == 0 for row in report["cases"]
                             for frame in row.get("visual", {}).get("frames", [])),
+        "editable_stage_exact_documents": sum(
+            row.get("editable_stage", {}).get("status") == "exact" for row in report["cases"]
+        ),
+        "scripted_playback_divergent_documents": sum(
+            row.get("scripted_playback", {}).get("explains_editable_vs_runtime_gap", False)
+            for row in report["cases"]
+        ),
+        "scripted_playback_divergent_frames": sum(
+            int(row.get("scripted_playback", {}).get("divergent_frames", 0))
+            for row in report["cases"]
+        ),
+        "trace_oracle_matches": sum(
+            row.get("behavior", {}).get("status") == "match" for row in report["cases"]
+        ),
     }
     if digest(cli) != report["helper_sha256"]:
         raise ValueError("Comparison helper changed during measurement; rerun with a stable binary")

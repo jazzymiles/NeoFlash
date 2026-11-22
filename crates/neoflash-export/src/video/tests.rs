@@ -1063,3 +1063,250 @@ fn t201_offline_video_export_fails_actionably_on_missing_external_corrupt_or_pro
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn renders_nested_filter_chains_blend_modes_outer_masks_and_bitmap_strokes() {
+    let mut project = Project::blank();
+    project.width = 40;
+    project.height = 40;
+    project.background = [200, 200, 200, 255];
+
+    project.symbols.push(Symbol {
+        id: "card-mc".into(),
+        name: "CardMC".into(),
+        folder: String::new(),
+        kind: neoflash_core::SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: "card-layer".into(),
+                name: "Card".into(),
+                visible: true,
+                locked: false,
+                properties: Default::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "card-rect".into(),
+                        name: "rect".into(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 24.0,
+                            height: 24.0,
+                            fill: [60, 70, 80, 255],
+                            stroke: [0; 4],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+        linkage_id: None,
+        class_name: None,
+    });
+
+    let root_id = project.root.clone();
+    let root = project.symbol_mut(&root_id).unwrap();
+    root.timeline.layers = vec![
+        Layer {
+            id: "masked-layer".into(),
+            name: "Masked".into(),
+            visible: true,
+            locked: false,
+            properties: neoflash_core::LayerProperties {
+                mask: Some("root-mask".into()),
+                ..Default::default()
+            },
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "card-inst".into(),
+                    name: "card".into(),
+                    transform: Transform {
+                        x: 4.0,
+                        y: 4.0,
+                        ..Default::default()
+                    },
+                    filters: vec![neoflash_core::FilterSpec::ColorMatrix {
+                        matrix: [
+                            5.0, 0.0, 0.0, 0.0, 0.0, //
+                            0.0, 5.0, 0.0, 0.0, 0.0, //
+                            0.0, 0.0, 5.0, 0.0, 0.0, //
+                            0.0, 0.0, 0.0, 1.0, 0.0,
+                        ],
+                    }],
+                    kind: ElementKind::Instance {
+                        symbol_id: "card-mc".into(),
+                        playback: InstancePlayback::Independent,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            }],
+        },
+        Layer {
+            id: "root-mask".into(),
+            name: "Mask".into(),
+            visible: false,
+            locked: true,
+            properties: neoflash_core::LayerProperties {
+                role: LayerRole::Mask,
+                publish_when_hidden: true,
+                ..Default::default()
+            },
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "mask-rect".into(),
+                    name: "m".into(),
+                    transform: Transform::default(),
+                    kind: ElementKind::Rectangle {
+                        width: 16.0,
+                        height: 40.0,
+                        fill: [0, 0, 0, 255],
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            }],
+        },
+        Layer {
+            id: "multiply-layer".into(),
+            name: "Multiply".into(),
+            visible: true,
+            locked: false,
+            properties: Default::default(),
+            keyframes: vec![Keyframe {
+                frame: 0,
+                elements: vec![Element {
+                    id: "mult-rect".into(),
+                    name: "mult".into(),
+                    transform: Transform {
+                        x: 24.0,
+                        y: 4.0,
+                        ..Default::default()
+                    },
+                    blend_mode: neoflash_core::BlendMode::Multiply,
+                    kind: ElementKind::Rectangle {
+                        width: 12.0,
+                        height: 12.0,
+                        fill: [0, 255, 255, 255],
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }],
+                ..Keyframe::default()
+            }],
+        },
+    ];
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    let rgba = render_project_frame_rgba(&project, None, 0, 40, 40, false, false).unwrap();
+    let at = |x: usize, y: usize| rgba.as_chunks::<4>().0[y * 40 + x];
+
+    assert_eq!(at(10, 10), [255, 255, 255, 255]);
+    assert_eq!(at(20, 10), [200, 200, 200, 255]);
+    assert_eq!(at(30, 10), [0, 200, 200, 255]);
+
+    let png = encode_rgba_png_frame(&[255, 0, 0, 255, 255, 0, 0, 255], 2, 1).unwrap();
+    let mut stroke_proj = Project::blank();
+    stroke_proj.width = 30;
+    stroke_proj.height = 30;
+    stroke_proj
+        .resources
+        .push(ResourceUnit::from_bytes("bm", "bm.png", "image/png", &png).unwrap());
+    let kf = &mut stroke_proj.symbols[0].timeline.layers[0].keyframes[0];
+    kf.elements.push(Element {
+        id: "bm-stroke".into(),
+        name: "Stroke".into(),
+        transform: Transform::default(),
+        kind: neoflash_core::ElementKind::PaintedPath {
+            commands: vec![
+                neoflash_core::PathCommand::MoveTo { x: 4.0, y: 4.0 },
+                neoflash_core::PathCommand::LineTo { x: 26.0, y: 4.0 },
+                neoflash_core::PathCommand::LineTo { x: 26.0, y: 26.0 },
+                neoflash_core::PathCommand::LineTo { x: 4.0, y: 26.0 },
+                neoflash_core::PathCommand::Close,
+            ],
+            fill_rule: neoflash_core::FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [128, 128, 128, 255],
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: 4.0,
+        },
+        ..Element::default()
+    });
+    kf.set_bitmap_fill(AuthoredBitmapFill {
+        element_id: "bm-stroke".into(),
+        resource_id: "bm".into(),
+        matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        repeat: true,
+        smoothing: false,
+    });
+    stroke_proj.upgrade_format_for_features();
+    stroke_proj.validate().unwrap();
+    let stroke_rgba =
+        render_project_frame_rgba(&stroke_proj, None, 0, 30, 30, true, false).unwrap();
+    let sat = |x: usize, y: usize| stroke_rgba.as_chunks::<4>().0[y * 30 + x];
+    assert_eq!(
+        sat(15, 4),
+        [255, 0, 0, 255],
+        "stroke perimeter uses bitmap brush"
+    );
+    assert_eq!(
+        sat(15, 15),
+        [0, 0, 0, 0],
+        "unfilled stroke interior stays transparent"
+    );
+
+    // 1D horizontal stroke (`height == 0`) with a `Glow` filter renders cleanly without empty-bounds drop.
+    let mut line_proj = Project::blank();
+    line_proj.width = 30;
+    line_proj.height = 30;
+    line_proj.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "horiz-line".into(),
+            name: "Line".into(),
+            transform: Transform::default(),
+            filters: vec![neoflash_core::FilterSpec::Glow {
+                color: 0x00ff00,
+                alpha: 1.0,
+                blur_x: 4.0,
+                blur_y: 4.0,
+                strength: 2.0,
+                quality: 1,
+                inner: false,
+                knockout: false,
+            }],
+            kind: neoflash_core::ElementKind::Path {
+                commands: vec![
+                    neoflash_core::PathCommand::MoveTo { x: 4.0, y: 15.0 },
+                    neoflash_core::PathCommand::LineTo { x: 26.0, y: 15.0 },
+                ],
+                fill_rule: neoflash_core::FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [255, 255, 255, 255],
+                stroke_width: 3.0,
+            },
+            ..Element::default()
+        });
+    line_proj.upgrade_format_for_features();
+    line_proj.validate().unwrap();
+    let line_rgba = render_project_frame_rgba(&line_proj, None, 0, 30, 30, true, false).unwrap();
+    let lat = |x: usize, y: usize| line_rgba.as_chunks::<4>().0[y * 30 + x];
+    assert!(lat(15, 15)[3] > 200, "1D horizontal stroke center is drawn");
+    assert!(
+        lat(15, 12)[1] > 0,
+        "1D horizontal stroke Glow reaches neighbor"
+    );
+}

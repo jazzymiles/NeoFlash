@@ -620,3 +620,153 @@ fn authored_playback_advances_independent_clips_without_scripts_or_editor_outlin
         191.,
     );
 }
+
+#[test]
+fn editable_stage_evaluation_freezes_independent_movie_clips_and_respects_layer_end_frame() {
+    let mut project = Project::blank();
+    let root_id = project.root.clone();
+    let symbol = |id: &str, frames: u32, keyframes: Vec<Keyframe>| Symbol {
+        id: id.into(),
+        name: id.into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        timeline: Timeline {
+            frame_count: frames,
+            layers: vec![Layer {
+                id: format!("{id}-layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes,
+                properties: LayerProperties::default(),
+            }],
+            scripts: vec![],
+            guides: vec![],
+        },
+        linkage_id: None,
+        class_name: None,
+    };
+    let instance = |id: &str, symbol_id: &str, playback: InstancePlayback| {
+        element(
+            id,
+            ElementKind::Instance {
+                symbol_id: symbol_id.into(),
+                playback,
+            },
+        )
+    };
+    let draw = |scene: &AuthoredScene, element_id: &str| {
+        scene
+            .draws
+            .iter()
+            .find(|d| d.item.element_id == element_id)
+            .unwrap()
+            .clone()
+    };
+
+    let mut mc_f0 = element(
+        "mc-shape",
+        ElementKind::Rectangle {
+            width: 20.,
+            height: 20.,
+            fill: [255, 0, 0, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+    );
+    mc_f0.transform.x = 12.;
+    let mut mc_f1 = mc_f0.clone();
+    mc_f1.transform.x = 112.;
+    let mc = symbol(
+        "indep-mc",
+        2,
+        vec![key(0, vec![mc_f0], None), key(1, vec![mc_f1], None)],
+    );
+
+    let mut gfx_f0 = element(
+        "gfx-shape",
+        ElementKind::Rectangle {
+            width: 20.,
+            height: 20.,
+            fill: [0, 200, 100, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+    );
+    gfx_f0.transform.x = 5.;
+    let mut gfx_f3 = gfx_f0.clone();
+    gfx_f3.transform.x = 65.;
+    let mut gfx = symbol(
+        "sync-gfx",
+        4,
+        vec![
+            key(0, vec![gfx_f0], Some(Easing::Linear)),
+            key(3, vec![gfx_f3], None),
+        ],
+    );
+    gfx.kind = SymbolKind::Graphic;
+    project.symbols.extend([mc, gfx]);
+
+    let root = project.symbol_mut(&root_id).unwrap();
+    root.timeline.frame_count = 8;
+    root.timeline.layers[0].keyframes = vec![key(
+        0,
+        vec![
+            instance("mc-inst", "indep-mc", InstancePlayback::Independent),
+            instance("gfx-inst", "sync-gfx", InstancePlayback::Loop),
+        ],
+        None,
+    )];
+
+    let mut held_el = element(
+        "held-rect",
+        ElementKind::Rectangle {
+            width: 10.,
+            height: 10.,
+            fill: [0, 0, 255, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+    );
+    held_el.transform.x = 0.;
+    root.timeline.layers.push(Layer {
+        id: "short-layer".into(),
+        name: "Short".into(),
+        visible: true,
+        locked: false,
+        keyframes: vec![key(0, vec![held_el.clone()], Some(Easing::Linear))],
+        properties: LayerProperties {
+            end_frame: Some(4),
+            ..Default::default()
+        },
+    });
+    project.format_version = 5;
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    // At frame 3, `editable_stage` keeps `indep-mc` on frame 0 (`x = 12`), advances `sync-gfx`
+    // to frame 3 (`x = 65`), and holds `held-rect` at `x = 0`.
+    let editable_f3 = AuthoredScene::evaluate_editable_stage(&project, &root_id, 3, false, true);
+    near(draw(&editable_f3, "mc-shape").item.transform[4], 12.);
+    near(draw(&editable_f3, "gfx-shape").item.transform[4], 65.);
+    near(draw(&editable_f3, "held-rect").item.transform[4], 0.);
+
+    // Even if a transient unvalidated layer has a keyframe past `end_frame`, `sample_layer`
+    // must not interpolate across `end_frame`.
+    let mut transient_layer = project.symbol(&root_id).unwrap().timeline.layers[1].clone();
+    let mut stray_after_end = held_el;
+    stray_after_end.transform.x = 200.;
+    transient_layer
+        .keyframes
+        .push(key(6, vec![stray_after_end], None));
+    near(sample_layer(&transient_layer, 3)[0].transform.x, 0.);
+
+    // At frame 5 (`>= end_frame`), `short-layer` emits nothing.
+    let editable_f5 = AuthoredScene::evaluate_editable_stage(&project, &root_id, 5, false, true);
+    assert!(
+        !editable_f5
+            .draws
+            .iter()
+            .any(|d| d.item.element_id == "held-rect")
+    );
+}

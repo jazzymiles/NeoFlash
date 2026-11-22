@@ -507,3 +507,34 @@ fn nested_authored_bitmap_fills_follow_the_active_key_and_supply_mask_pixels() {
     player.seek(&project, 3);
     assert!(player.runtime_snapshot(&project).draws.is_empty());
 }
+
+#[test]
+fn unfilled_stroke_contours_on_geometric_mask_layers_do_not_mask_target_art() {
+    let filled = rect("mask-fill", 60., 60.);
+    let stroke_only = Element {
+        id: "mask-stroke".into(),
+        name: "mask-stroke".into(),
+        kind: ElementKind::PaintedPath {
+            commands: contour(0., 0., 180., 100.),
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0, 255, 0, 255],
+            fill_gradient: None,
+            stroke_gradient: None,
+            stroke_width: 4.,
+        },
+        ..Element::default()
+    };
+    let project = masked(vec![filled, stroke_only], MaskMode::Geometry);
+    project.validate().unwrap();
+
+    // (30, 30) is inside the 60x60 fill -> 1.0; (120, 30) is inside the 180x100 stroke-only contour -> 0.0.
+    assert_eq!(
+        coverage(&project, 0, &[[30., 30.], [120., 30.]]),
+        vec![1., 0.]
+    );
+    let snapshot = Player::new(&project).runtime_snapshot(&project);
+    let rt_masks = MaskCoverage::new(&project, &snapshot.clips).unwrap();
+    assert_eq!(rt_masks.alpha(&snapshot.draws[0].clip_ids, [30., 30.]), 1.);
+    assert_eq!(rt_masks.alpha(&snapshot.draws[0].clip_ids, [120., 30.]), 0.);
+}

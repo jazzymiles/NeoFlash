@@ -7,10 +7,11 @@ use std::{
 use crate::ExportError;
 use ab_glyph::{Font, FontArc, FontVec, PxScale, ScaleFont};
 use neoflash_core::{
-    AuthoredBitmapFill, AuthoredDraw, AuthoredPlayback, AuthoredScene, Color, ColorTransform,
-    DecodedImage, DrawItem, ElementKind, FillRule, GradientKind, GradientPaint, MaskCoverage,
-    PathCommand, Project, ResolvedVideoPlacement, TimelineVideoTracker, evaluate_scene,
-    oval_path_commands, rectangle_path_commands, resolve_scene_video_placements,
+    AuthoredBitmapFill, AuthoredDraw, AuthoredPlayback, AuthoredScene, BlendMode, Color,
+    ColorTransform, DecodedImage, DrawItem, ElementKind, FillRule, FilterSpec, GradientKind,
+    GradientPaint, Id, MaskCoverage, PathCommand, Project, ResolvedVideoPlacement,
+    TimelineVideoTracker, filter_padding, filter_rgba, oval_path_commands, rectangle_path_commands,
+    resolve_scene_video_placements,
 };
 use tiny_skia::{
     Color as SkiaColor, FillRule as SkiaFillRule, FilterQuality, GradientStop as SkiaGradientStop,
@@ -80,7 +81,7 @@ pub fn render_project_frame_rgba_with_base_dir(
     let fps = opts.resolved_fps(&prepared.eval_project);
     let dt_ms = ((1000.0 / f64::from(fps)).round() as u32).max(1);
 
-    let (scene, placements) = if runtime_capture {
+    let (scene, filter_nodes, placements) = if runtime_capture {
         let mut playback =
             AuthoredPlayback::with_live_scripts(&prepared.eval_project, &prepared.root_id, 0, true);
         let mut tracker = TimelineVideoTracker::new();
@@ -90,6 +91,17 @@ pub fn render_project_frame_rgba_with_base_dir(
             tracker.step_with_commands(playback.drain_video_commands(), dt_ms);
         }
         let scene = playback.scene(&prepared.eval_project, false, true);
+        let clip_frames = playback.clip_frames();
+        let filter_nodes = AuthoredScene::resolve_node_filters(
+            &prepared.eval_project,
+            playback.symbol(),
+            playback.frame(),
+            false,
+            Some(&clip_frames),
+            playback.is_live_scripts(),
+            false,
+            true,
+        );
         let mut map = HashMap::new();
         for draw in &scene.draws {
             if matches!(draw.item.kind, ElementKind::Video { .. })
@@ -98,9 +110,9 @@ pub fn render_project_frame_rgba_with_base_dir(
                 map.insert(draw.item.instance_path.clone(), p.clone());
             }
         }
-        (scene, map)
+        (scene, filter_nodes, map)
     } else {
-        let scene = evaluate_scene(
+        let (scene, filter_nodes) = AuthoredScene::evaluate_editable_stage_with_filters(
             &prepared.eval_project,
             &prepared.root_id,
             target_frame,
@@ -115,7 +127,7 @@ pub fn render_project_frame_rgba_with_base_dir(
             &HashMap::new(),
             &items,
         );
-        (scene, map)
+        (scene, filter_nodes, map)
     };
 
     for placement in placements.values() {
@@ -134,9 +146,10 @@ pub fn render_project_frame_rgba_with_base_dir(
     }
 
     let mut bitmap_cache = HashMap::new();
-    Ok(render_authored_scene_with_video_rgba(
+    Ok(render_authored_scene_with_effects_rgba(
         &prepared.eval_project,
         &scene,
+        &filter_nodes,
         width.max(1),
         height.max(1),
         transparent_bg,
@@ -226,52 +239,63 @@ impl SequentialVideoFrameSession {
             frame % self.prepared.authored_span.max(1)
         };
 
-        let (scene, placements) = if let Some((playback, tracker, cur_frame)) = &mut self.live_state
-        {
-            if target_frame < *cur_frame {
-                *playback = AuthoredPlayback::with_live_scripts(
+        let (scene, filter_nodes, placements) =
+            if let Some((playback, tracker, cur_frame)) = &mut self.live_state {
+                if target_frame < *cur_frame {
+                    *playback = AuthoredPlayback::with_live_scripts(
+                        &self.prepared.eval_project,
+                        &self.prepared.root_id,
+                        0,
+                        true,
+                    );
+                    *tracker = TimelineVideoTracker::new();
+                    tracker.step_with_commands(playback.drain_video_commands(), 0);
+                    *cur_frame = 0;
+                }
+                while *cur_frame < target_frame {
+                    playback.tick(&self.prepared.eval_project);
+                    tracker.step_with_commands(playback.drain_video_commands(), self.dt_ms);
+                    *cur_frame += 1;
+                }
+                let scene = playback.scene(&self.prepared.eval_project, false, true);
+                let clip_frames = playback.clip_frames();
+                let filter_nodes = AuthoredScene::resolve_node_filters(
                     &self.prepared.eval_project,
-                    &self.prepared.root_id,
-                    0,
+                    playback.symbol(),
+                    playback.frame(),
+                    false,
+                    Some(&clip_frames),
+                    playback.is_live_scripts(),
+                    false,
                     true,
                 );
-                *tracker = TimelineVideoTracker::new();
-                tracker.step_with_commands(playback.drain_video_commands(), 0);
-                *cur_frame = 0;
-            }
-            while *cur_frame < target_frame {
-                playback.tick(&self.prepared.eval_project);
-                tracker.step_with_commands(playback.drain_video_commands(), self.dt_ms);
-                *cur_frame += 1;
-            }
-            let scene = playback.scene(&self.prepared.eval_project, false, true);
-            let mut map = HashMap::new();
-            for draw in &scene.draws {
-                if matches!(draw.item.kind, ElementKind::Video { .. })
-                    && let Some(p) = tracker.placement_for_target(&draw.item.instance_path)
-                {
-                    map.insert(draw.item.instance_path.clone(), p.clone());
+                let mut map = HashMap::new();
+                for draw in &scene.draws {
+                    if matches!(draw.item.kind, ElementKind::Video { .. })
+                        && let Some(p) = tracker.placement_for_target(&draw.item.instance_path)
+                    {
+                        map.insert(draw.item.instance_path.clone(), p.clone());
+                    }
                 }
-            }
-            (scene, map)
-        } else {
-            let scene = evaluate_scene(
-                &self.prepared.eval_project,
-                &self.prepared.root_id,
-                target_frame,
-                false,
-                true,
-            );
-            let items: Vec<DrawItem> = scene.draws.iter().map(|d| d.item.clone()).collect();
-            let map = resolve_scene_video_placements(
-                &self.prepared.eval_project,
-                &self.prepared.root_id,
-                target_frame,
-                &HashMap::new(),
-                &items,
-            );
-            (scene, map)
-        };
+                (scene, filter_nodes, map)
+            } else {
+                let (scene, filter_nodes) = AuthoredScene::evaluate_editable_stage_with_filters(
+                    &self.prepared.eval_project,
+                    &self.prepared.root_id,
+                    target_frame,
+                    false,
+                    true,
+                );
+                let items: Vec<DrawItem> = scene.draws.iter().map(|d| d.item.clone()).collect();
+                let map = resolve_scene_video_placements(
+                    &self.prepared.eval_project,
+                    &self.prepared.root_id,
+                    target_frame,
+                    &HashMap::new(),
+                    &items,
+                );
+                (scene, filter_nodes, map)
+            };
 
         for placement in placements.values() {
             let cache_key = placement_video_cache_key(placement);
@@ -288,9 +312,10 @@ impl SequentialVideoFrameSession {
             }
         }
 
-        Ok(render_authored_scene_with_video_rgba(
+        Ok(render_authored_scene_with_effects_rgba(
             &self.prepared.eval_project,
             &scene,
+            &filter_nodes,
             self.width,
             self.height,
             self.transparent_bg,
@@ -373,9 +398,11 @@ pub fn render_authored_scene_rgba(
                 .map_err(ExportError::Options)?;
         }
     }
-    Ok(render_authored_scene_with_video_rgba(
+    let filter_nodes = scene.resolve_node_filters_for_scene(project, symbol_id, Some(frame));
+    Ok(render_authored_scene_with_effects_rgba(
         project,
         scene,
+        &filter_nodes,
         width,
         height,
         transparent_bg,
@@ -390,6 +417,34 @@ pub fn render_authored_scene_rgba(
 pub fn render_authored_scene_with_video_rgba(
     project: &Project,
     scene: &AuthoredScene,
+    width: u32,
+    height: u32,
+    transparent_bg: bool,
+    bitmap_cache: &mut HashMap<String, Option<Arc<DecodedImage>>>,
+    video_cache: &mut HashMap<String, Option<Arc<DecodedVideoStream>>>,
+    video_placements: &HashMap<Vec<String>, ResolvedVideoPlacement>,
+) -> Vec<u8> {
+    let filter_nodes = scene.resolve_node_filters_for_scene(project, &project.root, None);
+    render_authored_scene_with_effects_rgba(
+        project,
+        scene,
+        &filter_nodes,
+        width,
+        height,
+        transparent_bg,
+        bitmap_cache,
+        video_cache,
+        video_placements,
+    )
+}
+
+pub(crate) type FilterNodeEntry = (Vec<Id>, Vec<FilterSpec>, Vec<String>, BlendMode);
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_authored_scene_with_effects_rgba(
+    project: &Project,
+    scene: &AuthoredScene,
+    filter_nodes: &[FilterNodeEntry],
     width: u32,
     height: u32,
     transparent_bg: bool,
@@ -423,66 +478,101 @@ pub fn render_authored_scene_with_video_rgba(
         .collect();
     let mut bitmap_brush = BitmapBrushCache::default();
     let mut fonts = RasterFonts::default();
-    // Adjacent placements share a mask. Bound its allocation to the intersection of the
-    // artboards in this run, and release it before drawing the next run in stacking order.
-    for draws in scene.draws.chunk_by(|a, b| a.clip_ids == b.clip_ids) {
-        let ids = &draws[0].clip_ids;
-        let Some(rect) = ids.iter().try_fold(viewport, |area, id| {
-            area.intersect(&clip_bounds.get(id.as_str()).copied().flatten()?)
-        }) else {
-            continue;
-        };
-        let transform = stage_scale.post_translate(-(rect.x() as f32), -(rect.y() as f32));
-        let mask = if ids.is_empty() {
-            None
-        } else {
-            let Some(mask) = build_clip_mask(
-                project,
-                rect,
-                [
-                    f64::from(project.width) / f64::from(w),
-                    f64::from(project.height) / f64::from(h),
-                ],
-                transform,
-                ids,
-                &clips,
-            ) else {
+
+    let has_effects = !filter_nodes.is_empty()
+        || !scene.mask_groups.is_empty()
+        || scene.draws.iter().any(|d| !d.blend_mode.is_normal());
+
+    if !has_effects {
+        // Adjacent placements share a mask. Bound its allocation to the intersection of the
+        // artboards in this run, and release it before drawing the next run in stacking order.
+        for draws in scene.draws.chunk_by(|a, b| a.clip_ids == b.clip_ids) {
+            let ids = &draws[0].clip_ids;
+            let Some(rect) = ids.iter().try_fold(viewport, |area, id| {
+                area.intersect(&clip_bounds.get(id.as_str()).copied().flatten()?)
+            }) else {
                 continue;
             };
-            Some(mask)
-        };
-        let mut crop =
-            (rect != viewport).then(|| pixmap.clone_rect(rect).expect("bounded pixmap rectangle"));
-        let surface = crop.as_mut().unwrap_or(&mut pixmap);
-        for draw in draws {
-            draw_authored_item(
-                surface,
-                project,
-                draw,
-                transform,
-                mask.as_ref(),
-                bitmap_cache,
-                &mut bitmap_brush,
-                &mut fonts,
-                video_cache,
-                video_placements,
-            );
-        }
-        if let Some(crop) = crop {
-            for (src, dst) in crop.pixels().chunks_exact(rect.width() as usize).zip(
-                pixmap
-                    .pixels_mut()
-                    .chunks_exact_mut(w as usize)
-                    .skip(rect.y() as usize),
-            ) {
-                dst[rect.x() as usize..rect.right() as usize].copy_from_slice(src);
+            let transform = stage_scale.post_translate(-(rect.x() as f32), -(rect.y() as f32));
+            let mask = if ids.is_empty() {
+                None
+            } else {
+                let Some(mask) = build_clip_mask(
+                    project,
+                    rect,
+                    [
+                        f64::from(project.width) / f64::from(w),
+                        f64::from(project.height) / f64::from(h),
+                    ],
+                    transform,
+                    ids,
+                    &clips,
+                ) else {
+                    continue;
+                };
+                Some(mask)
+            };
+            let mut crop = (rect != viewport)
+                .then(|| pixmap.clone_rect(rect).expect("bounded pixmap rectangle"));
+            let surface = crop.as_mut().unwrap_or(&mut pixmap);
+            for draw in draws {
+                draw_authored_item(
+                    surface,
+                    project,
+                    draw,
+                    transform,
+                    mask.as_ref(),
+                    bitmap_cache,
+                    &mut bitmap_brush,
+                    &mut fonts,
+                    video_cache,
+                    video_placements,
+                );
+            }
+            if let Some(crop) = crop {
+                for (src, dst) in crop.pixels().chunks_exact(rect.width() as usize).zip(
+                    pixmap
+                        .pixels_mut()
+                        .chunks_exact_mut(w as usize)
+                        .skip(rect.y() as usize),
+                ) {
+                    dst[rect.x() as usize..rect.right() as usize].copy_from_slice(src);
+                }
             }
         }
+    } else {
+        let mut ctx = EffectRenderCtx {
+            project,
+            scene,
+            w,
+            h,
+            sx: f64::from(sx),
+            sy: f64::from(sy),
+            stage_scale,
+            viewport,
+            step: [
+                f64::from(project.width) / f64::from(w),
+                f64::from(project.height) / f64::from(h),
+            ],
+            clips: &clips,
+            clip_bounds: &clip_bounds,
+            bitmap_cache,
+            bitmap_brush: &mut bitmap_brush,
+            fonts: &mut fonts,
+            video_cache,
+            video_placements,
+        };
+        render_scene_with_effect_groups(&mut pixmap, &mut ctx, filter_nodes);
     }
 
     // Convert premultiplied RGBA from tiny-skia to straight RGBA8 for encoders and egui textures.
     let mut out = pixmap.take();
-    for px in out.as_chunks_mut::<4>().0 {
+    unpremultiply_rgba_in_place(&mut out);
+    out
+}
+
+fn unpremultiply_rgba_in_place(bytes: &mut [u8]) {
+    for px in bytes.as_chunks_mut::<4>().0 {
         let a = px[3];
         if a > 0 && a < 255 {
             let af = f32::from(a) / 255.0;
@@ -491,7 +581,1030 @@ pub fn render_authored_scene_with_video_rgba(
             px[2] = ((f32::from(px[2]) / af).round() as u32).min(255) as u8;
         }
     }
+}
+
+fn premultiply_rgba_in_place(bytes: &mut [u8]) {
+    for px in bytes.as_chunks_mut::<4>().0 {
+        let a = u32::from(px[3]);
+        if a == 0 {
+            *px = [0; 4];
+        } else if a < 255 {
+            px[0] = ((u32::from(px[0]) * a + 127) / 255) as u8;
+            px[1] = ((u32::from(px[1]) * a + 127) / 255) as u8;
+            px[2] = ((u32::from(px[2]) * a + 127) / 255) as u8;
+        }
+    }
+}
+
+struct OffscreenSurface {
+    left: i32,
+    top: i32,
+    pixmap: Pixmap,
+}
+
+struct EffectGroup {
+    parent: Option<usize>,
+    sort_key: (usize, usize, usize),
+    clip_ids: Vec<String>,
+    blend_mode: BlendMode,
+    filters: Vec<FilterSpec>,
+    members: Vec<bool>,
+    exact_leaf_path: Option<Vec<Id>>,
+}
+
+struct EffectRenderCtx<'a> {
+    project: &'a Project,
+    scene: &'a AuthoredScene,
+    w: u32,
+    h: u32,
+    sx: f64,
+    sy: f64,
+    stage_scale: SkiaTransform,
+    viewport: IntRect,
+    step: [f64; 2],
+    clips: &'a HashMap<&'a str, &'a neoflash_core::RuntimeClip>,
+    clip_bounds: &'a HashMap<&'a str, Option<IntRect>>,
+    bitmap_cache: &'a mut HashMap<String, Option<Arc<DecodedImage>>>,
+    bitmap_brush: &'a mut BitmapBrushCache,
+    fonts: &'a mut RasterFonts,
+    video_cache: &'a mut HashMap<String, Option<Arc<DecodedVideoStream>>>,
+    video_placements: &'a HashMap<Vec<String>, ResolvedVideoPlacement>,
+}
+
+fn parse_group_sort_key(
+    id: &str,
+    mask_groups: &[neoflash_core::AuthoredMaskGroup],
+    order: usize,
+) -> (usize, usize, usize) {
+    let parse_len = |rest: &str| {
+        serde_json::from_str::<Vec<String>>(rest)
+            .map(|v| v.len())
+            .unwrap_or(1)
+    };
+    if let Some(rest) = id.strip_prefix("blend-folder:") {
+        (parse_len(rest), 50, order)
+    } else if let Some(rest) = id.strip_prefix("blend-layer:") {
+        (parse_len(rest), 100, order)
+    } else if let Some(rest) = id.strip_prefix("layer-group:") {
+        (parse_len(rest), 150, order)
+    } else if let Some(rest) = id.strip_prefix("blend-instance:") {
+        (parse_len(rest), 200, order)
+    } else {
+        let mut depth = 1usize;
+        let mut cur = mask_groups
+            .iter()
+            .find(|g| g.id == id)
+            .and_then(|g| g.parent_id.as_deref());
+        for _ in 0..=mask_groups.len() {
+            let Some(pid) = cur else {
+                break;
+            };
+            depth += 1;
+            cur = mask_groups
+                .iter()
+                .find(|g| g.id == pid)
+                .and_then(|g| g.parent_id.as_deref());
+        }
+        (depth, 150, order)
+    }
+}
+
+fn draw_in_mask_group(
+    draw: &AuthoredDraw,
+    target_id: &str,
+    mask_groups: &[neoflash_core::AuthoredMaskGroup],
+) -> bool {
+    let mut cur = draw.mask_group.as_deref();
+    for _ in 0..=mask_groups.len() {
+        let Some(id) = cur else {
+            return false;
+        };
+        if id == target_id {
+            return true;
+        }
+        cur = mask_groups
+            .iter()
+            .find(|g| g.id == id)
+            .and_then(|g| g.parent_id.as_deref());
+    }
+    false
+}
+
+fn scale_filter_spec(spec: &FilterSpec, sx: f64, sy: f64) -> FilterSpec {
+    if (sx - 1.0).abs() < 1e-6 && (sy - 1.0).abs() < 1e-6 {
+        return spec.clone();
+    }
+    let scale_polar = |distance: f64, angle: f64| {
+        let rad = angle.rem_euclid(360.0).to_radians();
+        let dx = distance * rad.cos() * sx;
+        let dy = distance * rad.sin() * sy;
+        let new_dist = dx.hypot(dy);
+        let new_angle = if new_dist > 1e-9 {
+            dy.atan2(dx).to_degrees().rem_euclid(360.0)
+        } else {
+            angle
+        };
+        (new_dist, new_angle)
+    };
+    let mut out = spec.clone();
+    let enabled = out.is_enabled();
+    match &mut out {
+        FilterSpec::Blur { blur_x, blur_y, .. } | FilterSpec::Glow { blur_x, blur_y, .. } => {
+            *blur_x *= sx;
+            *blur_y *= sy;
+        }
+        FilterSpec::DropShadow {
+            distance,
+            angle,
+            blur_x,
+            blur_y,
+            ..
+        }
+        | FilterSpec::Bevel {
+            distance,
+            angle,
+            blur_x,
+            blur_y,
+            ..
+        }
+        | FilterSpec::GradientGlow {
+            distance,
+            angle,
+            blur_x,
+            blur_y,
+            ..
+        }
+        | FilterSpec::GradientBevel {
+            distance,
+            angle,
+            blur_x,
+            blur_y,
+            ..
+        } => {
+            let (nd, na) = scale_polar(*distance, *angle);
+            *distance = nd;
+            *angle = na;
+            *blur_x *= sx;
+            *blur_y *= sy;
+        }
+        FilterSpec::ColorMatrix { .. } | FilterSpec::Convolution { .. } => {}
+    }
+    out.set_enabled(enabled);
     out
+}
+
+fn transform_local_box_with_stroke(
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    xf: SkiaTransform,
+    stroke_w: f64,
+) -> Option<tiny_skia::Rect> {
+    let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for (cx, cy) in corners {
+        let mut pt = SkiaPoint::from_xy(cx, cy);
+        xf.map_point(&mut pt);
+        if pt.x.is_finite() && pt.y.is_finite() {
+            min_x = min_x.min(pt.x);
+            min_y = min_y.min(pt.y);
+            max_x = max_x.max(pt.x);
+            max_y = max_y.max(pt.y);
+        }
+    }
+    if !min_x.is_finite() || !min_y.is_finite() {
+        return None;
+    }
+    let pad = if stroke_w > 0.0 {
+        let max_s = xf.sx.hypot(xf.ky).max(xf.kx.hypot(xf.sy)).max(0.01);
+        (stroke_w as f32) * max_s * 0.6 + 2.0
+    } else {
+        1.0
+    };
+    tiny_skia::Rect::from_ltrb(
+        min_x - pad,
+        min_y - pad,
+        (max_x + pad).max(min_x - pad + 1.0),
+        (max_y + pad).max(min_y - pad + 1.0),
+    )
+}
+
+fn draw_stage_px_bounds(
+    draw: &AuthoredDraw,
+    stage_scale: SkiaTransform,
+    viewport: IntRect,
+) -> Option<tiny_skia::Rect> {
+    let item = &draw.item;
+    let xf = stage_scale.pre_concat(affine_to_skia(item.transform));
+    match &item.kind {
+        ElementKind::Rectangle {
+            width,
+            height,
+            stroke_width,
+            ..
+        }
+        | ElementKind::Ellipse {
+            width,
+            height,
+            stroke_width,
+            ..
+        } => {
+            if *width <= 0.0 || *height <= 0.0 {
+                return None;
+            }
+            transform_local_box_with_stroke(
+                0.0,
+                0.0,
+                *width as f32,
+                *height as f32,
+                xf,
+                *stroke_width,
+            )
+        }
+        ElementKind::Path {
+            commands,
+            stroke_width,
+            ..
+        }
+        | ElementKind::PaintedPath {
+            commands,
+            stroke_width,
+            ..
+        } => {
+            let local = build_skia_path(commands)?.bounds();
+            transform_local_box_with_stroke(
+                local.left(),
+                local.top(),
+                local.right(),
+                local.bottom(),
+                xf,
+                *stroke_width,
+            )
+        }
+        ElementKind::Bitmap { width, height, .. } => {
+            if *width == 0 || *height == 0 {
+                return None;
+            }
+            transform_local_box_with_stroke(0.0, 0.0, *width as f32, *height as f32, xf, 0.0)
+        }
+        ElementKind::TextBox { width, height, .. } => transform_local_box_with_stroke(
+            0.0,
+            0.0,
+            width.ceil().max(1.0) as f32,
+            height.ceil().max(1.0) as f32,
+            xf,
+            0.0,
+        ),
+        ElementKind::Video { width, height } => {
+            if *width <= 0.0 || *height <= 0.0 {
+                return None;
+            }
+            transform_local_box_with_stroke(0.0, 0.0, *width as f32, *height as f32, xf, 0.0)
+        }
+        ElementKind::Text { .. } => Some(viewport.to_rect()),
+        ElementKind::Instance { .. } => None,
+    }
+}
+
+fn render_scene_with_effect_groups(
+    root_pixmap: &mut Pixmap,
+    ctx: &mut EffectRenderCtx<'_>,
+    filter_nodes: &[FilterNodeEntry],
+) {
+    let n_draws = ctx.scene.draws.len();
+    if n_draws == 0 {
+        return;
+    }
+
+    let mut groups: Vec<EffectGroup> = Vec::new();
+    let mut blend_instance_idx: HashMap<String, usize> = HashMap::new();
+    for (order, mg) in ctx.scene.mask_groups.iter().enumerate() {
+        let members: Vec<bool> = ctx
+            .scene
+            .draws
+            .iter()
+            .map(|d| draw_in_mask_group(d, &mg.id, &ctx.scene.mask_groups))
+            .collect();
+        if !members.iter().any(|&m| m) {
+            continue;
+        }
+        let idx = groups.len();
+        if mg.id.starts_with("blend-instance:") {
+            blend_instance_idx.insert(mg.id.clone(), idx);
+        }
+        groups.push(EffectGroup {
+            parent: None,
+            sort_key: parse_group_sort_key(&mg.id, &ctx.scene.mask_groups, order),
+            clip_ids: mg.clip_ids.clone(),
+            blend_mode: mg.blend_mode,
+            filters: Vec::new(),
+            members,
+            exact_leaf_path: None,
+        });
+    }
+
+    let base_order = ctx.scene.mask_groups.len();
+    for (offset, (path, filters, outer_clips, blend_mode)) in filter_nodes.iter().enumerate() {
+        let scaled: Vec<FilterSpec> = filters
+            .iter()
+            .map(|f| scale_filter_spec(f, ctx.sx, ctx.sy))
+            .collect();
+        let inst_id = format!(
+            "blend-instance:{}",
+            serde_json::to_string(path).unwrap_or_default()
+        );
+        if let Some(&idx) = blend_instance_idx.get(&inst_id) {
+            groups[idx].filters = scaled;
+            for cid in outer_clips {
+                if !groups[idx].clip_ids.contains(cid) {
+                    groups[idx].clip_ids.push(cid.clone());
+                }
+            }
+            continue;
+        }
+        let members: Vec<bool> = ctx
+            .scene
+            .draws
+            .iter()
+            .map(|d| d.item.instance_path.starts_with(path))
+            .collect();
+        if !members.iter().any(|&m| m) {
+            continue;
+        }
+        groups.push(EffectGroup {
+            parent: None,
+            sort_key: (path.len(), 200, base_order + offset),
+            clip_ids: outer_clips.clone(),
+            blend_mode: *blend_mode,
+            filters: scaled,
+            members,
+            exact_leaf_path: Some(path.clone()),
+        });
+    }
+
+    groups.sort_by_key(|g| g.sort_key);
+    for idx in 0..groups.len() {
+        groups[idx].parent = (0..idx)
+            .rfind(|&p| (0..n_draws).all(|i| !groups[idx].members[i] || groups[p].members[i]));
+    }
+
+    let draw_group: Vec<Option<usize>> = (0..n_draws)
+        .map(|i| (0..groups.len()).rfind(|&g| groups[g].members[i]))
+        .collect();
+    let draw_bounds: Vec<Option<tiny_skia::Rect>> = ctx
+        .scene
+        .draws
+        .iter()
+        .map(|d| draw_stage_px_bounds(d, ctx.stage_scale, ctx.viewport))
+        .collect();
+
+    let mut active = HashSet::new();
+    let mut root_surface = OffscreenSurface {
+        left: 0,
+        top: 0,
+        pixmap: Pixmap::new(1, 1).expect("1x1 placeholder"),
+    };
+    std::mem::swap(&mut root_surface.pixmap, root_pixmap);
+    render_group_into(
+        None,
+        &mut root_surface,
+        &[],
+        &groups,
+        &draw_group,
+        &draw_bounds,
+        ctx,
+        &mut active,
+    );
+    std::mem::swap(&mut root_surface.pixmap, root_pixmap);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compute_group_bounds(
+    gid: usize,
+    groups: &[EffectGroup],
+    draw_bounds: &[Option<tiny_skia::Rect>],
+    w: u32,
+    h: u32,
+) -> Option<(i32, i32, u32, u32)> {
+    let mut union: Option<tiny_skia::Rect> = None;
+    for (i, &member) in groups[gid].members.iter().enumerate() {
+        if member && let Some(b) = draw_bounds[i] {
+            union = Some(match union {
+                Some(acc) => acc.join(&b).unwrap_or(acc),
+                None => b,
+            });
+        }
+    }
+    let rect = union?;
+    let mut pad_l = 2i32;
+    let mut pad_t = 2i32;
+    let mut pad_r = 2i32;
+    let mut pad_b = 2i32;
+    for (idx, g) in groups.iter().enumerate() {
+        let inside_subtree = idx == gid || {
+            let mut cur = g.parent;
+            let mut found = false;
+            for _ in 0..=groups.len() {
+                if cur == Some(gid) {
+                    found = true;
+                    break;
+                }
+                let Some(p) = cur else {
+                    break;
+                };
+                cur = groups[p].parent;
+            }
+            found
+        };
+        if inside_subtree
+            && !g.filters.is_empty()
+            && let Ok(pad) = filter_padding(&g.filters)
+        {
+            pad_l = pad_l.saturating_add(pad.left as i32 + 2);
+            pad_t = pad_t.saturating_add(pad.top as i32 + 2);
+            pad_r = pad_r.saturating_add(pad.right as i32 + 2);
+            pad_b = pad_b.saturating_add(pad.bottom as i32 + 2);
+        }
+    }
+    let min_x = (rect.left().floor() as i32 - pad_l).max(-pad_r.max(64));
+    let min_y = (rect.top().floor() as i32 - pad_t).max(-pad_b.max(64));
+    let max_x = (rect.right().ceil() as i32 + pad_r).min(w as i32 + pad_l.max(64));
+    let max_y = (rect.bottom().ceil() as i32 + pad_b).min(h as i32 + pad_t.max(64));
+    if max_x <= 0
+        || max_y <= 0
+        || min_x >= w as i32
+        || min_y >= h as i32
+        || max_x <= min_x
+        || max_y <= min_y
+    {
+        return None;
+    }
+    let gw = (max_x - min_x) as u32;
+    let gh = (max_y - min_y) as u32;
+    if gw > 4096 || gh > 4096 {
+        let cl_x0 = min_x.max(0);
+        let cl_y0 = min_y.max(0);
+        let cl_x1 = max_x.min(w as i32);
+        let cl_y1 = max_y.min(h as i32);
+        if cl_x1 <= cl_x0 || cl_y1 <= cl_y0 {
+            return None;
+        }
+        return Some((cl_x0, cl_y0, (cl_x1 - cl_x0) as u32, (cl_y1 - cl_y0) as u32));
+    }
+    Some((min_x, min_y, gw, gh))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_group_into(
+    gid: Option<usize>,
+    surface: &mut OffscreenSurface,
+    deferred_clips: &[String],
+    groups: &[EffectGroup],
+    draw_group: &[Option<usize>],
+    draw_bounds: &[Option<tiny_skia::Rect>],
+    ctx: &mut EffectRenderCtx<'_>,
+    active: &mut HashSet<usize>,
+) {
+    let mut emitted_children = HashSet::new();
+    let stage_bg = {
+        let bg = ctx.project.background;
+        [bg[0], bg[1], bg[2], 255]
+    };
+    let use_root_backdrop = gid.is_none();
+
+    for (idx, draw) in ctx.scene.draws.iter().enumerate() {
+        let belongs = match gid {
+            None => true,
+            Some(g) => groups[g].members[idx],
+        };
+        if !belongs {
+            continue;
+        }
+        if draw_group[idx] == gid {
+            let extra_clips: Vec<String> = draw
+                .clip_ids
+                .iter()
+                .filter(|c| !deferred_clips.contains(c))
+                .cloned()
+                .collect();
+            let effective_blend = if gid.is_some_and(|g| {
+                groups[g]
+                    .exact_leaf_path
+                    .as_ref()
+                    .is_some_and(|p| p == &draw.item.instance_path)
+            }) {
+                BlendMode::Normal
+            } else {
+                draw.blend_mode
+            };
+
+            if effective_blend.is_normal() {
+                let xf = ctx
+                    .stage_scale
+                    .post_translate(-(surface.left as f32), -(surface.top as f32));
+                let mask_opt = if extra_clips.is_empty() {
+                    None
+                } else {
+                    if let Some(sr) = IntRect::from_xywh(
+                        surface.left,
+                        surface.top,
+                        surface.pixmap.width(),
+                        surface.pixmap.height(),
+                    ) {
+                        let clip_area = extra_clips.iter().try_fold(sr, |area, id| {
+                            area.intersect(&ctx.clip_bounds.get(id.as_str()).copied().flatten()?)
+                        });
+                        if clip_area.is_none() {
+                            continue;
+                        }
+                    }
+                    let Some(m) = build_offset_clip_mask(
+                        ctx.project,
+                        surface.left,
+                        surface.top,
+                        surface.pixmap.width(),
+                        surface.pixmap.height(),
+                        ctx.step,
+                        xf,
+                        &extra_clips,
+                        ctx.clips,
+                    ) else {
+                        continue;
+                    };
+                    Some(m)
+                };
+                draw_authored_item(
+                    &mut surface.pixmap,
+                    ctx.project,
+                    draw,
+                    xf,
+                    mask_opt.as_ref(),
+                    ctx.bitmap_cache,
+                    ctx.bitmap_brush,
+                    ctx.fonts,
+                    ctx.video_cache,
+                    ctx.video_placements,
+                );
+            } else {
+                let Some(b) = draw_bounds[idx] else {
+                    continue;
+                };
+                let x0 = (b.left().floor() as i32 - 2).max(0);
+                let y0 = (b.top().floor() as i32 - 2).max(0);
+                let x1 = (b.right().ceil() as i32 + 2).min(ctx.w as i32);
+                let y1 = (b.bottom().ceil() as i32 + 2).min(ctx.h as i32);
+                if x1 <= x0 || y1 <= y0 {
+                    continue;
+                }
+                let pw = (x1 - x0) as u32;
+                let ph = (y1 - y0) as u32;
+                let Some(mut part_px) = Pixmap::new(pw, ph) else {
+                    continue;
+                };
+                let xf = ctx.stage_scale.post_translate(-(x0 as f32), -(y0 as f32));
+                let mask_opt = if extra_clips.is_empty() {
+                    None
+                } else {
+                    let Some(m) = build_offset_clip_mask(
+                        ctx.project,
+                        x0,
+                        y0,
+                        pw,
+                        ph,
+                        ctx.step,
+                        xf,
+                        &extra_clips,
+                        ctx.clips,
+                    ) else {
+                        continue;
+                    };
+                    Some(m)
+                };
+                draw_authored_item(
+                    &mut part_px,
+                    ctx.project,
+                    draw,
+                    xf,
+                    mask_opt.as_ref(),
+                    ctx.bitmap_cache,
+                    ctx.bitmap_brush,
+                    ctx.fonts,
+                    ctx.video_cache,
+                    ctx.video_placements,
+                );
+                let part = OffscreenSurface {
+                    left: x0,
+                    top: y0,
+                    pixmap: part_px,
+                };
+                composite_surface_blended(
+                    surface,
+                    &part,
+                    effective_blend,
+                    use_root_backdrop.then_some(stage_bg),
+                );
+            }
+        } else if let Some(mut child) = draw_group[idx] {
+            for _ in 0..=groups.len() {
+                if groups[child].parent == gid {
+                    break;
+                }
+                let Some(p) = groups[child].parent else {
+                    break;
+                };
+                child = p;
+            }
+            if groups[child].parent != gid || !emitted_children.insert(child) {
+                continue;
+            }
+            if !active.insert(child) {
+                continue;
+            }
+            if let Some((gx, gy, gw, gh)) =
+                compute_group_bounds(child, groups, draw_bounds, ctx.w, ctx.h)
+                && let Some(child_px) = Pixmap::new(gw, gh)
+            {
+                let mut child_surface = OffscreenSurface {
+                    left: gx,
+                    top: gy,
+                    pixmap: child_px,
+                };
+                let mut child_deferred = deferred_clips.to_vec();
+                for cid in &groups[child].clip_ids {
+                    if !child_deferred.contains(cid) {
+                        child_deferred.push(cid.clone());
+                    }
+                }
+                render_group_into(
+                    Some(child),
+                    &mut child_surface,
+                    &child_deferred,
+                    groups,
+                    draw_group,
+                    draw_bounds,
+                    ctx,
+                    active,
+                );
+                if !groups[child].filters.is_empty() {
+                    apply_filters_to_surface(&mut child_surface, &groups[child].filters);
+                }
+                let own_clips: Vec<String> = groups[child]
+                    .clip_ids
+                    .iter()
+                    .filter(|c| !deferred_clips.contains(c))
+                    .cloned()
+                    .collect();
+                if !own_clips.is_empty() {
+                    let xf = ctx
+                        .stage_scale
+                        .post_translate(-(child_surface.left as f32), -(child_surface.top as f32));
+                    if let Some(mask) = build_offset_clip_mask(
+                        ctx.project,
+                        child_surface.left,
+                        child_surface.top,
+                        child_surface.pixmap.width(),
+                        child_surface.pixmap.height(),
+                        ctx.step,
+                        xf,
+                        &own_clips,
+                        ctx.clips,
+                    ) {
+                        apply_skia_mask_in_place(&mut child_surface.pixmap, &mask);
+                    } else {
+                        child_surface.pixmap.data_mut().fill(0);
+                    }
+                }
+                composite_surface_blended(
+                    surface,
+                    &child_surface,
+                    groups[child].blend_mode,
+                    use_root_backdrop.then_some(stage_bg),
+                );
+            }
+            active.remove(&child);
+        }
+    }
+}
+
+fn apply_filters_to_surface(surface: &mut OffscreenSurface, filters: &[FilterSpec]) {
+    let w = surface.pixmap.width();
+    let h = surface.pixmap.height();
+    let pixels = (w as usize).saturating_mul(h as usize);
+    if pixels == 0 {
+        return;
+    }
+    if pixels <= neoflash_core::MAX_FILTER_PIXELS {
+        let mut straight = surface.pixmap.data().to_vec();
+        unpremultiply_rgba_in_place(&mut straight);
+        if let Ok(mut filtered) = filter_rgba(w, h, &straight, filters) {
+            premultiply_rgba_in_place(&mut filtered);
+            surface.pixmap.data_mut().copy_from_slice(&filtered);
+        }
+        return;
+    }
+    let ratio = ((neoflash_core::MAX_FILTER_PIXELS as f64) / (pixels as f64)).sqrt();
+    let sw = ((w as f64 * ratio).floor() as u32).max(1);
+    let sh = ((h as f64 * ratio).floor() as u32).max(1);
+    let Some(mut scaled_px) = Pixmap::new(sw, sh) else {
+        return;
+    };
+    scaled_px.draw_pixmap(
+        0,
+        0,
+        surface.pixmap.as_ref(),
+        &PixmapPaint {
+            opacity: 1.0,
+            blend_mode: tiny_skia::BlendMode::SourceOver,
+            quality: FilterQuality::Bilinear,
+        },
+        SkiaTransform::from_scale(sw as f32 / w as f32, sh as f32 / h as f32),
+        None,
+    );
+    let scaled_filters: Vec<FilterSpec> = filters
+        .iter()
+        .map(|f| {
+            scale_filter_spec(
+                f,
+                f64::from(sw) / f64::from(w),
+                f64::from(sh) / f64::from(h),
+            )
+        })
+        .collect();
+    let mut straight = scaled_px.data().to_vec();
+    unpremultiply_rgba_in_place(&mut straight);
+    if let Ok(mut filtered) = filter_rgba(sw, sh, &straight, &scaled_filters) {
+        premultiply_rgba_in_place(&mut filtered);
+        scaled_px.data_mut().copy_from_slice(&filtered);
+        surface.pixmap.data_mut().fill(0);
+        surface.pixmap.draw_pixmap(
+            0,
+            0,
+            scaled_px.as_ref(),
+            &PixmapPaint {
+                opacity: 1.0,
+                blend_mode: tiny_skia::BlendMode::SourceOver,
+                quality: FilterQuality::Bilinear,
+            },
+            SkiaTransform::from_scale(w as f32 / sw as f32, h as f32 / sh as f32),
+            None,
+        );
+    }
+}
+
+fn apply_skia_mask_in_place(pixmap: &mut Pixmap, mask: &SkiaMask) {
+    for (px, &m) in pixmap
+        .data_mut()
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(mask.data().iter())
+    {
+        if m == 0 {
+            *px = [0; 4];
+        } else if m < 255 {
+            let mu = u32::from(m);
+            px[0] = ((u32::from(px[0]) * mu + 127) / 255) as u8;
+            px[1] = ((u32::from(px[1]) * mu + 127) / 255) as u8;
+            px[2] = ((u32::from(px[2]) * mu + 127) / 255) as u8;
+            px[3] = ((u32::from(px[3]) * mu + 127) / 255) as u8;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_offset_clip_mask(
+    project: &Project,
+    left: i32,
+    top: i32,
+    out_w: u32,
+    out_h: u32,
+    step: [f64; 2],
+    transform: SkiaTransform,
+    ids: &[String],
+    clips: &HashMap<&str, &neoflash_core::RuntimeClip>,
+) -> Option<SkiaMask> {
+    if let Some(rect) = IntRect::from_xywh(left, top, out_w, out_h) {
+        return build_clip_mask(project, rect, step, transform, ids, clips);
+    }
+    let simple = ids.iter().all(|id| {
+        clips.get(id.as_str()).is_some_and(|c| {
+            c.alpha_components.is_none()
+                && !c.invert
+                && c.components.iter().all(|part| part.clip_ids.is_empty())
+        })
+    });
+    if !simple {
+        let mut subset = Vec::new();
+        let mut seen = HashSet::new();
+        let mut pending: Vec<_> = ids.iter().map(String::as_str).collect();
+        while let Some(id) = pending.pop() {
+            if seen.insert(id) {
+                let clip = *clips.get(id)?;
+                if let Some(alpha) = &clip.alpha_components {
+                    pending.extend(
+                        alpha
+                            .iter()
+                            .flat_map(|c| c.clip_ids.iter().map(String::as_str)),
+                    );
+                } else {
+                    pending.extend(
+                        clip.components
+                            .iter()
+                            .flat_map(|c| c.clip_ids.iter().map(String::as_str)),
+                    );
+                }
+                subset.push(clip.clone());
+            }
+        }
+        if let Ok(coverage) = MaskCoverage::new(project, &subset) {
+            let origin = [f64::from(left) * step[0], f64::from(top) * step[1]];
+            if let Ok(bytes) = coverage.raster(ids, origin, step, out_w as usize, out_h as usize) {
+                return SkiaMask::from_vec(bytes, IntSize::from_wh(out_w, out_h)?);
+            }
+        }
+    }
+    let mut combined: Option<SkiaMask> = None;
+    for id in ids {
+        let clip = clips.get(id.as_str())?;
+        let mut mask = SkiaMask::new(out_w, out_h)?;
+        for comp in &clip.components {
+            if let Some(path) = build_skia_path(&comp.commands) {
+                let xf = transform.pre_concat(affine_to_skia(comp.matrix));
+                mask.fill_path(&path, to_skia_fill_rule(comp.fill_rule), true, xf);
+            }
+        }
+        if clip.invert {
+            mask.invert();
+        }
+        if let Some(existing) = &mut combined {
+            for (dst, src) in existing.data_mut().iter_mut().zip(mask.data().iter()) {
+                *dst = ((u16::from(*dst) * u16::from(*src) + 127) / 255) as u8;
+            }
+        } else {
+            combined = Some(mask);
+        }
+    }
+    combined
+}
+
+fn composite_surface_blended(
+    target: &mut OffscreenSurface,
+    source: &OffscreenSurface,
+    mode: BlendMode,
+    stage_bg: Option<[u8; 4]>,
+) {
+    let tw = target.pixmap.width() as i32;
+    let th = target.pixmap.height() as i32;
+    let sw = source.pixmap.width() as i32;
+    let sh = source.pixmap.height() as i32;
+    match mode {
+        BlendMode::Normal | BlendMode::Layer => {
+            target.pixmap.draw_pixmap(
+                source.left - target.left,
+                source.top - target.top,
+                source.pixmap.as_ref(),
+                &PixmapPaint::default(),
+                SkiaTransform::identity(),
+                None,
+            );
+        }
+        BlendMode::Alpha => {
+            let dst_pixels = target.pixmap.data_mut().as_chunks_mut::<4>().0;
+            let src_pixels = source.pixmap.data().as_chunks::<4>().0;
+            for dy in 0..th {
+                for dx in 0..tw {
+                    let sx = (target.left + dx) - source.left;
+                    let sy = (target.top + dy) - source.top;
+                    let sa = if sx >= 0 && sy >= 0 && sx < sw && sy < sh {
+                        u32::from(src_pixels[(sy * sw + sx) as usize][3])
+                    } else {
+                        0
+                    };
+                    let tp = &mut dst_pixels[(dy * tw + dx) as usize];
+                    tp[0] = ((u32::from(tp[0]) * sa + 127) / 255) as u8;
+                    tp[1] = ((u32::from(tp[1]) * sa + 127) / 255) as u8;
+                    tp[2] = ((u32::from(tp[2]) * sa + 127) / 255) as u8;
+                    tp[3] = ((u32::from(tp[3]) * sa + 127) / 255) as u8;
+                }
+            }
+        }
+        BlendMode::Erase => {
+            let dst_pixels = target.pixmap.data_mut().as_chunks_mut::<4>().0;
+            let src_pixels = source.pixmap.data().as_chunks::<4>().0;
+            for sy in 0..sh {
+                let dy = (source.top + sy) - target.top;
+                if dy < 0 || dy >= th {
+                    continue;
+                }
+                for sx in 0..sw {
+                    let sa = u32::from(src_pixels[(sy * sw + sx) as usize][3]);
+                    if sa == 0 {
+                        continue;
+                    }
+                    let dx = (source.left + sx) - target.left;
+                    if dx >= 0 && dx < tw {
+                        let inv = 255 - sa;
+                        let tp = &mut dst_pixels[(dy * tw + dx) as usize];
+                        tp[0] = ((u32::from(tp[0]) * inv + 127) / 255) as u8;
+                        tp[1] = ((u32::from(tp[1]) * inv + 127) / 255) as u8;
+                        tp[2] = ((u32::from(tp[2]) * inv + 127) / 255) as u8;
+                        tp[3] = ((u32::from(tp[3]) * inv + 127) / 255) as u8;
+                    }
+                }
+            }
+        }
+        _ => {
+            let dst_pixels = target.pixmap.data_mut().as_chunks_mut::<4>().0;
+            let src_pixels = source.pixmap.data().as_chunks::<4>().0;
+            for sy in 0..sh {
+                let gy = source.top + sy;
+                let dy = gy - target.top;
+                if dy < 0 || dy >= th {
+                    continue;
+                }
+                for sx in 0..sw {
+                    let sp = src_pixels[(sy * sw + sx) as usize];
+                    if sp[3] == 0 {
+                        continue;
+                    }
+                    let gx = source.left + sx;
+                    let dx = gx - target.left;
+                    if dx >= 0 && dx < tw {
+                        let tp = &mut dst_pixels[(dy * tw + dx) as usize];
+                        *tp = blend_premul_pixel(sp, *tp, mode, stage_bg);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn blend_premul_pixel(
+    source: [u8; 4],
+    target: [u8; 4],
+    mode: BlendMode,
+    stage_bg: Option<[u8; 4]>,
+) -> [u8; 4] {
+    let sa = source[3];
+    if sa == 0 {
+        return target;
+    }
+    let sa_f = f64::from(sa) / 255.0;
+    let ta_f = f64::from(target[3]) / 255.0;
+    let cs: [f64; 3] =
+        std::array::from_fn(|i| (f64::from(source[i]) / 255.0 / sa_f).clamp(0.0, 1.0));
+    let cb: [f64; 3] = if let Some(bg) = stage_bg {
+        let inv = 255 - u32::from(target[3]);
+        std::array::from_fn(|i| {
+            f64::from((u32::from(target[i]) + (u32::from(bg[i]) * inv + 127) / 255).min(255))
+                / 255.0
+        })
+    } else if ta_f > 0.0 {
+        std::array::from_fn(|i| (f64::from(target[i]) / 255.0 / ta_f).clamp(0.0, 1.0))
+    } else {
+        [0.0; 3]
+    };
+    let out_a = sa_f + ta_f * (1.0 - sa_f);
+    let out_a_u8 = (out_a * 255.0).round().clamp(0.0, 255.0) as u8;
+    let mut rgb = [0u8; 3];
+    for c in 0..3 {
+        let mixed = match mode {
+            BlendMode::Darken => cb[c].min(cs[c]),
+            BlendMode::Multiply => cb[c] * cs[c],
+            BlendMode::Lighten => cb[c].max(cs[c]),
+            BlendMode::Screen => cb[c] + cs[c] - cb[c] * cs[c],
+            BlendMode::Add => (cb[c] + cs[c]).min(1.0),
+            BlendMode::Subtract => (cb[c] - cs[c]).max(0.0),
+            BlendMode::Difference => (cb[c] - cs[c]).abs(),
+            BlendMode::Invert => 1.0 - cb[c],
+            BlendMode::Overlay => {
+                if cb[c] <= 0.5 {
+                    2.0 * cb[c] * cs[c]
+                } else {
+                    1.0 - 2.0 * (1.0 - cb[c]) * (1.0 - cs[c])
+                }
+            }
+            BlendMode::Hardlight => {
+                if cs[c] <= 0.5 {
+                    2.0 * cb[c] * cs[c]
+                } else {
+                    1.0 - 2.0 * (1.0 - cb[c]) * (1.0 - cs[c])
+                }
+            }
+            BlendMode::Normal | BlendMode::Layer | BlendMode::Alpha | BlendMode::Erase => cs[c],
+        };
+        let premul = if stage_bg.is_some() {
+            sa_f * mixed + (1.0 - sa_f) * (f64::from(target[c]) / 255.0)
+        } else {
+            sa_f * (1.0 - ta_f) * cs[c] + ta_f * (1.0 - sa_f) * cb[c] + sa_f * ta_f * mixed
+        };
+        rgb[c] = (premul * 255.0).round().clamp(0.0, f64::from(out_a_u8)) as u8;
+    }
+    [rgb[0], rgb[1], rgb[2], out_a_u8]
 }
 
 fn clip_pixel_bounds(
@@ -1038,24 +2151,29 @@ fn draw_vector_commands(
         return;
     };
     let fill_visible = fill.1.is_some() || ct.apply(fill.0)[3] > 0;
-    if let Some(paint) = bitmap_paint {
+    let (stroke_color, stroke_grad, stroke_width) = stroke;
+    let stroke_uses_bitmap = !fill_visible && stroke_width > 0.0 && bitmap_paint.is_some();
+    if let Some(paint) = bitmap_paint.filter(|_| !stroke_uses_bitmap) {
         pixmap.fill_path(&path, paint, to_skia_fill_rule(fill_rule), xf, mask);
     } else if fill_visible {
         let paint = configure_paint_shader(fill.0, fill.1, ct);
         pixmap.fill_path(&path, &paint, to_skia_fill_rule(fill_rule), xf, mask);
     }
-    let (stroke_color, stroke_grad, stroke_width) = stroke;
-    let stroke_visible =
-        stroke_width > 0.0 && (stroke_grad.is_some() || ct.apply(stroke_color)[3] > 0);
+    let stroke_visible = stroke_width > 0.0
+        && (stroke_uses_bitmap || stroke_grad.is_some() || ct.apply(stroke_color)[3] > 0);
     if stroke_visible {
-        let paint = configure_paint_shader(stroke_color, stroke_grad, ct);
         let skia_stroke = SkiaStroke {
             width: stroke_width as f32,
             line_cap: LineCap::Round,
             line_join: LineJoin::Round,
             ..SkiaStroke::default()
         };
-        pixmap.stroke_path(&path, &paint, &skia_stroke, xf, mask);
+        if let Some(paint) = bitmap_paint.filter(|_| stroke_uses_bitmap) {
+            pixmap.stroke_path(&path, paint, &skia_stroke, xf, mask);
+        } else {
+            let paint = configure_paint_shader(stroke_color, stroke_grad, ct);
+            pixmap.stroke_path(&path, &paint, &skia_stroke, xf, mask);
+        }
     }
 }
 
