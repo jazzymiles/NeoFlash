@@ -3353,7 +3353,8 @@
         "crates/neoflash-import/src/legacy/media/video.rs",
         "crates/neoflash-import/tests/binary_fla_fidelity.rs",
         "crates/neoflash-import/tests/t418_psd_layer_styles_and_fla.rs",
-        "crates/neoflash-import/tests/t450_binary_fla_deepening.rs"
+        "crates/neoflash-import/tests/t450_binary_fla_deepening.rs",
+        "crates/neoflash-import/tests/t461_fla_archival_and_records.rs"
       ]
     },
     {
@@ -3412,7 +3413,8 @@
         "crates/neoflash-import/src/swf/player.rs",
         "crates/neoflash-import/tests/import_capabilities_and_corpus.rs",
         "crates/neoflash-import/tests/swf_fidelity.rs",
-        "crates/neoflash-import/tests/t451_swf_vm_and_fidelity.rs"
+        "crates/neoflash-import/tests/t451_swf_vm_and_fidelity.rs",
+        "crates/neoflash-import/tests/t462_swf_interactive_and_morph.rs"
       ]
     },
     {
