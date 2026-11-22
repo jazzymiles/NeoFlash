@@ -1792,14 +1792,15 @@ impl Context<'_> {
                 Some([_, hidden, locked]) => (*hidden == 0, *locked != 0),
                 _ => (l.legacy_flag != Some(0), l.legacy_flag == Some(1)),
             };
+            let layer_relation_target =
+                |layer_obj_id: u32, relation: TimelineRelation| -> Option<u32> {
+                    s.pointers
+                        .iter()
+                        .find(|p| p.source == Some(layer_obj_id) && p.relation == relation)
+                        .and_then(|p| p.target)
+                };
             let layer_primary_related = |layer_obj_id: u32| -> Option<u32> {
-                s.pointers
-                    .iter()
-                    .find(|p| {
-                        p.source == Some(layer_obj_id)
-                            && p.relation == TimelineRelation::RelatedLayer
-                    })
-                    .and_then(|p| p.target)
+                layer_relation_target(layer_obj_id, TimelineRelation::RelatedLayer)
             };
             let is_pre_r9_legacy_mask = |layer_obj_id: u32, layer: &TimelineLayer| -> bool {
                 let rev = layer.revision.unwrap_or(13);
@@ -1809,12 +1810,26 @@ impl Context<'_> {
                 {
                     return false;
                 }
-                !layer_primary_related(layer_obj_id).is_some_and(|t| {
+                let points_to_parent = layer_primary_related(layer_obj_id).is_some_and(|t| {
                     t != layer_obj_id
                         && matches!(
                             object(s, t).map(|obj| &obj.payload),
                             Ok(Some(TimelinePayload::Layer(parent)))
                                 if matches!(parent.layer_type, Some(1 | 3 | 4))
+                        )
+                });
+                if points_to_parent {
+                    return false;
+                }
+                page.children.iter().copied().any(|sib_id| {
+                    sib_id != layer_obj_id
+                        && (layer_primary_related(sib_id) == Some(layer_obj_id)
+                            || layer_relation_target(sib_id, TimelineRelation::LegacyRelatedLayer)
+                                == Some(layer_obj_id))
+                        && matches!(
+                            object(s, sib_id).map(|obj| &obj.payload),
+                            Ok(Some(TimelinePayload::Layer(sib)))
+                                if matches!(sib.layer_type, Some(0 | 2 | 5) | None)
                         )
                 })
             };
