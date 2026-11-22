@@ -283,6 +283,7 @@ impl Editor {
                     self.set_selection_gradient_stops(stroke_active, grad.stops.clone(), None);
                 }
                 if gradient_stops_bar_ui(ui, &mut grad, &mut self.authoring_modify.selected_stop)
+                    .0
                     .is_some()
                 {
                     self.set_selection_gradient_stops(stroke_active, grad.stops, None);
@@ -409,10 +410,23 @@ impl Editor {
                         Some(control),
                     );
                 }
-                if let Some(control) =
-                    gradient_stops_bar_ui(ui, &mut grad, &mut self.authoring_modify.selected_stop)
-                {
-                    self.set_selection_gradient_stops(stroke_active, grad.stops, Some(control));
+                let (changed, focused) =
+                    gradient_stops_bar_ui(ui, &mut grad, &mut self.authoring_modify.selected_stop);
+                if let Some(control) = changed {
+                    let drag_control = ui
+                        .input(|input| input.pointer.primary_down())
+                        .then_some(control);
+                    self.set_selection_gradient_stops(stroke_active, grad.stops, drag_control);
+                }
+                if focused && ui.is_enabled() && !self.has_modal_dialog_in(ui.ctx()) {
+                    // The stop edits the selected object. Undo here belongs to the document.
+                    use crate::commands::CommandId;
+                    for cmd in [CommandId::EditUndo, CommandId::EditRedo] {
+                        if self.take_control_shortcut(ui.ctx(), cmd, true) {
+                            self.execute_menu_command(ui.ctx(), cmd);
+                            break;
+                        }
+                    }
                 }
             } else {
                 let (mut new_fill, mut new_stroke) = (fill, stroke);
@@ -1048,10 +1062,10 @@ pub(super) fn gradient_stops_bar_ui(
     ui: &mut egui::Ui,
     grad: &mut GradientPaint,
     selected_stop: &mut usize,
-) -> Option<egui::Id> {
+) -> (Option<egui::Id>, bool) {
     let p = neoflash_ui::palette(ui.ctx());
     if grad.stops.is_empty() {
-        return None;
+        return (None, false);
     }
     grad.stops.sort_by_key(|s| s.ratio);
     if *selected_stop >= grad.stops.len() {
@@ -1090,9 +1104,18 @@ pub(super) fn gradient_stops_bar_ui(
     );
 
     let mut changed = false;
-    let mut stop_hit = false;
+    // Register the rail first so a pointer over a stop hits that stop.
+    let rail = ui.interact(rect, response.id.with("bar-or-rail"), egui::Sense::click());
+    rail.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Add gradient stop")
+    });
+    neoflash_ui::theme::focus_ring_inside(ui, &rail, neoflash_ui::tokens::radius::sm());
+    let mut add_from_keyboard =
+        rail.has_focus() && rail.clicked() && !rail.clicked_by(egui::PointerButton::Primary);
+    let mut focused = rail.has_focus();
+    let mut restore_stop_focus = add_from_keyboard;
     let mut remove_idx: Option<usize> = None;
-    let mut dragged_target: Option<(usize, u8, Color)> = None;
+    let mut move_target: Option<(usize, u8)> = None;
 
     for i in 0..grad.stops.len() {
         let stop = grad.stops[i].clone();
@@ -1104,9 +1127,63 @@ pub(super) fn gradient_stops_bar_ui(
         );
         let id = response.id.with(("stop", i));
         let r = ui.interact(sr, id, egui::Sense::click_and_drag());
-        if r.clicked() || r.drag_started() || r.dragged() {
+        r.widget_info(|| {
+            egui::WidgetInfo::slider(
+                true,
+                f64::from(stop.ratio),
+                format!("Gradient stop {}", i + 1),
+            )
+        });
+        if r.has_focus() || r.clicked() || r.drag_started() || r.dragged() {
             *selected_stop = i;
-            stop_hit = true;
+        }
+        if r.has_focus() {
+            focused = true;
+            ui.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    id,
+                    egui::EventFilter {
+                        horizontal_arrows: true,
+                        ..Default::default()
+                    },
+                )
+            });
+            ui.input_mut(|input| {
+                use egui::{Key, Modifiers};
+                let modifiers = input.modifiers;
+                if modifiers != Modifiers::NONE && modifiers != Modifiers::SHIFT {
+                    return;
+                }
+                let step = if modifiers.shift { 10 } else { 1 };
+                let ratio = if input.consume_key(modifiers, Key::ArrowLeft) {
+                    stop.ratio.saturating_sub(step)
+                } else if input.consume_key(modifiers, Key::ArrowRight) {
+                    stop.ratio.saturating_add(step)
+                } else if input.consume_key(Modifiers::NONE, Key::Home) {
+                    0
+                } else if input.consume_key(Modifiers::NONE, Key::End) {
+                    255
+                } else {
+                    stop.ratio
+                };
+                if ratio != stop.ratio {
+                    move_target = Some((i, ratio));
+                    restore_stop_focus = true;
+                }
+                if input.consume_key(Modifiers::NONE, Key::Enter)
+                    || input.consume_key(Modifiers::NONE, Key::Insert)
+                {
+                    add_from_keyboard = true;
+                    restore_stop_focus = true;
+                }
+                if (input.consume_key(Modifiers::NONE, Key::Backspace)
+                    || input.consume_key(Modifiers::NONE, Key::Delete))
+                    && grad.stops.len() > 2
+                {
+                    remove_idx = Some(i);
+                    restore_stop_focus = true;
+                }
+            });
         }
         if r.dragged()
             && let Some(pos) = r.interact_pointer_pos()
@@ -1117,7 +1194,7 @@ pub(super) fn gradient_stops_bar_ui(
                 let next_t = ((pos.x - bar.left()) / bar.width()).clamp(0.0, 1.0);
                 let next_ratio = (next_t * 255.0).round() as u8;
                 if next_ratio != stop.ratio {
-                    dragged_target = Some((i, next_ratio, stop.color));
+                    move_target = Some((i, next_ratio));
                 }
             }
         }
@@ -1155,9 +1232,10 @@ pub(super) fn gradient_stops_bar_ui(
             egui::Stroke::new(if sel { 1.5_f32 } else { 1.0_f32 }, border),
             egui::StrokeKind::Inside,
         );
+        neoflash_ui::theme::focus_ring_inside(ui, &r, neoflash_ui::tokens::radius::sm());
     }
 
-    if let Some((idx, next_ratio, color)) = dragged_target {
+    if let Some((idx, next_ratio)) = move_target {
         grad.stops[idx].ratio = next_ratio;
         let mut tagged: Vec<(bool, GradientStop)> = grad
             .stops
@@ -1167,10 +1245,7 @@ pub(super) fn gradient_stops_bar_ui(
             .map(|(i, s)| (i == idx, s))
             .collect();
         tagged.sort_by_key(|(_, s)| s.ratio);
-        if let Some(new_sel) = tagged
-            .iter()
-            .position(|(is_dragged, s)| *is_dragged && s.color == color)
-        {
+        if let Some(new_sel) = tagged.iter().position(|(moved, _)| *moved) {
             *selected_stop = new_sel;
         }
         grad.stops = tagged.into_iter().map(|(_, s)| s).collect();
@@ -1179,35 +1254,40 @@ pub(super) fn gradient_stops_bar_ui(
         grad.stops.remove(idx);
         *selected_stop = (*selected_stop).min(grad.stops.len().saturating_sub(1));
         changed = true;
-    } else {
-        // Click anywhere on the 20px gradient bar OR in the 20px pointer strip below it
-        // (outside existing stop pointers) to insert a new stop sampled at that position.
-        let add_zone = ui.interact(rect, response.id.with("bar-or-rail"), egui::Sense::click());
-        if add_zone.clicked()
-            && !stop_hit
-            && grad.stops.len() < 15
-            && let Some(pos) = add_zone.interact_pointer_pos()
-        {
-            let t = ((pos.x - bar.left()) / bar.width()).clamp(0.0, 1.0);
+    } else if grad.stops.len() < 15 {
+        let t = if add_from_keyboard {
+            // Insert on the following span, or the preceding span at the last stop.
+            let index = *selected_stop;
+            let neighbour = grad
+                .stops
+                .get(index + 1)
+                .or_else(|| index.checked_sub(1).and_then(|i| grad.stops.get(i)));
+            let ratio = f64::from(grad.stops[index].ratio);
+            Some((ratio + neighbour.map_or(255.0, |s| f64::from(s.ratio))) / 510.0)
+        } else if rail.clicked_by(egui::PointerButton::Primary) {
+            rail.interact_pointer_pos()
+                .map(|p| f64::from(((p.x - bar.left()) / bar.width()).clamp(0.0, 1.0)))
+        } else {
+            None
+        };
+        if let Some(t) = t {
             let ratio = (t * 255.0).round() as u8;
-            let color = grad.sample_at_unit(f64::from(t));
-            let mut tagged: Vec<(bool, GradientStop)> =
-                grad.stops.iter().cloned().map(|s| (false, s)).collect();
-            tagged.push((true, GradientStop { ratio, color }));
-            tagged.sort_by_key(|(_, s)| s.ratio);
-            if let Some(new_sel) = tagged.iter().position(|(is_new, _)| *is_new) {
-                *selected_stop = new_sel;
-            }
-            grad.stops = tagged.into_iter().map(|(_, s)| s).collect();
+            let color = grad.sample_at_unit(t);
+            let index = grad.stops.partition_point(|s| s.ratio <= ratio);
+            grad.stops.insert(index, GradientStop { ratio, color });
+            *selected_stop = index;
             changed = true;
         }
     }
 
     if changed {
+        if restore_stop_focus {
+            ui.memory_mut(|m| m.request_focus(response.id.with(("stop", *selected_stop))));
+        }
         response.mark_changed();
-        return Some(response.id);
+        return (Some(response.id), focused);
     }
-    None
+    (None, focused)
 }
 
 pub(super) fn stroke_section_ui(

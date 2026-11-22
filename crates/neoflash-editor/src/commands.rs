@@ -2987,39 +2987,54 @@ impl Editor {
     /// Consume a matching pressed key event for `cmd` according to the active shortcut set and
     /// widget-focus / popup safety rules.
     pub(crate) fn take_command_shortcut(&self, ctx: &egui::Context, cmd: CommandId) -> bool {
-        if take_queued_command(ctx, cmd) {
+        self.take_control_shortcut(ctx, cmd, false)
+    }
+
+    /// A focused non-text control owns its editing shortcuts. Holding its Undo/Redo binding
+    /// must not undo further edits or pass the repeated press on to another handler.
+    pub(crate) fn take_control_shortcut(
+        &self,
+        ctx: &egui::Context,
+        cmd: CommandId,
+        owns_keyboard: bool,
+    ) -> bool {
+        let queued = take_queued_command(ctx, cmd);
+        if queued && !owns_keyboard {
             return true;
         }
-        let blocked = self.blocks_unmodified_shortcuts(ctx);
+        let blocked = !owns_keyboard && self.blocks_unmodified_shortcuts(ctx);
         if blocked && !cmd.allow_when_typing() {
             return false;
         }
         let chords = effective_shortcuts(&self.workspace.shortcuts, cmd);
         if chords.is_empty() {
-            return false;
+            return queued;
         }
         ctx.input_mut(|i| {
-            let before = i.events.len();
-            let mut found = false;
+            let mut found = queued;
             i.events.retain(|event| {
-                let hit = !found
-                    && matches!(
-                        event,
-                        Event::Key {
-                            key,
-                            physical_key,
-                            pressed: true,
-                            modifiers,
-                            ..
-                        } if chords.iter().any(|chord| {
-                            (!blocked || chord.is_safe_while_typing())
-                                && chord.matches_key_event(*modifiers, *key, *physical_key)
-                        })
-                    );
-                found |= hit;
-                !hit
+                let Event::Key {
+                    key,
+                    physical_key,
+                    pressed: true,
+                    repeat,
+                    modifiers,
+                } = event
+                else {
+                    return true;
+                };
+                if (found && !owns_keyboard)
+                    || !chords.iter().any(|chord| {
+                        (!blocked || chord.is_safe_while_typing())
+                            && chord.matches_key_event(*modifiers, *key, *physical_key)
+                    })
+                {
+                    return true;
+                }
+                found |= !owns_keyboard || !repeat;
+                false
             });
-            i.events.len() != before
+            found
         })
     }
 

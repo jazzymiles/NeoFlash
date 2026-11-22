@@ -457,3 +457,104 @@ fn gradient_transform_icon_and_color_fill_type_popover_work_everywhere() {
     }
     editor.project.validate().unwrap();
 }
+
+#[test]
+fn gradient_stops_keyboard_traversal_reordering_insertion_and_deletion() {
+    use egui::{Event, Key, Modifiers};
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut gradient = GradientPaint {
+        stops: [80, 85, 255]
+            .map(|ratio| GradientStop {
+                ratio,
+                color: [80, 100, 200, 255],
+            })
+            .into(),
+        ..Default::default()
+    };
+    let mut selected = 0;
+    let mut nodes = HashMap::new();
+    let mut run = |grad: &mut GradientPaint, key: Option<Key>, modifiers: Modifiers| {
+        let events = key
+            .into_iter()
+            .flat_map(|key| {
+                [true, false].map(|pressed| Event::Key {
+                    key,
+                    physical_key: Some(key),
+                    pressed,
+                    repeat: false,
+                    modifiers,
+                })
+            })
+            .collect();
+        let out = ctx.run(
+            egui::RawInput {
+                events,
+                modifiers,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    panels_color::gradient_stops_bar_ui(ui, grad, &mut selected);
+                    let _ = ui.button("After ramp");
+                });
+            },
+        );
+        let tree = out.platform_output.accesskit_update.unwrap();
+        nodes.extend(tree.nodes);
+        (
+            selected,
+            nodes
+                .get(&tree.focus)
+                .and_then(|node: &egui::accesskit::Node| node.label())
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    };
+    run(&mut gradient, None, Modifiers::NONE);
+    for _ in 0..6 {
+        if run(&mut gradient, Some(Key::Tab), Modifiers::NONE).1 == "Gradient stop 1" {
+            break;
+        }
+    }
+    assert_eq!(
+        run(&mut gradient, None, Modifiers::NONE).1,
+        "Gradient stop 1"
+    );
+    assert_eq!(
+        run(&mut gradient, Some(Key::ArrowRight), Modifiers::SHIFT).0,
+        1
+    );
+    assert_eq!(gradient.stops[1].ratio, 90);
+    assert_eq!(
+        run(&mut gradient, None, Modifiers::NONE).1,
+        "Gradient stop 2"
+    );
+    run(&mut gradient, Some(Key::ArrowLeft), Modifiers::NONE);
+    assert_eq!(gradient.stops[1].ratio, 89);
+    run(&mut gradient, Some(Key::Home), Modifiers::NONE);
+    assert_eq!(gradient.stops[0].ratio, 0);
+    run(&mut gradient, Some(Key::Enter), Modifiers::NONE);
+    assert_eq!(
+        gradient.stops.iter().map(|s| s.ratio).collect::<Vec<_>>(),
+        vec![0, 43, 85, 255]
+    );
+    assert_eq!(
+        run(&mut gradient, None, Modifiers::NONE).1,
+        "Gradient stop 2"
+    );
+    run(&mut gradient, Some(Key::Backspace), Modifiers::NONE);
+    run(&mut gradient, Some(Key::Delete), Modifiers::NONE);
+    run(&mut gradient, Some(Key::Backspace), Modifiers::NONE);
+    assert_eq!(gradient.stops.len(), 2);
+    run(&mut gradient, Some(Key::End), Modifiers::NONE);
+    assert_eq!(
+        run(&mut gradient, Some(Key::Tab), Modifiers::NONE).1,
+        "After ramp"
+    );
+    run(&mut gradient, Some(Key::Tab), Modifiers::SHIFT);
+    assert_eq!(
+        run(&mut gradient, None, Modifiers::NONE).1,
+        "Gradient stop 2"
+    );
+}
