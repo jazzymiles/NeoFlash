@@ -772,6 +772,8 @@ impl SwfBytecodePlayer {
                 Avm1Value::MovieClip(format!("__builtin_{name}"))
             }
             "String" => Avm1Value::MovieClip("__builtin_String".to_owned()),
+            "Number" => Avm1Value::MovieClip("__builtin_Number".to_owned()),
+            "Boolean" => Avm1Value::MovieClip("__builtin_Boolean".to_owned()),
             "NaN" => Avm1Value::Number(f64::NAN),
             "Infinity" => Avm1Value::Number(f64::INFINITY),
             "_x" => self.get_mc_property("", 0),
@@ -988,9 +990,18 @@ impl SwfBytecodePlayer {
 
     pub(super) fn get_avm1_member(&self, target: &Avm1Value, member: &str) -> Avm1Value {
         match target {
-            Avm1Value::Object(id) => self
-                .get_avm1_object_prop_chain(*id, member)
-                .unwrap_or(Avm1Value::Undefined),
+            Avm1Value::Object(id) => {
+                if member == "length"
+                    && let Some(Avm1Value::String(s)) = self
+                        .avm1_objects
+                        .get(*id)
+                        .and_then(|o| o.boxed_primitive.as_deref())
+                {
+                    return Avm1Value::Number(s.chars().count() as f64);
+                }
+                self.get_avm1_object_prop_chain(*id, member)
+                    .unwrap_or(Avm1Value::Undefined)
+            }
             Avm1Value::Super { super_ctor, .. } => {
                 if let Some(sup_id) = super_ctor
                     && let Some(Avm1Value::Object(proto_id)) = self
@@ -1014,12 +1025,28 @@ impl SwfBytecodePlayer {
             Avm1Value::MovieClipIdentity(target) => self.get_avm1_mc_member(target, member),
             Avm1Value::MovieClip(mc) => {
                 if mc == "_global" {
-                    return self
+                    if let Some(v) = self
                         .avm1_global_obj
                         .get(member)
                         .or_else(|| self.avm1_globals.get(member))
-                        .cloned()
-                        .unwrap_or(Avm1Value::Undefined);
+                    {
+                        return v.clone();
+                    }
+                    return match member {
+                        "Object" | "Array" | "Function" | "MovieClip" | "String" | "Number"
+                        | "Boolean" | "Error" | "TypeError" | "RangeError" | "ReferenceError"
+                        | "SyntaxError" | "URIError" | "EvalError" | "ArgumentError" => {
+                            Avm1Value::MovieClip(format!("__builtin_{member}"))
+                        }
+                        "Math" => Avm1Value::MovieClip("Math".to_owned()),
+                        _ => Avm1Value::Undefined,
+                    };
+                }
+                if let Some(builtin_name) = mc.strip_prefix("__builtin_")
+                    && !builtin_name.starts_with("proto_")
+                    && member == "prototype"
+                {
+                    return Avm1Value::MovieClip(format!("__builtin_proto_{builtin_name}"));
                 }
                 if mc == "Math" {
                     return match member {

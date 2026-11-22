@@ -1766,8 +1766,7 @@ fn avm1_compile_stmt_with_flow(
                 out.extend_from_slice(&1u16.to_le_bytes());
                 out.push(0x03); // Undefined
             }
-            avm1_emit_unwind_finally_range(out, in_function, reg_map, ctx, 0)?;
-            out.push(0x3e); // ActionReturn
+            out.push(0x3e); // ActionReturn (ActionTry automatically runs active finally blocks)
         }
         SwfStmt::EventHandler { body, .. } => {
             avm1_compile_stmt_list_with_flow(out, body, in_function, reg_map, ctx)?;

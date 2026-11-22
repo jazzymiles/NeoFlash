@@ -1,5 +1,39 @@
 use super::*;
 
+#[derive(Clone, Debug)]
+pub(super) enum Avm2MultinameKey {
+    Static { name: String, is_attr: bool },
+    Runtime { key: Avm1Value, is_attr: bool },
+}
+
+impl Avm2MultinameKey {
+    pub(super) fn to_prop_string(&self, objects: &[Avm1Object]) -> String {
+        match self {
+            Self::Static { name, is_attr } => {
+                if *is_attr && !name.starts_with('@') {
+                    format!("@{name}")
+                } else {
+                    name.clone()
+                }
+            }
+            Self::Runtime { key, is_attr } => {
+                let mut s = if let Avm1Value::Object(qoid) = key
+                    && let Some(qo) = objects.get(*qoid)
+                    && let Some(Avm1Value::String(ln)) = qo.props.get("localName")
+                {
+                    ln.clone()
+                } else {
+                    avm2_convert_string(key, objects)
+                };
+                if *is_attr && !s.starts_with('@') {
+                    s = format!("@{s}");
+                }
+                s
+            }
+        }
+    }
+}
+
 impl SwfBytecodePlayer {
     pub(super) fn find_avm2_class(
         &self,
@@ -63,8 +97,7 @@ impl SwfBytecodePlayer {
             for &iface_mn in &inst.interfaces {
                 let (ipkg, iname) = self.abc_tags[cur_abc].abc.split_qname(iface_mn);
                 if let Some((ia, ic)) = self.find_avm2_class(cur_abc, &ipkg, &iname)
-                    && ia == target_abc
-                    && ic == target_cls
+                    && self.avm2_class_matches_or_extends(ia, ic, target_abc, target_cls)
                 {
                     return true;
                 }
@@ -121,6 +154,19 @@ impl SwfBytecodePlayer {
     ) -> bool {
         if exc_type_mn == 0 {
             return true;
+        }
+        if let Some(vec_elem) =
+            self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, exc_type_mn)
+        {
+            return matches!(
+                thrown,
+                Avm1Value::Object(oid)
+                    if self
+                        .avm1_objects
+                        .get(*oid)
+                        .and_then(|o| o.avm2_vector.as_ref())
+                        .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
+            );
         }
         let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(exc_type_mn);
         if tname == "*" || tname.is_empty() {
@@ -257,6 +303,48 @@ impl SwfBytecodePlayer {
                         .get(*id)
                         .is_some_and(|o| o.array_elements.is_some())
             ),
+            "Dictionary" => matches!(
+                val,
+                Avm1Value::Object(id)
+                    if self
+                        .avm1_objects
+                        .get(*id)
+                        .is_some_and(|o| o.avm2_dictionary.is_some())
+            ),
+            "XML" => matches!(
+                val,
+                Avm1Value::Object(id)
+                    if self
+                        .avm1_objects
+                        .get(*id)
+                        .and_then(|o| o.avm2_xml.as_ref())
+                        .is_some_and(|xd| matches!(xd.kind, Avm2XmlKind::Xml(_)))
+            ),
+            "XMLList" => matches!(
+                val,
+                Avm1Value::Object(id)
+                    if self
+                        .avm1_objects
+                        .get(*id)
+                        .and_then(|o| o.avm2_xml.as_ref())
+                        .is_some_and(|xd| matches!(xd.kind, Avm2XmlKind::XmlList { .. }))
+            ),
+            "QName" => matches!(
+                val,
+                Avm1Value::Object(id)
+                    if self
+                        .avm1_objects
+                        .get(*id)
+                        .and_then(|o| o.props.get("__avm2_short_class__"))
+                        .is_some_and(|v| matches!(v, Avm1Value::String(s) if s == "QName"))
+            ),
+            "Class" => matches!(
+                val,
+                Avm1Value::MovieClip(mc)
+                    if mc.starts_with("__avm2_class:")
+                        || mc.starts_with("__avm2_type:")
+                        || mc.starts_with("__avm2_vec_type:")
+            ),
             "Error" | "TypeError" | "RangeError" | "ReferenceError" | "ArgumentError"
             | "VerifyError" | "SyntaxError" | "URIError" | "EvalError" | "SecurityError" => {
                 if let Avm1Value::Object(id) = val
@@ -349,6 +437,21 @@ impl SwfBytecodePlayer {
                 false
             }
             _ => {
+                if let Some(inner) = tname
+                    .strip_prefix("Vector.<")
+                    .and_then(|r| r.strip_suffix('>'))
+                {
+                    let req = self.resolve_avm2_vector_elem_type_from_name(abc_idx, pkg, inner);
+                    return matches!(
+                        val,
+                        Avm1Value::Object(oid)
+                            if self
+                                .avm1_objects
+                                .get(*oid)
+                                .and_then(|o| o.avm2_vector.as_ref())
+                                .is_some_and(|vd| vd.elem_type.matches_target(&req))
+                    );
+                }
                 if let Avm1Value::Object(id) = val
                     && let Some((c_abc, c_idx)) =
                         self.avm1_objects.get(*id).and_then(|o| o.avm2_class)
@@ -369,6 +472,18 @@ impl SwfBytecodePlayer {
     ) -> bool {
         match type_val {
             Avm1Value::MovieClip(s) | Avm1Value::String(s) => {
+                if let Some(vec_tok) = s.strip_prefix("__avm2_vec_type:") {
+                    let req = Avm2VectorElemType::decode_token(vec_tok);
+                    return matches!(
+                        val,
+                        Avm1Value::Object(oid)
+                            if self
+                                .avm1_objects
+                                .get(*oid)
+                                .and_then(|o| o.avm2_vector.as_ref())
+                                .is_some_and(|vd| vd.elem_type.matches_target(&req))
+                    );
+                }
                 if let Some((t_abc, t_cls)) = parse_avm2_class_token(s) {
                     if let Avm1Value::Object(id) = val
                         && let Some((c_abc, c_cls)) =
@@ -412,6 +527,29 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> String {
+        if let Avm1Value::MovieClip(tok) = value {
+            if let Some(rest) = tok.strip_prefix("__avm2_class:") {
+                let mut parts = rest.split(':');
+                if let (Some(Ok(ca)), Some(Ok(cc))) = (
+                    parts.next().map(str::parse::<usize>),
+                    parts.next().map(str::parse::<usize>),
+                ) && let Some(inst) = self.abc_tags.get(ca).and_then(|l| l.abc.instances.get(cc))
+                {
+                    let (_, cname) = self.abc_tags[ca].abc.split_qname(inst.name);
+                    return format!("[class {cname}]");
+                }
+            } else if let Some(tname) = tok.strip_prefix("__avm2_type:") {
+                return format!("[class {tname}]");
+            }
+        }
+        if let Avm1Value::Object(oid) = value
+            && let Some(xd) = self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.avm2_xml.as_ref())
+        {
+            return xd.format_string();
+        }
         if matches!(value, Avm1Value::Object(_)) {
             for name in ["toString", "valueOf"] {
                 if !self.avm2_has_property(value, name) {
@@ -474,6 +612,28 @@ impl SwfBytecodePlayer {
         if mn_idx == 0 {
             return val;
         }
+        if let Some(vec_elem) = self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx) {
+            if matches!(val, Avm1Value::Undefined | Avm1Value::Null) {
+                return Avm1Value::Null;
+            }
+            if let Avm1Value::Object(oid) = &val
+                && self
+                    .avm1_objects
+                    .get(*oid)
+                    .and_then(|o| o.avm2_vector.as_ref())
+                    .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
+            {
+                return val;
+            }
+            let target_q = format!("__AS3__.vec::Vector.<{}>", vec_elem.full_as3_type_name());
+            let val_desc = avm2_convert_string(&val, &self.avm1_objects);
+            self.throw_avm2_builtin_error(
+                "TypeError",
+                1034,
+                &format!("Type Coercion failed: cannot convert {val_desc} to {target_q}."),
+            );
+            return Avm1Value::Null;
+        }
         let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
         match tname.as_str() {
             "" | "*" => val,
@@ -504,7 +664,37 @@ impl SwfBytecodePlayer {
                     return val;
                 }
                 if self.find_avm2_class(abc_idx, &pkg, &tname).is_some()
-                    || matches!(tname.as_str(), "Array" | "Function")
+                    || matches!(
+                        tname.as_str(),
+                        "Array"
+                            | "Function"
+                            | "Dictionary"
+                            | "XML"
+                            | "XMLList"
+                            | "QName"
+                            | "Error"
+                            | "TypeError"
+                            | "RangeError"
+                            | "ReferenceError"
+                            | "ArgumentError"
+                            | "VerifyError"
+                            | "SyntaxError"
+                            | "URIError"
+                            | "EvalError"
+                            | "SecurityError"
+                            | "MovieClip"
+                            | "Sprite"
+                            | "Shape"
+                            | "SimpleButton"
+                            | "Stage"
+                            | "TextField"
+                            | "Bitmap"
+                            | "DisplayObject"
+                            | "DisplayObjectContainer"
+                            | "InteractiveObject"
+                            | "EventDispatcher"
+                            | "Event"
+                    )
                 {
                     let val_desc = match &val {
                         Avm1Value::String(s) if !is_avm2_fn_token(s) => format!("\"{s}\""),
@@ -565,15 +755,15 @@ impl SwfBytecodePlayer {
                 }
             }
             Avm1Value::Object(id) => {
-                if self
-                    .avm1_objects
-                    .get(*id)
-                    .is_some_and(|o| o.function.is_some())
-                {
-                    "function"
-                } else {
-                    "object"
+                if let Some(o) = self.avm1_objects.get(*id) {
+                    if o.avm2_xml.is_some() {
+                        return "xml";
+                    }
+                    if o.function.is_some() {
+                        return "function";
+                    }
                 }
+                "object"
             }
             Avm1Value::MovieClip(_) | Avm1Value::MovieClipIdentity(_) | Avm1Value::Super { .. } => {
                 "object"
@@ -582,6 +772,57 @@ impl SwfBytecodePlayer {
     }
 
     pub(super) fn avm2_equals(&self, a: &Avm1Value, b: &Avm1Value) -> bool {
+        // ECMA-357 §11.5.1 abstract equality for XML / XMLList
+        if let (Avm1Value::Object(oa), Avm1Value::Object(ob)) = (a, b) {
+            if oa == ob {
+                return true;
+            }
+            if let (Some((ia, sa)), Some((ib, sb))) =
+                (self.xml_items_of_oid(*oa), self.xml_items_of_oid(*ob))
+            {
+                if sa.is_none() && ia.is_empty() && sb.is_none() && ib.is_empty() {
+                    return true;
+                }
+                if ia.len() == 1 && ib.len() == 1 {
+                    return self.e4x_arena.borrow().nodes_equal(ia[0], ib[0]);
+                }
+                return false;
+            }
+        }
+        if let Avm1Value::Object(ox) = a
+            && let Some(xd) = self.avm1_objects.get(*ox).and_then(|o| o.avm2_xml.as_ref())
+        {
+            let has_simple = {
+                let arena = xd.arena.borrow();
+                match &xd.kind {
+                    Avm2XmlKind::Xml(nid) => arena.node_has_simple_content(*nid),
+                    Avm2XmlKind::XmlList { items, .. } => {
+                        items.is_empty()
+                            || (items.len() == 1 && arena.node_has_simple_content(items[0]))
+                    }
+                }
+            };
+            if has_simple && !matches!(b, Avm1Value::Undefined | Avm1Value::Null) {
+                return self.avm2_equals(&Avm1Value::String(xd.format_string()), b);
+            }
+        }
+        if let Avm1Value::Object(ox) = b
+            && let Some(xd) = self.avm1_objects.get(*ox).and_then(|o| o.avm2_xml.as_ref())
+        {
+            let has_simple = {
+                let arena = xd.arena.borrow();
+                match &xd.kind {
+                    Avm2XmlKind::Xml(nid) => arena.node_has_simple_content(*nid),
+                    Avm2XmlKind::XmlList { items, .. } => {
+                        items.is_empty()
+                            || (items.len() == 1 && arena.node_has_simple_content(items[0]))
+                    }
+                }
+            };
+            if has_simple && !matches!(a, Avm1Value::Undefined | Avm1Value::Null) {
+                return self.avm2_equals(a, &Avm1Value::String(xd.format_string()));
+            }
+        }
         match (a, b) {
             (Avm1Value::Undefined | Avm1Value::Null, Avm1Value::Undefined | Avm1Value::Null) => {
                 true
@@ -605,7 +846,18 @@ impl SwfBytecodePlayer {
                     *x == avm2_string_to_number(y)
                 }
             }
-            (Avm1Value::Object(x), Avm1Value::Object(y)) => x == y,
+            (Avm1Value::Object(x), Avm1Value::Object(y)) => {
+                if x == y {
+                    return true;
+                }
+                if let (Some(ox), Some(oy)) = (self.avm1_objects.get(*x), self.avm1_objects.get(*y))
+                    && let (Some(xx), Some(xy)) = (&ox.avm2_xml, &oy.avm2_xml)
+                    && let (Avm2XmlKind::Xml(nx), Avm2XmlKind::Xml(ny)) = (&xx.kind, &xy.kind)
+                {
+                    return nx == ny && std::rc::Rc::ptr_eq(&xx.arena, &xy.arena);
+                }
+                false
+            }
             (
                 Avm1Value::MovieClip(x) | Avm1Value::MovieClipIdentity(x),
                 Avm1Value::MovieClip(y) | Avm1Value::MovieClipIdentity(y),
@@ -621,7 +873,18 @@ impl SwfBytecodePlayer {
             (Avm1Value::Bool(x), Avm1Value::Bool(y)) => x == y,
             (Avm1Value::Number(x), Avm1Value::Number(y)) => x == y,
             (Avm1Value::String(x), Avm1Value::String(y)) => x == y,
-            (Avm1Value::Object(x), Avm1Value::Object(y)) => x == y,
+            (Avm1Value::Object(x), Avm1Value::Object(y)) => {
+                if x == y {
+                    return true;
+                }
+                if let (Some(ox), Some(oy)) = (self.avm1_objects.get(*x), self.avm1_objects.get(*y))
+                    && let (Some(xx), Some(xy)) = (&ox.avm2_xml, &oy.avm2_xml)
+                    && let (Avm2XmlKind::Xml(nx), Avm2XmlKind::Xml(ny)) = (&xx.kind, &xy.kind)
+                {
+                    return nx == ny && std::rc::Rc::ptr_eq(&xx.arena, &xy.arena);
+                }
+                false
+            }
             (
                 Avm1Value::MovieClip(x) | Avm1Value::MovieClipIdentity(x),
                 Avm1Value::MovieClip(y) | Avm1Value::MovieClipIdentity(y),
@@ -640,6 +903,189 @@ impl SwfBytecodePlayer {
         let ca = self.canonical_movie_target(a);
         let cb = self.canonical_movie_target(b);
         !ca.is_empty() && ca == cb && (ca == "_root" || self.target_slot(&ca).is_some())
+    }
+
+    pub(super) fn avm2_enumerable_len(&self, obj: &Avm1Value) -> usize {
+        if let Avm1Value::Object(id) = obj
+            && let Some(o) = self.avm1_objects.get(*id)
+        {
+            if let Some(dict) = &o.avm2_dictionary {
+                return dict.entries.len();
+            }
+            if let Some(vd) = &o.avm2_vector {
+                return vd.elements.len();
+            }
+            if let Some(xd) = &o.avm2_xml {
+                return match &xd.kind {
+                    Avm2XmlKind::Xml(_) => 1,
+                    Avm2XmlKind::XmlList { items, .. } => items.len(),
+                };
+            }
+        }
+        self.avm2_enumerable_keys(obj).len()
+    }
+
+    pub(super) fn avm2_nextname_at(&self, obj: &Avm1Value, k_idx: usize) -> Avm1Value {
+        if let Avm1Value::Object(id) = obj
+            && let Some(o) = self.avm1_objects.get(*id)
+        {
+            if let Some(dict) = &o.avm2_dictionary {
+                return dict
+                    .entries
+                    .get(k_idx)
+                    .map_or(Avm1Value::Undefined, |(_, raw_k, _)| raw_k.clone());
+            }
+            if let Some(vd) = &o.avm2_vector {
+                return if k_idx < vd.elements.len() {
+                    Avm1Value::Number(k_idx as f64)
+                } else {
+                    Avm1Value::Undefined
+                };
+            }
+            if let Some(xd) = &o.avm2_xml {
+                let len = match &xd.kind {
+                    Avm2XmlKind::Xml(_) => 1,
+                    Avm2XmlKind::XmlList { items, .. } => items.len(),
+                };
+                return if k_idx < len {
+                    Avm1Value::String(k_idx.to_string())
+                } else {
+                    Avm1Value::Undefined
+                };
+            }
+        }
+        let keys = self.avm2_enumerable_keys(obj);
+        keys.get(k_idx)
+            .cloned()
+            .map_or(Avm1Value::Undefined, Avm1Value::String)
+    }
+
+    pub(super) fn avm2_nextvalue_at(
+        &mut self,
+        obj: &Avm1Value,
+        k_idx: usize,
+        steps: &mut usize,
+        depth: usize,
+    ) -> Avm1Value {
+        if let Avm1Value::Object(id) = obj {
+            if let Some(val) = self
+                .avm1_objects
+                .get(*id)
+                .and_then(|o| o.avm2_dictionary.as_ref())
+                .and_then(|d| d.entries.get(k_idx))
+                .map(|(_, _, v)| v.clone())
+            {
+                return val;
+            }
+            if let Some(val) = self
+                .avm1_objects
+                .get(*id)
+                .and_then(|o| o.avm2_vector.as_ref())
+                .and_then(|vd| vd.elements.get(k_idx))
+                .cloned()
+            {
+                return val;
+            }
+            if self
+                .avm1_objects
+                .get(*id)
+                .is_some_and(|o| o.avm2_xml.is_some())
+            {
+                return self
+                    .get_avm2_xml_property(*id, &k_idx.to_string())
+                    .unwrap_or(Avm1Value::Undefined);
+            }
+        }
+        let keys = self.avm2_enumerable_keys(obj);
+        if let Some(k) = keys.get(k_idx) {
+            self.get_avm2_property_eval(obj, k, steps, depth)
+        } else {
+            Avm1Value::Undefined
+        }
+    }
+
+    pub(super) fn avm2_runtime_class_label(&self, val: &Avm1Value) -> String {
+        match val {
+            Avm1Value::Undefined => "void".to_owned(),
+            Avm1Value::Null => "null".to_owned(),
+            Avm1Value::Bool(_) => "Boolean".to_owned(),
+            Avm1Value::Number(_) => "Number".to_owned(),
+            Avm1Value::String(s) => {
+                if is_avm2_fn_token(s) {
+                    "Function".to_owned()
+                } else {
+                    "String".to_owned()
+                }
+            }
+            Avm1Value::Object(oid) => {
+                if let Some(o) = self.avm1_objects.get(*oid) {
+                    if let Some(xd) = &o.avm2_xml {
+                        return match xd.kind {
+                            Avm2XmlKind::Xml(_) => "XML".to_owned(),
+                            Avm2XmlKind::XmlList { .. } => "XMLList".to_owned(),
+                        };
+                    }
+                    if o.avm2_dictionary.is_some() {
+                        return "flash.utils::Dictionary".to_owned();
+                    }
+                    if let Some(vd) = &o.avm2_vector {
+                        return format!(
+                            "__AS3__.vec::Vector.<{}>",
+                            vd.elem_type.full_as3_type_name()
+                        );
+                    }
+                    if o.array_elements.is_some() {
+                        return "Array".to_owned();
+                    }
+                    if let Some(err) = &o.avm2_builtin_error {
+                        return err.clone();
+                    }
+                    if let Some((ca, cc)) = o.avm2_class
+                        && let Some(loaded) = self.abc_tags.get(ca)
+                        && let Some(inst) = loaded.abc.instances.get(cc)
+                    {
+                        let (pkg, short) = loaded.abc.split_qname(inst.name);
+                        return if pkg.is_empty() {
+                            short
+                        } else {
+                            format!("{pkg}::{short}")
+                        };
+                    }
+                    if let Some(meta) = &o.avm2_display {
+                        return format!("flash.display::{}", meta.display_type);
+                    }
+                    if let Some(Avm1Value::String(sc)) = o.props.get("__avm2_short_class__") {
+                        return sc.clone();
+                    }
+                }
+                "Object".to_owned()
+            }
+            Avm1Value::MovieClip(mc) => {
+                if let Some(vt) = mc.strip_prefix("__avm2_vec_type:") {
+                    return format!(
+                        "__AS3__.vec::Vector.<{}>",
+                        Avm2VectorElemType::decode_token(vt).full_as3_type_name()
+                    );
+                }
+                if let Some((ca, cc)) = parse_avm2_class_token(mc)
+                    && let Some(loaded) = self.abc_tags.get(ca)
+                    && let Some(inst) = loaded.abc.instances.get(cc)
+                {
+                    let (pkg, short) = loaded.abc.split_qname(inst.name);
+                    return if pkg.is_empty() {
+                        short
+                    } else {
+                        format!("{pkg}::{short}")
+                    };
+                }
+                if let Some(tn) = mc.strip_prefix("__avm2_type:") {
+                    return tn.to_owned();
+                }
+                "flash.display::MovieClip".to_owned()
+            }
+            Avm1Value::MovieClipIdentity(_) => "flash.display::MovieClip".to_owned(),
+            Avm1Value::Super { .. } => "Object".to_owned(),
+        }
     }
 
     pub(super) fn avm2_enumerable_keys(&self, obj: &Avm1Value) -> Vec<String> {
@@ -705,9 +1151,23 @@ impl SwfBytecodePlayer {
             return false;
         };
         if let Some((vname, _, _)) = &obj.avm2_catch_var
+            && !vname.is_empty()
             && vname == prop
         {
             return true;
+        }
+        if obj.avm2_xml.is_some() {
+            return self.avm2_xml_has_property(obj_id, prop);
+        }
+        if let Some(dict) = &obj.avm2_dictionary {
+            return dict.contains(&Avm2DictKey::String(prop.to_owned()));
+        }
+        if let Some(vd) = &obj.avm2_vector {
+            return matches!(prop, "length" | "fixed")
+                || matches!(
+                    Self::parse_avm2_vector_index(prop),
+                    Some(Ok(i)) if i >= 0 && (i as usize) < vd.elements.len()
+                );
         }
         if obj.props.contains_key(prop) {
             return true;
@@ -833,6 +1293,187 @@ impl SwfBytecodePlayer {
         }
     }
 
+    pub(super) fn avm2_in_operator(&self, raw_key: &Avm1Value, obj: &Avm1Value) -> bool {
+        if let Avm1Value::Object(oid) = obj
+            && let Some(dict) = self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.avm2_dictionary.as_ref())
+        {
+            let (dk, _) = Avm2DictionaryData::key_from_value(raw_key, &self.avm1_objects);
+            return dict.contains(&dk);
+        }
+        let key_str = avm2_convert_string(raw_key, &self.avm1_objects);
+        self.avm2_has_property(obj, &key_str)
+    }
+
+    pub(super) fn get_avm2_property_by_key(
+        &mut self,
+        obj: &Avm1Value,
+        mn_key: Avm2MultinameKey,
+        abc_idx: usize,
+        steps: &mut usize,
+        depth: usize,
+    ) -> Avm1Value {
+        if let Avm1Value::Object(oid) = obj
+            && let Avm2MultinameKey::Runtime {
+                ref key,
+                is_attr: false,
+            } = mn_key
+            && self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_dictionary.is_some())
+        {
+            let (dk, _) = Avm2DictionaryData::key_from_value(key, &self.avm1_objects);
+            return self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.avm2_dictionary.as_ref())
+                .and_then(|d| d.get(&dk))
+                .cloned()
+                .unwrap_or(Avm1Value::Undefined);
+        }
+        let prop = mn_key.to_prop_string(&self.avm1_objects);
+        let _ = abc_idx;
+        self.get_avm2_property_eval(obj, &prop, steps, depth)
+    }
+
+    pub(super) fn set_avm2_property_by_key(
+        &mut self,
+        obj: &Avm1Value,
+        mn_key: Avm2MultinameKey,
+        val: Avm1Value,
+        abc_idx: usize,
+        steps: &mut usize,
+        depth: usize,
+    ) {
+        if let Avm1Value::Object(oid) = obj
+            && self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_dictionary.is_some())
+        {
+            let (dk, raw_k) = match mn_key {
+                Avm2MultinameKey::Runtime {
+                    key,
+                    is_attr: false,
+                } => Avm2DictionaryData::key_from_value(&key, &self.avm1_objects),
+                other => {
+                    let s = other.to_prop_string(&self.avm1_objects);
+                    (Avm2DictKey::String(s.clone()), Avm1Value::String(s))
+                }
+            };
+            if let Some(dict) = self
+                .avm1_objects
+                .get_mut(*oid)
+                .and_then(|o| o.avm2_dictionary.as_mut())
+            {
+                dict.set(dk, raw_k, val);
+            }
+            return;
+        }
+        let prop = mn_key.to_prop_string(&self.avm1_objects);
+        if let Avm1Value::Object(oid) = obj {
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_vector.is_some())
+            {
+                let _ = self.set_avm2_vector_property(*oid, &prop, val, abc_idx, steps, depth);
+                return;
+            }
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_xml.is_some())
+            {
+                let _ = self.set_avm2_xml_property(*oid, &prop, val, abc_idx, steps, depth);
+                return;
+            }
+            if let Some((vname, c_abc, c_ty)) = self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.avm2_catch_var.clone())
+                && !vname.is_empty()
+                && vname == prop
+            {
+                let coerced = if c_ty != 0 {
+                    self.avm2_coerce_multiname(c_abc, c_ty, val, steps, depth)
+                } else {
+                    val
+                };
+                if self.avm2_thrown.is_none() {
+                    self.set_avm1_member(obj, &prop, coerced);
+                }
+                return;
+            }
+        }
+        if let Avm1Value::MovieClip(mc) = obj
+            && mc == "__avm2_type:XML"
+        {
+            let b = val.to_bool(9);
+            let mut arena = self.e4x_arena.borrow_mut();
+            match prop.as_str() {
+                "ignoreComments" => arena.settings.ignore_comments = b,
+                "ignoreProcessingInstructions" => arena.settings.ignore_processing_instructions = b,
+                "ignoreWhitespace" => arena.settings.ignore_whitespace = b,
+                "prettyPrinting" => arena.settings.pretty_printing = b,
+                "prettyIndent" => {
+                    arena.settings.pretty_indent =
+                        ecma_f64_to_i32(avm2_to_number(&val)).clamp(0, 64) as usize;
+                }
+                _ => {}
+            }
+            return;
+        }
+        self.set_avm2_property_eval(obj, &prop, val, steps, depth);
+    }
+
+    pub(super) fn delete_avm2_property_by_key(
+        &mut self,
+        obj: &Avm1Value,
+        mn_key: Avm2MultinameKey,
+    ) -> bool {
+        if let Avm1Value::Object(oid) = obj {
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_dictionary.is_some())
+            {
+                let (dk, _) = match mn_key {
+                    Avm2MultinameKey::Runtime {
+                        key,
+                        is_attr: false,
+                    } => Avm2DictionaryData::key_from_value(&key, &self.avm1_objects),
+                    other => {
+                        let s = other.to_prop_string(&self.avm1_objects);
+                        (Avm2DictKey::String(s.clone()), Avm1Value::String(s))
+                    }
+                };
+                return self
+                    .avm1_objects
+                    .get_mut(*oid)
+                    .and_then(|o| o.avm2_dictionary.as_mut())
+                    .is_some_and(|d| d.remove(&dk));
+            }
+            let prop = mn_key.to_prop_string(&self.avm1_objects);
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_vector.is_some())
+            {
+                return false;
+            }
+            if let Some(del) = self.delete_avm2_xml_property(*oid, &prop) {
+                return del;
+            }
+            return self.delete_avm2_property(obj, &prop);
+        }
+        let prop = mn_key.to_prop_string(&self.avm1_objects);
+        self.delete_avm2_property(obj, &prop)
+    }
+
     pub(super) fn delete_avm2_property(&mut self, obj: &Avm1Value, prop: &str) -> bool {
         match obj {
             Avm1Value::Object(id) => {
@@ -894,6 +1535,10 @@ impl SwfBytecodePlayer {
         depth: usize,
     ) -> Avm1Value {
         if let Avm1Value::MovieClip(s) | Avm1Value::String(s) = ctor {
+            if let Some(vec_tok) = s.strip_prefix("__avm2_vec_type:") {
+                let elem_ty = Avm2VectorElemType::decode_token(vec_tok);
+                return self.construct_avm2_vector(elem_ty, &cargs, abc_idx, steps, depth);
+            }
             if let Some((c_abc, c_cls)) = parse_avm2_class_token(s) {
                 return self.instantiate_avm2_user_class(c_abc, c_cls, cargs, steps, depth);
             }
@@ -915,6 +1560,125 @@ impl SwfBytecodePlayer {
         depth: usize,
     ) -> Avm1Value {
         match cls_name {
+            "Dictionary" => {
+                let weak = cargs.first().is_some_and(|v| v.to_bool(9));
+                let obj_id = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    avm2_dictionary: Some(Avm2DictionaryData {
+                        weak_keys: weak,
+                        entries: Vec::new(),
+                    }),
+                    ..Default::default()
+                });
+                return Avm1Value::Object(obj_id);
+            }
+            "XML" => {
+                return self.construct_avm2_xml(&cargs, false, abc_idx, steps, depth);
+            }
+            "XMLList" => {
+                return self.construct_avm2_xml_list(&cargs, false, abc_idx, steps, depth);
+            }
+            "QName" => {
+                let (uri_opt, ln) = if cargs.len() >= 2 {
+                    let l = if let Avm1Value::Object(qoid) = &cargs[1]
+                        && let Some(qo) = self.avm1_objects.get(*qoid)
+                        && let Some(Avm1Value::String(existing_ln)) = qo.props.get("localName")
+                    {
+                        existing_ln.clone()
+                    } else if matches!(cargs[1], Avm1Value::Undefined) {
+                        String::new()
+                    } else {
+                        avm2_convert_string(&cargs[1], &self.avm1_objects)
+                    };
+                    let u = match &cargs[0] {
+                        Avm1Value::Null => None,
+                        Avm1Value::Undefined => {
+                            if l == "*" {
+                                None
+                            } else {
+                                Some(self.e4x_arena.borrow().default_ns.clone())
+                            }
+                        }
+                        Avm1Value::Object(ns_oid)
+                            if self
+                                .avm1_objects
+                                .get(*ns_oid)
+                                .is_some_and(|o| o.props.contains_key("uri")) =>
+                        {
+                            match self
+                                .avm1_objects
+                                .get(*ns_oid)
+                                .and_then(|o| o.props.get("uri"))
+                            {
+                                Some(Avm1Value::Null) => None,
+                                Some(v) => Some(avm2_convert_string(v, &self.avm1_objects)),
+                                None => Some(String::new()),
+                            }
+                        }
+                        other => Some(avm2_convert_string(other, &self.avm1_objects)),
+                    };
+                    (u, l)
+                } else if let Some(first) = cargs.first() {
+                    if let Avm1Value::Object(qoid) = first
+                        && let Some(qo) = self.avm1_objects.get(*qoid)
+                        && let Some(Avm1Value::String(ln)) = qo.props.get("localName")
+                    {
+                        let u = match qo.props.get("uri") {
+                            Some(Avm1Value::Null) => None,
+                            Some(v) => Some(avm2_convert_string(v, &self.avm1_objects)),
+                            None => Some(String::new()),
+                        };
+                        (u, ln.clone())
+                    } else if matches!(first, Avm1Value::Undefined) {
+                        (
+                            Some(self.e4x_arena.borrow().default_ns.clone()),
+                            String::new(),
+                        )
+                    } else {
+                        let l = avm2_convert_string(first, &self.avm1_objects);
+                        if l == "*" {
+                            (None, l)
+                        } else {
+                            (Some(self.e4x_arena.borrow().default_ns.clone()), l)
+                        }
+                    }
+                } else {
+                    (
+                        Some(self.e4x_arena.borrow().default_ns.clone()),
+                        String::new(),
+                    )
+                };
+                return self.alloc_avm2_qname_opt(uri_opt.as_deref(), &ln);
+            }
+            "Namespace" => {
+                let (pfx, uri) = if cargs.len() >= 2 {
+                    (
+                        avm2_convert_string(&cargs[0], &self.avm1_objects),
+                        avm2_convert_string(&cargs[1], &self.avm1_objects),
+                    )
+                } else if let Some(first) = cargs.first() {
+                    (
+                        String::new(),
+                        avm2_convert_string(first, &self.avm1_objects),
+                    )
+                } else {
+                    (String::new(), String::new())
+                };
+                let mut props = HashMap::new();
+                props.insert("prefix".to_owned(), Avm1Value::String(pfx));
+                props.insert("uri".to_owned(), Avm1Value::String(uri.clone()));
+                props.insert("qname_formatted".to_owned(), Avm1Value::String(uri));
+                props.insert(
+                    "__avm2_short_class__".to_owned(),
+                    Avm1Value::String("Namespace".to_owned()),
+                );
+                let oid = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    props,
+                    ..Default::default()
+                });
+                return Avm1Value::Object(oid);
+            }
             "Array" => {
                 let elems = if cargs.len() == 1
                     && let Avm1Value::Number(n) = cargs[0]
@@ -1221,16 +1985,68 @@ impl SwfBytecodePlayer {
         &self,
         obj: &Avm1Value,
         slot_idx: usize,
+        cur_abc: usize,
+        cur_method: usize,
     ) -> (String, Option<(usize, usize)>) {
+        if matches!(obj, Avm1Value::MovieClip(m) if m == "_root")
+            && let Some(loaded) = self.abc_tags.get(cur_abc)
+        {
+            let resolve_in_traits = |traits: &[crate::swf::avm2::AbcTrait]| -> Option<(String, Option<(usize, usize)>)> {
+                for (ti, tr) in traits.iter().enumerate() {
+                    match tr.data {
+                        AbcTraitData::Slot {
+                            slot_id, type_name, ..
+                        } => {
+                            let rslot = if slot_id == 0 { ti + 1 } else { slot_id };
+                            if rslot == slot_idx {
+                                let (_, sname) = loaded.abc.split_qname(tr.name);
+                                if !sname.is_empty() {
+                                    return Some((sname, Some((cur_abc, type_name))));
+                                }
+                            }
+                        }
+                        AbcTraitData::Class { .. } => {
+                            let rslot = ti + 1;
+                            if rslot == slot_idx {
+                                let (_, sname) = loaded.abc.split_qname(tr.name);
+                                if !sname.is_empty() {
+                                    return Some((sname, None));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            };
+            if let Some((_, traits)) = loaded
+                .abc
+                .scripts
+                .iter()
+                .find(|(init, _)| *init == cur_method)
+                && let Some(hit) = resolve_in_traits(traits)
+            {
+                return hit;
+            }
+            for (_, traits) in loaded.abc.scripts.iter().rev() {
+                if let Some(hit) = resolve_in_traits(traits) {
+                    return hit;
+                }
+            }
+        }
         if let Avm1Value::Object(oid) = obj {
             if slot_idx == 1
                 && let Some((vname, c_abc, c_ty)) = self
                     .avm1_objects
                     .get(*oid)
                     .and_then(|o| o.avm2_catch_var.as_ref())
-                && !vname.is_empty()
             {
-                return (vname.clone(), Some((*c_abc, *c_ty)));
+                let key = if vname.is_empty() {
+                    "__slot_1".to_owned()
+                } else {
+                    vname.clone()
+                };
+                return (key, Some((*c_abc, *c_ty)));
             }
             if let Some((a_idx, m_idx)) = self
                 .avm1_objects
@@ -1316,7 +2132,55 @@ impl SwfBytecodePlayer {
         steps: &mut usize,
         depth: usize,
     ) -> Avm1Value {
+        if let Avm1Value::MovieClip(mc) = obj {
+            if mc == "__avm2_type:XML" || mc == "XML" {
+                let arena = self.e4x_arena.borrow();
+                match prop {
+                    "ignoreComments" => return Avm1Value::Bool(arena.settings.ignore_comments),
+                    "ignoreProcessingInstructions" => {
+                        return Avm1Value::Bool(arena.settings.ignore_processing_instructions);
+                    }
+                    "ignoreWhitespace" => return Avm1Value::Bool(arena.settings.ignore_whitespace),
+                    "prettyPrinting" => return Avm1Value::Bool(arena.settings.pretty_printing),
+                    "prettyIndent" => {
+                        return Avm1Value::Number(arena.settings.pretty_indent as f64);
+                    }
+                    _ => {}
+                }
+            }
+            if mc == "__avm2_type:ApplicationDomain" && prop == "currentDomain" {
+                return Avm1Value::MovieClip("__avm2_type:ApplicationDomain".to_owned());
+            }
+        }
         if let Avm1Value::Object(id) = obj {
+            if self
+                .avm1_objects
+                .get(*id)
+                .is_some_and(|o| o.avm2_vector.is_some())
+                && let Some(val) = self.get_avm2_vector_property(*id, prop)
+            {
+                return val;
+            }
+            if self
+                .avm1_objects
+                .get(*id)
+                .is_some_and(|o| o.avm2_xml.is_some())
+                && let Some(val) = self.get_avm2_xml_property(*id, prop)
+            {
+                return val;
+            }
+            if let Some(val) = self
+                .avm1_objects
+                .get(*id)
+                .and_then(|o| o.avm2_dictionary.as_ref())
+                .map(|d| {
+                    d.get(&Avm2DictKey::String(prop.to_owned()))
+                        .cloned()
+                        .unwrap_or(Avm1Value::Undefined)
+                })
+            {
+                return val;
+            }
             if let Some((ev_ty, bubbles, cancelable, target_oid, current_oid, phase)) = self
                 .avm1_objects
                 .get(*id)
@@ -2227,7 +3091,7 @@ impl SwfBytecodePlayer {
                 Avm1Value::MovieClip(_)
                 | Avm1Value::MovieClipIdentity(_)
                 | Avm1Value::Super { .. } => {
-                    Avm1Value::String(avm2_convert_string(&value, &self.avm1_objects))
+                    Avm1Value::String(self.avm2_coerce_to_string_eval(&value, abc, steps, depth))
                 }
                 Avm1Value::String(s) if is_avm2_fn_token(s) => {
                     Avm1Value::String(avm2_convert_string(&value, &self.avm1_objects))
@@ -2310,7 +3174,195 @@ impl SwfBytecodePlayer {
                 .invoke_avm2_callable_with_this(receiver, this_arg, call_args, steps, depth);
         }
 
+        if let Avm1Value::MovieClip(mc) = receiver {
+            if mc == "__avm2_type:XML" || mc == "XML" {
+                match prop {
+                    "settings" | "defaultSettings" => {
+                        let s = if prop == "defaultSettings" {
+                            E4xSettings::default()
+                        } else {
+                            self.e4x_arena.borrow().settings.clone()
+                        };
+                        let mut props = HashMap::new();
+                        props.insert(
+                            "ignoreComments".to_owned(),
+                            Avm1Value::Bool(s.ignore_comments),
+                        );
+                        props.insert(
+                            "ignoreProcessingInstructions".to_owned(),
+                            Avm1Value::Bool(s.ignore_processing_instructions),
+                        );
+                        props.insert(
+                            "ignoreWhitespace".to_owned(),
+                            Avm1Value::Bool(s.ignore_whitespace),
+                        );
+                        props.insert(
+                            "prettyPrinting".to_owned(),
+                            Avm1Value::Bool(s.pretty_printing),
+                        );
+                        props.insert(
+                            "prettyIndent".to_owned(),
+                            Avm1Value::Number(s.pretty_indent as f64),
+                        );
+                        let oid = self.avm1_objects.len();
+                        self.avm1_objects.push(Avm1Object {
+                            props,
+                            ..Default::default()
+                        });
+                        return Avm1Value::Object(oid);
+                    }
+                    "setSettings" => {
+                        if let Some(Avm1Value::Object(soid)) = args.first() {
+                            if let Some(so) = self.avm1_objects.get(*soid).cloned() {
+                                let mut arena = self.e4x_arena.borrow_mut();
+                                if let Some(v) = so.props.get("ignoreComments") {
+                                    arena.settings.ignore_comments = v.to_bool(9);
+                                }
+                                if let Some(v) = so.props.get("ignoreProcessingInstructions") {
+                                    arena.settings.ignore_processing_instructions = v.to_bool(9);
+                                }
+                                if let Some(v) = so.props.get("ignoreWhitespace") {
+                                    arena.settings.ignore_whitespace = v.to_bool(9);
+                                }
+                                if let Some(v) = so.props.get("prettyPrinting") {
+                                    arena.settings.pretty_printing = v.to_bool(9);
+                                }
+                                if let Some(v) = so.props.get("prettyIndent") {
+                                    arena.settings.pretty_indent =
+                                        ecma_f64_to_i32(avm2_to_number(v)).clamp(0, 64) as usize;
+                                }
+                            }
+                        } else {
+                            self.e4x_arena.borrow_mut().settings = E4xSettings::default();
+                        }
+                        return Avm1Value::Undefined;
+                    }
+                    _ => {}
+                }
+            }
+            if mc == "__avm2_type:ApplicationDomain" {
+                match prop {
+                    "hasDefinition" => {
+                        let q = args.first().map_or_else(String::new, |v| {
+                            avm2_convert_string(v, &self.avm1_objects)
+                        });
+                        return Avm1Value::Bool(
+                            self.resolve_avm2_definition_by_name(abc_idx, &q).is_some(),
+                        );
+                    }
+                    "getDefinition" => {
+                        let q = args.first().map_or_else(String::new, |v| {
+                            avm2_convert_string(v, &self.avm1_objects)
+                        });
+                        if let Some(def) = self.resolve_avm2_definition_by_name(abc_idx, &q) {
+                            return def;
+                        }
+                        self.throw_avm2_builtin_error(
+                            "ReferenceError",
+                            1065,
+                            &format!("Variable {q} is not defined."),
+                        );
+                        return Avm1Value::Undefined;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         if let Avm1Value::Object(oid) = receiver {
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_catch_var.is_some())
+            {
+                self.throw_avm2_builtin_error(
+                    "ReferenceError",
+                    1069,
+                    &format!(
+                        "Property {prop} not found on catch scope and there is no default value."
+                    ),
+                );
+                return Avm1Value::Undefined;
+            }
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_vector.is_some())
+                && let Some(ret) =
+                    self.call_avm2_vector_method(*oid, prop, &args, abc_idx, steps, depth)
+            {
+                return ret;
+            }
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_xml.is_some())
+                && let Some(ret) =
+                    self.call_avm2_xml_method(*oid, prop, &args, abc_idx, steps, depth)
+            {
+                return ret;
+            }
+            if self
+                .avm1_objects
+                .get(*oid)
+                .is_some_and(|o| o.avm2_dictionary.is_some())
+            {
+                match prop {
+                    "hasOwnProperty" => {
+                        let s = if let Some(first) = args.first() {
+                            self.avm2_coerce_to_string_eval(first, abc_idx, steps, depth)
+                        } else {
+                            String::new()
+                        };
+                        if self.avm2_thrown.is_some() {
+                            return Avm1Value::Undefined;
+                        }
+                        let has = self
+                            .avm1_objects
+                            .get(*oid)
+                            .and_then(|o| o.avm2_dictionary.as_ref())
+                            .is_some_and(|d| d.contains(&Avm2DictKey::String(s)));
+                        return Avm1Value::Bool(has);
+                    }
+                    "propertyIsEnumerable" => {
+                        let has = if let Some(first) = args.first() {
+                            let (dk, _) =
+                                Avm2DictionaryData::key_from_value(first, &self.avm1_objects);
+                            self.avm1_objects
+                                .get(*oid)
+                                .and_then(|o| o.avm2_dictionary.as_ref())
+                                .is_some_and(|d| d.contains(&dk))
+                        } else {
+                            false
+                        };
+                        return Avm1Value::Bool(has);
+                    }
+                    "setPropertyIsEnumerable" => return Avm1Value::Undefined,
+                    "toString" => return Avm1Value::String("[object Dictionary]".to_owned()),
+                    _ => {}
+                }
+            }
+            if let Some(Avm1Value::String(sc)) = self
+                .avm1_objects
+                .get(*oid)
+                .and_then(|o| o.props.get("__avm2_short_class__"))
+                && (sc == "QName" || sc == "Namespace")
+            {
+                match prop {
+                    "valueOf" => return receiver.clone(),
+                    "toString" => {
+                        if let Some(s) = self
+                            .avm1_objects
+                            .get(*oid)
+                            .and_then(|o| o.props.get("qname_formatted"))
+                            .cloned()
+                        {
+                            return s;
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if let Some(owner_oid) = self
                 .avm1_objects
                 .get(*oid)
@@ -2584,6 +3636,35 @@ impl SwfBytecodePlayer {
             }
         }
 
+        if let Avm1Value::MovieClip(mc) = receiver {
+            if (mc == "__avm2_type:Object.prototype.toString" || mc == "Object.prototype.toString")
+                && prop == "call"
+            {
+                let this_arg = args.first().unwrap_or(&Avm1Value::Undefined);
+                let full = self.avm2_runtime_class_label(this_arg);
+                let short = full
+                    .strip_prefix("__AS3__.vec::")
+                    .unwrap_or_else(|| full.rsplit_once("::").map_or(full.as_str(), |(_, s)| s));
+                return Avm1Value::String(format!("[object {short}]"));
+            }
+            if (mc == "__avm2_type:Object.prototype.valueOf" || mc == "Object.prototype.valueOf")
+                && prop == "call"
+            {
+                return args.first().cloned().unwrap_or(Avm1Value::Undefined);
+            }
+            if mc == "__avm2_type:XML.prototype" && prop == "toString" {
+                return Avm1Value::String(String::new());
+            }
+            if let Some(mname) = mc.strip_prefix("__avm2_type:XML.prototype.")
+                && prop == "call"
+                && let Some(Avm1Value::Object(oid)) = args.first()
+                && let Some(ret) =
+                    self.call_avm2_xml_method(*oid, mname, &args[1..], abc_idx, steps, depth)
+            {
+                return ret;
+            }
+        }
+
         let is_global_receiver = matches!(
             receiver,
             Avm1Value::MovieClip(mc) if mc == "_root" || mc == prop || mc.starts_with("__avm2_type:")
@@ -2679,7 +3760,40 @@ impl SwfBytecodePlayer {
                         .map_or_else(String::new, |v| avm2_convert_string(v, &self.avm1_objects));
                     return Avm1Value::Number(avm2_string_to_number(&s));
                 }
+                "XML" => {
+                    return self.construct_avm2_xml(&args, true, abc_idx, steps, depth);
+                }
+                "XMLList" => {
+                    return self.construct_avm2_xml_list(&args, true, abc_idx, steps, depth);
+                }
+                "getQualifiedClassName" => {
+                    let target = args.first().unwrap_or(&Avm1Value::Undefined);
+                    return Avm1Value::String(self.avm2_runtime_class_label(target));
+                }
+                "getDefinitionByName" => {
+                    let q = args
+                        .first()
+                        .map_or_else(String::new, |v| avm2_convert_string(v, &self.avm1_objects));
+                    if let Some(def) = self.resolve_avm2_definition_by_name(abc_idx, &q) {
+                        return def;
+                    }
+                    let short_q = q
+                        .rsplit_once("::")
+                        .or_else(|| q.rsplit_once('.'))
+                        .map_or(q.as_str(), |(_, s)| s);
+                    self.throw_avm2_builtin_error(
+                        "ReferenceError",
+                        1065,
+                        &format!("Variable {short_q} is not defined."),
+                    );
+                    return Avm1Value::Undefined;
+                }
                 _ => {
+                    if prop.starts_with("Vector.<") {
+                        let elem_ty =
+                            self.resolve_avm2_vector_elem_type_from_name(abc_idx, "", prop);
+                        return self.call_avm2_vector_cast(elem_ty, &args, abc_idx, steps, depth);
+                    }
                     if args.len() == 1
                         && let Some((c_abc, c_idx)) = self.find_avm2_class(abc_idx, "", prop)
                     {
@@ -3172,6 +4286,26 @@ impl SwfBytecodePlayer {
                     steps,
                     depth + 1,
                 );
+            }
+            if let Some(rest) = s.strip_prefix("__avm2_bound_vec:")
+                && let Some((oid_str, mname)) = rest.split_once(':')
+                && let Ok(oid) = oid_str.parse::<usize>()
+            {
+                return self
+                    .call_avm2_vector_method(oid, mname, &args, 0, steps, depth)
+                    .unwrap_or(Avm1Value::Undefined);
+            }
+        }
+        if let Avm1Value::MovieClip(mc) = fn_val {
+            if let Some(vec_tok) = mc.strip_prefix("__avm2_vec_type:") {
+                let elem_ty = Avm2VectorElemType::decode_token(vec_tok);
+                return self.call_avm2_vector_cast(elem_ty, &args, 0, steps, depth);
+            }
+            if mc == "__avm2_type:XML" {
+                return self.construct_avm2_xml(&args, true, 0, steps, depth);
+            }
+            if mc == "__avm2_type:XMLList" {
+                return self.construct_avm2_xml_list(&args, true, 0, steps, depth);
             }
         }
         if let Avm1Value::MovieClip(mc) = fn_val
@@ -4214,6 +5348,12 @@ impl SwfBytecodePlayer {
                         }
                     }
                 }
+                if f < clamped {
+                    let inter_depths: Vec<u16> = self.display_list.keys().copied().collect();
+                    for d in inter_depths {
+                        self.step_sprite_frame_actions(d, f > start_frame);
+                    }
+                }
             }
             self.apply_root_audio(clamped);
             self.last_applied_frame = Some(clamped);
@@ -4304,6 +5444,13 @@ impl SwfBytecodePlayer {
                 continue;
             };
             if !playing || total <= 1 {
+                continue;
+            }
+            if let Some(ref target) = target_opt
+                && self
+                    .target_slot(target)
+                    .is_some_and(|slot| slot.placed_this_step)
+            {
                 continue;
             }
             let next_f = (cur + 1) % total;
@@ -4658,11 +5805,72 @@ impl SwfBytecodePlayer {
             _ => None,
         }
     }
+    pub(super) fn resolve_avm2_definition_by_name(
+        &self,
+        abc_idx: usize,
+        raw: &str,
+    ) -> Option<Avm1Value> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let norm = trimmed
+            .strip_prefix("__AS3__.vec::")
+            .or_else(|| trimmed.strip_prefix("__AS3__.vec."))
+            .unwrap_or(trimmed);
+        if let Some(inner) = norm
+            .strip_prefix("Vector.<")
+            .and_then(|r| r.strip_suffix('>'))
+        {
+            let elem_ty = self.resolve_avm2_vector_elem_type_from_name(abc_idx, "", inner);
+            return Some(Avm1Value::MovieClip(format!(
+                "__avm2_vec_type:{}",
+                elem_ty.encode_token()
+            )));
+        }
+        let (pkg, short) = if let Some((p, s)) = trimmed.rsplit_once("::") {
+            (p, s)
+        } else if let Some((p, s)) = trimmed.rsplit_once('.') {
+            (p, s)
+        } else {
+            ("", trimmed)
+        };
+        if let Some((ca, cc)) = self.find_avm2_class(abc_idx, pkg, short) {
+            return Some(Avm1Value::MovieClip(format!("__avm2_class:{ca}:{cc}")));
+        }
+        if matches!(
+            short,
+            "int"
+                | "uint"
+                | "Number"
+                | "Boolean"
+                | "String"
+                | "Object"
+                | "Array"
+                | "Function"
+                | "Dictionary"
+                | "XML"
+                | "XMLList"
+                | "QName"
+                | "Namespace"
+                | "Error"
+                | "TypeError"
+                | "RangeError"
+                | "ReferenceError"
+                | "ArgumentError"
+                | "MovieClip"
+                | "Sprite"
+        ) {
+            return Some(Avm1Value::MovieClip(format!("__avm2_type:{short}")));
+        }
+        None
+    }
 }
 
 pub(super) fn is_avm2_fn_token(s: &str) -> bool {
     s.starts_with("__avm2_fn:")
         || s.starts_with("__avm2_bound:")
+        || s.starts_with("__avm2_bound_vec:")
         || s.starts_with("__avm2_closure:")
 }
 

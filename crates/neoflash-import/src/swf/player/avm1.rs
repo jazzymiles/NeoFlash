@@ -442,29 +442,36 @@ impl SwfBytecodePlayer {
                         .unwrap_or(Avm1Value::Undefined)
                         .to_i32()
                         .clamp(0, 256) as usize;
-                    let mut iface_ids = Vec::with_capacity(count);
+                    let mut raw_ifaces = Vec::with_capacity(count);
                     for _ in 0..count {
-                        if let Some(Avm1Value::Object(iface_id)) = stack.pop() {
-                            if let Some(Avm1Value::Object(proto_id)) = self
-                                .avm1_objects
-                                .get(iface_id)
-                                .and_then(|o| o.props.get("prototype").cloned())
-                            {
-                                iface_ids.push(proto_id);
-                            }
-                            iface_ids.push(iface_id);
-                        }
+                        raw_ifaces.push(stack.pop().unwrap_or(Avm1Value::Undefined));
                     }
                     if let Avm1Value::Object(ctor_id) = ctor
                         && let Some(Avm1Value::Object(proto_id)) = self
                             .avm1_objects
                             .get(ctor_id)
                             .and_then(|o| o.props.get("prototype").cloned())
-                        && let Some(proto_obj) = self.avm1_objects.get_mut(proto_id)
                     {
-                        for iid in iface_ids {
-                            if !proto_obj.interfaces.contains(&iid) {
-                                proto_obj.interfaces.push(iid);
+                        let already_sealed = self
+                            .avm1_objects
+                            .get(proto_id)
+                            .is_some_and(|o| o.implements_sealed);
+                        if !already_sealed {
+                            let mut iface_ids = Vec::with_capacity(raw_ifaces.len());
+                            for iface_val in raw_ifaces {
+                                if let Avm1Value::Object(iface_id) = iface_val {
+                                    let pval = self
+                                        .get_avm1_member(&Avm1Value::Object(iface_id), "prototype");
+                                    if let Avm1Value::Object(ip_id) = pval
+                                        && !iface_ids.contains(&ip_id)
+                                    {
+                                        iface_ids.push(ip_id);
+                                    }
+                                }
+                            }
+                            if let Some(proto_obj) = self.avm1_objects.get_mut(proto_id) {
+                                proto_obj.implements_sealed = true;
+                                proto_obj.interfaces = iface_ids;
                             }
                         }
                     }
@@ -1241,8 +1248,6 @@ impl SwfBytecodePlayer {
                     let mut body_outcome =
                         self.run_avm1_range(code, try_start, try_end, stack, locals, steps, depth);
                     if let Avm1RangeOutcome::JumpedOut(target) = body_outcome
-                        && has_finally
-                        && finally_size > 0
                         && target == finally_start
                     {
                         body_outcome = Avm1RangeOutcome::NormalEnd;
@@ -1252,7 +1257,7 @@ impl SwfBytecodePlayer {
                         && let Some(thrown_val) = self.avm1_thrown.take()
                     {
                         stack.truncate(saved_stack_len);
-                        if has_catch {
+                        if has_catch && *steps < MAX_VM_STEPS_PER_FRAME {
                             if let Some(reg) = catch_reg {
                                 self.avm1_registers[usize::from(reg)] = thrown_val;
                             } else if let Some(var_name) = catch_var
@@ -1262,11 +1267,10 @@ impl SwfBytecodePlayer {
                                     if let Some(act_obj) = self.avm1_objects.get_mut(act_id) {
                                         act_obj.props.insert(var_name, thrown_val);
                                     }
+                                } else if depth > 0 {
+                                    locals.insert(var_name, thrown_val);
                                 } else {
-                                    locals.insert(var_name.clone(), thrown_val.clone());
-                                    if depth == 0 {
-                                        self.avm1_globals.insert(var_name, thrown_val);
-                                    }
+                                    self.set_avm1_variable(var_name, thrown_val, locals);
                                 }
                             }
                             body_outcome = self.run_avm1_range(
@@ -1278,6 +1282,11 @@ impl SwfBytecodePlayer {
                                 steps,
                                 depth,
                             );
+                            if let Avm1RangeOutcome::JumpedOut(target) = body_outcome
+                                && target == finally_start
+                            {
+                                body_outcome = Avm1RangeOutcome::NormalEnd;
+                            }
                             if self.avm1_thrown.is_some() {
                                 stack.truncate(saved_stack_len);
                                 body_outcome = Avm1RangeOutcome::Thrown;
@@ -1289,9 +1298,13 @@ impl SwfBytecodePlayer {
                     }
 
                     let should_run_finally = has_finally
+                        && finally_size > 0
+                        && *steps < MAX_VM_STEPS_PER_FRAME
                         && matches!(
                             body_outcome,
-                            Avm1RangeOutcome::NormalEnd | Avm1RangeOutcome::Thrown
+                            Avm1RangeOutcome::NormalEnd
+                                | Avm1RangeOutcome::Thrown
+                                | Avm1RangeOutcome::Returned(_)
                         );
                     if should_run_finally {
                         let pending_throw = self.avm1_thrown.take();
@@ -1824,6 +1837,35 @@ impl SwfBytecodePlayer {
                 .insert("name".to_owned(), Avm1Value::String(err_kind.to_owned()));
             obj.props
                 .insert("message".to_owned(), Avm1Value::String(msg));
+        } else if ctor_name == "String"
+            || matches!(ctor_val, Avm1Value::MovieClip(s) if s == "__builtin_String")
+        {
+            let sval = args.first().map_or_else(String::new, |v| {
+                v.to_trace_string(self.swf_version, &self.avm1_objects)
+            });
+            obj.boxed_primitive = Some(Box::new(Avm1Value::String(sval)));
+            obj.props.insert(
+                "__builtin_class__".to_owned(),
+                Avm1Value::String("String".to_owned()),
+            );
+        } else if ctor_name == "Number"
+            || matches!(ctor_val, Avm1Value::MovieClip(s) if s == "__builtin_Number")
+        {
+            let nval = args.first().map_or(0.0, Avm1Value::to_number);
+            obj.boxed_primitive = Some(Box::new(Avm1Value::Number(nval)));
+            obj.props.insert(
+                "__builtin_class__".to_owned(),
+                Avm1Value::String("Number".to_owned()),
+            );
+        } else if ctor_name == "Boolean"
+            || matches!(ctor_val, Avm1Value::MovieClip(s) if s == "__builtin_Boolean")
+        {
+            let bval = args.first().is_some_and(|v| v.to_bool(self.swf_version));
+            obj.boxed_primitive = Some(Box::new(Avm1Value::Bool(bval)));
+            obj.props.insert(
+                "__builtin_class__".to_owned(),
+                Avm1Value::String("Boolean".to_owned()),
+            );
         } else if ctor_name == "Object"
             && args.len() == 1
             && matches!(args[0], Avm1Value::Object(_))
@@ -1834,16 +1876,85 @@ impl SwfBytecodePlayer {
         Avm1Value::Object(obj_id)
     }
 
+    fn avm1_proto_implements_interface(&self, proto_id: usize, target_proto_id: usize) -> bool {
+        let mut queue = Vec::new();
+        let mut visited = BTreeSet::new();
+        if let Some(po) = self.avm1_objects.get(proto_id) {
+            for &iid in &po.interfaces {
+                if visited.insert(iid) {
+                    queue.push(iid);
+                }
+            }
+        }
+        while let Some(cur) = queue.pop() {
+            if cur == target_proto_id {
+                return true;
+            }
+            if visited.len() >= 64 {
+                break;
+            }
+            if let Some(io) = self.avm1_objects.get(cur) {
+                for &nested in &io.interfaces {
+                    if visited.insert(nested) {
+                        queue.push(nested);
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn avm1_mc_is_alive(&self, path: &str) -> bool {
+        if path.starts_with("__builtin_") {
+            return true;
+        }
+        if path == "Math" || path == "_global" || path == "_root" {
+            return true;
+        }
+        let canonical = self.canonical_movie_target(path);
+        canonical == "_root" || self.target_slot(&canonical).is_some()
+    }
+
     pub(super) fn avm1_is_instance_of(&self, obj: &Avm1Value, constr: &Avm1Value) -> bool {
         match constr {
-            Avm1Value::MovieClip(b) if b == "__builtin_MovieClip" => {
-                matches!(
-                    obj,
-                    Avm1Value::MovieClip(mc) if !mc.starts_with("__builtin_") && mc != "Math" && mc != "_global"
-                ) || matches!(obj, Avm1Value::MovieClipIdentity(_))
-            }
+            Avm1Value::MovieClip(b) if b == "__builtin_MovieClip" => match obj {
+                Avm1Value::MovieClip(mc)
+                    if !mc.starts_with("__builtin_") && mc != "Math" && mc != "_global" =>
+                {
+                    self.avm1_mc_is_alive(mc)
+                }
+                Avm1Value::MovieClipIdentity(mc) => self.avm1_mc_is_alive(mc),
+                _ => false,
+            },
             Avm1Value::MovieClip(b) if b == "__builtin_Array" => {
                 matches!(obj, Avm1Value::Object(id) if self.avm1_objects.get(*id).is_some_and(|o| o.array_elements.is_some()))
+            }
+            Avm1Value::MovieClip(b)
+                if matches!(
+                    b.as_str(),
+                    "__builtin_String" | "__builtin_Number" | "__builtin_Boolean"
+                ) =>
+            {
+                let req = b.strip_prefix("__builtin_").unwrap_or("");
+                if let Avm1Value::Object(mut cur_id) = *obj {
+                    for _ in 0..32 {
+                        let Some(o) = self.avm1_objects.get(cur_id) else {
+                            break;
+                        };
+                        if matches!(
+                            o.props.get("__builtin_class__"),
+                            Some(Avm1Value::String(c)) if c == req
+                        ) {
+                            return true;
+                        }
+                        if let Some(Avm1Value::Object(pid)) = o.props.get("__proto__") {
+                            cur_id = *pid;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                false
             }
             Avm1Value::MovieClip(b)
                 if b.strip_prefix("__builtin_").is_some_and(|k| {
@@ -1882,46 +1993,69 @@ impl SwfBytecodePlayer {
             }
             Avm1Value::MovieClip(b) if b == "__builtin_Function" => {
                 matches!(obj, Avm1Value::Object(id) if self.avm1_objects.get(*id).is_some_and(|o| o.function.is_some()))
-                    || matches!(obj, Avm1Value::MovieClip(mc) if mc.starts_with("__builtin_"))
+                    || matches!(obj, Avm1Value::MovieClip(mc) if mc.starts_with("__builtin_") && !mc.starts_with("__builtin_proto_"))
             }
-            Avm1Value::MovieClip(b) if b == "__builtin_Object" => {
-                matches!(
-                    obj,
-                    Avm1Value::Object(_)
-                        | Avm1Value::MovieClip(_)
-                        | Avm1Value::MovieClipIdentity(_)
-                )
-            }
+            Avm1Value::MovieClip(b) if b == "__builtin_Object" => match obj {
+                Avm1Value::Object(_) => true,
+                Avm1Value::MovieClip(mc) | Avm1Value::MovieClipIdentity(mc) => {
+                    self.avm1_mc_is_alive(mc)
+                }
+                _ => false,
+            },
             Avm1Value::Object(ctor_id) => {
-                let Avm1Value::Object(mut cur_id) = *obj else {
-                    return false;
-                };
-                let target_proto_id = self
+                let Some(proto_val) = self
                     .avm1_objects
                     .get(*ctor_id)
                     .and_then(|o| o.props.get("prototype"))
-                    .and_then(|v| match v {
-                        Avm1Value::Object(pid) => Some(*pid),
-                        _ => None,
-                    });
+                else {
+                    return false;
+                };
+                if let Avm1Value::MovieClip(bp) = proto_val
+                    && let Some(bname) = bp.strip_prefix("__builtin_proto_")
+                {
+                    return self.avm1_is_instance_of(
+                        obj,
+                        &Avm1Value::MovieClip(format!("__builtin_{bname}")),
+                    );
+                }
+                let Avm1Value::Object(target_proto_id) = proto_val else {
+                    return false;
+                };
+                let start_proto_opt = match obj {
+                    Avm1Value::Object(oid) => Some(*oid),
+                    Avm1Value::MovieClip(mc) | Avm1Value::MovieClipIdentity(mc) => {
+                        let canonical = self.canonical_movie_target(mc);
+                        self.target_slot(&canonical)
+                            .and_then(|s| s.props.get("__proto__"))
+                            .and_then(|v| match v {
+                                Avm1Value::Object(pid) => Some(*pid),
+                                _ => None,
+                            })
+                    }
+                    _ => None,
+                };
+                let Some(mut cur_id) = start_proto_opt else {
+                    return false;
+                };
+                // If `obj` was a MovieClip whose `slot.props["__proto__"]` already jumped to `proto_id`, check immediately:
+                if !matches!(obj, Avm1Value::Object(_))
+                    && (cur_id == *target_proto_id
+                        || self.avm1_proto_implements_interface(cur_id, *target_proto_id))
+                {
+                    return true;
+                }
                 for _ in 0..32 {
                     let Some(cur_obj) = self.avm1_objects.get(cur_id) else {
                         break;
                     };
-                    if cur_obj.interfaces.contains(ctor_id)
-                        || target_proto_id.is_some_and(|tp| cur_obj.interfaces.contains(&tp))
-                    {
+                    if self.avm1_proto_implements_interface(cur_id, *target_proto_id) {
                         return true;
                     }
                     let Some(Avm1Value::Object(proto_id)) = cur_obj.props.get("__proto__") else {
                         break;
                     };
-                    if Some(*proto_id) == target_proto_id || proto_id == ctor_id {
-                        return true;
-                    }
-                    if let Some(proto_obj) = self.avm1_objects.get(*proto_id)
-                        && (proto_obj.interfaces.contains(ctor_id)
-                            || target_proto_id.is_some_and(|tp| proto_obj.interfaces.contains(&tp)))
+                    if proto_id == target_proto_id
+                        || self.avm1_proto_implements_interface(*proto_id, *target_proto_id)
                     {
                         return true;
                     }

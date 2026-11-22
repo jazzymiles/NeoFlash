@@ -46,7 +46,9 @@ pub(super) fn compile_avm2_closure_value(
         }
     }
 
-    let child_init_scope = env.init_scope_depth + if env.needs_activation { 2 } else { 1 };
+    let child_init_scope = env.init_scope_depth
+        + if env.needs_activation { 2 } else { 1 }
+        + (env.active_catch_regs.len() as u32);
     compile_avm2_scoped_unit(
         pool,
         state,
@@ -110,6 +112,46 @@ fn dotted_member_chain(expr: &SwfExpr) -> Option<Vec<String>> {
             Some(v)
         }
         _ => None,
+    }
+}
+
+fn try_resolve_static_avm2_type_multiname(
+    pool: &mut AbcPoolBuilder,
+    rhs: &SwfExpr,
+    env: &Avm2LexicalEnv,
+) -> Option<u32> {
+    if matches!(rhs, SwfExpr::Ident(id) if id == "*") {
+        return Some(0);
+    }
+    let parts = dotted_member_chain(rhs)?;
+    let root = &parts[0];
+    if matches!(root.as_str(), "this" | "_root" | "super")
+        || env.local_regs.contains_key(root)
+        || env.own_slots.contains_key(root)
+        || env.outer_slots.contains_key(root)
+        || env.declared_names.contains(root)
+    {
+        return None;
+    }
+    if parts.len() >= 2 {
+        let cls_name = parts.last().cloned().unwrap_or_default();
+        if !cls_name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_uppercase())
+        {
+            return None;
+        }
+        let pkg = parts[..parts.len() - 1].join(".");
+        return Some(pool.add_qname(&pkg, &cls_name));
+    }
+    let is_known_static_type = matches!(root.as_str(), "int" | "uint")
+        || env.imports.imported_classes.contains_key(root)
+        || root.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+    if is_known_static_type {
+        Some(env.resolve_type_multiname(pool, root))
+    } else {
+        None
     }
 }
 
@@ -308,10 +350,16 @@ pub(super) fn compile_avm2_expr(
                 patch_avm2_s24(code, skip_patch, end_pos)?;
                 return Ok(());
             }
-            if *op == SwfBinaryOp::Is && matches!(rhs.as_ref(), SwfExpr::Ident(id) if id == "*") {
+            if matches!(op, SwfBinaryOp::Is | SwfBinaryOp::As)
+                && let Some(type_mn) = try_resolve_static_avm2_type_multiname(pool, rhs, env)
+            {
                 compile_avm2_expr(pool, lhs, code, state, env)?;
-                code.u8(0xB2); // istype *
-                code.u32_v(0);
+                code.u8(if *op == SwfBinaryOp::Is {
+                    0xB2 // istype
+                } else {
+                    0x86 // astype
+                });
+                code.u32_v(type_mn);
                 return Ok(());
             }
             compile_avm2_expr(pool, lhs, code, state, env)?;
@@ -717,12 +765,19 @@ pub(super) fn compile_avm2_stmt_list(
     Ok(())
 }
 
+fn emit_avm2_pop_catch_scopes(code: &mut SwfBitWriter, cur_depth: usize, target_depth: usize) {
+    for _ in 0..cur_depth.saturating_sub(target_depth) {
+        code.u8(0x1D); // popscope
+    }
+}
+
 fn emit_avm2_catch_prologue(
     pool: &mut AbcPoolBuilder,
+    exc_idx: u32,
     cname: &str,
     code: &mut SwfBitWriter,
     env: &mut Avm2LexicalEnv,
-) {
+) -> u32 {
     // On exception handler entry: stack = [thrown], scope_stack = [].
     code.u8(0xD0); // getlocal_0
     code.u8(0x30); // pushscope (restores scope 0 = this; stack remains [thrown])
@@ -730,31 +785,53 @@ fn emit_avm2_catch_prologue(
         emit_avm2_getlocal(code, act_reg);
         code.u8(0x30); // pushscope (restores scope 1 = activation; stack remains [thrown])
     }
-    if cname.is_empty() {
-        code.u8(0x29); // pop
-    } else if let Some(&reg) = env.local_regs.get(cname) {
-        code.u8(0x82); // coerce_a
-        emit_avm2_setlocal(code, reg);
-    } else if let Some(&slot_id) = env.own_slots.get(cname) {
-        code.u8(0x65); // getscopeobject 1
-        code.u8(0x01);
-        code.u8(0x2B); // swap -> [act, thrown]
-        code.u8(0x6D); // setslot
-        code.u32_v(slot_id);
-    } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(cname) {
-        code.u8(0x67); // getouterscope
-        code.u32_v(outer_idx);
-        code.u8(0x2B); // swap
-        code.u8(0x6D); // setslot
-        code.u32_v(slot_id);
-    } else {
-        let prop_mn = pool.add_qname("", cname);
-        code.u8(0x5E); // findproperty
-        code.u32_v(prop_mn);
-        code.u8(0x2B); // swap -> [target, thrown]
-        code.u8(0x61); // setproperty
-        code.u32_v(prop_mn);
+    for &enc_reg in &env.active_catch_regs {
+        emit_avm2_getlocal(code, enc_reg);
+        code.u8(0x30); // pushscope (restores enclosing catch scopes; stack remains [thrown])
     }
+    let catch_reg = env.alloc_temp_reg();
+    if cname.is_empty() {
+        code.u8(0x29); // pop [thrown]
+        code.u8(0x5A); // newcatch
+        code.u32_v(exc_idx);
+        code.u8(0x2A); // dup
+        emit_avm2_setlocal(code, catch_reg);
+        code.u8(0x30); // pushscope
+    } else {
+        code.u8(0x5A); // newcatch -> [thrown, catch_scope]
+        code.u32_v(exc_idx);
+        code.u8(0x2A); // dup -> [thrown, catch_scope, catch_scope]
+        emit_avm2_setlocal(code, catch_reg);
+        code.u8(0x2A); // dup -> [thrown, catch_scope, catch_scope]
+        code.u8(0x30); // pushscope -> [thrown, catch_scope]
+        code.u8(0x2B); // swap -> [catch_scope, thrown]
+        if let Some(&reg) = env.local_regs.get(cname) {
+            code.u8(0x2A); // dup -> [catch_scope, thrown, thrown]
+            code.u8(0x82); // coerce_a
+            emit_avm2_setlocal(code, reg);
+        }
+        code.u8(0x6D); // setslot 1 on catch_scope
+        code.u32_v(1);
+        if let Some(&slot_id) = env.own_slots.get(cname) {
+            code.u8(0x65); // getscopeobject 1
+            code.u8(0x01);
+            emit_avm2_getlocal(code, catch_reg);
+            code.u8(0x6C); // getslot 1
+            code.u32_v(1);
+            code.u8(0x6D); // setslot
+            code.u32_v(slot_id);
+        } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(cname) {
+            code.u8(0x67); // getouterscope
+            code.u32_v(outer_idx);
+            emit_avm2_getlocal(code, catch_reg);
+            code.u8(0x6C); // getslot 1
+            code.u32_v(1);
+            code.u8(0x6D); // setslot
+            code.u32_v(slot_id);
+        }
+    }
+    let _ = pool;
+    catch_reg
 }
 
 pub(super) fn compile_avm2_stmt(
@@ -887,6 +964,7 @@ pub(super) fn compile_avm2_stmt(
                 break_patches: Vec::new(),
                 continue_patches: Vec::new(),
                 finally_depth: env.finally_stack.len(),
+                catch_scope_depth: env.active_catch_regs.len(),
             });
             compile_avm2_stmt_list(pool, body, code, state, env)?;
             let frame = env.flow_stack.pop().expect("while control frame");
@@ -918,6 +996,7 @@ pub(super) fn compile_avm2_stmt(
                 break_patches: Vec::new(),
                 continue_patches: Vec::new(),
                 finally_depth: env.finally_stack.len(),
+                catch_scope_depth: env.active_catch_regs.len(),
             });
             compile_avm2_stmt_list(pool, body, code, state, env)?;
             let frame = env.flow_stack.pop().expect("for control frame");
@@ -982,6 +1061,7 @@ pub(super) fn compile_avm2_stmt(
                 break_patches: Vec::new(),
                 continue_patches: Vec::new(),
                 finally_depth: env.finally_stack.len(),
+                catch_scope_depth: env.active_catch_regs.len(),
             });
             compile_avm2_stmt_list(pool, body, code, state, env)?;
             let frame = env.flow_stack.pop().expect("for-in control frame");
@@ -1035,6 +1115,7 @@ pub(super) fn compile_avm2_stmt(
                 break_patches: Vec::new(),
                 continue_patches: Vec::new(),
                 finally_depth: env.finally_stack.len(),
+                catch_scope_depth: env.active_catch_regs.len(),
             });
 
             let mut body_positions = vec![0usize; cases.len()];
@@ -1069,17 +1150,25 @@ pub(super) fn compile_avm2_stmt(
             else {
                 return Err("'break' used outside of a loop or switch statement".to_owned());
             };
-            let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
             if env.finally_stack.len() > finally_depth {
-                env.finally_stack
-                    .last_mut()
-                    .expect("checked finally_stack")
-                    .pending_unwinds
-                    .push(Avm2PendingUnwind::Break {
-                        jump_patch: patch,
-                        target_flow_idx,
-                    });
+                let top_fin = env.finally_stack.last_mut().expect("checked finally_stack");
+                emit_avm2_pop_catch_scopes(
+                    code,
+                    env.active_catch_regs.len(),
+                    top_fin.catch_scope_depth,
+                );
+                let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
+                top_fin.pending_unwinds.push(Avm2PendingUnwind::Break {
+                    jump_patch: patch,
+                    target_flow_idx,
+                });
             } else {
+                emit_avm2_pop_catch_scopes(
+                    code,
+                    env.active_catch_regs.len(),
+                    env.flow_stack[target_flow_idx].catch_scope_depth,
+                );
+                let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
                 env.flow_stack[target_flow_idx].break_patches.push(patch);
             }
         }
@@ -1094,17 +1183,25 @@ pub(super) fn compile_avm2_stmt(
             else {
                 return Err("'continue' used outside of a loop statement".to_owned());
             };
-            let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
             if env.finally_stack.len() > finally_depth {
-                env.finally_stack
-                    .last_mut()
-                    .expect("checked finally_stack")
-                    .pending_unwinds
-                    .push(Avm2PendingUnwind::Continue {
-                        jump_patch: patch,
-                        target_flow_idx: loop_idx,
-                    });
+                let top_fin = env.finally_stack.last_mut().expect("checked finally_stack");
+                emit_avm2_pop_catch_scopes(
+                    code,
+                    env.active_catch_regs.len(),
+                    top_fin.catch_scope_depth,
+                );
+                let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
+                top_fin.pending_unwinds.push(Avm2PendingUnwind::Continue {
+                    jump_patch: patch,
+                    target_flow_idx: loop_idx,
+                });
             } else {
+                emit_avm2_pop_catch_scopes(
+                    code,
+                    env.active_catch_regs.len(),
+                    env.flow_stack[loop_idx].catch_scope_depth,
+                );
+                let patch = emit_avm2_s24_placeholder(code, 0x10); // jump
                 env.flow_stack[loop_idx].continue_patches.push(patch);
             }
         }
@@ -1115,9 +1212,16 @@ pub(super) fn compile_avm2_stmt(
         } => {
             let mut normal_exit_patches = Vec::new();
             let outer_from = code.buf.len();
+            let base_catch_depth = env.active_catch_regs.len();
+            if matches!(try_body.first(), Some(SwfStmt::Try { .. })) {
+                code.u8(0x02); // nop so nested try blocks have distinct `from` offsets
+            }
 
             if finally_body.is_some() {
-                env.finally_stack.push(Avm2FinallyFrame::default());
+                env.finally_stack.push(Avm2FinallyFrame {
+                    pending_unwinds: Vec::new(),
+                    catch_scope_depth: base_catch_depth,
+                });
             }
             let inner_from = code.buf.len();
             compile_avm2_stmt_list(pool, try_body, code, state, env)?;
@@ -1155,8 +1259,12 @@ pub(super) fn compile_avm2_stmt(
 
                 for (i, (cname, _, cbody)) in catches.iter().enumerate() {
                     let catch_target = code.buf.len();
-                    env.exceptions[base_exc_idx + i].target = catch_target as u32;
-                    emit_avm2_catch_prologue(pool, cname, code, env);
+                    let exc_idx = base_exc_idx + i;
+                    env.exceptions[exc_idx].target = catch_target as u32;
+                    let catch_reg =
+                        emit_avm2_catch_prologue(pool, exc_idx as u32, cname, code, env);
+                    env.active_catch_regs.push(catch_reg);
+                    env.max_catch_scopes = env.max_catch_scopes.max(env.active_catch_regs.len());
                     if let Some(fin_frame) = saved_fin_frame.take() {
                         env.finally_stack.push(fin_frame);
                     }
@@ -1164,6 +1272,10 @@ pub(super) fn compile_avm2_stmt(
                     if finally_body.is_some() {
                         saved_fin_frame = env.finally_stack.pop();
                     }
+                    env.active_catch_regs.pop();
+                    code.u8(0x1D); // popscope (catch scope)
+                    code.u8(0x08); // kill catch_reg
+                    code.u32_v(catch_reg);
                     if i + 1 < catches.len() || finally_body.is_some() {
                         normal_exit_patches.push(emit_avm2_s24_placeholder(code, 0x10));
                     }
@@ -1185,6 +1297,10 @@ pub(super) fn compile_avm2_stmt(
                 code.u8(0x30); // pushscope
                 if let Some(act_reg) = env.act_reg {
                     emit_avm2_getlocal(code, act_reg);
+                    code.u8(0x30); // pushscope
+                }
+                for &enc_reg in &env.active_catch_regs {
+                    emit_avm2_getlocal(code, enc_reg);
                     code.u8(0x30); // pushscope
                 }
                 code.u8(0x82); // coerce_a
@@ -1214,6 +1330,11 @@ pub(super) fn compile_avm2_stmt(
                                 patch_avm2_s24(code, jump_patch, tramp_pos)?;
                                 compile_avm2_stmt_list(pool, fbody, code, state, env)?;
                                 if let Some(parent_fin) = env.finally_stack.last_mut() {
+                                    emit_avm2_pop_catch_scopes(
+                                        code,
+                                        base_catch_depth,
+                                        parent_fin.catch_scope_depth,
+                                    );
                                     let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
                                     parent_fin
                                         .pending_unwinds
@@ -1222,6 +1343,7 @@ pub(super) fn compile_avm2_stmt(
                                             ret_reg,
                                         });
                                 } else {
+                                    emit_avm2_pop_catch_scopes(code, base_catch_depth, 0);
                                     emit_avm2_getlocal(code, ret_reg);
                                     code.u8(0x48); // returnvalue
                                 }
@@ -1230,6 +1352,11 @@ pub(super) fn compile_avm2_stmt(
                                 patch_avm2_s24(code, jump_patch, tramp_pos)?;
                                 compile_avm2_stmt_list(pool, fbody, code, state, env)?;
                                 if let Some(parent_fin) = env.finally_stack.last_mut() {
+                                    emit_avm2_pop_catch_scopes(
+                                        code,
+                                        base_catch_depth,
+                                        parent_fin.catch_scope_depth,
+                                    );
                                     let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
                                     parent_fin.pending_unwinds.push(
                                         Avm2PendingUnwind::ReturnVoid {
@@ -1237,6 +1364,7 @@ pub(super) fn compile_avm2_stmt(
                                         },
                                     );
                                 } else {
+                                    emit_avm2_pop_catch_scopes(code, base_catch_depth, 0);
                                     code.u8(0x47); // returnvoid
                                 }
                             }
@@ -1246,18 +1374,29 @@ pub(super) fn compile_avm2_stmt(
                             } => {
                                 patch_avm2_s24(code, jump_patch, tramp_pos)?;
                                 compile_avm2_stmt_list(pool, fbody, code, state, env)?;
-                                let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
                                 let target_depth = env.flow_stack[target_flow_idx].finally_depth;
                                 if env.finally_stack.len() > target_depth {
-                                    env.finally_stack
+                                    let parent_fin = env
+                                        .finally_stack
                                         .last_mut()
-                                        .expect("checked finally_stack")
-                                        .pending_unwinds
-                                        .push(Avm2PendingUnwind::Break {
-                                            jump_patch: next_jmp,
-                                            target_flow_idx,
-                                        });
+                                        .expect("checked finally_stack");
+                                    emit_avm2_pop_catch_scopes(
+                                        code,
+                                        base_catch_depth,
+                                        parent_fin.catch_scope_depth,
+                                    );
+                                    let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
+                                    parent_fin.pending_unwinds.push(Avm2PendingUnwind::Break {
+                                        jump_patch: next_jmp,
+                                        target_flow_idx,
+                                    });
                                 } else {
+                                    emit_avm2_pop_catch_scopes(
+                                        code,
+                                        base_catch_depth,
+                                        env.flow_stack[target_flow_idx].catch_scope_depth,
+                                    );
+                                    let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
                                     env.flow_stack[target_flow_idx].break_patches.push(next_jmp);
                                 }
                             }
@@ -1267,18 +1406,31 @@ pub(super) fn compile_avm2_stmt(
                             } => {
                                 patch_avm2_s24(code, jump_patch, tramp_pos)?;
                                 compile_avm2_stmt_list(pool, fbody, code, state, env)?;
-                                let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
                                 let target_depth = env.flow_stack[target_flow_idx].finally_depth;
                                 if env.finally_stack.len() > target_depth {
-                                    env.finally_stack
+                                    let parent_fin = env
+                                        .finally_stack
                                         .last_mut()
-                                        .expect("checked finally_stack")
+                                        .expect("checked finally_stack");
+                                    emit_avm2_pop_catch_scopes(
+                                        code,
+                                        base_catch_depth,
+                                        parent_fin.catch_scope_depth,
+                                    );
+                                    let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
+                                    parent_fin
                                         .pending_unwinds
                                         .push(Avm2PendingUnwind::Continue {
                                             jump_patch: next_jmp,
                                             target_flow_idx,
                                         });
                                 } else {
+                                    emit_avm2_pop_catch_scopes(
+                                        code,
+                                        base_catch_depth,
+                                        env.flow_stack[target_flow_idx].catch_scope_depth,
+                                    );
+                                    let next_jmp = emit_avm2_s24_placeholder(code, 0x10);
                                     env.flow_stack[target_flow_idx]
                                         .continue_patches
                                         .push(next_jmp);
@@ -1316,24 +1468,33 @@ pub(super) fn compile_avm2_stmt(
                     let ret_reg = env.alloc_temp_reg();
                     code.u8(0x82); // coerce_a
                     emit_avm2_setlocal(code, ret_reg);
+                    let top_fin = env.finally_stack.last_mut().expect("checked finally_stack");
+                    emit_avm2_pop_catch_scopes(
+                        code,
+                        env.active_catch_regs.len(),
+                        top_fin.catch_scope_depth,
+                    );
                     let patch = emit_avm2_s24_placeholder(code, 0x10); // jump to post-outer_to unwind trampoline
-                    env.finally_stack
-                        .last_mut()
-                        .expect("checked finally_stack")
-                        .pending_unwinds
-                        .push(Avm2PendingUnwind::ReturnVal {
-                            jump_patch: patch,
-                            ret_reg,
-                        });
+                    top_fin.pending_unwinds.push(Avm2PendingUnwind::ReturnVal {
+                        jump_patch: patch,
+                        ret_reg,
+                    });
                 } else {
+                    emit_avm2_pop_catch_scopes(code, env.active_catch_regs.len(), 0);
                     code.u8(0x48); // returnvalue
                 }
             } else if let Some(top_fin) = env.finally_stack.last_mut() {
+                emit_avm2_pop_catch_scopes(
+                    code,
+                    env.active_catch_regs.len(),
+                    top_fin.catch_scope_depth,
+                );
                 let patch = emit_avm2_s24_placeholder(code, 0x10); // jump to post-outer_to unwind trampoline
                 top_fin
                     .pending_unwinds
                     .push(Avm2PendingUnwind::ReturnVoid { jump_patch: patch });
             } else {
+                emit_avm2_pop_catch_scopes(code, env.active_catch_regs.len(), 0);
                 code.u8(0x47); // returnvoid
             }
         }

@@ -431,6 +431,18 @@ impl SwfBytecodePlayer {
             Avm1Value::MovieClip(mc) => {
                 if mc.starts_with("__avm2_class:") {
                     self.avm2_class_token_has_static_prop(mc, prop)
+                } else if mc == "__avm2_type:XML" {
+                    matches!(
+                        prop,
+                        "ignoreComments"
+                            | "ignoreProcessingInstructions"
+                            | "ignoreWhitespace"
+                            | "prettyPrinting"
+                            | "prettyIndent"
+                            | "settings"
+                            | "setSettings"
+                            | "defaultSettings"
+                    )
                 } else if mc == "Math" || mc == "__avm2_type:Math" {
                     matches!(
                         prop,
@@ -616,6 +628,18 @@ impl SwfBytecodePlayer {
                         abc_idx, method_idx, &receiver, &prop_name, val, steps, depth,
                     );
                 }
+                0x06 => {
+                    // dxns
+                    let Some(idx) = r.u30() else { break };
+                    let uri = self.abc_tags[abc_idx].abc.string(idx).to_owned();
+                    self.e4x_arena.borrow_mut().default_ns = uri;
+                }
+                0x07 => {
+                    // dxnslate
+                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let uri = avm2_convert_string(&v, &self.avm1_objects);
+                    self.e4x_arena.borrow_mut().default_ns = uri;
+                }
                 0x08 => {
                     // kill
                     let Some(reg) = r.u30() else { break };
@@ -743,23 +767,19 @@ impl SwfBytecodePlayer {
                     // nextname
                     let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let keys = self.avm2_enumerable_keys(&obj);
                     let k_idx = ecma_f64_to_i32(avm2_to_number(&idx_val))
                         .saturating_sub(1)
                         .max(0) as usize;
-                    let val = keys
-                        .get(k_idx)
-                        .cloned()
-                        .map_or(Avm1Value::Undefined, Avm1Value::String);
+                    let val = self.avm2_nextname_at(&obj, k_idx);
                     self.push_avm_stack(&mut stack, val);
                 }
                 0x1F => {
                     // hasnext
                     let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let keys = self.avm2_enumerable_keys(&obj);
+                    let len = self.avm2_enumerable_len(&obj);
                     let cur_idx = ecma_f64_to_i32(avm2_to_number(&idx_val)).max(0) as usize;
-                    let next = if cur_idx < keys.len() {
+                    let next = if cur_idx < len {
                         (cur_idx + 1) as f64
                     } else {
                         0.0
@@ -772,15 +792,10 @@ impl SwfBytecodePlayer {
                     // nextvalue
                     let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let keys = self.avm2_enumerable_keys(&obj);
                     let k_idx = ecma_f64_to_i32(avm2_to_number(&idx_val))
                         .saturating_sub(1)
                         .max(0) as usize;
-                    let val = if let Some(k) = keys.get(k_idx) {
-                        self.get_avm2_property_eval(&obj, k, steps, depth)
-                    } else {
-                        Avm1Value::Undefined
-                    };
+                    let val = self.avm2_nextvalue_at(&obj, k_idx, steps, depth);
                     self.push_avm_stack(&mut stack, val);
                 }
                 0x24 => {
@@ -856,8 +871,8 @@ impl SwfBytecodePlayer {
                     let cur_idx = locals
                         .get(idx_reg)
                         .map_or(0, |v| ecma_f64_to_i32(avm2_to_number(v)).max(0) as usize);
-                    let keys = self.avm2_enumerable_keys(&obj);
-                    if cur_idx < keys.len() {
+                    let len = self.avm2_enumerable_len(&obj);
+                    if cur_idx < len {
                         if let Some(slot) = locals.get_mut(idx_reg) {
                             *slot = Avm1Value::Number((cur_idx + 1) as f64);
                         }
@@ -1066,11 +1081,38 @@ impl SwfBytecodePlayer {
                         cargs.push(stack.pop().unwrap_or(Avm1Value::Undefined));
                     }
                     cargs.reverse();
-                    let (pkg, cls_name) = self.pop_avm2_qname(abc_idx, mn_idx, &mut stack);
-                    let _receiver = stack.pop();
-                    let constructed =
-                        self.construct_avm2_named(abc_idx, &pkg, &cls_name, cargs, steps, depth);
-                    self.push_avm_stack(&mut stack, constructed);
+                    if let Some(vec_elem) =
+                        self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
+                    {
+                        let _receiver = stack.pop();
+                        let constructed =
+                            self.construct_avm2_vector(vec_elem, &cargs, abc_idx, steps, depth);
+                        self.push_avm_stack(&mut stack, constructed);
+                    } else {
+                        let (pkg, cls_name) = self.pop_avm2_qname(abc_idx, mn_idx, &mut stack);
+                        let _receiver = stack.pop();
+                        let constructed = self
+                            .construct_avm2_named(abc_idx, &pkg, &cls_name, cargs, steps, depth);
+                        self.push_avm_stack(&mut stack, constructed);
+                    }
+                }
+                0x53 => {
+                    // applytype (Vector.<T>)
+                    let Some(argc) = r.u30() else { break };
+                    let mut targs = Vec::with_capacity(argc.min(16));
+                    for _ in 0..argc {
+                        targs.push(stack.pop().unwrap_or(Avm1Value::Undefined));
+                    }
+                    targs.reverse();
+                    let _factory = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let elem_ty = targs
+                        .first()
+                        .map(|t| self.resolve_avm2_vector_elem_type_from_value(abc_idx, t))
+                        .unwrap_or(Avm2VectorElemType::Any);
+                    self.push_avm_stack(
+                        &mut stack,
+                        Avm1Value::MovieClip(format!("__avm2_vec_type:{}", elem_ty.encode_token())),
+                    );
                 }
                 0x55 => {
                     // newobject
@@ -1168,15 +1210,38 @@ impl SwfBytecodePlayer {
                         Avm1Value::MovieClip(format!("__avm2_class:{abc_idx}:{class_idx}")),
                     );
                 }
+                0x59 => {
+                    // getdescendants
+                    let Some(mn_idx) = r.u30() else { break };
+                    let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
+                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let res = self.get_avm2_descendants(&obj, &prop_name);
+                    if self.avm2_thrown.is_none() {
+                        self.push_avm_stack(&mut stack, res);
+                    }
+                }
                 0x5A => {
                     // newcatch
                     let Some(exc_idx) = r.u30() else { break };
+                    let mut init_props = HashMap::new();
                     let catch_var = exceptions.get(exc_idx).map(|exc| {
-                        let (_, vname) = self.abc_tags[abc_idx].abc.split_qname(exc.var_name);
+                        let vname = if exc.var_name == 0 {
+                            String::new()
+                        } else {
+                            let (_, vn) = self.abc_tags[abc_idx].abc.split_qname(exc.var_name);
+                            if vn == "*" { String::new() } else { vn }
+                        };
+                        let slot_key = if vname.is_empty() {
+                            "__slot_1".to_owned()
+                        } else {
+                            vname.clone()
+                        };
+                        init_props.insert(slot_key, Avm1Value::Undefined);
                         (vname, abc_idx, exc.exc_type)
                     });
                     let obj_id = self.avm1_objects.len();
                     self.avm1_objects.push(Avm1Object {
+                        props: init_props,
                         avm2_catch_var: catch_var,
                         ..Default::default()
                     });
@@ -1255,9 +1320,15 @@ impl SwfBytecodePlayer {
                     }
                     let val = if let Some(v) = val_opt {
                         v
+                    } else if let Some(vec_elem) =
+                        self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
+                    {
+                        Avm1Value::MovieClip(format!("__avm2_vec_type:{}", vec_elem.encode_token()))
                     } else if let Some((c_abc, c_idx)) = self.find_avm2_class(abc_idx, &pkg, &name)
                     {
                         Avm1Value::MovieClip(format!("__avm2_class:{c_abc}:{c_idx}"))
+                    } else if name == "Vector" && (pkg.is_empty() || pkg == "__AS3__.vec") {
+                        Avm1Value::MovieClip("__avm2_type:Vector".to_owned())
                     } else if matches!(
                         name.as_str(),
                         "Object"
@@ -1268,6 +1339,12 @@ impl SwfBytecodePlayer {
                             | "uint"
                             | "Boolean"
                             | "Function"
+                            | "Dictionary"
+                            | "XML"
+                            | "XMLList"
+                            | "QName"
+                            | "Namespace"
+                            | "ApplicationDomain"
                             | "MovieClip"
                             | "Sprite"
                             | "Shape"
@@ -1314,9 +1391,9 @@ impl SwfBytecodePlayer {
                     // setproperty / initproperty
                     let Some(mn_idx) = r.u30() else { break };
                     let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
+                    let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, &mut stack);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.set_avm2_property_eval(&obj, &prop_name, val, steps, depth);
+                    self.set_avm2_property_by_key(&obj, mn_key, val, abc_idx, steps, depth);
                 }
                 0x62 => {
                     // getlocal
@@ -1353,10 +1430,12 @@ impl SwfBytecodePlayer {
                 0x66 => {
                     // getproperty
                     let Some(mn_idx) = r.u30() else { break };
-                    let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
+                    let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, &mut stack);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let val = self.get_avm2_property_eval(&obj, &prop_name, steps, depth);
-                    self.push_avm_stack(&mut stack, val);
+                    let val = self.get_avm2_property_by_key(&obj, mn_key, abc_idx, steps, depth);
+                    if self.avm2_thrown.is_none() {
+                        self.push_avm_stack(&mut stack, val);
+                    }
                 }
                 0x67 => {
                     // getouterscope
@@ -1370,16 +1449,17 @@ impl SwfBytecodePlayer {
                 0x6A => {
                     // deleteproperty
                     let Some(mn_idx) = r.u30() else { break };
-                    let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
+                    let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, &mut stack);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let deleted = self.delete_avm2_property(&obj, &prop_name);
+                    let deleted = self.delete_avm2_property_by_key(&obj, mn_key);
                     self.push_avm_stack(&mut stack, Avm1Value::Bool(deleted));
                 }
                 0x6C => {
                     // getslot
                     let Some(slot_idx) = r.u30() else { break };
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let (key, _) = self.resolve_avm2_activation_or_slot_key(&obj, slot_idx);
+                    let (key, _) = self
+                        .resolve_avm2_activation_or_slot_key(&obj, slot_idx, abc_idx, method_idx);
                     let val = self.get_avm2_property_eval(&obj, &key, steps, depth);
                     self.push_avm_stack(&mut stack, val);
                 }
@@ -1388,7 +1468,8 @@ impl SwfBytecodePlayer {
                     let Some(slot_idx) = r.u30() else { break };
                     let val = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let (key, coerce_ty) = self.resolve_avm2_activation_or_slot_key(&obj, slot_idx);
+                    let (key, coerce_ty) = self
+                        .resolve_avm2_activation_or_slot_key(&obj, slot_idx, abc_idx, method_idx);
                     let coerced = if let Some((t_abc, t_mn)) = coerce_ty
                         && t_mn != 0
                     {
@@ -1426,6 +1507,22 @@ impl SwfBytecodePlayer {
                         self.push_avm_stack(&mut stack, Avm1Value::String(s));
                     }
                 }
+                0x71 => {
+                    // esc_xelem
+                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
+                    if self.avm2_thrown.is_none() {
+                        self.push_avm_stack(&mut stack, Avm1Value::String(esc_xml_elem(&s)));
+                    }
+                }
+                0x72 => {
+                    // esc_xattr
+                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
+                    if self.avm2_thrown.is_none() {
+                        self.push_avm_stack(&mut stack, Avm1Value::String(esc_xml_attr(&s)));
+                    }
+                }
                 0x73 | 0x83 => {
                     // convert_i / coerce_i
                     let v = stack.pop().unwrap_or(Avm1Value::Undefined);
@@ -1451,13 +1548,44 @@ impl SwfBytecodePlayer {
                 0x77 => {
                     // convert_o
                     let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    if matches!(v, Avm1Value::Undefined | Avm1Value::Null) {
-                        self.record_unsupported_diagnostic(format!(
-                            "AVM2 convert_o on null/undefined in abc#{abc_idx} method#{method_idx} offset=0x{insn_start:x}"
-                        ));
-                        self.push_avm_stack(&mut stack, Avm1Value::Null);
-                    } else {
+                    match v {
+                        Avm1Value::Null => {
+                            self.throw_avm2_builtin_error(
+                                "TypeError",
+                                1009,
+                                "Cannot access a property or method of a null object reference.",
+                            );
+                        }
+                        Avm1Value::Undefined => {
+                            self.throw_avm2_builtin_error(
+                                "TypeError",
+                                1010,
+                                "A term is undefined and has no properties.",
+                            );
+                        }
+                        other => self.push_avm_stack(&mut stack, other),
+                    }
+                }
+                0x78 => {
+                    // checkfilter
+                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let is_xml = matches!(
+                        &v,
+                        Avm1Value::Object(oid)
+                            if self
+                                .avm1_objects
+                                .get(*oid)
+                                .is_some_and(|o| o.avm2_xml.is_some())
+                    );
+                    if is_xml {
                         self.push_avm_stack(&mut stack, v);
+                    } else {
+                        let ty_name = self.avm2_runtime_class_label(&v);
+                        self.throw_avm2_builtin_error(
+                            "TypeError",
+                            1123,
+                            &format!("Filter operator not supported on type {ty_name}."),
+                        );
                     }
                 }
                 0x80 => {
@@ -1490,12 +1618,23 @@ impl SwfBytecodePlayer {
                     // astype(multiname)
                     let Some(mn_idx) = r.u30() else { break };
                     let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
-                    let out = if self.avm2_is_type_name(abc_idx, &v, &pkg, &tname) {
-                        v
+                    let is_match = if let Some(vec_elem) =
+                        self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
+                    {
+                        matches!(
+                            &v,
+                            Avm1Value::Object(oid)
+                                if self
+                                    .avm1_objects
+                                    .get(*oid)
+                                    .and_then(|o| o.avm2_vector.as_ref())
+                                    .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
+                        )
                     } else {
-                        Avm1Value::Null
+                        let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
+                        self.avm2_is_type_name(abc_idx, &v, &pkg, &tname)
                     };
+                    let out = if is_match { v } else { Avm1Value::Null };
                     self.push_avm_stack(&mut stack, out);
                 }
                 0x87 => {
@@ -1609,24 +1748,40 @@ impl SwfBytecodePlayer {
                     self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(!i)));
                 }
                 0xA0 => {
-                    // add
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = self.avm2_add_operand(a, abc_idx, steps, depth);
-                    let b = if self.avm2_thrown.is_none() {
-                        self.avm2_add_operand(b, abc_idx, steps, depth)
+                    // add (including E4X XML + XML -> XMLList concatenation)
+                    let raw_b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let raw_a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    if let (Avm1Value::Object(oa), Avm1Value::Object(ob)) = (&raw_a, &raw_b)
+                        && let (Some((mut ia, _)), Some((ib, _))) =
+                            (self.xml_items_of_oid(*oa), self.xml_items_of_oid(*ob))
+                    {
+                        ia.extend(ib);
+                        let list = self.alloc_avm2_xml_list(ia, None, None);
+                        self.push_avm_stack(&mut stack, list);
                     } else {
-                        Avm1Value::Undefined
-                    };
-                    if matches!(a, Avm1Value::String(_)) || matches!(b, Avm1Value::String(_)) {
-                        let sa = avm2_convert_string(&a, &self.avm1_objects);
-                        let sb = avm2_convert_string(&b, &self.avm1_objects);
-                        self.push_avm_stack(&mut stack, Avm1Value::String(format!("{sa}{sb}")));
-                    } else {
-                        self.push_avm_stack(
-                            &mut stack,
-                            Avm1Value::Number(avm2_to_number(&a) + avm2_to_number(&b)),
-                        );
+                        let a = self.avm2_add_operand(raw_a, abc_idx, steps, depth);
+                        let b = if self.avm2_thrown.is_none() {
+                            self.avm2_add_operand(raw_b, abc_idx, steps, depth)
+                        } else {
+                            Avm1Value::Undefined
+                        };
+                        if self.avm2_thrown.is_none() {
+                            if matches!(a, Avm1Value::String(_))
+                                || matches!(b, Avm1Value::String(_))
+                            {
+                                let sa = avm2_convert_string(&a, &self.avm1_objects);
+                                let sb = avm2_convert_string(&b, &self.avm1_objects);
+                                self.push_avm_stack(
+                                    &mut stack,
+                                    Avm1Value::String(format!("{sa}{sb}")),
+                                );
+                            } else {
+                                self.push_avm_stack(
+                                    &mut stack,
+                                    Avm1Value::Number(avm2_to_number(&a) + avm2_to_number(&b)),
+                                );
+                            }
+                        }
                     }
                 }
                 0xA1 => {
@@ -1773,8 +1928,22 @@ impl SwfBytecodePlayer {
                     // istype(multiname)
                     let Some(mn_idx) = r.u30() else { break };
                     let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
-                    let is_t = self.avm2_is_type_name(abc_idx, &v, &pkg, &tname);
+                    let is_t = if let Some(vec_elem) =
+                        self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
+                    {
+                        matches!(
+                            &v,
+                            Avm1Value::Object(oid)
+                                if self
+                                    .avm1_objects
+                                    .get(*oid)
+                                    .and_then(|o| o.avm2_vector.as_ref())
+                                    .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
+                        )
+                    } else {
+                        let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
+                        self.avm2_is_type_name(abc_idx, &v, &pkg, &tname)
+                    };
                     self.push_avm_stack(&mut stack, Avm1Value::Bool(is_t));
                 }
                 0xB3 => {
@@ -1787,11 +1956,8 @@ impl SwfBytecodePlayer {
                 0xB4 => {
                     // in
                     let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let key = stack
-                        .pop()
-                        .unwrap_or(Avm1Value::Undefined)
-                        .to_trace_string(9, &self.avm1_objects);
-                    let has = self.avm2_has_property(&obj, &key);
+                    let raw_key = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let has = self.avm2_in_operator(&raw_key, &obj);
                     self.push_avm_stack(&mut stack, Avm1Value::Bool(has));
                 }
                 0xC5 => {
@@ -1888,25 +2054,47 @@ impl SwfBytecodePlayer {
         Avm1Value::Undefined
     }
 
+    pub(super) fn pop_avm2_multiname_key(
+        &self,
+        abc_idx: usize,
+        mn_idx: usize,
+        stack: &mut Vec<Avm1Value>,
+    ) -> Avm2MultinameKey {
+        let abc = &self.abc_tags[abc_idx].abc;
+        let is_attr = abc.is_attr_multiname(mn_idx);
+        let (has_rt_ns, has_rt_name) = abc.runtime_multiname_parts(mn_idx);
+        if has_rt_name {
+            let key_val = stack.pop().unwrap_or(Avm1Value::Undefined);
+            if has_rt_ns {
+                let _ = stack.pop();
+            }
+            Avm2MultinameKey::Runtime {
+                key: key_val,
+                is_attr,
+            }
+        } else {
+            if has_rt_ns {
+                let _ = stack.pop();
+            }
+            let (_, mut short) = abc.split_qname(mn_idx);
+            if is_attr && !short.starts_with('@') {
+                short = format!("@{short}");
+            }
+            Avm2MultinameKey::Static {
+                name: short,
+                is_attr,
+            }
+        }
+    }
+
     pub(super) fn pop_avm2_multiname(
         &self,
         abc_idx: usize,
         mn_idx: usize,
         stack: &mut Vec<Avm1Value>,
     ) -> String {
-        let (has_rt_ns, has_rt_name) = self.abc_tags[abc_idx].abc.runtime_multiname_parts(mn_idx);
-        let prop_name = if has_rt_name {
-            avm2_convert_string(
-                &stack.pop().unwrap_or(Avm1Value::Undefined),
-                &self.avm1_objects,
-            )
-        } else {
-            self.abc_tags[abc_idx].abc.split_qname(mn_idx).1
-        };
-        if has_rt_ns {
-            let _ = stack.pop();
-        }
-        prop_name
+        self.pop_avm2_multiname_key(abc_idx, mn_idx, stack)
+            .to_prop_string(&self.avm1_objects)
     }
 
     pub(super) fn pop_avm2_qname(

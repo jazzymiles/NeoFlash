@@ -28,10 +28,12 @@ mod avm1;
 mod avm1_runtime;
 mod avm2;
 mod avm2_runtime;
+mod collections;
 mod display;
+mod e4x;
 mod sound;
 
-use self::{avm1::*, avm2_runtime::*, display::*};
+use self::{avm1::*, avm2_runtime::*, collections::*, display::*, e4x::*};
 
 const MAX_VM_STEPS_PER_FRAME: usize = 50_000;
 const MAX_CALL_DEPTH: usize = 32;
@@ -600,10 +602,47 @@ impl Avm1Value {
             .to_owned(),
             Self::Number(n) => format_avm_number(*n),
             Self::String(s) => s.clone(),
-            Self::MovieClip(path) | Self::MovieClipIdentity(path) => path.clone(),
+            Self::MovieClip(path) | Self::MovieClipIdentity(path) => {
+                if let Some(vec_tok) = path.strip_prefix("__avm2_vec_type:") {
+                    return Avm2VectorElemType::decode_token(vec_tok).class_display_string();
+                }
+                path.clone()
+            }
             Self::Super { .. } => "[object Object]".to_owned(),
             Self::Object(id) => {
                 if let Some(obj) = objects.get(*id) {
+                    if let Some(boxed) = &obj.boxed_primitive {
+                        return boxed.format_trace_string(swf_version, objects, arrays);
+                    }
+                    if let Some(xml_data) = &obj.avm2_xml {
+                        return xml_data.format_string();
+                    }
+                    if obj.avm2_dictionary.is_some() {
+                        return "[object Dictionary]".to_owned();
+                    }
+                    if let Some(vd) = &obj.avm2_vector {
+                        if arrays.contains(id) {
+                            return String::new();
+                        }
+                        arrays.push(*id);
+                        let joined = vd
+                            .elements
+                            .iter()
+                            .map(|el| {
+                                if matches!(el, Self::Undefined | Self::Null) {
+                                    String::new()
+                                } else {
+                                    el.format_trace_string(swf_version, objects, arrays)
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        arrays.pop();
+                        return joined;
+                    }
+                    if let Some(Self::String(qfmt)) = obj.props.get("qname_formatted") {
+                        return qfmt.clone();
+                    }
                     if let Some((ev_ty, bubbles, cancelable, _, _, phase)) = &obj.avm2_event {
                         return format!(
                             "[Event type=\"{ev_ty}\" bubbles={bubbles} cancelable={cancelable} eventPhase={phase}]"
@@ -700,12 +739,17 @@ struct Avm1Object {
     deleted_indices: BTreeSet<usize>,
     function: Option<Avm1Function>,
     interfaces: Vec<usize>,
+    implements_sealed: bool,
+    boxed_primitive: Option<Box<Avm1Value>>,
     avm2_class: Option<(usize, usize)>,
     avm2_activation_method: Option<(usize, usize)>,
     avm2_catch_var: Option<(String, usize, usize)>,
     avm2_builtin_error: Option<String>,
     avm2_display: Option<Avm2DisplayMeta>,
     avm2_event: Option<(String, bool, bool, usize, usize, u8)>,
+    avm2_vector: Option<Avm2VectorData>,
+    avm2_dictionary: Option<Avm2DictionaryData>,
+    avm2_xml: Option<Avm2XmlData>,
     graphics: Option<RuntimeGraphicsState>,
     avm2_graphics_owner: Option<usize>,
 }
@@ -831,6 +875,7 @@ pub struct SwfBytecodePlayer {
     avm2_frame_scripts: HashMap<u32, Avm1Value>, // frame_idx -> callable token
     avm2_closures: Vec<Avm2Closure>,
     avm2_thrown: Option<Avm1Value>,
+    e4x_arena: std::rc::Rc<std::cell::RefCell<E4xArena>>,
 }
 
 impl SwfBytecodePlayer {
@@ -1133,6 +1178,7 @@ impl SwfBytecodePlayer {
             avm2_frame_scripts: HashMap::new(),
             avm2_closures: Vec::new(),
             avm2_thrown: None,
+            e4x_arena: std::rc::Rc::new(std::cell::RefCell::new(E4xArena::default())),
         })
     }
 
@@ -1228,6 +1274,7 @@ impl SwfBytecodePlayer {
         self.avm2_frame_scripts.clear();
         self.avm2_closures.clear();
         self.avm2_thrown = None;
+        self.e4x_arena = std::rc::Rc::new(std::cell::RefCell::new(E4xArena::default()));
     }
 
     /// Reset all runtime display-list, tombstone, and VM state and evaluate frame 0 cleanly.

@@ -36,6 +36,8 @@ pub(crate) fn decompile_actions(
         swf_version,
         constants: Vec::new(),
         reg_names: HashMap::new(),
+        loop_bounds: Vec::new(),
+        enclosing_finally_lines: Vec::new(),
         unrecognized: 0,
         unrecognized_sites: Vec::new(),
         legacy_cp_warned,
@@ -151,6 +153,15 @@ pub(crate) fn parse_and_decompile_clip_actions(
         return out;
     };
 
+    struct RawClipActionEntry {
+        flags: u32,
+        key_code: Option<u8>,
+        body: String,
+        unrecognized: usize,
+        sites: Vec<(usize, u8)>,
+    }
+
+    let mut raw_entries = Vec::new();
     for _ in 0..1024 {
         let Some(flags) = read_clip_event_flags(r, wide_flags) else {
             break;
@@ -183,7 +194,57 @@ pub(crate) fn parse_and_decompile_clip_actions(
         if body.trim().is_empty() && unrecognized == 0 {
             continue;
         }
-        let (event, approx, source) = build_clip_event_source(flags, key_code, &body);
+        raw_entries.push(RawClipActionEntry {
+            flags,
+            key_code,
+            body,
+            unrecognized,
+            sites,
+        });
+    }
+
+    const LIFECYCLE_INIT_CONSTRUCT_MASK: u32 = 0x0004_0200;
+    const LIFECYCLE_LOAD_MASK: u32 = 0x0000_0001;
+    let has_conflicting_lifecycle_handler = raw_entries.iter().any(|entry| {
+        let touches_lifecycle =
+            (entry.flags & (LIFECYCLE_INIT_CONSTRUCT_MASK | LIFECYCLE_LOAD_MASK)) != 0;
+        if !touches_lifecycle {
+            return false;
+        }
+        if (entry.flags & LIFECYCLE_LOAD_MASK) != 0 {
+            return true;
+        }
+        entry.unrecognized > 0 || !is_pure_component_init_body(&entry.body)
+    });
+
+    // Preserve Flash's `initialize` -> `construct` -> remaining clip handlers order when all
+    // lifecycle handlers on this placement are pure component parameter initializers.
+    if !has_conflicting_lifecycle_handler && raw_entries.len() > 1 {
+        raw_entries.sort_by_key(|entry| {
+            if entry.flags == 0x0000_0200 {
+                0u8
+            } else if (entry.flags & LIFECYCLE_INIT_CONSTRUCT_MASK) != 0
+                && (entry.flags & !LIFECYCLE_INIT_CONSTRUCT_MASK) == 0
+            {
+                1u8
+            } else {
+                2u8
+            }
+        });
+    }
+
+    for entry in raw_entries {
+        let (event, mut approx, source) =
+            build_clip_event_source(entry.flags, entry.key_code, &entry.body);
+        if approx
+            && !has_conflicting_lifecycle_handler
+            && entry.unrecognized == 0
+            && (entry.flags & !LIFECYCLE_INIT_CONSTRUCT_MASK) == 0
+            && entry.flags != 0
+            && is_pure_component_init_body(&entry.body)
+        {
+            approx = false;
+        }
         out.push(DecompiledObjectHandler {
             script: ObjectScript {
                 event,
@@ -193,11 +254,189 @@ pub(crate) fn parse_and_decompile_clip_actions(
                 },
             },
             approximated_event: approx,
-            unrecognized_opcodes: unrecognized,
-            unrecognized_sites: sites,
+            unrecognized_opcodes: entry.unrecognized,
+            unrecognized_sites: entry.sites,
         });
     }
     out
+}
+
+fn is_pure_component_init_body(body: &str) -> bool {
+    let mut saw_assignment = false;
+    for raw_line in body.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some(stmt) = line.strip_suffix(';') else {
+            return false;
+        };
+        let Some((lhs_raw, rhs_raw)) = stmt.split_once('=') else {
+            return false;
+        };
+        if rhs_raw.starts_with('=')
+            || lhs_raw.ends_with(['!', '<', '>', '+', '-', '*', '/', '%', '&', '|', '^'])
+        {
+            return false;
+        }
+        let lhs = lhs_raw.trim();
+        let target = lhs
+            .strip_prefix("var ")
+            .map(str::trim)
+            .or_else(|| lhs.strip_prefix("this.").map(str::trim))
+            .unwrap_or(lhs);
+        if !is_valid_as_ident(target)
+            || target == "this"
+            || target == "_root"
+            || target == "_parent"
+        {
+            return false;
+        }
+        if !is_pure_as_literal(rhs_raw.trim(), 0) {
+            return false;
+        }
+        saw_assignment = true;
+    }
+    saw_assignment
+}
+
+fn is_pure_as_literal(expr: &str, depth: usize) -> bool {
+    if depth > 8 || expr.is_empty() {
+        return false;
+    }
+    match expr {
+        "true" | "false" | "null" | "undefined" | "NaN" | "Infinity" | "-Infinity" => return true,
+        _ => {}
+    }
+    if let Some(num_str) = expr.strip_prefix('-').or(Some(expr))
+        && !num_str.is_empty()
+        && num_str.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+        && num_str.parse::<f64>().is_ok()
+    {
+        return true;
+    }
+    if expr.len() >= 2 && expr.starts_with('"') && expr.ends_with('"') {
+        let inner = &expr[1..expr.len() - 1];
+        let mut escaped = false;
+        for ch in inner.chars() {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' || ch == '\n' || ch == '\r' {
+                return false;
+            }
+        }
+        return !escaped;
+    }
+    if expr.len() >= 2 && expr.starts_with('[') && expr.ends_with(']') {
+        let inner = expr[1..expr.len() - 1].trim();
+        if inner.is_empty() {
+            return true;
+        }
+        return split_top_level_comma(inner).is_some_and(|items| {
+            items
+                .into_iter()
+                .all(|it| is_pure_as_literal(it.trim(), depth + 1))
+        });
+    }
+    if expr.len() >= 2 && expr.starts_with('{') && expr.ends_with('}') {
+        let inner = expr[1..expr.len() - 1].trim();
+        if inner.is_empty() {
+            return true;
+        }
+        return split_top_level_comma(inner).is_some_and(|items| {
+            items.into_iter().all(|entry| {
+                let Some((k, v)) = split_top_level_colon(entry.trim()) else {
+                    return false;
+                };
+                let key = k.trim();
+                let key_ok = is_valid_as_ident(key) || is_pure_as_literal(key, depth + 1);
+                key_ok && is_pure_as_literal(v.trim(), depth + 1)
+            })
+        });
+    }
+    false
+}
+
+fn split_top_level_comma(s: &str) -> Option<Vec<&str>> {
+    let mut parts = Vec::new();
+    let mut start = 0usize;
+    let mut depth_brack = 0i32;
+    let mut depth_brace = 0i32;
+    let mut in_str = false;
+    let mut escaped = false;
+    for (idx, ch) in s.char_indices() {
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_str = true,
+            '[' => depth_brack += 1,
+            ']' => {
+                depth_brack -= 1;
+                if depth_brack < 0 {
+                    return None;
+                }
+            }
+            '{' => depth_brace += 1,
+            '}' => {
+                depth_brace -= 1;
+                if depth_brace < 0 {
+                    return None;
+                }
+            }
+            '(' | ')' => return None,
+            ',' if depth_brack == 0 && depth_brace == 0 => {
+                parts.push(&s[start..idx]);
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+    if in_str || depth_brack != 0 || depth_brace != 0 {
+        return None;
+    }
+    parts.push(&s[start..]);
+    Some(parts)
+}
+
+fn split_top_level_colon(s: &str) -> Option<(&str, &str)> {
+    let mut depth_brack = 0i32;
+    let mut depth_brace = 0i32;
+    let mut in_str = false;
+    let mut escaped = false;
+    for (idx, ch) in s.char_indices() {
+        if in_str {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_str = true,
+            '[' => depth_brack += 1,
+            ']' => depth_brack -= 1,
+            '{' => depth_brace += 1,
+            '}' => depth_brace -= 1,
+            ':' if depth_brack == 0 && depth_brace == 0 => {
+                return Some((&s[..idx], &s[idx + 1..]));
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn read_clip_event_flags(r: &mut SwfSlice<'_>, wide: bool) -> Option<u32> {
@@ -441,6 +680,8 @@ enum PushItem {
 struct Avm1Insn {
     offset: usize,
     next_offset: usize,
+    abs_offset: usize,
+    abs_next_offset: usize,
     op: Avm1Op,
 }
 
@@ -525,6 +766,8 @@ fn decode_action_stream(
             out.push(Avm1Insn {
                 offset,
                 next_offset: pos,
+                abs_offset: base_offset.saturating_add(offset),
+                abs_next_offset: base_offset.saturating_add(pos),
                 op: if known {
                     Avm1Op::Simple(code)
                 } else {
@@ -795,6 +1038,8 @@ fn decode_action_stream(
         out.push(Avm1Insn {
             offset,
             next_offset: pos,
+            abs_offset: base_offset.saturating_add(offset),
+            abs_next_offset: base_offset.saturating_add(pos),
             op,
         });
     }
@@ -873,9 +1118,46 @@ struct Avm1Context<'a> {
     swf_version: u8,
     constants: Vec<String>,
     reg_names: HashMap<u8, String>,
+    loop_bounds: Vec<(usize, usize)>,
+    enclosing_finally_lines: Vec<Vec<String>>,
     unrecognized: usize,
     unrecognized_sites: Vec<(usize, u8)>,
     legacy_cp_warned: &'a mut bool,
+}
+
+fn collect_forward_jump_targets_in_avm1(insns: &[Avm1Insn], out: &mut Vec<isize>) {
+    for insn in insns {
+        match &insn.op {
+            Avm1Op::Jump(rel) if *rel > 0 => {
+                out.push(insn.abs_next_offset as isize + isize::from(*rel));
+            }
+            Avm1Op::Try {
+                try_body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                collect_forward_jump_targets_in_avm1(try_body, out);
+                if let Some(cb) = catch_body {
+                    collect_forward_jump_targets_in_avm1(cb, out);
+                }
+                if let Some(fb) = finally_body {
+                    collect_forward_jump_targets_in_avm1(fb, out);
+                }
+            }
+            Avm1Op::With { body } => collect_forward_jump_targets_in_avm1(body, out),
+            _ => {}
+        }
+    }
+}
+
+fn strip_trailing_inline_finally_lines(lines: &mut Vec<String>, finally_stack: &[Vec<String>]) {
+    for fin in finally_stack.iter().rev() {
+        if !fin.is_empty() && lines.len() >= fin.len() && lines[lines.len() - fin.len()..] == **fin
+        {
+            lines.truncate(lines.len() - fin.len());
+        }
+    }
 }
 
 impl Avm1Context<'_> {
@@ -991,20 +1273,68 @@ fn decompile_range(
             lines.append(&mut pre_lines);
             let cond_expr = pop_expr(&mut cond_stack);
             let while_cond = cond_expr.inverted_condition();
-            let mut body_stack = Vec::new();
-            let body_lines = decompile_range(
-                insns,
-                cond_idx + 1,
-                back_idx,
-                ctx,
-                &mut body_stack,
-                depth + 1,
-            );
-            lines.push(format!("while ({while_cond}) {{"));
-            for bl in body_lines {
-                lines.push(format!("    {bl}"));
+            let exit_off = insns
+                .get(exit_idx)
+                .map_or_else(|| insns[back_idx].abs_next_offset, |i| i.abs_offset);
+            let mut jump_targets = Vec::new();
+            collect_forward_jump_targets_in_avm1(&insns[cond_idx + 1..back_idx], &mut jump_targets);
+            let mut cand_upds: Vec<usize> = jump_targets
+                .into_iter()
+                .filter_map(|t| {
+                    (t >= 0).then(|| {
+                        ((cond_idx + 2)..back_idx).find(|&idx| insns[idx].abs_offset == t as usize)
+                    })?
+                })
+                .collect();
+            cand_upds.sort_unstable();
+            cand_upds.dedup();
+            let mut for_upd: Option<(usize, String)> = None;
+            for &u_idx in cand_upds.iter().rev() {
+                let mut u_stack = Vec::new();
+                let u_lines = decompile_range(insns, u_idx, back_idx, ctx, &mut u_stack, depth + 1);
+                if u_lines.len() == 1
+                    && let Some(uexpr) = u_lines[0].strip_suffix(';')
+                    && !uexpr.starts_with("var ")
+                    && !uexpr.starts_with("return")
+                    && !uexpr.starts_with("throw ")
+                    && !uexpr.starts_with("break")
+                    && !uexpr.starts_with("continue")
+                    && !uexpr.contains('{')
+                {
+                    for_upd = Some((u_idx, uexpr.to_owned()));
+                    break;
+                }
             }
-            lines.push("}".into());
+            let mut body_stack = Vec::new();
+            let saved_fins = std::mem::take(&mut ctx.enclosing_finally_lines);
+            if let Some((u_idx, uexpr)) = for_upd {
+                ctx.loop_bounds.push((insns[u_idx].abs_offset, exit_off));
+                let body_lines =
+                    decompile_range(insns, cond_idx + 1, u_idx, ctx, &mut body_stack, depth + 1);
+                ctx.loop_bounds.pop();
+                lines.push(format!("for (; {while_cond}; {uexpr}) {{"));
+                for bl in body_lines {
+                    lines.push(format!("    {bl}"));
+                }
+                lines.push("}".into());
+            } else {
+                ctx.loop_bounds.push((insns[pc].abs_offset, exit_off));
+                let body_lines = decompile_range(
+                    insns,
+                    cond_idx + 1,
+                    back_idx,
+                    ctx,
+                    &mut body_stack,
+                    depth + 1,
+                );
+                ctx.loop_bounds.pop();
+                lines.push(format!("while ({while_cond}) {{"));
+                for bl in body_lines {
+                    lines.push(format!("    {bl}"));
+                }
+                lines.push("}".into());
+            }
+            ctx.enclosing_finally_lines = saved_fins;
             pc = exit_idx.max(back_idx + 1);
             continue;
         }
@@ -1169,12 +1499,35 @@ fn decompile_range(
                 pc += 1;
             }
             Avm1Op::Jump(rel) => {
+                let tgt = target_offset(insn, *rel);
                 if *rel > 0
-                    && let Some(target_idx) =
-                        find_insn_at(insns, pc + 1, end, target_offset(insn, *rel))
+                    && let Some(target_idx) = find_insn_at(insns, pc + 1, end, tgt)
                 {
                     pc = target_idx;
                     continue;
+                }
+                let abs_tgt = insn.abs_next_offset as isize + isize::from(*rel);
+                if abs_tgt >= 0
+                    && let Some(&(cont_off, brk_off)) = ctx.loop_bounds.last()
+                {
+                    let tgt_u = abs_tgt as usize;
+                    if tgt_u == brk_off {
+                        strip_trailing_inline_finally_lines(
+                            &mut lines,
+                            &ctx.enclosing_finally_lines,
+                        );
+                        lines.push("break;".into());
+                        pc += 1;
+                        continue;
+                    } else if tgt_u == cont_off {
+                        strip_trailing_inline_finally_lines(
+                            &mut lines,
+                            &ctx.enclosing_finally_lines,
+                        );
+                        lines.push("continue;".into());
+                        pc += 1;
+                        continue;
+                    }
                 }
                 pc += 1;
             }
@@ -1386,7 +1739,11 @@ fn step_single_insn(
                 param_list.push(clean);
             }
             let mut fn_stack = Vec::new();
+            let saved_loops = std::mem::take(&mut ctx.loop_bounds);
+            let saved_fins = std::mem::take(&mut ctx.enclosing_finally_lines);
             let fn_lines = decompile_range(body, 0, body.len(), ctx, &mut fn_stack, depth + 1);
+            ctx.loop_bounds = saved_loops;
+            ctx.enclosing_finally_lines = saved_fins;
             ctx.reg_names = saved_regs;
             let params_joined = param_list.join(", ");
             if name.is_empty() {
@@ -1421,6 +1778,13 @@ fn step_single_insn(
             catch_body,
             finally_body,
         } => {
+            let f_lines_opt = finally_body.as_ref().map(|fb| {
+                let mut f_stack = Vec::new();
+                decompile_range(fb, 0, fb.len(), ctx, &mut f_stack, depth + 1)
+            });
+            if let Some(fl) = &f_lines_opt {
+                ctx.enclosing_finally_lines.push(fl.clone());
+            }
             let mut t_stack = Vec::new();
             let t_lines =
                 decompile_range(try_body, 0, try_body.len(), ctx, &mut t_stack, depth + 1);
@@ -1449,9 +1813,8 @@ fn step_single_insn(
                     lines.push(format!("    {cl}"));
                 }
             }
-            if let Some(fb) = finally_body {
-                let mut f_stack = Vec::new();
-                let f_lines = decompile_range(fb, 0, fb.len(), ctx, &mut f_stack, depth + 1);
+            if let Some(f_lines) = f_lines_opt {
+                ctx.enclosing_finally_lines.pop();
                 lines.push("} finally {".into());
                 for fl in f_lines {
                     lines.push(format!("    {fl}"));

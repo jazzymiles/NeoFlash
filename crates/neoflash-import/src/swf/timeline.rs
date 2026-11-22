@@ -1907,147 +1907,200 @@ impl SwfBuilder<'_> {
             }
         }
 
+        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+        enum DepthTrackKind {
+            Mask,
+            Normal,
+            MaskedBy(u16),
+        }
+
+        let mut per_frame_roles: Vec<BTreeMap<u16, DepthTrackKind>> =
+            vec![BTreeMap::new(); snapshots.len()];
+        let mut approx_nonvec_or_nested: std::collections::BTreeSet<u16> =
+            std::collections::BTreeSet::new();
+        let mut approx_empty_range: BTreeMap<u16, u16> = BTreeMap::new();
+
+        if !is_button {
+            let mut mask_has_any_target: std::collections::BTreeSet<u16> =
+                std::collections::BTreeSet::new();
+            let mut mask_first_clip_end: BTreeMap<u16, u16> = BTreeMap::new();
+
+            for (f_idx, snap) in snapshots.iter().enumerate() {
+                let mut active_mask: Option<(u16, u16)> = None;
+                for (&depth, slot) in &snap.slots {
+                    if active_mask.is_some_and(|(_, clip_end)| depth > clip_end) {
+                        active_mask = None;
+                    }
+                    if let Some((m_depth, _)) = active_mask {
+                        if slot.clip_depth.is_some() {
+                            approx_nonvec_or_nested.insert(depth);
+                        }
+                        per_frame_roles[f_idx].insert(depth, DepthTrackKind::MaskedBy(m_depth));
+                        mask_has_any_target.insert(m_depth);
+                    } else if let Some(clip_end) = slot.clip_depth {
+                        if clip_end <= depth || !self.slot_is_pure_vector(slot) {
+                            approx_nonvec_or_nested.insert(depth);
+                            per_frame_roles[f_idx].insert(depth, DepthTrackKind::Normal);
+                        } else {
+                            per_frame_roles[f_idx].insert(depth, DepthTrackKind::Mask);
+                            mask_first_clip_end.entry(depth).or_insert(clip_end);
+                            active_mask = Some((depth, clip_end));
+                        }
+                    } else {
+                        per_frame_roles[f_idx].insert(depth, DepthTrackKind::Normal);
+                    }
+                }
+            }
+
+            for (&m_depth, &clip_end) in &mask_first_clip_end {
+                if !mask_has_any_target.contains(&m_depth) {
+                    approx_empty_range.insert(m_depth, clip_end);
+                    for roles in &mut per_frame_roles {
+                        if roles.get(&m_depth) == Some(&DepthTrackKind::Mask) {
+                            roles.insert(m_depth, DepthTrackKind::Normal);
+                        }
+                    }
+                }
+            }
+        }
+
         let mut layers: Vec<Layer> = Vec::new();
-        let mut depth_to_layer_idx: BTreeMap<u16, usize> = BTreeMap::new();
-        let mut depth_clip_targets: BTreeMap<u16, Option<u16>> = BTreeMap::new();
-        let mut depth_is_pure_vector: BTreeMap<u16, bool> = BTreeMap::new();
         let mut all_layers_pure_vector = true;
 
         for &depth in &all_depths {
-            let mut keyframes: Vec<Keyframe> = Vec::new();
-            let mut prev_slot: Option<&ActiveSlot> = None;
-            let mut uniform_clip: Option<Option<u16>> = None;
-            let mut clip_consistent = true;
-            let mut layer_pure_vector = true;
-
-            for (f_idx, snap) in snapshots.iter().enumerate() {
-                let frame = f_idx as u32;
-                let cur_slot = snap.slots.get(&depth);
-                if let Some(slot) = cur_slot {
-                    match uniform_clip {
-                        None => uniform_clip = Some(slot.clip_depth),
-                        Some(prev_cd) if prev_cd != slot.clip_depth => clip_consistent = false,
-                        _ => {}
+            let mut track_kinds: Vec<DepthTrackKind> = Vec::new();
+            if is_button {
+                track_kinds.push(DepthTrackKind::Normal);
+            } else {
+                for (f_idx, snap) in snapshots.iter().enumerate() {
+                    if snap.slots.contains_key(&depth) {
+                        let kind = per_frame_roles[f_idx]
+                            .get(&depth)
+                            .copied()
+                            .unwrap_or(DepthTrackKind::Normal);
+                        if !track_kinds.contains(&kind) {
+                            track_kinds.push(kind);
+                        }
                     }
                 }
-                let unchanged = match (prev_slot, cur_slot) {
-                    (None, None) => frame > 0,
-                    (Some(a), Some(b)) => a.same_visual_state(b),
-                    _ => false,
-                };
-                if unchanged {
-                    continue;
+                if track_kinds.is_empty() {
+                    track_kinds.push(DepthTrackKind::Normal);
                 }
-                prev_slot = cur_slot;
-
-                let mut elements = Vec::new();
-                if let Some(slot) = cur_slot
-                    && self.total_elements < MAX_AUTHORED_ELEMENTS
-                    && let Some((el, el_vec)) =
-                        self.instantiate_slot(sym_uid, depth, slot, is_button)
-                {
-                    if !el_vec {
-                        layer_pure_vector = false;
-                        all_layers_pure_vector = false;
-                    }
-                    self.total_elements += 1;
-                    elements.push(el);
-                }
-
-                keyframes.push(Keyframe {
-                    frame,
-                    elements,
-                    tween: None,
-                    label: String::new(),
-                    ..Default::default()
+                // Keep `Mask` first, then `MaskedBy(...)`, then `Normal` so canonical layer IDs
+                // stay stable and split masked sub-layers remain adjacent to their mask layer.
+                track_kinds.sort_by_key(|k| match k {
+                    DepthTrackKind::Mask => (0u8, 0u16),
+                    DepthTrackKind::MaskedBy(m) => (1u8, *m),
+                    DepthTrackKind::Normal => (2u8, 0u16),
                 });
             }
 
-            if keyframes.is_empty() {
-                keyframes.push(Keyframe {
-                    frame: 0,
-                    ..Default::default()
-                });
-            }
-
-            // Connect consecutive 1-frame step poses of the same continuous symbol instance with Classic tweens
-            // and collapse smooth linear/eased runs into start + end keyframes with recovered Easing.
-            if !is_button {
-                recover_classic_tween_spans(&mut keyframes);
-            }
-
-            let layer_idx = layers.len();
-            let layer_id = format!("{sym_uid}-d{depth}");
-            layers.push(Layer {
-                id: layer_id,
-                name: format!("Layer {}", layer_idx + 1),
-                visible: true,
-                locked: false,
-                keyframes,
-                properties: LayerProperties::default(),
-            });
-            depth_to_layer_idx.insert(depth, layer_idx);
-            depth_clip_targets.insert(
-                depth,
-                if clip_consistent {
-                    uniform_clip.flatten()
+            let multi_track = track_kinds.len() > 1;
+            for (tk_idx, &track_kind) in track_kinds.iter().enumerate() {
+                let layer_id = if !multi_track || tk_idx == 0 {
+                    format!("{sym_uid}-d{depth}")
                 } else {
-                    None
-                },
-            );
-            depth_is_pure_vector.insert(depth, layer_pure_vector);
+                    match track_kind {
+                        DepthTrackKind::Mask => format!("{sym_uid}-d{depth}-mask"),
+                        DepthTrackKind::Normal => format!("{sym_uid}-d{depth}-normal"),
+                        DepthTrackKind::MaskedBy(m_depth) => {
+                            format!("{sym_uid}-d{depth}-m{m_depth}")
+                        }
+                    }
+                };
+
+                let mut keyframes: Vec<Keyframe> = Vec::new();
+                let mut prev_slot: Option<&ActiveSlot> = None;
+
+                for (f_idx, snap) in snapshots.iter().enumerate() {
+                    let frame = f_idx as u32;
+                    let cur_slot = snap.slots.get(&depth).filter(|_| {
+                        is_button
+                            || per_frame_roles[f_idx]
+                                .get(&depth)
+                                .copied()
+                                .unwrap_or(DepthTrackKind::Normal)
+                                == track_kind
+                    });
+                    let unchanged = match (prev_slot, cur_slot) {
+                        (None, None) => frame > 0,
+                        (Some(a), Some(b)) => a.same_visual_state(b),
+                        _ => false,
+                    };
+                    if unchanged {
+                        continue;
+                    }
+                    prev_slot = cur_slot;
+
+                    let mut elements = Vec::new();
+                    if let Some(slot) = cur_slot
+                        && self.total_elements < MAX_AUTHORED_ELEMENTS
+                        && let Some((el, el_vec)) = self.instantiate_slot_with_layer_id(
+                            sym_uid, &layer_id, depth, slot, is_button,
+                        )
+                    {
+                        if !el_vec {
+                            all_layers_pure_vector = false;
+                        }
+                        self.total_elements += 1;
+                        elements.push(el);
+                    }
+
+                    keyframes.push(Keyframe {
+                        frame,
+                        elements,
+                        tween: None,
+                        label: String::new(),
+                        ..Default::default()
+                    });
+                }
+
+                if keyframes.is_empty() {
+                    keyframes.push(Keyframe {
+                        frame: 0,
+                        ..Default::default()
+                    });
+                }
+
+                // Connect consecutive 1-frame step poses of the same continuous symbol instance with Classic tweens
+                // and collapse smooth linear/eased runs into start + end keyframes with recovered Easing.
+                if !is_button {
+                    recover_classic_tween_spans(&mut keyframes);
+                }
+
+                let mut properties = LayerProperties::default();
+                match track_kind {
+                    DepthTrackKind::Mask => {
+                        properties.role = LayerRole::Mask;
+                    }
+                    DepthTrackKind::MaskedBy(m_depth) => {
+                        properties.mask = Some(format!("{sym_uid}-d{m_depth}"));
+                    }
+                    DepthTrackKind::Normal => {}
+                }
+
+                let layer_idx = layers.len();
+                layers.push(Layer {
+                    id: layer_id,
+                    name: format!("Layer {}", layer_idx + 1),
+                    visible: true,
+                    locked: false,
+                    keyframes,
+                    properties,
+                });
+            }
         }
 
-        // Resolve valid vector SWF `clip_depth` spans into NeoFlash `LayerRole::Mask` + `properties.mask`.
         if !is_button {
-            for (&mask_depth, &clip_opt) in &depth_clip_targets {
-                let Some(clip_end) = clip_opt else {
-                    // Check if any snapshot on `mask_depth` had an inconsistent `clip_depth`
-                    if snapshots.iter().any(|s| {
-                        s.slots
-                            .get(&mask_depth)
-                            .is_some_and(|sl| sl.clip_depth.is_some())
-                    }) {
-                        self.report.warning(
-                            "swf_mask_approximated",
-                            format!("{}#{sym_uid}:depth-{mask_depth}", self.location),
-                            "Time-varying SWF clip_depth mask imported as a normal visible layer.",
-                        );
-                    }
-                    continue;
-                };
-                let mask_lidx = depth_to_layer_idx[&mask_depth];
-                let mask_is_vec = depth_is_pure_vector
-                    .get(&mask_depth)
-                    .copied()
-                    .unwrap_or(false);
-                if !mask_is_vec
-                    || layers[mask_lidx].properties.mask.is_some()
-                    || clip_end <= mask_depth
-                {
-                    self.report.warning(
-                        "swf_mask_approximated",
-                        format!("{}#{sym_uid}:depth-{mask_depth}", self.location),
-                        "Non-vector or nested SWF clip_depth mask imported as a normal layer to satisfy authored mask constraints.",
-                    );
-                    continue;
-                }
-                let masked_indices: Vec<usize> = depth_to_layer_idx
-                    .range((
-                        std::ops::Bound::Excluded(mask_depth),
-                        std::ops::Bound::Included(clip_end),
-                    ))
-                    .map(|(_, &idx)| idx)
-                    .filter(|&idx| {
-                        layers[idx].properties.role == LayerRole::Normal
-                            && layers[idx].properties.mask.is_none()
-                            && !depth_clip_targets
-                                .values()
-                                .flatten()
-                                .any(|_| layers[idx].properties.role == LayerRole::Mask)
-                    })
-                    .collect();
-                if masked_indices.is_empty() {
+            for &mask_depth in &approx_nonvec_or_nested {
+                self.report.warning(
+                    "swf_mask_approximated",
+                    format!("{}#{sym_uid}:depth-{mask_depth}", self.location),
+                    "Non-vector or nested SWF clip_depth mask imported as a normal layer to satisfy authored mask constraints.",
+                );
+            }
+            for (&mask_depth, &clip_end) in &approx_empty_range {
+                if !approx_nonvec_or_nested.contains(&mask_depth) {
                     self.report.warning(
                         "swf_mask_approximated",
                         format!("{}#{sym_uid}:depth-{mask_depth}", self.location),
@@ -2055,12 +2108,6 @@ impl SwfBuilder<'_> {
                             "Empty SWF clip_depth range ({mask_depth}..={clip_end}) matched no unmasked layers and was imported as a normal layer."
                         ),
                     );
-                    continue;
-                }
-                let mask_id = layers[mask_lidx].id.clone();
-                layers[mask_lidx].properties.role = LayerRole::Mask;
-                for idx in masked_indices {
-                    layers[idx].properties.mask = Some(mask_id.clone());
                 }
             }
         }
@@ -2186,9 +2233,23 @@ impl SwfBuilder<'_> {
         )
     }
 
-    fn instantiate_slot(
+    fn slot_is_pure_vector(&self, slot: &ActiveSlot) -> bool {
+        if Transform::from_matrix(slot.matrix).is_none() {
+            return false;
+        }
+        match self.characters.get(&slot.character_id) {
+            Some(SwfCharacter::InlineText { .. } | SwfCharacter::InlineVideo { .. }) => false,
+            Some(SwfCharacter::GraphicSymbol { is_pure_vector, .. })
+            | Some(SwfCharacter::Button { is_pure_vector, .. })
+            | Some(SwfCharacter::Sprite { is_pure_vector, .. }) => *is_pure_vector,
+            None => false,
+        }
+    }
+
+    fn instantiate_slot_with_layer_id(
         &mut self,
         sym_uid: &str,
+        layer_id: &str,
         depth: u16,
         slot: &ActiveSlot,
         _is_button: bool,
@@ -2200,7 +2261,7 @@ impl SwfBuilder<'_> {
         } else {
             0.0
         };
-        let elem_id = format!("swf-el-{sym_uid}-d{depth}-s{}", slot.span_id);
+        let elem_id = format!("swf-el-{layer_id}-s{}", slot.span_id);
         let mut scripts: Vec<ObjectScript> =
             slot.handlers.iter().map(|h| h.script.clone()).collect();
         let filters = slot.filters.clone();

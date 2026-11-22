@@ -342,6 +342,44 @@ pub(super) fn layer_swf_depth_width(
     Some(width)
 }
 
+pub(super) fn layer_has_active_elements_on_frame(
+    timeline: &Timeline,
+    layer: &neoflash_core::Layer,
+    frame: u32,
+    total_frames: u32,
+) -> bool {
+    if !layer.visible {
+        return false;
+    }
+    let effective_end = layer
+        .properties
+        .end_frame
+        .unwrap_or(total_frames)
+        .min(total_frames);
+    if frame >= effective_end {
+        return false;
+    }
+    let Some(k_idx) = layer.keyframes.iter().rposition(|k| k.frame <= frame) else {
+        return false;
+    };
+    let kf = &layer.keyframes[k_idx];
+    !kf.elements.is_empty() || !neoflash_core::sample_layer_in(timeline, layer, frame).is_empty()
+}
+
+fn layers_have_overlapping_active_frames(
+    timeline: &Timeline,
+    a_idx: usize,
+    b_idx: usize,
+    total_frames: u32,
+) -> bool {
+    let a = &timeline.layers[a_idx];
+    let b = &timeline.layers[b_idx];
+    (0..total_frames).any(|frame| {
+        layer_has_active_elements_on_frame(timeline, a, frame, total_frames)
+            && layer_has_active_elements_on_frame(timeline, b, frame, total_frames)
+    })
+}
+
 pub(super) fn compute_swf_timeline_layout(
     timeline: &Timeline,
 ) -> Result<SwfTimelineLayout, SwfLayoutIssue> {
@@ -397,6 +435,7 @@ pub(super) fn compute_swf_timeline_layout(
         }
     }
 
+    let mut claimed_mask_span_positions: BTreeSet<usize> = BTreeSet::new();
     let mut block_at_start: BTreeMap<usize, (usize, Vec<usize>, usize)> = BTreeMap::new();
     for (mask_idx, masked_indices) in &mask_to_masked {
         let Some(&mask_rpos) = rendered_pos_by_layer.get(mask_idx) else {
@@ -413,13 +452,40 @@ pub(super) fn compute_swf_timeline_layout(
         }
         let min_pos = *all_rpos.iter().min().unwrap_or(&mask_rpos);
         let max_pos = *all_rpos.iter().max().unwrap_or(&mask_rpos);
-        let span = max_pos - min_pos + 1;
-        if span != all_rpos.len() || (mask_rpos != max_pos && mask_rpos != min_pos) {
+        if mask_rpos != max_pos && mask_rpos != min_pos {
             return Err(SwfLayoutIssue::NonContiguousMask(
                 timeline.layers[*mask_idx].name.clone(),
             ));
         }
-        block_at_start.insert(min_pos, (*mask_idx, masked_indices.clone(), max_pos));
+        let mut ordered_members = Vec::with_capacity(max_pos - min_pos);
+        for (rpos, &candidate_idx) in rendered.iter().enumerate().take(max_pos + 1).skip(min_pos) {
+            if !claimed_mask_span_positions.insert(rpos) {
+                return Err(SwfLayoutIssue::NonContiguousMask(
+                    timeline.layers[*mask_idx].name.clone(),
+                ));
+            }
+            if candidate_idx == *mask_idx {
+                continue;
+            }
+            if !masked_indices.contains(&candidate_idx) {
+                let candidate_layer = &timeline.layers[candidate_idx];
+                if candidate_layer.properties.role == LayerRole::Mask
+                    || candidate_layer.properties.mask.is_some()
+                    || layers_have_overlapping_active_frames(
+                        timeline,
+                        *mask_idx,
+                        candidate_idx,
+                        total_frames,
+                    )
+                {
+                    return Err(SwfLayoutIssue::NonContiguousMask(
+                        timeline.layers[*mask_idx].name.clone(),
+                    ));
+                }
+            }
+            ordered_members.push(candidate_idx);
+        }
+        block_at_start.insert(min_pos, (*mask_idx, ordered_members, max_pos));
     }
 
     let mut next_depth = 1usize;

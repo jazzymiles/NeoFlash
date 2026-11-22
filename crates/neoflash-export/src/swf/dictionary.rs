@@ -881,6 +881,23 @@ impl<'a> SwfDictionaryCompiler<'a> {
                 {
                     continue;
                 }
+                if let Some(mask_id) = &layer.properties.mask {
+                    let mask_active = layer_idx_by_id
+                        .get(mask_id.as_str())
+                        .and_then(|&m_idx| timeline.layers.get(m_idx))
+                        .is_some_and(|m_layer| {
+                            m_layer.properties.role == LayerRole::Mask
+                                && layer_has_active_elements_on_frame(
+                                    timeline,
+                                    m_layer,
+                                    frame,
+                                    total_frames,
+                                )
+                        });
+                    if !mask_active {
+                        continue;
+                    }
+                }
 
                 let base_depth = depth_bands[l_idx].0;
                 let clip_depth = mask_clip_depths.get(&l_idx).copied();

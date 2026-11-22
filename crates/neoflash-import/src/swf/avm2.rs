@@ -237,6 +237,7 @@ pub(crate) struct AbcFile {
     pub(crate) namespaces: Vec<AbcNamespace>,
     pub(crate) ns_sets: Vec<Vec<usize>>,
     pub(crate) multinames: Vec<AbcMultiname>,
+    pub(crate) multiname_is_attr: Vec<bool>,
     pub(crate) methods: Vec<AbcMethod>,
     pub(crate) instances: Vec<AbcInstance>,
     pub(crate) classes: Vec<AbcClass>,
@@ -270,10 +271,25 @@ impl AbcFile {
                 } else {
                     String::new()
                 };
-                (pkg_str, self.string(*name).to_owned())
+                let sname = if *name == 0 {
+                    "*".to_owned()
+                } else {
+                    self.string(*name).to_owned()
+                };
+                (pkg_str, sname)
             }
-            Some(AbcMultiname::RTQName { name }) => (String::new(), self.string(*name).to_owned()),
+            Some(AbcMultiname::RTQName { name }) => {
+                let sname = if *name == 0 {
+                    "*".to_owned()
+                } else {
+                    self.string(*name).to_owned()
+                };
+                (String::new(), sname)
+            }
             Some(AbcMultiname::Multiname { name, ns_set }) => {
+                if *name == 0 {
+                    return (String::new(), "*".into());
+                }
                 let sname = self.string(*name).to_owned();
                 let mut pkg = String::new();
                 if let Some(set) = self.ns_sets.get(*ns_set) {
@@ -388,6 +404,10 @@ impl AbcFile {
             _ => (false, false),
         }
     }
+
+    pub(crate) fn is_attr_multiname(&self, idx: usize) -> bool {
+        self.multiname_is_attr.get(idx).copied().unwrap_or(false)
+    }
 }
 
 pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
@@ -456,8 +476,10 @@ pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
 
     let mn_count = r.u30()?;
     let mut multinames = vec![AbcMultiname::Any];
+    let mut multiname_is_attr = vec![false];
     for _ in 1..mn_count {
         let kind = r.u8()?;
+        let is_attr = matches!(kind, 0x0D | 0x0E | 0x10 | 0x12 | 0x1C);
         let mn = match kind {
             0x07 | 0x0D => AbcMultiname::QName {
                 ns: r.u30()?,
@@ -485,6 +507,7 @@ pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
             _ => return None,
         };
         multinames.push(mn);
+        multiname_is_attr.push(is_attr);
     }
 
     let method_count = r.u30()?;
@@ -618,6 +641,7 @@ pub(crate) fn parse_abc_file(bytes: &[u8]) -> Option<AbcFile> {
         namespaces,
         ns_sets,
         multinames,
+        multiname_is_attr,
         methods,
         instances,
         classes,
@@ -1360,6 +1384,14 @@ impl AbcVal {
     }
 }
 
+#[derive(Clone, Debug)]
+enum AbcTrampolineAction {
+    ReturnReg(usize),
+    ReturnVoid,
+    Break,
+    Continue,
+}
+
 struct BodyContext<'a> {
     abc: &'a AbcFile,
     class_name: &'a str,
@@ -1369,7 +1401,10 @@ struct BodyContext<'a> {
     param_count: usize,
     init_scope_depth: usize,
     activation_slots: HashMap<usize, String>,
+    catch_var_names: HashMap<usize, String>,
     outer_scope_slots: Vec<HashMap<usize, String>>,
+    trampolines: HashMap<usize, AbcTrampolineAction>,
+    loop_bounds: Vec<(usize, usize, usize)>,
     imports: &'a mut BTreeSet<String>,
     frame_scripts: &'a mut Vec<(u32, String)>,
     unrecognized: &'a mut usize,
@@ -1494,6 +1529,16 @@ fn decompile_method_body_with_outer_slots(
         }
     }
 
+    let mut catch_var_names = HashMap::new();
+    for (ei, exc) in body.exceptions.iter().enumerate() {
+        if exc.var_name != 0 {
+            let (_, vn) = abc.split_qname(exc.var_name);
+            if !vn.is_empty() && vn != "*" {
+                catch_var_names.insert(ei, vn);
+            }
+        }
+    }
+
     let mut bctx = BodyContext {
         abc,
         class_name,
@@ -1503,7 +1548,10 @@ fn decompile_method_body_with_outer_slots(
         param_count,
         init_scope_depth: body.init_scope_depth,
         activation_slots,
+        catch_var_names,
         outer_scope_slots: outer_scope_slots.to_vec(),
+        trampolines: HashMap::new(),
+        loop_bounds: Vec::new(),
         imports,
         frame_scripts,
         unrecognized,
@@ -1579,6 +1627,61 @@ fn decompile_abc_range(
             continue;
         }
 
+        // Check if a `jump` targets a registered `finally` unwind trampoline (`return`/`break`/`continue`)
+        // or exits an enclosing loop (`break`/`continue`).
+        if insn.op == 0x10 {
+            let target_byte_isize = insn.next_offset as isize + insn.iarg as isize;
+            if target_byte_isize >= 0 {
+                let target_byte = target_byte_isize as usize;
+                if let Some(action) = ctx.trampolines.get(&target_byte).cloned() {
+                    match action {
+                        AbcTrampolineAction::ReturnReg(ret_reg) => {
+                            let rname = ctx.local_name(ret_reg);
+                            let var_prefix = format!("var {rname}:* = ");
+                            let assign_prefix = format!("{rname} = ");
+                            let mut replaced = false;
+                            if let Some(last) = lines.last_mut() {
+                                if let Some(expr) = last
+                                    .strip_prefix(&var_prefix)
+                                    .and_then(|s| s.strip_suffix(';'))
+                                {
+                                    *last = format!("return {expr};");
+                                    replaced = true;
+                                } else if let Some(expr) = last
+                                    .strip_prefix(&assign_prefix)
+                                    .and_then(|s| s.strip_suffix(';'))
+                                {
+                                    *last = format!("return {expr};");
+                                    replaced = true;
+                                }
+                            }
+                            if !replaced {
+                                lines.push(format!("return {rname};"));
+                            }
+                        }
+                        AbcTrampolineAction::ReturnVoid => lines.push("return;".into()),
+                        AbcTrampolineAction::Break => lines.push("break;".into()),
+                        AbcTrampolineAction::Continue => lines.push("continue;".into()),
+                    }
+                    pc += 1;
+                    continue;
+                }
+                if find_abc_insn(insns, pc + 1, end, target_byte_isize).is_none()
+                    && let Some(&(_, continue_b, end_b)) = ctx.loop_bounds.last()
+                {
+                    if target_byte == end_b {
+                        lines.push("break;".into());
+                        pc += 1;
+                        continue;
+                    } else if target_byte == continue_b {
+                        lines.push("continue;".into());
+                        pc += 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
         // Reconstruct `for (var k in obj)` / `for each (var v in obj)` from `hasnext2` (`0x32`) + `nextname`/`nextvalue`!
         if insn.op == 0x10
             && insn.iarg > 0
@@ -1604,23 +1707,98 @@ fn decompile_abc_range(
                 && let Some((back_br_idx, loop_cond_str)) =
                     match_backward_loop_condition(insns, pc + 1, cond_idx, end, ctx)
             {
+                let cond_off = insns[cond_idx].offset;
+                let end_off = insns[back_br_idx].next_offset;
+                let has_direct_jump_to_cond = ((pc + 1)..cond_idx).any(|ji| {
+                    insns[ji].op == 0x10
+                        && (insns[ji].next_offset as isize + insns[ji].iarg as isize)
+                            == cond_off as isize
+                });
+                let mut for_upd: Option<(usize, String)> = None;
+                if !has_direct_jump_to_cond {
+                    let mut cand_targets: Vec<usize> = ((pc + 1)..cond_idx)
+                        .filter_map(|ji| {
+                            if insns[ji].op != 0x10 || insns[ji].iarg <= 0 {
+                                return None;
+                            }
+                            let tb = insns[ji].next_offset as isize + insns[ji].iarg as isize;
+                            find_abc_insn(insns, pc + 2, cond_idx, tb)
+                                .filter(|&u_idx| u_idx < cond_idx)
+                        })
+                        .collect();
+                    cand_targets.sort_unstable();
+                    cand_targets.dedup();
+                    for &u_idx in cand_targets.iter().rev() {
+                        let u_off = insns[u_idx].offset;
+                        if exceptions.iter().any(|e| e.from < u_off && e.to > u_off) {
+                            continue;
+                        }
+                        let mut ustack = Vec::new();
+                        let mut uscope = scope_stack.clone();
+                        let ulines = decompile_abc_range(
+                            insns,
+                            u_idx,
+                            cond_idx,
+                            &[],
+                            ctx,
+                            &mut ustack,
+                            &mut uscope,
+                            depth + 1,
+                        );
+                        if ulines.len() == 1
+                            && let Some(uexpr) = ulines[0].strip_suffix(';')
+                            && !uexpr.starts_with("var ")
+                            && !uexpr.starts_with("return")
+                            && !uexpr.starts_with("throw ")
+                            && !uexpr.starts_with("break")
+                            && !uexpr.starts_with("continue")
+                            && !uexpr.contains('{')
+                        {
+                            for_upd = Some((u_idx, uexpr.to_owned()));
+                            break;
+                        }
+                    }
+                }
+
                 let mut body_stack = Vec::new();
                 let mut body_scope = scope_stack.clone();
-                let body_lines = decompile_abc_range(
-                    insns,
-                    pc + 1,
-                    cond_idx,
-                    exceptions,
-                    ctx,
-                    &mut body_stack,
-                    &mut body_scope,
-                    depth + 1,
-                );
-                lines.push(format!("while ({loop_cond_str}) {{"));
-                for bl in body_lines {
-                    lines.push(format!("    {bl}"));
+                if let Some((u_idx, uexpr)) = for_upd {
+                    ctx.loop_bounds.push((pc + 1, insns[u_idx].offset, end_off));
+                    let body_lines = decompile_abc_range(
+                        insns,
+                        pc + 1,
+                        u_idx,
+                        exceptions,
+                        ctx,
+                        &mut body_stack,
+                        &mut body_scope,
+                        depth + 1,
+                    );
+                    ctx.loop_bounds.pop();
+                    lines.push(format!("for (; {loop_cond_str}; {uexpr}) {{"));
+                    for bl in body_lines {
+                        lines.push(format!("    {bl}"));
+                    }
+                    lines.push("}".into());
+                } else {
+                    ctx.loop_bounds.push((pc + 1, cond_off, end_off));
+                    let body_lines = decompile_abc_range(
+                        insns,
+                        pc + 1,
+                        cond_idx,
+                        exceptions,
+                        ctx,
+                        &mut body_stack,
+                        &mut body_scope,
+                        depth + 1,
+                    );
+                    ctx.loop_bounds.pop();
+                    lines.push(format!("while ({loop_cond_str}) {{"));
+                    for bl in body_lines {
+                        lines.push(format!("    {bl}"));
+                    }
+                    lines.push("}".into());
                 }
-                lines.push("}".into());
                 pc = back_br_idx + 1;
                 continue;
             }
@@ -1919,6 +2097,14 @@ fn step_abc_insn(
             let _obj = pop_val(stack);
             lines.push(format!("super.{prop} = {};", val.code));
         }
+        0x06 => {
+            let ns_uri = quote_as_string(ctx.abc.string(insn.arg1));
+            lines.push(format!("default xml namespace = {ns_uri};"));
+        }
+        0x07 => {
+            let ns_expr = pop_val(stack);
+            lines.push(format!("default xml namespace = {};", ns_expr.code));
+        }
         0x08 => {
             // kill local register — no source line needed
         }
@@ -2146,6 +2332,23 @@ fn step_abc_insn(
             v.is_this_or_find = true;
             stack.push(v);
         }
+        0x59 => {
+            // getdescendants (E4X `obj..prop` / `obj..@attr`)
+            let (is_bracket, prop) = resolve_prop_name(ctx, insn.arg1, stack);
+            let obj = pop_val(stack);
+            let desc = if is_bracket {
+                format!("{}.descendants({prop})", obj.code)
+            } else {
+                format!("{}..{prop}", obj.code)
+            };
+            stack.push(AbcVal::expr(desc));
+        }
+        0x5A => {
+            // newcatch(exc_idx): push catch-scope marker so `setslot 1` / `getslot 1` resolve to the catch variable.
+            let mut v = AbcVal::expr(format!("__catch_{}__", insn.arg1));
+            v.is_this_or_find = true;
+            stack.push(v);
+        }
         0x5B..=0x5F => {
             let (has_ns, has_name) = ctx.abc.runtime_multiname_parts(insn.arg1);
             if has_name {
@@ -2221,6 +2424,17 @@ fn step_abc_insn(
         }
         0x6C => {
             let obj = pop_val(stack);
+            if let Some(catch_idx) = obj
+                .code
+                .strip_prefix("__catch_")
+                .and_then(|s| s.strip_suffix("__"))
+                .and_then(|s| s.parse::<usize>().ok())
+                && insn.arg1 == 1
+                && let Some(cname) = ctx.catch_var_names.get(&catch_idx).cloned()
+            {
+                stack.push(AbcVal::expr(cname));
+                return;
+            }
             let outer_idx = obj
                 .code
                 .strip_prefix("__outerscope_")
@@ -2255,6 +2469,20 @@ fn step_abc_insn(
             let val = pop_val(stack);
             let obj = pop_val(stack);
             if val.code == "undefined" {
+                return;
+            }
+            if let Some(catch_idx) = obj
+                .code
+                .strip_prefix("__catch_")
+                .and_then(|s| s.strip_suffix("__"))
+                .and_then(|s| s.parse::<usize>().ok())
+                && insn.arg1 == 1
+            {
+                if let Some(cname) = ctx.catch_var_names.get(&catch_idx).cloned()
+                    && val.code != cname
+                {
+                    lines.push(format!("{cname} = {};", val.code));
+                }
                 return;
             }
             let outer_idx = obj
@@ -2303,8 +2531,13 @@ fn step_abc_insn(
         0x70 | 0x85 => {
             // convert_s / coerce_s: keep clean string expression unless non-obvious
         }
-        0x73 | 0x74 | 0x75 | 0x76 | 0x77 | 0x81..=0x84 | 0x88 | 0x89 => {
-            // implicit numeric/boolean/any coercion produced by ASC around operators/locals
+        0x71 | 0x72 => {
+            // esc_xelem / esc_xattr: preserve underlying expression inside XML assembly
+            let v = pop_val(stack);
+            stack.push(AbcVal::expr(format!("String({})", v.code)));
+        }
+        0x73 | 0x74 | 0x75 | 0x76 | 0x77 | 0x78 | 0x81..=0x84 | 0x88 | 0x89 => {
+            // implicit numeric/boolean/any/checkfilter coercion produced by ASC around operators/locals
         }
         0x80 => {
             let ty = ctx.abc.short_type_name(insn.arg1, ctx.imports);
@@ -2432,6 +2665,7 @@ fn resolve_prop_name(
     mn_idx: usize,
     stack: &mut Vec<AbcVal>,
 ) -> (bool, String) {
+    let is_attr = ctx.abc.is_attr_multiname(mn_idx);
     let (has_ns, has_name) = ctx.abc.runtime_multiname_parts(mn_idx);
     let rt_name = if has_name {
         Some(pop_val(stack).code)
@@ -2442,10 +2676,17 @@ fn resolve_prop_name(
         let _ = pop_val(stack);
     }
     if let Some(rn) = rt_name {
+        if is_attr {
+            return (false, format!("@[{rn}]"));
+        }
         return (true, rn);
     }
     let short = ctx.abc.short_type_name(mn_idx, ctx.imports);
-    (false, short)
+    if is_attr && !short.starts_with('@') {
+        (false, format!("@{short}"))
+    } else {
+        (false, short)
+    }
 }
 
 fn format_receiver_member(recv: &AbcVal, prop: &str, is_bracket: bool) -> String {
@@ -2577,6 +2818,88 @@ fn try_decompile_abc_try_block(
         return None;
     }
 
+    // Pre-register `finally` unwind trampolines BEFORE decompiling `try_body` and `catch_excs`
+    // so jumps out of `try`/`catch` into post-finally trampolines reconstruct `return`/`break`/`continue`.
+    let mut precomputed_fin: Option<(usize, usize, usize)> = None;
+    if let Some(fin) = fin_exc_opt {
+        let fin_unw_idx = find_abc_insn(insns, try_end_idx, end, fin.target as isize)?;
+        let norm_fin_idx = try_jump_target_idx?;
+        let unw_reg_opt = local_reg_of_getlocal(&insns[norm_fin_idx - 2]);
+        let mut unw_body_start = fin_unw_idx;
+        if let Some(unw_reg) = unw_reg_opt {
+            for (scan_idx, scan_insn) in insns
+                .iter()
+                .enumerate()
+                .take((fin_unw_idx + 16).min(norm_fin_idx - 2))
+                .skip(fin_unw_idx)
+            {
+                if local_reg_of_setlocal(scan_insn) == Some(unw_reg) {
+                    unw_body_start = scan_idx + 1;
+                    break;
+                }
+            }
+        }
+        let fbody_insn_count = (norm_fin_idx - 2).saturating_sub(unw_body_start);
+        let norm_fin_end_idx = (norm_fin_idx + fbody_insn_count).min(end);
+        let mut fin_next_pc = norm_fin_end_idx;
+        if let Some(post_jmp) = insns.get(norm_fin_end_idx)
+            && post_jmp.op == 0x10
+            && post_jmp.iarg > 0
+            && let Some(after_tramp) = find_abc_insn(
+                insns,
+                norm_fin_end_idx + 1,
+                end,
+                post_jmp.next_offset as isize + post_jmp.iarg as isize,
+            )
+        {
+            fin_next_pc = after_tramp;
+            let mut t_cursor = norm_fin_end_idx + 1;
+            while t_cursor < after_tramp {
+                let tramp_byte_off = insns[t_cursor].offset;
+                let mut tail = t_cursor + fbody_insn_count;
+                if tail >= after_tramp {
+                    break;
+                }
+                while tail < after_tramp && insns[tail].op == 0x1D {
+                    tail += 1;
+                }
+                if tail + 1 < after_tramp
+                    && insns[tail + 1].op == 0x48
+                    && let Some(ret_reg) = local_reg_of_getlocal(&insns[tail])
+                {
+                    ctx.trampolines
+                        .insert(tramp_byte_off, AbcTrampolineAction::ReturnReg(ret_reg));
+                    t_cursor = tail + 2;
+                } else if tail < after_tramp && insns[tail].op == 0x47 {
+                    ctx.trampolines
+                        .insert(tramp_byte_off, AbcTrampolineAction::ReturnVoid);
+                    t_cursor = tail + 1;
+                } else if tail < after_tramp && insns[tail].op == 0x10 {
+                    let next_byte_isize =
+                        insns[tail].next_offset as isize + insns[tail].iarg as isize;
+                    if next_byte_isize >= 0 {
+                        let next_byte = next_byte_isize as usize;
+                        if let Some(chained) = ctx.trampolines.get(&next_byte).cloned() {
+                            ctx.trampolines.insert(tramp_byte_off, chained);
+                        } else if let Some(&(_, continue_b, end_b)) = ctx.loop_bounds.last() {
+                            if next_byte == end_b {
+                                ctx.trampolines
+                                    .insert(tramp_byte_off, AbcTrampolineAction::Break);
+                            } else if next_byte == continue_b {
+                                ctx.trampolines
+                                    .insert(tramp_byte_off, AbcTrampolineAction::Continue);
+                            }
+                        }
+                    }
+                    t_cursor = tail + 1;
+                } else {
+                    break;
+                }
+            }
+        }
+        precomputed_fin = Some((norm_fin_idx, norm_fin_end_idx, fin_next_pc));
+    }
+
     let try_inner_end = if insns[try_end_idx - 1].op == 0x10 {
         try_end_idx - 1
     } else {
@@ -2656,11 +2979,22 @@ fn try_decompile_abc_try_block(
         };
         let err_ty = ctx.abc.short_type_name(exc.exc_type, ctx.imports);
 
-        // Bind catch register name if the catch prologue stores the caught value into a local register.
-        for scan_insn in &insns[c_start_idx..(c_start_idx + 7).min(c_inner_end)] {
+        // Bind catch register name if the catch prologue stores the caught value (or `newcatch` scope) into a local register.
+        let mut saw_newcatch_idx: Option<usize> = None;
+        for scan_insn in &insns[c_start_idx..(c_start_idx + 16).min(c_inner_end)] {
+            if scan_insn.op == 0x5A {
+                saw_newcatch_idx = Some(scan_insn.arg1);
+                continue;
+            }
             if let Some(reg) = local_reg_of_setlocal(scan_insn)
                 && reg > ctx.param_count
             {
+                if let Some(nc_idx) = saw_newcatch_idx {
+                    ctx.local_names.insert(reg, format!("__catch_{nc_idx}__"));
+                    ctx.declared_locals.insert(reg);
+                    saw_newcatch_idx = None;
+                    continue;
+                }
                 ctx.local_names
                     .entry(reg)
                     .or_insert_with(|| err_var.clone());
@@ -2696,26 +3030,7 @@ fn try_decompile_abc_try_block(
 
     let mut finally_lines_opt: Option<Vec<String>> = None;
     let mut final_next_pc = after_catches_idx;
-    if let Some(fin) = fin_exc_opt {
-        let fin_unw_idx = find_abc_insn(insns, try_end_idx, end, fin.target as isize)?;
-        let norm_fin_idx = try_jump_target_idx?;
-        let unw_reg_opt = local_reg_of_getlocal(&insns[norm_fin_idx - 2]);
-        let mut unw_body_start = fin_unw_idx;
-        if let Some(unw_reg) = unw_reg_opt {
-            for (scan_idx, scan_insn) in insns
-                .iter()
-                .enumerate()
-                .take((fin_unw_idx + 8).min(norm_fin_idx - 2))
-                .skip(fin_unw_idx)
-            {
-                if local_reg_of_setlocal(scan_insn) == Some(unw_reg) {
-                    unw_body_start = scan_idx + 1;
-                    break;
-                }
-            }
-        }
-        let fbody_insn_count = (norm_fin_idx - 2).saturating_sub(unw_body_start);
-        let norm_fin_end_idx = (norm_fin_idx + fbody_insn_count).min(end);
+    if let Some((norm_fin_idx, norm_fin_end_idx, fin_next_pc)) = precomputed_fin {
         let f_sub_excs: Vec<AbcException> = if norm_fin_end_idx > norm_fin_idx {
             let f_start_off = insns[norm_fin_idx].offset;
             let f_end_off = insns[norm_fin_end_idx - 1].next_offset;
@@ -2740,19 +3055,7 @@ fn try_decompile_abc_try_block(
             depth + 1,
         );
         finally_lines_opt = Some(f_lines);
-        final_next_pc = norm_fin_end_idx;
-        if let Some(post_jmp) = insns.get(norm_fin_end_idx)
-            && post_jmp.op == 0x10
-            && post_jmp.iarg > 0
-            && let Some(after_tramp) = find_abc_insn(
-                insns,
-                norm_fin_end_idx + 1,
-                end,
-                post_jmp.next_offset as isize + post_jmp.iarg as isize,
-            )
-        {
-            final_next_pc = after_tramp;
-        }
+        final_next_pc = fin_next_pc;
     }
 
     lines.push("try {".into());
@@ -2879,6 +3182,11 @@ fn try_decompile_hasnext2_loop(
 
     let mut body_stack = Vec::new();
     let mut body_scope = scope_stack.to_vec();
+    ctx.loop_bounds.push((
+        store_idx + 1,
+        insns[cond_idx].offset,
+        insns[cond_idx + 1].next_offset,
+    ));
     let body_lines = decompile_abc_range(
         insns,
         store_idx + 1,
@@ -2889,6 +3197,7 @@ fn try_decompile_hasnext2_loop(
         &mut body_scope,
         depth + 1,
     );
+    ctx.loop_bounds.pop();
 
     let each_kw = if is_each { " each" } else { "" };
     let lhs_decl = if use_var_decl {

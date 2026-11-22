@@ -725,9 +725,7 @@ impl SwfBytecodePlayer {
             let entry_identity =
                 join_target_path(parent_identity, &format!("depth{}", entry.depth));
             identity_to_layer_idx.insert(entry_identity, layer_idx);
-            if let Some(clip_end) = entry.clip_depth
-                && clip_end > entry.depth
-            {
+            if let Some(clip_end) = entry.clip_depth {
                 mask_requests.push((entry.depth, clip_end, layer_idx));
             }
             if let Some(mask_id) = &entry.masked_by {
@@ -747,25 +745,24 @@ impl SwfBytecodePlayer {
             ) else {
                 continue;
             };
-            let masked_indices: Vec<usize> = depth_to_layer_idx
-                .range((
-                    std::ops::Bound::Excluded(mask_depth),
-                    std::ops::Bound::Included(clip_end),
-                ))
-                .map(|(_, &idx)| idx)
-                .filter(|&idx| {
-                    layers[idx].properties.role == LayerRole::Normal
-                        && layers[idx].properties.mask.is_none()
-                })
-                .collect();
-            if masked_indices.is_empty() {
-                continue;
-            }
             let mask_id = layers[mask_lidx].id.clone();
             layers[mask_lidx].properties.role = LayerRole::Mask;
             layers[mask_lidx].properties.mask_mode = mask_mode;
-            for idx in masked_indices {
-                layers[idx].properties.mask = Some(mask_id.clone());
+            if clip_end > mask_depth {
+                let masked_indices: Vec<usize> = depth_to_layer_idx
+                    .range((
+                        std::ops::Bound::Excluded(mask_depth),
+                        std::ops::Bound::Included(clip_end),
+                    ))
+                    .map(|(_, &idx)| idx)
+                    .filter(|&idx| {
+                        layers[idx].properties.role == LayerRole::Normal
+                            && layers[idx].properties.mask.is_none()
+                    })
+                    .collect();
+                for idx in masked_indices {
+                    layers[idx].properties.mask = Some(mask_id.clone());
+                }
             }
         }
 

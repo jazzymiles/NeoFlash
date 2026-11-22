@@ -657,6 +657,7 @@ pub(super) struct Avm2ControlFrame {
     pub(super) break_patches: Vec<usize>,
     pub(super) continue_patches: Vec<usize>,
     pub(super) finally_depth: usize,
+    pub(super) catch_scope_depth: usize,
 }
 
 #[derive(Clone)]
@@ -681,6 +682,7 @@ pub(super) enum Avm2PendingUnwind {
 #[derive(Clone, Default)]
 pub(super) struct Avm2FinallyFrame {
     pub(super) pending_unwinds: Vec<Avm2PendingUnwind>,
+    pub(super) catch_scope_depth: usize,
 }
 
 #[derive(Clone)]
@@ -701,7 +703,10 @@ pub(super) struct Avm2LexicalEnv {
     pub(super) init_scope_depth: u32,
     pub(super) needs_activation: bool,
     pub(super) act_reg: Option<u32>,
+    pub(super) active_catch_regs: Vec<u32>,
+    pub(super) max_catch_scopes: usize,
     pub(super) next_temp_reg: u32,
+    pub(super) declared_names: HashSet<String>,
     pub(super) local_regs: HashMap<String, u32>,
     pub(super) own_slots: HashMap<String, u32>,
     pub(super) outer_slots: HashMap<String, (u32, u32)>,
@@ -769,6 +774,13 @@ impl Avm2LexicalEnv {
                 | "uint"
                 | "Boolean"
                 | "Function"
+                | "Class"
+                | "XML"
+                | "XMLList"
+                | "QName"
+                | "Namespace"
+                | "Date"
+                | "RegExp"
                 | "Error"
                 | "TypeError"
                 | "RangeError"
@@ -1036,6 +1048,12 @@ where
         }
     }
 
+    let mut declared_names: HashSet<String> = params
+        .iter()
+        .cloned()
+        .chain(own_funcs.iter().cloned())
+        .chain(own_vars.iter().cloned())
+        .collect();
     if is_function_scope {
         for decl_name in own_funcs.into_iter().chain(own_vars) {
             if !seen_decls.insert(decl_name.clone()) {
@@ -1051,6 +1069,10 @@ where
                 next_reg += 1;
                 local_regs.insert(decl_name, reg);
             }
+        }
+    } else {
+        for k in outer_slots.keys() {
+            declared_names.insert(k.clone());
         }
     }
 
@@ -1088,7 +1110,10 @@ where
         init_scope_depth,
         needs_activation,
         act_reg,
+        active_catch_regs: Vec::new(),
+        max_catch_scopes: 0,
         next_temp_reg: next_reg,
+        declared_names,
         local_regs,
         own_slots,
         outer_slots: outer_slots.clone(),
@@ -1103,10 +1128,12 @@ where
     compile_avm2_stmt_list(pool, stmts, &mut code, state, &mut env)?;
     code.u8(0x47); // returnvoid
 
-    let (max_stack, computed_locals) =
+    let (max_stack, computed_locals, max_pushed_scopes) =
         compute_avm2_method_metrics(&code.buf, params.len() as u32, pool, &env.exceptions);
     let local_count = computed_locals.max(env.next_temp_reg).max(1);
-    let pushed_scopes = if env.needs_activation { 2 } else { 1 };
+    let min_pushed_scopes =
+        (if env.needs_activation { 2 } else { 1 }) + (env.max_catch_scopes as u32);
+    let pushed_scopes = max_pushed_scopes.max(min_pushed_scopes);
     if let Some(mspec) = state.methods.get_mut(method_idx as usize) {
         mspec.needs_activation = env.needs_activation;
     }
@@ -1280,9 +1307,11 @@ pub(super) fn compute_avm2_method_metrics(
     param_count: u32,
     pool: &AbcPoolBuilder,
     exceptions: &[AbcExceptionSpec],
-) -> (u32, u32) {
+) -> (u32, u32, u32) {
     let mut cur_stack = 0i32;
     let mut max_stack = 1i32;
+    let mut cur_scope = 0i32;
+    let mut max_scope = 1i32;
     let mut max_local = param_count;
     let mut pos = 0usize;
     let catch_targets: HashSet<usize> = exceptions.iter().map(|e| e.target as usize).collect();
@@ -1291,15 +1320,26 @@ pub(super) fn compute_avm2_method_metrics(
         if catch_targets.contains(&pos) {
             cur_stack = cur_stack.max(1);
             max_stack = max_stack.max(cur_stack);
+            cur_scope = 0;
         }
         let op = code[pos];
         pos += 1;
         match op {
-            0x02 | 0x09 | 0x1D | 0x47 => {
-                // nop / label / popscope / returnvoid
+            0x02 | 0x09 | 0x47 => {
+                // nop / label / returnvoid
             }
-            0x03 | 0x29 | 0x30 | 0x48 => {
-                // throw / pop / pushscope / returnvalue
+            0x1D => {
+                // popscope
+                cur_scope = (cur_scope - 1).max(0);
+            }
+            0x1C | 0x30 => {
+                // pushwith / pushscope
+                cur_stack = (cur_stack - 1).max(0);
+                cur_scope += 1;
+                max_scope = max_scope.max(cur_scope);
+            }
+            0x03 | 0x29 | 0x48 => {
+                // throw / pop / returnvalue
                 cur_stack = (cur_stack - 1).max(0);
             }
             0x04 => {
@@ -1470,5 +1510,6 @@ pub(super) fn compute_avm2_method_metrics(
     (
         (max_stack.max(1) + 2) as u32,
         max_local.saturating_add(1).max(1),
+        max_scope.max(1) as u32,
     )
 }
