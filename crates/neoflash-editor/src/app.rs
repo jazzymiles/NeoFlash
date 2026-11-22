@@ -87,6 +87,79 @@ fn atomic_save_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     crate::windows_platform::atomic_replace_file(path, bytes)
 }
 
+pub(crate) fn file_has_nflash_bundle_prefix(path: &Path) -> bool {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut prefix = [0u8; 8];
+    let mut read = 0usize;
+    while read < prefix.len() {
+        match std::io::Read::read(&mut file, &mut prefix[read..]) {
+            Ok(0) => break,
+            Ok(n) => read += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return false,
+        }
+    }
+    neoflash_core::has_nflash_bundle_prefix(&prefix[..read])
+}
+
+/// Bounded `.nflash` / `.json` project loader supporting both ordinary UTF-8 JSON (`<= 128 MiB`)
+/// and self-contained `NFLASHB1` binary bundles (`<= 640 MiB`) (`T-471`).
+pub(crate) fn read_nflash_project_file(path: &Path) -> Result<Project, String> {
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let declared_len = file.metadata().map_err(|e| e.to_string())?.len();
+    let mut prefix = [0u8; 8];
+    let mut prefix_len = 0usize;
+    while prefix_len < prefix.len() {
+        match file.read(&mut prefix[prefix_len..]) {
+            Ok(0) => break,
+            Ok(n) => prefix_len += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    if &prefix[..prefix_len] == neoflash_core::NFLASH_BUNDLE_MAGIC {
+        if declared_len > neoflash_core::MAX_NFLASH_BUNDLE_BYTES as u64 {
+            return Err("document exceeds the 640 MiB NFLASHB1 bundle limit".into());
+        }
+        let cap = usize::try_from(declared_len)
+            .unwrap_or(neoflash_core::MAX_NFLASH_BUNDLE_BYTES)
+            .min(neoflash_core::MAX_NFLASH_BUNDLE_BYTES);
+        let mut bytes = Vec::with_capacity(cap);
+        bytes.extend_from_slice(&prefix[..prefix_len]);
+        let rem_cap = (neoflash_core::MAX_NFLASH_BUNDLE_BYTES - prefix_len) as u64 + 1;
+        file.take(rem_cap)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        if bytes.len() > neoflash_core::MAX_NFLASH_BUNDLE_BYTES {
+            return Err("document exceeds the 640 MiB NFLASHB1 bundle limit".into());
+        }
+        return Project::from_nflash_bytes(&bytes).map_err(|e| e.to_string());
+    }
+    if neoflash_core::has_nflash_bundle_prefix(&prefix[..prefix_len]) {
+        return Err("truncated or unsupported NFLASHB1 bundle header".into());
+    }
+    if declared_len > neoflash_core::MAX_PROJECT_JSON_BYTES as u64 {
+        return Err("document exceeds the 128 MiB encoded JSON limit".into());
+    }
+    let cap = usize::try_from(declared_len)
+        .unwrap_or(neoflash_core::MAX_PROJECT_JSON_BYTES)
+        .min(neoflash_core::MAX_PROJECT_JSON_BYTES);
+    let mut bytes = Vec::with_capacity(cap);
+    bytes.extend_from_slice(&prefix[..prefix_len]);
+    let rem_cap = (neoflash_core::MAX_PROJECT_JSON_BYTES - prefix_len) as u64 + 1;
+    file.take(rem_cap)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() > neoflash_core::MAX_PROJECT_JSON_BYTES {
+        return Err("document exceeds the 128 MiB encoded JSON limit".into());
+    }
+    let raw = std::str::from_utf8(&bytes).map_err(|e| e.to_string())?;
+    Project::from_json(raw).map_err(|e| e.to_string())
+}
+
 pub struct Editor {
     pub project: Project,
     pub history: History,
@@ -1355,7 +1428,16 @@ impl Editor {
             self.standalone_script || Self::is_actionscript_source_path(&disk_path);
         let canonical_path = self.path.clone();
         let preserved_import_source = self.import_source.clone();
-        match Self::load_project_from_disk_path(&disk_path) {
+        let loaded_disk = if !was_standalone_script
+            && !Self::is_non_native_graphic_document_path(&disk_path)
+            && !Self::is_legacy_flash_path(&disk_path)
+            && file_has_nflash_bundle_prefix(&disk_path)
+        {
+            read_nflash_project_file(&disk_path).map(|project| (project, Vec::new()))
+        } else {
+            Self::load_project_from_disk_path(&disk_path)
+        };
+        match loaded_disk {
             Ok((project, diagnostics)) => {
                 self.cancel_edits();
                 for diagnostic in diagnostics {
@@ -1547,10 +1629,11 @@ impl Editor {
                                     {
                                         self.frame = previous_frame;
                                         self.playing = previous_playing;
+                                        let _ = self.seek_swf_preview(previous_frame);
                                         messages.push((
                                             OutputSeverity::Info,
                                             format!(
-                                                "SWF bytecode inspected headlessly ({:?} VM, SWF v{}, {} frames). Imported artwork is shown on Stage; live display-list states are not projected yet.",
+                                                "SWF bytecode runtime attached ({:?} VM, SWF v{}, {} frames): live display-list state is projected onto Stage without mutating the authored document.",
                                                 play_res.vm_kind,
                                                 play_res.swf_version,
                                                 play_res.total_frames
@@ -1560,25 +1643,39 @@ impl Editor {
                                 }
                                 imported = true;
                             }
-                            Err(e) => messages.push((OutputSeverity::Error, e.to_string())),
+                            Err(e) => {
+                                if report.format == neoflash_import::ImportFormat::Swf
+                                    && let Ok(swf_bytes) = std::fs::read(&path)
+                                    && self
+                                        .attach_standalone_swf_preview_bytes(
+                                            &swf_bytes,
+                                            Some(&path),
+                                            Some(&e.to_string()),
+                                        )
+                                        .is_ok()
+                                {
+                                    // Fallback message and frame-0 traces are already routed to Output.
+                                } else {
+                                    messages.push((OutputSeverity::Error, e.to_string()));
+                                }
+                            }
                         }
                     } else if report.format == neoflash_import::ImportFormat::Swf
                         && let Ok(swf_bytes) = std::fs::read(&path)
                     {
-                        let previous_frame = self.frame;
-                        let previous_playing = self.playing;
-                        if let Ok(play_res) = self.play_swf_bytes_in_editor(&swf_bytes, 60) {
-                            self.frame = previous_frame;
-                            self.playing = previous_playing;
-                            messages.push((
-                                OutputSeverity::Warning,
-                                format!(
-                                    "Inspected SWF bytecode headlessly ({:?} VM, {} frames executed). The display list could not be imported, so Stage preview is unavailable and the current document was left unchanged.",
-                                    play_res.vm_kind,
-                                    play_res.frames_executed.len()
-                                ),
-                            ));
-                        } else {
+                        let first_err = report
+                            .diagnostics
+                            .iter()
+                            .find(|d| d.severity == neoflash_import::Severity::Error)
+                            .map(|d| format!("{}: {}", d.code, d.message));
+                        if self
+                            .attach_standalone_swf_preview_bytes(
+                                &swf_bytes,
+                                Some(&path),
+                                first_err.as_deref(),
+                            )
+                            .is_err()
+                        {
                             messages.push((
                                 OutputSeverity::Error,
                                 "Import stopped: this SWF could not be represented or executed safely."
@@ -1609,6 +1706,42 @@ impl Editor {
         }
         self.show_panel(PanelId::Output);
         imported
+    }
+
+    /// Open a `.swf` movie into an editable document tab when static timeline reconstruction
+    /// succeeds, or attach a bounded `SwfBytecodePlayer` Stage fallback preview when static
+    /// reconstruction fails — leaving the active authored document and Undo history untouched (`T-471`).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn open_swf_with_bounded_preview_fallback(
+        &mut self,
+        path: &Path,
+        ctx: &egui::Context,
+    ) -> Result<neoflash_import::SwfPlaybackResult, String> {
+        let report = neoflash_import::inspect(path).map_err(|e| e.to_string())?;
+        if report.format != neoflash_import::ImportFormat::Swf {
+            return Err(format!(
+                "expected SWF source, found {:?} ({})",
+                report.format,
+                path.display()
+            ));
+        }
+        let swf_bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        if report.can_import && self.try_import_legacy(path.to_path_buf(), ctx) {
+            let mut probe = neoflash_import::SwfBytecodePlayer::from_bytes(&swf_bytes)
+                .map_err(|e| e.to_string())?;
+            let probe_res = probe.run_frames(1);
+            let _ = self.seek_swf_preview(0);
+            return Ok(probe_res);
+        }
+        let reason = report
+            .diagnostics
+            .iter()
+            .find(|d| d.severity == neoflash_import::Severity::Error)
+            .map(|d| format!("{}: {}", d.code, d.message));
+        let res =
+            self.attach_standalone_swf_preview_bytes(&swf_bytes, Some(path), reason.as_deref())?;
+        self.show_panel(PanelId::Output);
+        Ok(res)
     }
 
     pub(crate) fn default_save_dialog_target(&self) -> (Option<PathBuf>, String) {
@@ -1857,9 +1990,9 @@ impl Editor {
         }
 
         let write_res = converted_project
-            .to_json()
+            .to_nflash_bytes()
             .map_err(|e| e.to_string())
-            .and_then(|json| atomic_save_file(&path, json.as_bytes()));
+            .and_then(|bytes| atomic_save_file(&path, &bytes));
         if let Err(err) = write_res {
             self.notify_with_output(
                 neoflash_ui::components::ToastType::Error,
@@ -2107,9 +2240,9 @@ impl Editor {
             } else {
                 crate::timeline_commands::upgrade_all_format_versions(&mut self.project);
                 self.project
-                    .to_json()
+                    .to_nflash_bytes()
                     .map_err(|e| e.to_string())
-                    .and_then(|json| atomic_save_file(&path, json.as_bytes()))
+                    .and_then(|bytes| atomic_save_file(&path, &bytes))
                     .map(|()| None)
             };
         match result {
@@ -2574,3 +2707,7 @@ mod portable_runtime_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "t471_large_doc_and_swf_stage_tests.rs"]
+mod t471_large_doc_and_swf_stage_tests;

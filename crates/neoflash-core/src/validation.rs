@@ -34,6 +34,24 @@ impl Project {
         }
     }
 
+    /// Validate against `NFLASHB1` large-bundle resource limits (`128 MiB` per resource,
+    /// `512 MiB` total resources, `4096` resources) (`T-471`).
+    pub fn validate_for_bundle(&self) -> Result<(), ProjectError> {
+        let issues = validate_with_mode(self, false, true, false);
+        if issues.is_empty() {
+            crate::model::reserve_ids(self);
+            Ok(())
+        } else {
+            Err(ProjectError::Invalid(
+                issues
+                    .into_iter()
+                    .map(|i| format!("{}: {}", i.path, i.message))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ))
+        }
+    }
+
     pub fn to_json(&self) -> Result<String, ProjectError> {
         self.validate()?;
         let pretty = serde_json::to_string_pretty(self)?;
@@ -89,22 +107,7 @@ impl Project {
             ));
         }
         let mut project: Self = serde_json::from_str(json)?;
-        // Timeline video originally shipped without the format gate being raised, and the first
-        // layer/keyframe-filter writer likewise emitted those fields under an older version.
-        // Upgrade only these historically under-versioned fields while loading so existing files
-        // remain readable; freshly constructed invalid projects are still rejected by validate().
-        let has_timeline_video = project
-            .symbols
-            .iter()
-            .flat_map(|symbol| &symbol.timeline.layers)
-            .flat_map(|layer| &layer.keyframes)
-            .any(|key| key.video.is_some());
-        if has_timeline_video && project.format_version < 9 {
-            project.format_version = 9;
-        }
-        if project.uses_format_11() && project.format_version < 11 {
-            project.format_version = 11;
-        }
+        apply_legacy_format_upgrades(&mut project);
         let issues = validate_with_options(&project, allow_external_sprite_sheet);
         if issues.is_empty() {
             crate::model::reserve_ids(&project);
@@ -121,13 +124,45 @@ impl Project {
     }
 }
 
+pub(crate) fn apply_legacy_format_upgrades(project: &mut Project) {
+    // Timeline video originally shipped without the format gate being raised, and the first
+    // layer/keyframe-filter writer likewise emitted those fields under an older version.
+    // Upgrade only these historically under-versioned fields while loading so existing files
+    // remain readable; freshly constructed invalid projects are still rejected by validate().
+    let has_timeline_video = project
+        .symbols
+        .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
+        .flat_map(|layer| &layer.keyframes)
+        .any(|key| key.video.is_some());
+    if has_timeline_video && project.format_version < 9 {
+        project.format_version = 9;
+    }
+    if project.uses_format_11() && project.format_version < 11 {
+        project.format_version = 11;
+    }
+}
+
 pub fn validate(project: &Project) -> Vec<ValidationIssue> {
     validate_with_options(project, false)
+}
+
+pub(crate) fn validate_inline_only(project: &Project) -> Vec<ValidationIssue> {
+    validate_with_mode(project, false, false, true)
 }
 
 fn validate_with_options(
     project: &Project,
     allow_external_sprite_sheet: bool,
+) -> Vec<ValidationIssue> {
+    validate_with_mode(project, allow_external_sprite_sheet, false, false)
+}
+
+fn validate_with_mode(
+    project: &Project,
+    allow_external_sprite_sheet: bool,
+    force_bundle_limits: bool,
+    force_inline_limits: bool,
 ) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
@@ -298,20 +333,47 @@ fn validate_with_options(
     if project.symbol(&project.root).is_none() {
         add("root".into(), "root symbol does not exist".into());
     }
+    let bundle_limits = !force_inline_limits && (force_bundle_limits || project.is_large_bundle());
+    let max_resources = if bundle_limits {
+        crate::MAX_BUNDLE_RESOURCES
+    } else {
+        MAX_RESOURCES
+    };
+    let max_resource_bytes = if bundle_limits {
+        crate::MAX_BUNDLE_RESOURCE_BYTES
+    } else {
+        MAX_RESOURCE_BYTES
+    };
+    let max_resource_total_bytes = if bundle_limits {
+        crate::MAX_BUNDLE_RESOURCE_TOTAL_BYTES
+    } else {
+        MAX_RESOURCE_TOTAL_BYTES
+    };
+    let max_encoded_total_bytes = if bundle_limits {
+        crate::resources::MAX_ENCODED_BUNDLE_TOTAL_BYTES
+    } else {
+        crate::resources::MAX_ENCODED_TOTAL_BYTES
+    };
     let mut identities: HashMap<&str, String> = HashMap::new();
     let mut resource_paths = HashSet::new();
     let mut resource_bytes = 0usize;
-    if project.resources.len() > MAX_RESOURCES {
-        add("resources".into(), "resource count exceeds 1024".into());
+    if project.resources.len() > max_resources {
+        add(
+            "resources".into(),
+            format!("resource count exceeds {max_resources}"),
+        );
     }
     let encoded_bytes = project.resources.iter().fold(0usize, |total, resource| {
         total.saturating_add(resource.data_base64.len())
     });
-    let encoded_size_ok = encoded_bytes <= crate::resources::MAX_ENCODED_TOTAL_BYTES;
+    let encoded_size_ok = encoded_bytes <= max_encoded_total_bytes;
     if !encoded_size_ok {
         add(
             "resources".into(),
-            "encoded resources exceed the 64 MiB decoded total budget".into(),
+            format!(
+                "encoded resources exceed the {} MiB decoded total budget",
+                max_resource_total_bytes / (1024 * 1024)
+            ),
         );
     }
     let mut embedded_video_resources = HashSet::new();
@@ -339,7 +401,7 @@ fn validate_with_options(
             }
         }
     }
-    for (index, resource) in project.resources.iter().take(MAX_RESOURCES).enumerate() {
+    for (index, resource) in project.resources.iter().take(max_resources).enumerate() {
         let path = format!("resources[{index}]");
         register(
             &mut identities,
@@ -386,8 +448,8 @@ fn validate_with_options(
                             .into(),
                     );
                 } else if encoded_size_ok {
-                    match resource.decoded_bytes() {
-                        Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
+                    match resource.decoded_len_checked(max_resource_bytes) {
+                        Ok(len) => resource_bytes = resource_bytes.saturating_add(len),
                         Err(error) => add(format!("{path}.data_base64"), error.to_string()),
                     }
                 }
@@ -397,8 +459,8 @@ fn validate_with_options(
                 add(format!("{path}.path"), err);
             }
             if !resource.data_base64.is_empty() && encoded_size_ok {
-                match resource.decoded_bytes() {
-                    Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
+                match resource.decoded_len_checked(max_resource_bytes) {
+                    Ok(len) => resource_bytes = resource_bytes.saturating_add(len),
                     Err(error) => add(format!("{path}.data_base64"), error.to_string()),
                 }
             }
@@ -407,8 +469,8 @@ fn validate_with_options(
                 add(path.clone(), error.to_string());
             }
             if encoded_size_ok {
-                match resource.decoded_bytes() {
-                    Ok(bytes) => resource_bytes = resource_bytes.saturating_add(bytes.len()),
+                match resource.decoded_len_checked(max_resource_bytes) {
+                    Ok(len) => resource_bytes = resource_bytes.saturating_add(len),
                     Err(error) => add(format!("{path}.data_base64"), error.to_string()),
                 }
             }
@@ -448,10 +510,13 @@ fn validate_with_options(
             }
         }
     }
-    if resource_bytes > MAX_RESOURCE_TOTAL_BYTES {
+    if resource_bytes > max_resource_total_bytes {
         add(
             "resources".into(),
-            "decoded resources exceed the 64 MiB total budget".into(),
+            format!(
+                "decoded resources exceed the {} MiB total budget",
+                max_resource_total_bytes / (1024 * 1024)
+            ),
         );
     }
     let mut image_dimensions: HashMap<&str, Result<(u32, u32), String>> = HashMap::new();
@@ -1871,7 +1936,7 @@ fn validate_with_options(
                             let dimensions = image_dimensions.entry(resource_id.as_str()).or_insert_with(|| {
                                 image_count += 1;
                                 if image_count > 256 {return Err("authored bitmaps exceed the 256 buffer record budget".into())}
-                                let resource=project.resources.iter().take(MAX_RESOURCES).find(|r|r.id==*resource_id).ok_or_else(||"missing bitmap resource".to_owned())?;
+                                let resource=project.resources.iter().take(max_resources).find(|r|r.id==*resource_id).ok_or_else(||"missing bitmap resource".to_owned())?;
                                 if allow_external_sprite_sheet && resource.is_image() && resource.data_base64.is_empty() {
                                     if *width == 0 || *height == 0 || *width > MAX_BITMAP_DIMENSION || *height > MAX_BITMAP_DIMENSION {
                                         return Err("image dimensions must be in 1..=4096".into());

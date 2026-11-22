@@ -427,11 +427,132 @@ pub(crate) struct AuthoringPreview {
     symbol: Id,
     pub(crate) playback: AuthoredPlayback,
     pub(crate) swf_player: Option<neoflash_import::SwfBytecodePlayer>,
+    /// Ephemeral synthetic stage project used when previewing an unreconstructible `.swf` via
+    /// `SwfBytecodePlayer` fallback so `editor.project` and `editor.history` stay untouched.
+    pub(crate) standalone_swf_stage: Option<Project>,
+    /// Queued `SoundCommand`s drained from `swf_player` across ticks in this preview session.
+    pub(crate) pending_swf_sounds: Vec<SoundCommand>,
     /// Distinguishes playback sessions; a new session silences the previous one's sounds.
     epoch: u64,
     /// True when root `stop()` halted editor transport; pressing `Play` (`Enter`) again restarts
     /// cleanly from Frame 1 instead of snapping immediately back to paused (`T-356`).
     halted_transport: bool,
+}
+
+fn ensure_standalone_swf_proxy_symbols(
+    stage: &mut Project,
+    entries: &[neoflash_import::SwfDisplayEntry],
+) {
+    for entry in entries {
+        if entry.character_id != 0 {
+            let sym_id = format!("swf-sym-{}", entry.character_id);
+            let min_frames = entry.total_frames.max(1);
+            if let Some(existing) = stage.symbol_mut(&sym_id) {
+                existing.timeline.frame_count = existing.timeline.frame_count.max(min_frames);
+            } else {
+                stage.symbols.push(neoflash_core::Symbol {
+                    id: sym_id.clone(),
+                    name: format!("SWF Character {}", entry.character_id),
+                    folder: String::new(),
+                    kind: neoflash_core::SymbolKind::MovieClip,
+                    class_name: None,
+                    linkage_id: None,
+                    timeline: neoflash_core::Timeline {
+                        frame_count: min_frames,
+                        layers: vec![neoflash_core::Layer {
+                            id: format!("{sym_id}-layer"),
+                            name: "Layer 1".into(),
+                            visible: true,
+                            locked: false,
+                            keyframes: vec![neoflash_core::Keyframe {
+                                frame: 0,
+                                elements: vec![neoflash_core::Element {
+                                    id: format!("{sym_id}-proxy"),
+                                    name: "Proxy".into(),
+                                    kind: neoflash_core::ElementKind::Rectangle {
+                                        width: 40.0,
+                                        height: 40.0,
+                                        fill: [80, 150, 235, 255],
+                                        stroke: [20, 40, 70, 255],
+                                        stroke_width: 1.0,
+                                    },
+                                    ..neoflash_core::Element::default()
+                                }],
+                                ..neoflash_core::Keyframe::default()
+                            }],
+                            properties: neoflash_core::LayerProperties::default(),
+                        }],
+                        scripts: Vec::new(),
+                        guides: Vec::new(),
+                    },
+                });
+            }
+        }
+        if !entry.children.is_empty() {
+            ensure_standalone_swf_proxy_symbols(stage, &entry.children);
+        }
+    }
+}
+
+fn standalone_stage_has_all_char_symbols(
+    stage: &Project,
+    entries: &[neoflash_import::SwfDisplayEntry],
+) -> bool {
+    entries.iter().all(|entry| {
+        (entry.character_id == 0
+            || stage
+                .symbol(&format!("swf-sym-{}", entry.character_id))
+                .is_some())
+            && standalone_stage_has_all_char_symbols(stage, &entry.children)
+    })
+}
+
+fn ensure_standalone_swf_audio_resources(
+    stage: &mut Project,
+    events: &[neoflash_import::SwfAudioEvent],
+) {
+    if events.is_empty() {
+        return;
+    }
+    let Ok(wav) = neoflash_core::wrap_pcm_as_wav(&[0u8; 512], 22_050, 1, 16) else {
+        return;
+    };
+    let mut added = false;
+    for ev in events {
+        if ev.sound_id > 0 {
+            let res_id = format!("swf-sound-{}", ev.sound_id);
+            if !stage.resources.iter().any(|r| r.id == res_id)
+                && let Ok(unit) = neoflash_core::ResourceUnit::from_bytes(
+                    res_id,
+                    format!("audio/swf_sound_{}.wav", ev.sound_id),
+                    "audio/wav",
+                    &wav,
+                )
+            {
+                stage.resources.push(unit);
+                added = true;
+            }
+        }
+        if ev.sync.eq_ignore_ascii_case("stream") {
+            for seq in 1..=4 {
+                let res_id = format!("swf-stream-root-{seq}");
+                if !stage.resources.iter().any(|r| r.id == res_id)
+                    && let Ok(unit) = neoflash_core::ResourceUnit::from_bytes(
+                        res_id,
+                        format!("audio/swf_stream_root_{seq}.wav"),
+                        "audio/wav",
+                        &wav,
+                    )
+                {
+                    stage.resources.push(unit);
+                    added = true;
+                }
+            }
+        }
+    }
+    if added {
+        stage.format_version = stage.format_version.max(3);
+    }
 }
 
 fn source_mentions_enter_frame(source: &str) -> bool {
@@ -578,7 +699,7 @@ impl Editor {
                 && (r.id == "swf-original-source"
                     || r.media_type == "application/x-shockwave-flash"
                     || r.path.ends_with(".swf"))
-        }) && let Ok(bytes) = res.decoded_bytes()
+        }) && let Ok(bytes) = res.decoded_bundle_bytes()
             && let Ok(player) = neoflash_import::SwfBytecodePlayer::from_bytes(&bytes)
         {
             return Some(player);
@@ -593,13 +714,127 @@ impl Editor {
             .and_then(|p| neoflash_import::SwfBytecodePlayer::from_path(p).ok())
     }
 
+    fn effective_swf_max_frame(
+        &self,
+        swf: &neoflash_import::SwfBytecodePlayer,
+        is_standalone: bool,
+    ) -> u32 {
+        if is_standalone {
+            swf.total_frames().max(1).saturating_sub(1)
+        } else {
+            self.symbol()
+                .timeline
+                .frame_count
+                .max(swf.total_frames())
+                .max(1)
+                .saturating_sub(1)
+        }
+    }
+
     pub(crate) fn reset_authored_preview(&mut self) {
+        let had_swf_or_standalone = self
+            .authored_preview
+            .as_ref()
+            .is_some_and(|p| p.swf_player.is_some() || p.standalone_swf_stage.is_some());
+        let had_standalone = self
+            .authored_preview
+            .as_ref()
+            .is_some_and(|p| p.standalone_swf_stage.is_some());
         self.authored_preview = None;
         self.accumulator = 0.;
         self.clear_live_preview_pointer_state();
+        if had_swf_or_standalone {
+            self.timeline_audio
+                .apply(&self.project, vec![SoundCommand::StopAll]);
+        }
+        if had_standalone {
+            self.frame = self
+                .frame
+                .min(self.symbol().timeline.frame_count.saturating_sub(1));
+        }
     }
 
     pub(crate) fn sync_authored_preview(&mut self) {
+        let include_fp = self.hydrated_project_and_fingerprint().1;
+        // Preserve standalone SWF fallback sessions across timeline seeks and Play-after-halt
+        // unless the active authored document or edited symbol changed.
+        if let Some(has_standalone) = self.authored_preview.as_ref().map(|p| {
+            p.standalone_swf_stage.is_some()
+                && p.swf_player.is_some()
+                && p.symbol == self.symbol_id()
+                && p.project == self.project
+                && p.include_fp == include_fp
+        }) && has_standalone
+        {
+            let needs_restart = self.playing
+                && self
+                    .authored_preview
+                    .as_ref()
+                    .is_some_and(|p| p.halted_transport);
+            let needs_seek = !self.playing
+                && self
+                    .authored_preview
+                    .as_ref()
+                    .and_then(|p| p.swf_player.as_ref())
+                    .is_some_and(|swf| swf.presented_frame() != self.frame);
+            if needs_restart {
+                self.clear_simple_button_state();
+                let mut traces = Vec::new();
+                let mut unsupported = Vec::new();
+                let mut stop_transport = false;
+                if let Some(preview) = &mut self.authored_preview
+                    && let Some(swf) = &mut preview.swf_player
+                {
+                    let state = swf.restart();
+                    self.frame = state.frame;
+                    traces = state.traces;
+                    unsupported = state.unsupported_diagnostics;
+                    stop_transport = !state.playing;
+                    if let Some(stage) = &mut preview.standalone_swf_stage {
+                        ensure_standalone_swf_proxy_symbols(stage, &state.display_list);
+                        ensure_standalone_swf_audio_resources(stage, &state.audio_events);
+                    }
+                    let audio_proj = preview
+                        .standalone_swf_stage
+                        .as_ref()
+                        .unwrap_or(&self.project);
+                    let mut cmds = vec![SoundCommand::StopAll];
+                    for sc in swf.drain_sound_commands(audio_proj) {
+                        if sc != SoundCommand::StopAll {
+                            cmds.push(sc);
+                        }
+                    }
+                    preview.pending_swf_sounds = cmds;
+                    preview.epoch = next_preview_epoch();
+                    preview.halted_transport = stop_transport;
+                }
+                let loc = self.current_preview_output_location();
+                for line in traces {
+                    self.push_output_event(
+                        crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
+                            .with_location(loc.clone()),
+                    );
+                }
+                for diag in unsupported {
+                    self.push_output_unique(
+                        crate::output_pipeline::OutputEvent::warning(
+                            crate::output_pipeline::OutputSource::Runtime,
+                            format!("[swf] {diag}"),
+                        )
+                        .with_location(loc.clone()),
+                    );
+                }
+                if stop_transport {
+                    self.playing = false;
+                }
+                return;
+            }
+            if needs_seek {
+                let target = self.frame;
+                let _ = self.seek_swf_preview(target);
+                return;
+            }
+        }
         // Also catches direct inspector edits, undo and document replacement.
         // Resource payloads share their immutable storage with this snapshot.
         if self.authored_preview.is_some() && self.valid_authored_preview().is_none() {
@@ -636,12 +871,13 @@ impl Editor {
             let mut traces = playback.drain_traces();
             let preview_diagnostics = playback.drain_diagnostics();
             let mut unsupported_diagnostics = Vec::new();
+            let mut pending_swf_sounds = Vec::new();
             let mut halted = playback.is_root_halted_by_script();
             if let Some(swf) = &mut swf_player {
                 let state = swf.seek_to_frame(self.frame);
-                self.frame = state
-                    .frame
-                    .min(self.symbol().timeline.frame_count.saturating_sub(1));
+                let max_f = self.effective_swf_max_frame(swf, false);
+                self.frame = state.frame.min(max_f);
+                pending_swf_sounds = swf.drain_sound_commands(&self.project);
                 for t in state.traces {
                     if !traces.contains(&t) {
                         traces.push(t);
@@ -673,6 +909,8 @@ impl Editor {
             self.authored_preview = Some(AuthoringPreview {
                 playback,
                 swf_player,
+                standalone_swf_stage: None,
+                pending_swf_sounds,
                 project: self.project.clone(),
                 include_fp,
                 symbol: playback_symbol,
@@ -707,6 +945,10 @@ impl Editor {
                 );
             }
             if stop_transport {
+                let halted_sounds = self.drain_preview_sounds_unchecked();
+                if !halted_sounds.is_empty() {
+                    self.timeline_audio.apply(&self.project, halted_sounds);
+                }
                 self.playing = false;
             }
         }
@@ -744,28 +986,50 @@ impl Editor {
         let mut tick_video_commands = Vec::new();
         let mut scene_switched_to: Option<(Id, u32)> = None;
         let hydrated = self.project_with_hydrated_includes().into_owned();
+        let symbol_frame_cap = self.symbol().timeline.frame_count;
         if let Some(preview) = &mut self.authored_preview {
-            preview
-                .playback
-                .set_live_scripts(&hydrated, self.live_script_preview);
-            preview.playback.tick(&hydrated);
-            self.frame = preview.playback.frame();
-            let next_sym = preview.playback.symbol().to_owned();
-            if next_sym != preview.symbol {
-                preview.symbol = next_sym.clone();
-                scene_switched_to = Some((next_sym, self.frame));
+            let is_standalone_swf =
+                preview.standalone_swf_stage.is_some() && preview.swf_player.is_some();
+            if !is_standalone_swf {
+                preview
+                    .playback
+                    .set_live_scripts(&hydrated, self.live_script_preview);
+                preview.playback.tick(&hydrated);
+                self.frame = preview.playback.frame();
+                let next_sym = preview.playback.symbol().to_owned();
+                if next_sym != preview.symbol {
+                    preview.symbol = next_sym.clone();
+                    scene_switched_to = Some((next_sym, self.frame));
+                }
+                traces = preview.playback.drain_traces();
+                preview_diagnostics = preview.playback.drain_diagnostics();
+                tick_video_commands = preview.playback.drain_video_commands();
+                halted = preview.playback.is_root_halted_by_script();
             }
-            traces = preview.playback.drain_traces();
-            preview_diagnostics = preview.playback.drain_diagnostics();
-            tick_video_commands = preview.playback.drain_video_commands();
-            halted = preview.playback.is_root_halted_by_script();
             if self.live_script_preview
                 && let Some(swf) = &mut preview.swf_player
             {
                 let state = swf.step_frame();
-                self.frame = state
-                    .frame
-                    .min(self.symbol().timeline.frame_count.saturating_sub(1));
+                let max_f = if is_standalone_swf {
+                    swf.total_frames().max(1).saturating_sub(1)
+                } else {
+                    symbol_frame_cap
+                        .max(swf.total_frames())
+                        .max(1)
+                        .saturating_sub(1)
+                };
+                self.frame = state.frame.min(max_f);
+                if let Some(stage) = &mut preview.standalone_swf_stage {
+                    ensure_standalone_swf_proxy_symbols(stage, &state.display_list);
+                    ensure_standalone_swf_audio_resources(stage, &state.audio_events);
+                }
+                let audio_proj = preview
+                    .standalone_swf_stage
+                    .as_ref()
+                    .unwrap_or(&self.project);
+                for sc in swf.drain_sound_commands(audio_proj) {
+                    preview.pending_swf_sounds.push(sc);
+                }
                 for t in state.traces {
                     if !traces.contains(&t) {
                         traces.push(t);
@@ -844,6 +1108,15 @@ impl Editor {
             preview.halted_transport = stop_transport;
         }
         if stop_transport {
+            let halted_sounds = self.drain_preview_sounds_unchecked();
+            if !halted_sounds.is_empty() {
+                let audio_proj = self
+                    .authored_preview
+                    .as_ref()
+                    .and_then(|p| p.standalone_swf_stage.clone());
+                self.timeline_audio
+                    .apply(audio_proj.as_ref().unwrap_or(&self.project), halted_sounds);
+            }
             self.playing = false;
             self.timeline_video.pause_active();
         }
@@ -855,29 +1128,58 @@ impl Editor {
         &mut self,
         target_frame: u32,
     ) -> Option<neoflash_import::SwfFrameState> {
-        let max_frame = self.symbol().timeline.frame_count.saturating_sub(1);
-        let clamped_target = target_frame.min(max_frame);
         let symbol = self.symbol_id().to_owned();
+        let initial_include_fp = self.hydrated_project_and_fingerprint().1;
+        let mut standalone_swf_stage = self
+            .authored_preview
+            .as_mut()
+            .filter(|p| {
+                p.symbol == symbol
+                    && p.project == self.project
+                    && p.include_fp == initial_include_fp
+            })
+            .and_then(|p| p.standalone_swf_stage.take());
         let mut swf = self
             .authored_preview
             .as_mut()
             .and_then(|p| p.swf_player.take())
             .or_else(|| self.load_swf_bytecode_player())?;
+        let max_frame = self.effective_swf_max_frame(&swf, standalone_swf_stage.is_some());
+        let clamped_target = target_frame.min(max_frame);
         let state = swf.seek_to_frame(clamped_target);
         self.frame = state.frame.min(max_frame);
         self.playing = false;
-        let (hydrated_cow, include_fp) = self.hydrated_project_and_fingerprint();
-        let playback = AuthoredPlayback::with_live_scripts(
-            &hydrated_cow,
-            &symbol,
-            self.frame,
-            self.live_script_preview,
-        );
+        if let Some(stage) = &mut standalone_swf_stage {
+            ensure_standalone_swf_proxy_symbols(stage, &state.display_list);
+            ensure_standalone_swf_audio_resources(stage, &state.audio_events);
+        }
+        let playback_frame = self
+            .frame
+            .min(self.symbol().timeline.frame_count.saturating_sub(1));
+        let (playback, include_fp) = {
+            let (hydrated_cow, fp) = self.hydrated_project_and_fingerprint();
+            let pb = AuthoredPlayback::with_live_scripts(
+                &hydrated_cow,
+                &symbol,
+                playback_frame,
+                self.live_script_preview && standalone_swf_stage.is_none(),
+            );
+            (pb, fp)
+        };
+        {
+            let audio_proj = standalone_swf_stage.as_ref().unwrap_or(&self.project);
+            let swf_cmds = swf.drain_sound_commands(audio_proj);
+            let mut sync_cmds = Vec::with_capacity(swf_cmds.len() + 1);
+            if swf_cmds.first() != Some(&SoundCommand::StopAll) {
+                sync_cmds.push(SoundCommand::StopAll);
+            }
+            sync_cmds.extend(swf_cmds);
+            self.timeline_audio.apply(audio_proj, sync_cmds);
+        }
         let seek_loc = self.current_preview_output_location();
         for line in &state.traces {
-            let formatted = format!("[trace] {line}");
-            self.push_output_unique(
-                crate::output_pipeline::OutputEvent::trace(formatted)
+            self.push_output_event(
+                crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
                     .with_location(seek_loc.clone()),
             );
         }
@@ -894,6 +1196,8 @@ impl Editor {
         self.authored_preview = Some(AuthoringPreview {
             playback,
             swf_player: Some(swf),
+            standalone_swf_stage,
+            pending_swf_sounds: Vec::new(),
             project: self.project.clone(),
             include_fp,
             symbol,
@@ -912,9 +1216,103 @@ impl Editor {
     /// Deterministically step the SWF runtime preview forward or backward by `delta` frames.
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn step_swf_preview(&mut self, delta: i32) -> Option<neoflash_import::SwfFrameState> {
-        let max_frame = self.symbol().timeline.frame_count.saturating_sub(1) as i64;
+        let symbol = self.symbol_id().to_owned();
+        let include_fp = self.hydrated_project_and_fingerprint().1;
+        let can_step_in_place = delta == 1
+            && self.authored_preview.as_ref().is_some_and(|p| {
+                p.symbol == symbol
+                    && p.project == self.project
+                    && p.include_fp == include_fp
+                    && p.swf_player.as_ref().is_some_and(|swf| {
+                        let max_f =
+                            self.effective_swf_max_frame(swf, p.standalone_swf_stage.is_some());
+                        self.frame < max_f
+                            && swf.presented_frame() == self.frame
+                            && swf.is_playing()
+                            && swf.current_frame() == self.frame + 1
+                    })
+            });
+        if can_step_in_place {
+            let hydrated_owned = self.hydrated_project_and_fingerprint().0.into_owned();
+            let mut state_opt = None;
+            let mut step_sounds = Vec::new();
+            let mut audio_stage_clone = None;
+            let symbol_cap = self.symbol().timeline.frame_count.saturating_sub(1);
+            if let Some(preview) = &mut self.authored_preview
+                && let Some(swf) = &mut preview.swf_player
+            {
+                let is_standalone = preview.standalone_swf_stage.is_some();
+                let max_f = if is_standalone {
+                    swf.total_frames().max(1).saturating_sub(1)
+                } else {
+                    symbol_cap
+                        .saturating_add(1)
+                        .max(swf.total_frames())
+                        .max(1)
+                        .saturating_sub(1)
+                };
+                let state = swf.step_frame();
+                self.frame = state.frame.min(max_f);
+                self.playing = false;
+                if let Some(stage) = &mut preview.standalone_swf_stage {
+                    ensure_standalone_swf_proxy_symbols(stage, &state.display_list);
+                    ensure_standalone_swf_audio_resources(stage, &state.audio_events);
+                    audio_stage_clone = Some(stage.clone());
+                }
+                let audio_proj = preview
+                    .standalone_swf_stage
+                    .as_ref()
+                    .unwrap_or(&self.project);
+                step_sounds = swf.drain_sound_commands(audio_proj);
+                preview.playback = AuthoredPlayback::with_live_scripts(
+                    &hydrated_owned,
+                    &symbol,
+                    self.frame.min(symbol_cap),
+                    self.live_script_preview && !is_standalone,
+                );
+                preview.halted_transport = false;
+                state_opt = Some(state);
+            }
+            if let Some(state) = state_opt {
+                if !step_sounds.is_empty() {
+                    self.timeline_audio.apply(
+                        audio_stage_clone.as_ref().unwrap_or(&self.project),
+                        step_sounds,
+                    );
+                }
+                let step_loc = self.current_preview_output_location();
+                for line in &state.traces {
+                    self.push_output_event(
+                        crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
+                            .with_location(step_loc.clone()),
+                    );
+                }
+                for diag in &state.unsupported_diagnostics {
+                    self.push_output_unique(
+                        crate::output_pipeline::OutputEvent::warning(
+                            crate::output_pipeline::OutputSource::Runtime,
+                            format!("[swf] {diag}"),
+                        )
+                        .with_location(step_loc.clone()),
+                    );
+                }
+                return Some(state);
+            }
+        }
+        let max_frame = self
+            .authored_preview
+            .as_ref()
+            .and_then(|p| {
+                p.swf_player
+                    .as_ref()
+                    .map(|swf| self.effective_swf_max_frame(swf, p.standalone_swf_stage.is_some()))
+            })
+            .or_else(|| {
+                self.load_swf_bytecode_player()
+                    .map(|swf| self.effective_swf_max_frame(&swf, false))
+            })?;
         let base = i64::from(self.frame);
-        let next = (base + i64::from(delta)).clamp(0, max_frame) as u32;
+        let next = (base + i64::from(delta)).clamp(0, i64::from(max_frame)) as u32;
         self.seek_swf_preview(next)
     }
 
@@ -931,11 +1329,11 @@ impl Editor {
             neoflash_import::SwfBytecodePlayer::from_bytes(bytes).map_err(|e| e.to_string())?;
         let result = swf_player.run_frames(max_frames.max(1));
         if let Some(last) = result.frames_executed.last() {
-            self.frame = last
-                .frame
-                .min(self.symbol().timeline.frame_count.saturating_sub(1));
+            let max_f = self.effective_swf_max_frame(&swf_player, false);
+            self.frame = last.frame.min(max_f);
             self.playing = last.playing;
         }
+        let pending_swf_sounds = swf_player.drain_sound_commands(&self.project);
         let swf_loc = self.current_preview_output_location();
         for line in &result.trace_output {
             self.push_output_event(
@@ -955,15 +1353,20 @@ impl Editor {
         }
         let symbol = self.symbol_id().to_owned();
         let (hydrated_cow, include_fp) = self.hydrated_project_and_fingerprint();
+        let playback_frame = self
+            .frame
+            .min(self.symbol().timeline.frame_count.saturating_sub(1));
         let playback = AuthoredPlayback::with_live_scripts(
             &hydrated_cow,
             &symbol,
-            self.frame,
+            playback_frame,
             self.live_script_preview,
         );
         self.authored_preview = Some(AuthoringPreview {
             playback,
             swf_player: Some(swf_player),
+            standalone_swf_stage: None,
+            pending_swf_sounds,
             project: self.project.clone(),
             include_fp,
             symbol,
@@ -971,6 +1374,120 @@ impl Editor {
             halted_transport: !self.playing,
         });
         Ok(result)
+    }
+
+    /// Attach a standalone bounded `SwfBytecodePlayer` Stage preview session from raw `.swf`
+    /// bytes when static editable timeline reconstruction fails (`T-471`).
+    ///
+    /// Leaves `self.project`, `self.saved_project`, `self.history`, `self.path`, and
+    /// `self.import_source` completely untouched while enabling Stage projection, `seek`,
+    /// `step`, `restart`, `trace()` routing, and audio synchronization.
+    pub fn attach_standalone_swf_preview_bytes(
+        &mut self,
+        bytes: &[u8],
+        source_path: Option<&std::path::Path>,
+        reconstruction_reason: Option<&str>,
+    ) -> Result<neoflash_import::SwfPlaybackResult, String> {
+        let mut probe =
+            neoflash_import::SwfBytecodePlayer::from_bytes(bytes).map_err(|e| e.to_string())?;
+        let probe_limit = usize::try_from(probe.total_frames().max(1))
+            .unwrap_or(60)
+            .clamp(1, 60);
+        let probe_result = probe.run_frames(probe_limit);
+
+        let symbol = self.symbol_id().to_owned();
+        let mut standalone_stage = Project::blank();
+        let old_root = standalone_stage.root.clone();
+        standalone_stage.root = symbol.clone();
+        standalone_stage.width = self.project.width;
+        standalone_stage.height = self.project.height;
+        standalone_stage.fps = self.project.fps.max(1);
+        standalone_stage.background = self.project.background;
+        if let Some(root_sym) = standalone_stage.symbol_mut(&old_root) {
+            root_sym.id = symbol.clone();
+            root_sym.timeline.frame_count = probe_result.total_frames.max(1);
+        }
+        for frame_state in &probe_result.frames_executed {
+            ensure_standalone_swf_proxy_symbols(&mut standalone_stage, &frame_state.display_list);
+        }
+        ensure_standalone_swf_audio_resources(&mut standalone_stage, &probe_result.audio_events);
+
+        let mut swf_player =
+            neoflash_import::SwfBytecodePlayer::from_bytes(bytes).map_err(|e| e.to_string())?;
+        let state0 = swf_player.seek_to_frame(0);
+        ensure_standalone_swf_proxy_symbols(&mut standalone_stage, &state0.display_list);
+        ensure_standalone_swf_audio_resources(&mut standalone_stage, &state0.audio_events);
+
+        self.frame = state0
+            .frame
+            .min(probe_result.total_frames.max(1).saturating_sub(1));
+        self.playing = false;
+
+        let mut sync_cmds = vec![SoundCommand::StopAll];
+        for sc in swf_player.drain_sound_commands(&standalone_stage) {
+            if sc != SoundCommand::StopAll {
+                sync_cmds.push(sc);
+            }
+        }
+        self.timeline_audio.apply(&standalone_stage, sync_cmds);
+
+        let (hydrated_cow, include_fp) = self.hydrated_project_and_fingerprint();
+        let playback_frame = self
+            .frame
+            .min(self.symbol().timeline.frame_count.saturating_sub(1));
+        let playback =
+            AuthoredPlayback::with_live_scripts(&hydrated_cow, &symbol, playback_frame, false);
+
+        let loc = source_path.map_or_else(
+            || self.current_preview_output_location(),
+            |p| crate::output_pipeline::OutputLocation::for_file(p.to_path_buf()),
+        );
+        let reason_suffix = reconstruction_reason
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|r| format!(" ({r})"))
+            .unwrap_or_default();
+        let fallback_msg = format!(
+            "[swf-fallback] Static timeline reconstruction failed{reason_suffix}; attached bounded SwfBytecodePlayer fallback preview ({:?} VM, SWF v{}, {} frame(s)) on Stage while leaving the active authored document unchanged.",
+            probe_result.vm_kind, probe_result.swf_version, probe_result.total_frames
+        );
+        self.status = fallback_msg.clone();
+        self.push_output_coalesced(
+            crate::output_pipeline::OutputEvent::warning(
+                crate::output_pipeline::OutputSource::Import,
+                fallback_msg,
+            )
+            .with_location(loc.clone()),
+        );
+        let runtime_loc = self.current_preview_output_location();
+        for line in &state0.traces {
+            self.push_output_event(
+                crate::output_pipeline::OutputEvent::trace(format!("[trace] {line}"))
+                    .with_location(runtime_loc.clone()),
+            );
+        }
+        for diag in &state0.unsupported_diagnostics {
+            self.push_output_unique(
+                crate::output_pipeline::OutputEvent::warning(
+                    crate::output_pipeline::OutputSource::Runtime,
+                    format!("[swf] {diag}"),
+                )
+                .with_location(runtime_loc.clone()),
+            );
+        }
+
+        self.authored_preview = Some(AuthoringPreview {
+            playback,
+            swf_player: Some(swf_player),
+            standalone_swf_stage: Some(standalone_stage),
+            pending_swf_sounds: Vec::new(),
+            project: self.project.clone(),
+            include_fp,
+            symbol,
+            epoch: next_preview_epoch(),
+            halted_transport: false,
+        });
+        Ok(probe_result)
     }
 
     /// Dispatch a click event on a placed element path during live authoring preview.
@@ -1074,11 +1591,27 @@ impl Editor {
 
     /// Timeline sound commands of the playing preview since the last call.
     pub(crate) fn drain_preview_sounds(&mut self) -> Vec<SoundCommand> {
+        if !self.playing {
+            return vec![];
+        }
+        self.drain_preview_sounds_unchecked()
+    }
+
+    fn drain_preview_sounds_unchecked(&mut self) -> Vec<SoundCommand> {
         match &mut self.authored_preview {
-            Some(preview) if self.playing => {
+            Some(preview) => {
                 let mut cmds = preview.playback.drain_sound_commands();
+                for sc in std::mem::take(&mut preview.pending_swf_sounds) {
+                    if !cmds.contains(&sc) {
+                        cmds.push(sc);
+                    }
+                }
                 if let Some(swf) = &mut preview.swf_player {
-                    for sc in swf.drain_sound_commands(&self.project) {
+                    let audio_proj = preview
+                        .standalone_swf_stage
+                        .as_ref()
+                        .unwrap_or(&self.project);
+                    for sc in swf.drain_sound_commands(audio_proj) {
                         if !cmds.contains(&sc) {
                             cmds.push(sc);
                         }
@@ -1086,7 +1619,7 @@ impl Editor {
                 }
                 cmds
             }
-            _ => vec![],
+            None => vec![],
         }
     }
 
@@ -1350,11 +1883,17 @@ impl Editor {
         preview: Option<&AuthoringPreview>,
         show_masking: bool,
     ) -> AuthoredScene {
-        if !self.playing && self.frame >= self.symbol().timeline.frame_count {
+        let preview_has_standalone_swf =
+            preview.is_some_and(|p| p.standalone_swf_stage.is_some() && p.swf_player.is_some());
+        if !self.playing
+            && !preview_has_standalone_swf
+            && self.frame >= self.symbol().timeline.frame_count
+        {
             return AuthoredScene::default();
         }
         let simple_buttons_active = self.enable_simple_buttons
             && !self.playing
+            && !preview_has_standalone_swf
             && (preview.is_none()
                 || self.hovered_simple_button.is_some()
                 || self.pressed_simple_button.is_some());
@@ -1371,11 +1910,30 @@ impl Editor {
         }
         match preview {
             Some(preview) => {
-                let eval_project = self.project_for_stage_eval();
                 if self.live_script_preview
                     && self.editing_scene()
                     && let Some(swf) = &preview.swf_player
                 {
+                    if let Some(standalone_stage) = &preview.standalone_swf_stage {
+                        let live_entries = swf.display_list();
+                        if standalone_stage_has_all_char_symbols(standalone_stage, &live_entries) {
+                            return swf.evaluate_stage_scene(
+                                standalone_stage,
+                                &standalone_stage.root,
+                                self.frame,
+                                show_masking,
+                            );
+                        }
+                        let mut patched_stage = standalone_stage.clone();
+                        ensure_standalone_swf_proxy_symbols(&mut patched_stage, &live_entries);
+                        return swf.evaluate_stage_scene(
+                            &patched_stage,
+                            &patched_stage.root,
+                            self.frame,
+                            show_masking,
+                        );
+                    }
+                    let eval_project = self.project_for_stage_eval();
                     return swf.evaluate_stage_scene(
                         &eval_project,
                         self.symbol_id(),
@@ -1383,6 +1941,7 @@ impl Editor {
                         show_masking,
                     );
                 }
+                let eval_project = self.project_for_stage_eval();
                 preview.playback.scene(&eval_project, true, show_masking)
             }
             None => {

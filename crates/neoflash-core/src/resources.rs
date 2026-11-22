@@ -13,6 +13,18 @@ const MAX_ENCODED_RESOURCE_BYTES: usize = MAX_RESOURCE_BYTES.div_ceil(3) * 4;
 pub(crate) const MAX_ENCODED_TOTAL_BYTES: usize =
     MAX_RESOURCE_TOTAL_BYTES.div_ceil(3) * 4 + MAX_RESOURCES * 4;
 
+/// Maximum decoded byte size of a single binary resource inside an `NFLASHB1` bundle (`128 MiB`).
+pub const MAX_BUNDLE_RESOURCE_BYTES: usize = 128 * 1024 * 1024;
+/// Maximum combined decoded byte size of all resources inside an `NFLASHB1` bundle (`512 MiB`).
+pub const MAX_BUNDLE_RESOURCE_TOTAL_BYTES: usize = 512 * 1024 * 1024;
+/// Maximum number of resources inside an `NFLASHB1` bundle (`4096`).
+pub const MAX_BUNDLE_RESOURCES: usize = 4096;
+/// Maximum total container byte size of an `NFLASHB1` `.nflash` bundle (`640 MiB`).
+pub const MAX_NFLASH_BUNDLE_BYTES: usize = 640 * 1024 * 1024;
+const MAX_ENCODED_BUNDLE_RESOURCE_BYTES: usize = MAX_BUNDLE_RESOURCE_BYTES.div_ceil(3) * 4;
+pub(crate) const MAX_ENCODED_BUNDLE_TOTAL_BYTES: usize =
+    MAX_BUNDLE_RESOURCE_TOTAL_BYTES.div_ceil(3) * 4 + MAX_BUNDLE_RESOURCES * 4;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SoundCompression {
@@ -244,6 +256,32 @@ impl ResourceUnit {
         Ok(result)
     }
 
+    /// Construct a `ResourceUnit` up to `MAX_BUNDLE_RESOURCE_BYTES` (`128 MiB`) for large
+    /// `.nflash` bundle persistence (`NFLASHB1`).
+    pub fn new_large(
+        id: impl Into<Id>,
+        path: impl Into<String>,
+        media_type: impl Into<String>,
+        bytes: &[u8],
+    ) -> Result<Self, ResourceError> {
+        if bytes.len() > MAX_BUNDLE_RESOURCE_BYTES {
+            return Err(ResourceError(
+                "decoded bundle resource exceeds 128 MiB".into(),
+            ));
+        }
+        let mut result = Self {
+            id: id.into(),
+            path: path.into(),
+            media_type: media_type.into(),
+            data_base64: Arc::from(""),
+            audio_export: None,
+            bitmap_export: None,
+        };
+        result.validate_metadata()?;
+        result.data_base64 = STANDARD.encode(bytes).into();
+        Ok(result)
+    }
+
     /// Audio resources (`audio/*`) can be attached to keyframes as timeline sounds.
     pub fn is_audio(&self) -> bool {
         self.media_type
@@ -292,6 +330,80 @@ impl ResourceUnit {
             return Err(ResourceError("decoded resource exceeds 16 MiB".into()));
         }
         Ok(bytes)
+    }
+
+    /// Decode a bundle-backed resource up to `MAX_BUNDLE_RESOURCE_BYTES` (`128 MiB`).
+    pub fn decoded_bundle_bytes(&self) -> Result<Vec<u8>, ResourceError> {
+        if self.data_base64.len() > MAX_ENCODED_BUNDLE_RESOURCE_BYTES {
+            return Err(ResourceError(
+                "encoded resource exceeds the 128 MiB decoded limit".into(),
+            ));
+        }
+        let bytes = STANDARD
+            .decode(self.data_base64.as_bytes())
+            .map_err(|error| {
+                ResourceError(format!(
+                    "data_base64 must be canonical standard base64: {error}"
+                ))
+            })?;
+        if bytes.len() > MAX_BUNDLE_RESOURCE_BYTES {
+            return Err(ResourceError("decoded resource exceeds 128 MiB".into()));
+        }
+        Ok(bytes)
+    }
+
+    /// Validate canonical standard base64 and return the exact decoded byte count without
+    /// allocating an intermediate heap buffer (`[u8; 49_152]` stack scratch).
+    pub(crate) fn decoded_len_checked(
+        &self,
+        max_decoded_bytes: usize,
+    ) -> Result<usize, ResourceError> {
+        let max_encoded = max_decoded_bytes.div_ceil(3) * 4;
+        let limit_mib = max_decoded_bytes / (1024 * 1024);
+        if self.data_base64.len() > max_encoded {
+            return Err(ResourceError(format!(
+                "encoded resource exceeds the {limit_mib} MiB decoded limit"
+            )));
+        }
+        let raw = self.data_base64.as_bytes();
+        if raw.is_empty() {
+            return Ok(0);
+        }
+        const CHUNK_ENC: usize = 65_536;
+        let mut scratch = [0u8; CHUNK_ENC / 4 * 3];
+        let mut total = 0usize;
+        let mut offset = 0usize;
+        while offset + CHUNK_ENC < raw.len() {
+            let chunk = &raw[offset..offset + CHUNK_ENC];
+            if chunk.contains(&b'=') {
+                return Err(ResourceError(
+                    "data_base64 must be canonical standard base64: padding before final quantum"
+                        .into(),
+                ));
+            }
+            let n = STANDARD
+                .decode_slice(chunk, &mut scratch)
+                .map_err(|error| {
+                    ResourceError(format!(
+                        "data_base64 must be canonical standard base64: {error}"
+                    ))
+                })?;
+            total = total.saturating_add(n);
+            offset += CHUNK_ENC;
+        }
+        let tail = &raw[offset..];
+        let n = STANDARD.decode_slice(tail, &mut scratch).map_err(|error| {
+            ResourceError(format!(
+                "data_base64 must be canonical standard base64: {error}"
+            ))
+        })?;
+        total = total.saturating_add(n);
+        if total > max_decoded_bytes {
+            return Err(ResourceError(format!(
+                "decoded resource exceeds {limit_mib} MiB"
+            )));
+        }
+        Ok(total)
     }
 
     pub(crate) fn validate_metadata(&self) -> Result<(), ResourceError> {

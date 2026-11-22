@@ -15,8 +15,9 @@ use crate::build_info::BuildIdentity;
 use crate::panels::compiler_errors::{LocatedScriptDiagnostic, collect_located_script_diagnostics};
 use neoflash_core::{
     AuthoredDraw, AuthoredPlayback, Color, Easing, Element, ElementKind, FrameScript, Layer,
-    LayerRole, MAX_PROJECT_JSON_BYTES, ObjectEvent, PathCommand, Project, ResourceUnit, Script,
-    ScriptLanguage, Symbol, SymbolKind, TweenKind, flatten_scenes_cow, layer_effectively_visible,
+    LayerRole, MAX_NFLASH_BUNDLE_BYTES, MAX_PROJECT_JSON_BYTES, NFLASH_BUNDLE_MAGIC, ObjectEvent,
+    PathCommand, Project, ResourceUnit, Script, ScriptLanguage, Symbol, SymbolKind, TweenKind,
+    flatten_scenes_cow, has_nflash_bundle_prefix, layer_effectively_visible,
     sample_layer_in_at_fps, scene_ranges, validate as validate_project_model,
 };
 use neoflash_export::{embedded_font_families, load_profiles_from_project};
@@ -516,6 +517,25 @@ pub(crate) fn write_json_error<W1: Write, W2: Write>(
 /// Load a `.nflash` file into a `Project`, tolerating validation issues so `inspect`/`validate`
 /// can report every `ValidationIssue` cleanly.
 pub(crate) fn load_project_lenient(path: &Path) -> Result<Project, CliError> {
+    let (prefix, prefix_len) = peek_file_prefix_8(path, "project")?;
+    if &prefix[..prefix_len] == NFLASH_BUNDLE_MAGIC {
+        let bytes = read_bytes_file_limited(path, MAX_NFLASH_BUNDLE_BYTES, "project bundle")?;
+        return Project::from_nflash_bytes(&bytes).map_err(|e| {
+            CliError::runtime(
+                "invalid_bundle",
+                format!("Invalid project bundle '{}': {e}", path.display()),
+            )
+        });
+    }
+    if has_nflash_bundle_prefix(&prefix[..prefix_len]) {
+        return Err(CliError::runtime(
+            "invalid_bundle",
+            format!(
+                "Truncated or unsupported NFLASHB1 bundle header in '{}'",
+                path.display()
+            ),
+        ));
+    }
     let raw = read_utf8_file_limited(path, MAX_PROJECT_JSON_BYTES, "project")?;
     match Project::from_json(&raw) {
         Ok(project) => Ok(project),
@@ -535,6 +555,25 @@ pub(crate) fn load_project_lenient(path: &Path) -> Result<Project, CliError> {
 
 /// Load and strictly validate a `.nflash` project before mutating, compiling, evaluating, or exporting.
 pub(crate) fn load_project_valid(path: &Path) -> Result<Project, CliError> {
+    let (prefix, prefix_len) = peek_file_prefix_8(path, "project")?;
+    if &prefix[..prefix_len] == NFLASH_BUNDLE_MAGIC {
+        let bytes = read_bytes_file_limited(path, MAX_NFLASH_BUNDLE_BYTES, "project bundle")?;
+        return Project::from_nflash_bytes(&bytes).map_err(|e| {
+            CliError::runtime(
+                "invalid_project",
+                format!("Failed loading '{}': {e}", path.display()),
+            )
+        });
+    }
+    if has_nflash_bundle_prefix(&prefix[..prefix_len]) {
+        return Err(CliError::runtime(
+            "invalid_project",
+            format!(
+                "Failed loading '{}': truncated or unsupported NFLASHB1 bundle header",
+                path.display()
+            ),
+        ));
+    }
     let raw = read_utf8_file_limited(path, MAX_PROJECT_JSON_BYTES, "project")?;
     Project::from_json(&raw).map_err(|e| {
         CliError::runtime(
@@ -542,6 +581,86 @@ pub(crate) fn load_project_valid(path: &Path) -> Result<Project, CliError> {
             format!("Failed loading '{}': {e}", path.display()),
         )
     })
+}
+
+fn peek_file_prefix_8(path: &Path, label: &str) -> Result<([u8; 8], usize), CliError> {
+    let mut file = fs::File::open(path).map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Failed to read {label} '{}': {e}", path.display()),
+        )
+    })?;
+    let mut buf = [0u8; 8];
+    let mut read = 0usize;
+    while read < buf.len() {
+        match file.read(&mut buf[read..]) {
+            Ok(0) => break,
+            Ok(n) => read += n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                return Err(CliError::runtime(
+                    "io_error",
+                    format!("Failed to read {label} '{}': {e}", path.display()),
+                ));
+            }
+        }
+    }
+    Ok((buf, read))
+}
+
+fn read_bytes_file_limited(
+    path: &Path,
+    max_bytes: usize,
+    label: &str,
+) -> Result<Vec<u8>, CliError> {
+    let file = fs::File::open(path).map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Failed to read {label} '{}': {e}", path.display()),
+        )
+    })?;
+    let declared_len = file.metadata().map_err(|e| {
+        CliError::runtime(
+            "io_error",
+            format!("Failed to inspect {label} '{}': {e}", path.display()),
+        )
+    })?;
+    if declared_len.len() > max_bytes as u64 {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            format!(
+                "{} '{}' exceeds the {} MiB encoded input limit",
+                label.to_ascii_uppercase(),
+                path.display(),
+                max_bytes / (1024 * 1024)
+            ),
+        ));
+    }
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(declared_len.len())
+            .unwrap_or(max_bytes)
+            .min(max_bytes),
+    );
+    file.take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| {
+            CliError::runtime(
+                "io_error",
+                format!("Failed to read {label} '{}': {e}", path.display()),
+            )
+        })?;
+    if bytes.len() > max_bytes {
+        return Err(CliError::runtime(
+            "resource_limit_exceeded",
+            format!(
+                "{} '{}' exceeds the {} MiB encoded input limit",
+                label.to_ascii_uppercase(),
+                path.display(),
+                max_bytes / (1024 * 1024)
+            ),
+        ));
+    }
+    Ok(bytes)
 }
 
 /// Read a UTF-8 CLI input without allocating beyond its established encoded-size boundary.
@@ -653,13 +772,14 @@ pub(crate) fn upgrade_project_format_versions(project: &mut Project) {
     project.upgrade_format_for_features();
 }
 
-/// Upgrade document format version, validate invariants, serialize JSON, and save atomically.
+/// Upgrade document format version, validate invariants, serialize `.nflash` (UTF-8 JSON or
+/// `NFLASHB1` bundle), and save atomically.
 pub(crate) fn save_project_atomic(project: &mut Project, path: &Path) -> Result<(), CliError> {
     upgrade_project_format_versions(project);
-    let json = project
-        .to_json()
+    let bytes = project
+        .to_nflash_bytes()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
-    crate::windows_platform::atomic_replace_file(path, json.as_bytes()).map_err(|e| {
+    crate::windows_platform::atomic_replace_file(path, &bytes).map_err(|e| {
         CliError::runtime(
             "io_error",
             format!("Failed saving project '{}': {e}", path.display()),
@@ -2099,6 +2219,7 @@ fn inspect_resource_json(res: &ResourceUnit) -> Value {
         "id": res.id,
         "path": res.path,
         "media_type": res.media_type,
+        "byte_len": res.byte_len(),
         "encoded_len": res.data_base64.len(),
         "is_audio": res.is_audio(),
         "is_video": res.is_video(),

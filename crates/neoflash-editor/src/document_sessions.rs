@@ -54,6 +54,7 @@ fn fast_project_header_hash(project: &Project, active_symbol_id: Option<&str>) -
         .hash(&mut h);
     project.also_compile_compatible_scripts.hash(&mut h);
     std::mem::discriminant(&project.html_render_mode()).hash(&mut h);
+    project.is_large_bundle().hash(&mut h);
     project.library_folders.len().hash(&mut h);
     project.scenes.len().hash(&mut h);
     project.sources.len().hash(&mut h);
@@ -582,10 +583,7 @@ impl Editor {
             return self.try_import_legacy(path, ctx);
         }
         // Parse and validate first. Failure cannot consume a draft, history or recovery.
-        match std::fs::read_to_string(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|raw| Project::from_json(&raw).map_err(|e| e.to_string()))
-        {
+        match crate::app::read_nflash_project_file(&path) {
             Ok(project) => {
                 self.open_new_session_tab(ctx, project, Some(path.clone()));
                 self.workspace.general.push_recent(&path);

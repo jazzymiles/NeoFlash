@@ -45,6 +45,7 @@ mod authored_playback;
 mod authoring_geometry;
 pub mod avi;
 pub mod bitmap_trace;
+pub mod bundle;
 mod clipboard;
 mod demo;
 mod evaluate;
@@ -97,6 +98,10 @@ pub use avi::{
     AviFrameEntry, AviHeaderInfo, AviIndexedContainer, DecodedAviMedia, build_minimal_mjpeg_avi,
     decode_avi_bytes, index_avi_container, inspect_avi_header, is_avi_bytes, probe_mp4_duration_ms,
     probe_video_bytes_duration_ms, probe_wav_duration_ms, wrap_pcm_as_wav,
+};
+pub use bundle::{
+    NFLASH_BUNDLE_HEADER_BYTES, NFLASH_BUNDLE_MAGIC, NFLASH_BUNDLE_VERSION, NflashBundleEntry,
+    NflashBundleManifest, has_nflash_bundle_prefix, is_nflash_bundle_bytes,
 };
 pub use clipboard::{
     CLIPBOARD_PREFIX, ClipboardError, ClipboardPayload, MAX_CLIPBOARD_BYTES, PasteResult,
@@ -184,9 +189,11 @@ pub use pixels::{
 };
 pub use resource_image::DecodedImage;
 pub use resources::{
-    BitmapCompression, BitmapExportSettings, MAX_PROJECT_JSON_BYTES, MAX_RESOURCE_BYTES,
-    MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES, ResourceError, ResourceUnit, SoundCompression,
-    SoundExportQuality, SoundExportSettings, VALID_AUDIO_BIT_RATES_KBPS, VALID_JPEG_QUALITY_RANGE,
+    BitmapCompression, BitmapExportSettings, MAX_BUNDLE_RESOURCE_BYTES,
+    MAX_BUNDLE_RESOURCE_TOTAL_BYTES, MAX_BUNDLE_RESOURCES, MAX_NFLASH_BUNDLE_BYTES,
+    MAX_PROJECT_JSON_BYTES, MAX_RESOURCE_BYTES, MAX_RESOURCE_TOTAL_BYTES, MAX_RESOURCES,
+    ResourceError, ResourceUnit, SoundCompression, SoundExportQuality, SoundExportSettings,
+    VALID_AUDIO_BIT_RATES_KBPS, VALID_JPEG_QUALITY_RANGE,
 };
 pub use runtime::{
     AccessibleNode, DisplayNode, FrameLabel, PlaybackCommand, Player, ScriptDispatch, ScriptEvent,

@@ -4480,6 +4480,20 @@ impl Project {
         self.set_publish_settings(&settings);
     }
 
+    /// Whether this document opted into large `.nflash` bundle resource limits (`128 MiB` per
+    /// resource, `512 MiB` total resources, `4096` resources, serialized as `NFLASHB1` when
+    /// exceeding inline JSON limits, `T-471`).
+    pub fn is_large_bundle(&self) -> bool {
+        self.publish_settings().large_bundle
+    }
+
+    /// Enable or disable large `.nflash` bundle resource limits on this document (`T-471`).
+    pub fn set_large_bundle(&mut self, large_bundle: bool) {
+        let mut settings = self.publish_settings();
+        settings.large_bundle = large_bundle;
+        self.set_publish_settings(&settings);
+    }
+
     /// Document-level named global colour swatches linked to elements (T-114).
     pub fn global_swatches(&self) -> Vec<GlobalSwatch> {
         let Some(unit) = self.resources.iter().find(|r| {
@@ -4910,11 +4924,16 @@ pub struct PublishSettings {
     pub breakpoints: Vec<PublishBreakpoint>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub xcode_swift_target: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub large_bundle: bool,
 }
 
 impl PublishSettings {
     pub fn is_default(&self) -> bool {
-        self.render_mode.is_default() && self.breakpoints.is_empty() && !self.xcode_swift_target
+        self.render_mode.is_default()
+            && self.breakpoints.is_empty()
+            && !self.xcode_swift_target
+            && !self.large_bundle
     }
 }
 
