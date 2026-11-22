@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "baseCatalogSha256": "27e6bceaa746f4afcff0f05d8aadfb56197778056b0f311b1a463429aa7b4d37",
+  "reviews": [
+    {
+      "id": "AS2-SHAREDOBJECT-FMS-20261122",
+      "date": "2026-11-22",
+      "commit": "6b6c50ea17728db1b701cb961198c0b229f5dd02",
+      "title": "AS2 remote SharedObject WebSocket relay, offline persistence and FMS boundary",
+      "summary": "Cross-origin AS2 clients synchronize SharedObject rooms through the neoflash-sync WebSocket relay, restore string-keyed local AMF caches offline and reconcile field-level conflicts on reconnect. Native Adobe RTMP/FMS endpoints remain outside the WebSocket profile.",
+      "tests": [
+        "web/tests/as3-area8-conformance.test.cjs",
+        "web/tests/dom-layout-and-portability.test.cjs"
+      ],
+      "entries": [
+        {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "partial",
+          "note": "Temporary, server-only and client/server-persistent WebSocket rooms work. A local cache path restores the remote object offline. The native Adobe RTMP/FMS endpoint is unsupported."
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "partial",
+          "note": "The relay restores the authoritative snapshot and reconciles offline changes across publications, including conflict notifications. Native Adobe RTMP/FMS connections are unsupported."
+        }
+      ]
+    }
+  ]
+}

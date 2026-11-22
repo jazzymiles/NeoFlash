@@ -2113,9 +2113,9 @@
       "id": "web-shared-runtime",
       "category": "web",
       "title": "Shared Rust/WASM core",
-      "status": "partial",
-      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback. Bounded AMF0/AMF3 values are encoded/decoded in Rust and used by ByteArray object records and local AS2/AS3 SharedObject persistence. AS3 Array prototype borrowing (`Array.prototype.*`), unbound `toString`/`toLocaleString`, and sparse hole semantics share the runtime collection kernel (`T-011`). The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes.",
-      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Typed aliases, XML/XMLDocument, sparse indices and native AMF0/AMF3 `.sol` byte exchange work through Rust/WASM, with actual browser file-input/download and reload coverage. Vector, Dictionary, XMLList, IExternalizable, complete historical alias semantics, automatic Flash-storage discovery and RTMP server synchronization remain unsupported. SOL envelopes have no object identity and trailing array holes may disappear. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
+      "status": "implemented",
+      "scope": "The browser uses the same timeline runtime; tests call the actual compiled WASM. Runtime-created object identity, hierarchy, solid drawing, transformed bounds/hits and captured lifecycle routes use the shared Rust/WASM scene while authored documents remain immutable. Explicit linked MovieClip namespaces reuse the shared timeline evaluator with independent frame scripts, nested clocks and ref-based semantic targets, including detached playback. Bounded AMF0/AMF3 values are encoded/decoded in Rust and used by ByteArray object records and local AS2/AS3 SharedObject persistence. AS3 Array prototype borrowing (`Array.prototype.*`), unbound `toString`/`toLocaleString`, and sparse hole semantics share the runtime collection kernel (`T-011`). The second bounded runtime batch adds Rust date/number formatting, four rendered filter families and manual AS3 event payload classes. Published AS2 and AS3 movies on independent origins exchange SharedObject changes and messages through a self-hosted WebSocket relay. The relay sends late joiners the current state and optionally persists rooms across restarts.",
+      "limitations": "A shared implementation does not prove compatibility with Flash behavior. The combined dynamic-display browser workflow and Restart passed; authored/dynamic reordering and full Flash construction order remain bounded. Independent 2b5deff evidence covers only the exact dynamic drawing/identity or binary packet scenarios in VERIFICATION.md; other members and native error/coercion fidelity remain unverified. Independent 798e28b evidence (LINKED-INTERFACES-HTML5-20261027T0243Z) applies only to the linked timeline and interface/accessor observations in VERIFICATION.md. AS2 host-error catch recovery, complete construction order and uncalled members remain unverified or outside the supported profile. Typed aliases, XML/XMLDocument, sparse indices and native AMF0/AMF3 `.sol` byte exchange work through Rust/WASM, with actual browser file-input/download and reload coverage. Vector, Dictionary, XMLList, IExternalizable, complete historical alias semantics, automatic Flash-storage discovery and native Adobe FMS/RTMP interoperability remain unsupported. SOL envelopes have no object identity and trailing array holes may disappear. Browser quota/access and HTTP(S) origin rules apply; Restart discards unflushed edits. AMF payload size excludes the storage envelope and historical filesystem overhead.",
       "items": [
         {
           "id": "shared-timeline",
@@ -2164,8 +2164,8 @@
         },
         {
           "id": "sol-remote-sync",
-          "title": "SharedObject file exchange and remote synchronization",
-          "status": "partial"
+          "title": "Exchange SOL files and synchronize remote SharedObjects through the NeoFlash WebSocket relay",
+          "status": "working"
         }
       ],
       "evidence": [
@@ -2197,7 +2197,9 @@
         "crates/neoflash-core/tests/sol.rs",
         "crates/neoflash-core/tests/fixtures/sol/provenance.json",
         "web/tests/amf-sol.test.cjs",
-        "web/tests/publish-parity-polish.test.cjs"
+        "web/tests/publish-parity-polish.test.cjs",
+        "crates/neoflash-sync/src/main.rs",
+        "web/tests/as3-area8-conformance.test.cjs"
       ]
     },
     {
@@ -3930,8 +3932,8 @@
       "category": "platform",
       "title": "Signed releases and platform matrix",
       "status": "partial",
-      "scope": "Local `0.1.0-beta.1` macOS `.app`/ZIP/DMG plus portable Windows x64 ZIP and Ubuntu 24.04-compatible Linux x64 tar.gz Technical Preview packaging. All routes stage the exact Rust dependency licence closure and refuse incomplete media hashes, licences or corresponding source; Windows/Linux use pinned BtbN GPL static-dependency helpers and shared fail-closed package validation. Native runners build archives, verify internal/external checksums, exercise bundled codecs with an empty PATH, load the packaged WASM runtime and capture headless startup evidence. macOS also supports ad-hoc/Developer ID signing, hardened-runtime entitlements and transactional notarization/stapling automation with validated absolute production tool paths, checked two-phase rollback restoration and hermetic failure verification; the desktop browser matrix covers Full, Balanced and Compact file output and Shared HTTP in Chrome, Safari and Firefox, including input, timelines and media, and the Beta feedback dialog enforces RFC 7578 multipart formatting, FormSubmit-only `_captcha=false` with zero device/document telemetry, a combined 10 MB attachment cap, `NEOFLASH_FEEDBACK_URL` normalization, digest-derived collision-bounded multipart delimiters, and fail-closed activation, HTTP 413, unreadable-body, malformed-JSON and truncated-response diagnostics. Preferences ▸ Updates compares shared build metadata against `jazzymiles/NeoFlash` GitHub Releases (`Stable` vs `Beta` SemVer 2.0.0 prereleases, opt-in daily auto-check), downloads platform archives with cancellation and fail-closed `SHA256SUMS` verification before saving and revealing for manual install, reports the real installed-extension count and keeps unimplemented privacy switches disabled.",
-      "limitations": "Owner-executed Apple Developer ID notarization/stapling, physical Intel macOS execution, Safari live WebDriver execution when host 'Allow Remote Automation' is disabled, and in-app silent self-installation or automatic replacement (`Preferences ▸ Updates` downloads and SHA-256-verifies archives for manual replacement in Beta 1; live extension update manifests remain unimplemented) remain external or post-Beta-1 gates. The unsigned Windows archive may trigger SmartScreen; the connected private debugger and physical Windows 11 desktop acceptance remain pending beyond the Windows Server 2022-compatible runner. Linux acceptance is bounded to Ubuntu 24.04 x64 headless X11/Wayland with Vulkan/GLES; AppImage/deb packaging, broader distributions and interactive visual acceptance remain pending. The BtbN build recipes retain complete pinned source but use a mutable upstream build-image tag, so no byte-identical future compiler environment is claimed.",
+      "scope": "Local `0.1.0-beta.1` macOS `.app`/ZIP/DMG plus portable Windows x64 ZIP and Ubuntu 24.04-compatible Linux x64 tar.gz Technical Preview packaging. The Linux amd64 Debian package supplies the editor, desktop launcher, .nflash association, media helpers and offline publishing runtime. All routes stage the exact Rust dependency licence closure and refuse incomplete media hashes, licences or corresponding source; Windows/Linux use pinned BtbN GPL static-dependency helpers and shared fail-closed package validation. Native runners build archives, verify internal/external checksums, exercise bundled codecs with an empty PATH, load the packaged WASM runtime and capture headless startup evidence. macOS also supports ad-hoc/Developer ID signing, hardened-runtime entitlements and transactional notarization/stapling automation with validated absolute production tool paths, checked two-phase rollback restoration and hermetic failure verification; the desktop browser matrix covers Full, Balanced and Compact file output and Shared HTTP in Chrome, Safari and Firefox, including input, timelines and media. Preferences ▸ Updates compares shared build metadata against `jazzymiles/NeoFlash` GitHub Releases (`Stable` vs `Beta` SemVer 2.0.0 prereleases, opt-in daily auto-check), downloads platform archives with cancellation and fail-closed `SHA256SUMS` verification before saving and revealing for manual install, reports the real installed-extension count and keeps unimplemented privacy switches disabled.",
+      "limitations": "The in-app feedback form is hidden pending verified delivery. Owner-executed Apple Developer ID notarization/stapling, physical Intel macOS execution, Safari live WebDriver execution when host 'Allow Remote Automation' is disabled, and in-app silent self-installation or automatic replacement (`Preferences ▸ Updates` downloads and SHA-256-verifies archives for manual replacement in Beta 1; live extension update manifests remain unimplemented) remain external or post-Beta-1 gates. The unsigned Windows archive may trigger SmartScreen; the connected private debugger and physical Windows 11 desktop acceptance remain pending beyond the Windows Server 2022-compatible runner. Linux acceptance is bounded to Ubuntu 24.04 x64 headless X11/Wayland with Vulkan/GLES; AppImage packaging, broader distributions and interactive visual acceptance remain pending. The BtbN build recipes retain complete pinned source but use a mutable upstream build-image tag, so no byte-identical future compiler environment is claimed.",
       "items": [
         {
           "id": "local-app",
@@ -3955,7 +3957,7 @@
         },
         {
           "id": "linux-portable-preview",
-          "title": "Portable Linux x64 Technical Preview",
+          "title": "Install the Linux x64 Technical Preview from a Debian package or portable archive",
           "status": "working"
         },
         {
@@ -3986,7 +3988,7 @@
         {
           "id": "beta-feedback-dialog",
           "title": "Beta-only Stage Bug? chip and Beta feedback dialog with image attachments and multipart submission",
-          "status": "working"
+          "status": "planned"
         }
       ],
       "evidence": [
@@ -4015,7 +4017,8 @@
         "crates/neoflash-editor/src/panels/preferences.rs",
         "crates/neoflash-editor/src/panels/beta_feedback.rs",
         "crates/neoflash-editor/src/beta_feedback_tests.rs",
-        "crates/neoflash-editor/src/updater_tests.rs"
+        "crates/neoflash-editor/src/updater_tests.rs",
+        "scripts/package-linux-deb.sh"
       ]
     },
     {

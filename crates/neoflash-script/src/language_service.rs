@@ -1366,21 +1366,22 @@ mod tests {
             language: ScriptLanguage::ActionScript3,
             source: source.into(),
         };
-        let source = "import flash.display.Loader; import flash.net.URLRequest; var loader:Loader = new Loader(); loader.load(new URLRequest('clip.swf'));";
+        let source = "import flash.html.HTMLLoader; import flash.net.URLRequest; var html:HTMLLoader = new HTMLLoader(); html.load(new URLRequest('page.html'));";
         let diagnostics = partial_api_uses(&script(source));
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].owner, "flash.display.Loader");
+        assert_eq!(diagnostics[0].owner, "flash.html.HTMLLoader");
         assert_eq!(
             &source[diagnostics[0].span.0..diagnostics[0].span.1],
             "load"
         );
-        assert!(diagnostics[0].limitation.contains("SWF"));
+        assert!(diagnostics[0].limitation.contains("AIR"));
         for source in [
-            "var loader:Object; loader.load();",
-            "import flash.display.Loader; function f(loader:Object):void { loader.load(); }",
-            "import flash.display.Loader; class Loader { public function load():void {} } var loader:Loader; loader.load();",
-            "import flash.display.Loader; var loader:Loader; trace('loader.load()');",
-            "import flash.display.Loader; var loader:Loader; var pattern:RegExp=/loader.load/;",
+            "var html:Object; html.load();",
+            "import flash.html.HTMLLoader; function f(html:Object):void { html.load(); }",
+            "import flash.html.HTMLLoader; class HTMLLoader { public function load():void {} } var html:HTMLLoader; html.load();",
+            "import flash.html.HTMLLoader; var html:HTMLLoader; trace('html.load()');",
+            "import flash.html.HTMLLoader; var html:HTMLLoader; var pattern:RegExp=/html.load/;",
+            "import flash.display.Loader; import flash.net.URLRequest; var loader:Loader = new Loader(); loader.load(new URLRequest('clip.swf'));",
             "import flash.net.URLLoader; import flash.net.URLRequest; var ul:URLLoader = new URLLoader(); ul.load(new URLRequest('data.json'));",
             "import flash.net.Socket; var connection:Socket = new Socket(); connection.connect('localhost',80);",
         ] {

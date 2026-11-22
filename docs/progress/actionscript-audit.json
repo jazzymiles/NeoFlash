@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "27e6bceaa746f4afcff0f05d8aadfb56197778056b0f311b1a463429aa7b4d37",
+  "catalogSha256": "40bb76a91a649b62c19e8bd0c24c00015f24579da78c4e636e0421ee63285849",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -40590,6 +40590,44 @@
             "evidenceKind": "test_backed_review"
           }
         ]
+      },
+      {
+        "id": "AS3-SWF-LOADER-20261122",
+        "title": "Verify button events and numeric behavior in loaded SWF movies",
+        "reason": "AS3 Loader child movies preserve AVM2 integer wraparound, NaN comparison results, nearest lexical bindings and AVM1 button transitions. Both loading entry points remain Partial for the named media, VM and application-domain gaps.",
+        "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+        "evidence": [
+          {
+            "path": "web/tests/swf-loader.test.cjs",
+            "sha256": "350ef2c459599636d5743400318e9c7709bac3f2d1b9209b4d24930a85df2603"
+          }
+        ],
+        "reviewedEntries": [
+          {
+            "catalogId": "AS3:method:flash/display/Loader.html#load()",
+            "status": "partial",
+            "scopeNote": "Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete."
+          },
+          {
+            "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+            "status": "partial",
+            "scopeNote": "Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete."
+          }
+        ],
+        "previousEntries": [
+          {
+            "catalogId": "AS3:method:flash/display/Loader.html#load()",
+            "status": "partial",
+            "ruleId": "AS3-JXR-AREA8-CONFORMANCE-20261122",
+            "evidenceKind": "test_backed_review"
+          },
+          {
+            "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+            "status": "partial",
+            "ruleId": "AS3-JXR-AREA8-CONFORMANCE-20261122",
+            "evidenceKind": "test_backed_review"
+          }
+        ]
       }
     ],
     "normalizedReviewInputs": [
@@ -41109,6 +41147,22 @@
         "reviewIds": [
           "AS3-SWF-LOADER-20261122"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-22-as2-sharedobject-fms.json",
+        "sha256": "f4a74cb3ef8bb2fd12024281b3103b72991ad922c1fc9c3bed97ddaa04400a00",
+        "baseCatalogSha256": "27e6bceaa746f4afcff0f05d8aadfb56197778056b0f311b1a463429aa7b4d37",
+        "reviewIds": [
+          "AS2-SHAREDOBJECT-FMS-20261122"
+        ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-22-as3-player-backlog.json",
+        "sha256": "6c8c1291d5c3b83ffc3e2b309bdf2e2a90287fa37f1987d7eb621765312f43ff",
+        "baseCatalogSha256": "28942385075dd7e2d9296e4f8492b207e133f503e86f4653313f07a87980d6a1",
+        "reviewIds": [
+          "AS3-PLAYER-BACKLOG-COMPLETE-20261122"
+        ]
       }
     ],
     "statusReviews": [
@@ -41601,28 +41655,47 @@
         "commit": "aeccdb6407b69093cefe3f39bcbc6cec849b233e",
         "path": "docs/progress/reviews/2026-11-22-as3-swf-loader.json",
         "changes": {}
+      },
+      {
+        "id": "AS2-SHAREDOBJECT-FMS-20261122",
+        "date": "2026-11-22",
+        "commit": "6b6c50ea17728db1b701cb961198c0b229f5dd02",
+        "path": "docs/progress/reviews/2026-11-22-as2-sharedobject-fms.json",
+        "changes": {
+          "partial": 2
+        }
+      },
+      {
+        "id": "AS3-PLAYER-BACKLOG-COMPLETE-20261122",
+        "date": "2026-11-22",
+        "commit": "3d784ef970ec2585a3b00e17eb6581c8a9e6ac27",
+        "path": "docs/progress/reviews/2026-11-22-as3-player-backlog.json",
+        "changes": {
+          "partial": 2,
+          "working": 113
+        }
       }
     ]
   },
   "summary": {
     "total": {
-      "implemented_subset": 6171,
-      "partial": 1246,
+      "implemented_subset": 6280,
+      "partial": 1137,
       "missing": 38630,
       "needs_review": 0,
       "total": 46047
     },
     "byLanguage": {
       "AS2": {
-        "implemented_subset": 1238,
-        "partial": 431,
+        "implemented_subset": 1236,
+        "partial": 433,
         "missing": 638,
         "needs_review": 0,
         "total": 2307
       },
       "AS3": {
-        "implemented_subset": 4933,
-        "partial": 815,
+        "implemented_subset": 5044,
+        "partial": 704,
         "missing": 37992,
         "needs_review": 0,
         "total": 43740
@@ -41665,8 +41738,8 @@
         "total": 171
       },
       "runtime": {
-        "implemented_subset": 5341,
-        "partial": 691,
+        "implemented_subset": 5450,
+        "partial": 582,
         "missing": 126,
         "needs_review": 0,
         "total": 6158
@@ -41710,8 +41783,8 @@
           "total": 10
         },
         "runtime": {
-          "implemented_subset": 908,
-          "partial": 0,
+          "implemented_subset": 906,
+          "partial": 2,
           "missing": 0,
           "needs_review": 0,
           "total": 908
@@ -41754,8 +41827,8 @@
           "total": 161
         },
         "runtime": {
-          "implemented_subset": 4433,
-          "partial": 691,
+          "implemented_subset": 4544,
+          "partial": 580,
           "missing": 126,
           "needs_review": 0,
           "total": 5250
@@ -182297,38 +182370,1343 @@
       ]
     },
     {
-      "id": "AS3-SWF-LOADER-20261122",
-      "title": "Verify button events and numeric behavior in loaded SWF movies",
-      "reason": "AS3 Loader child movies preserve AVM2 integer wraparound, NaN comparison results, nearest lexical bindings and AVM1 button transitions. Both loading entry points remain Partial for the named media, VM and application-domain gaps.",
+      "id": "AS2-SHAREDOBJECT-FMS-20261122",
+      "title": "AS2 remote SharedObject WebSocket relay, offline persistence and FMS boundary",
+      "reason": "Cross-origin AS2 clients synchronize SharedObject rooms through the neoflash-sync WebSocket relay, restore string-keyed local AMF caches offline and reconcile field-level conflicts on reconnect. Native Adobe RTMP/FMS endpoints remain outside the WebSocket profile.",
       "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
       "evidence": [
         {
-          "path": "web/tests/swf-loader.test.cjs",
-          "sha256": "350ef2c459599636d5743400318e9c7709bac3f2d1b9209b4d24930a85df2603"
+          "path": "web/tests/as3-area8-conformance.test.cjs",
+          "sha256": "ff2fcb7a1f5cf4ef53379aaff2d915e69dc8a55b39923bb7916df41b7120d329"
+        },
+        {
+          "path": "web/tests/dom-layout-and-portability.test.cjs",
+          "sha256": "78f1a3a5c0552d97d29173af21cea945abd4be2a8abb70c4c442f2f4a577433b"
         }
       ],
       "reviewedEntries": [
         {
-          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "catalogId": "as2:SharedObject.html#getRemote()",
           "status": "partial",
-          "scopeNote": "Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete."
+          "scopeNote": "Temporary, server-only and client/server-persistent WebSocket rooms work. A local cache path restores the remote object offline. The native Adobe RTMP/FMS endpoint is unsupported."
         },
         {
-          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "catalogId": "as2:SharedObject.html#connect()",
           "status": "partial",
-          "scopeNote": "Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete."
+          "scopeNote": "The relay restores the authoritative snapshot and reconciles offline changes across publications, including conflict notifications. Native Adobe RTMP/FMS connections are unsupported."
         }
       ],
       "previousEntries": [
         {
+          "catalogId": "as2:SharedObject.html#getRemote()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "as2:SharedObject.html#connect()",
+          "status": "implemented_subset",
+          "ruleId": "AS2-WAVE7-GENUINE-CONFORMANCE-20261102",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-PLAYER-BACKLOG-COMPLETE-20261122",
+      "title": "AS3 Flash Player backlog (Loader, Worker, SystemUpdater, DRM) and SharedObject FMS boundary",
+      "reason": "Completes all 113 non-SharedObject Partial AS3 Flash Player declarations (Loader SWF audio/video/domainMemory/E4X, Worker threads, SystemUpdater streaming, DRM + AES-128-CTR NetStream) and records the native Adobe RTMP/FMS boundary on SharedObject.getRemote/connect alongside WebSocket relay and offline reconciliation.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "crates/neoflash-core/src/as3_net_sys/tests.rs",
+          "sha256": "e28ded1702bd5efed8e99ae217303a4412d5b943c0c08a0ca7e14e87e4356b4b"
+        },
+        {
+          "path": "crates/neoflash-web/src/swf_loader/tests.rs",
+          "sha256": "7e6474c9cb90bed42ab34392d52a83868a1042999570fdc0f723910bee8303c6"
+        },
+        {
+          "path": "web/tests/swf-loader.test.cjs",
+          "sha256": "41a8e7fb58afb1d88935a04b34684853154f4e98004b7ac7b393e6feb07e7671"
+        },
+        {
+          "path": "web/tests/as3-player-backlog.test.cjs",
+          "sha256": "f93255077e4ea210376ed71e34ec2612bbea4b9e518706db82ea0ed945cc2e9f"
+        },
+        {
+          "path": "web/tests/as3-area8-conformance.test.cjs",
+          "sha256": "ff2fcb7a1f5cf4ef53379aaff2d915e69dc8a55b39923bb7916df41b7120d329"
+        },
+        {
+          "path": "web/tests/dom-layout-and-portability.test.cjs",
+          "sha256": "78f1a3a5c0552d97d29173af21cea945abd4be2a8abb70c4c442f2f4a577433b"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:class:flash/events/DRMAuthenticationCompleteEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMAuthenticationErrorEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMDeviceGroupErrorEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMDeviceGroupEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMErrorEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMLicenseRequestEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMMetadataEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMReturnVoucherCompleteEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMReturnVoucherErrorEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMStatusEvent.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/AuthenticationMethod.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMContentData.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMDeviceGroup.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMManager.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMPlaybackTimeWindow.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMVoucher.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/LoadVoucherSetting.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/VoucherAccessInfo.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/SystemUpdater.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/SystemUpdaterType.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/Worker.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:class:flash/system/WorkerDomain.html#",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMAuthenticationCompleteEvent.html#DRMAuthenticationCompleteEvent()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMAuthenticationErrorEvent.html#DRMAuthenticationErrorEvent()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMErrorEvent.html#DRMErrorEvent()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMLicenseRequestEvent.html#DRMLicenseRequestEvent()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMReturnVoucherCompleteEvent.html#DRMReturnVoucherCompleteEvent()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMReturnVoucherErrorEvent.html#DRMReturnVoucherErrorEvent()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMStatusEvent.html#DRMStatusEvent()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/drm/DRMContentData.html#DRMContentData()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/SystemUpdater.html#SystemUpdater()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:drmError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:drmStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:authenticationComplete",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:authenticationError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:drmError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:drmStatus",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:cancel",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:complete",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:ioError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:open",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:progress",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:securityError",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:status",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:event:flash/system/Worker.html#event:workerState",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on PNG/JPEG/GIF/WebP/JXR, NeoFlash bundles, and FWS/CWS/ZWS SWF movies (DefineSound PCM/ADPCM/MP3, StartSound/StartSound2, SoundStreamHead/Block, DefineVideoStream FLV & ScreenVideo RGBA, AVM1/AVM2 closures, E4X & domainMemory opcodes, and child/same/isolated ApplicationDomain merging); external boundary: Sorenson Spark/VP6 SWF video in browsers without FLV decoders and live third-party CDN crossdomain.xml hosting."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on PNG/JPEG/GIF/WebP/JXR, NeoFlash bundles, and FWS/CWS/ZWS SWF movies (DefineSound PCM/ADPCM/MP3, StartSound/StartSound2, SoundStreamHead/Block, DefineVideoStream FLV & ScreenVideo RGBA, AVM1/AVM2 closures, E4X & domainMemory opcodes, and child/same/isolated ApplicationDomain merging); external boundary: Sorenson Spark/VP6 SWF video in browsers without FLV decoders and live third-party CDN crossdomain.xml hosting."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMErrorEvent.html#clone()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMErrorEvent.html#toString()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#resetDRMVouchers()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMContentData.html#getVoucherAccessInfo()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#addToDeviceGroup()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#authenticate()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#getDRMManager()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#loadPreviewVoucher()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#loadVoucher()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#removeFromDeviceGroup()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#resetDRMVouchers()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#returnVoucher()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#setAuthenticationToken()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#storeVoucher()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/SystemUpdater.html#cancel()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/SystemUpdater.html#update()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified against live HTTP streaming endpoints with single-update #2037 lock, Event.OPEN, chunked ProgressEvent.PROGRESS, SHA-256 package digest check, AbortController cancel(), and Adobe StatusEvent/SecurityErrorEvent/IOErrorEvent mapping; external boundary: browser sandboxes cannot overwrite native desktop OS or standalone NPAPI player binaries."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Worker.html#start()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Worker.html#terminate()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/WorkerDomain.html#createWorker()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:method:flash/system/WorkerDomain.html#listWorkers()",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationCompleteEvent.html#domain",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationCompleteEvent.html#serverURL",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationCompleteEvent.html#token",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationErrorEvent.html#domain",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationErrorEvent.html#serverURL",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationErrorEvent.html#subErrorID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#contentData",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#drmUpdateNeeded",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#subErrorID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#systemUpdateNeeded",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMLicenseRequestEvent.html#serverURL",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#licenseID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#numberOfVouchersReturned",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#policyID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#serverURL",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#licenseID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#policyID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#serverURL",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#subErrorID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#contentData",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#isLocal",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#voucher",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#authenticationMethod",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#domain",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#licenseID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#serverURL",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMDeviceGroup.html#name",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMManager.html#isSupported",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMPlaybackTimeWindow.html#endDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMPlaybackTimeWindow.html#period",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMPlaybackTimeWindow.html#startDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#licenseID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#offlineLeaseEndDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#offlineLeaseStartDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#playbackTimeWindow",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#policies",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#policyID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#serverURL",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#voucherEndDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#voucherStartDate",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#authenticationMethod",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#displayName",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#domain",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#policyID",
+          "status": "implemented_subset",
+          "scopeNote": "Verified with binary FADRM/CENC DRMContentData, live HTTP license server exchange (FIFO authenticate, token clearing, DRMLicenseRequestEvent serverURL override, loadVoucher/loadPreviewVoucher, returnVoucher, device groups, networkIdleTimeout), and NIST FIPS-197 AES-128-CTR media decryption in NetStream.appendBytes/resetDRMVouchers; external boundary: retired Adobe Access/Primetime PKI servers, hardware browser EME CDMs (Widevine/FairPlay/PlayReady), and OS keychain offline lease storage."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/WorkerDomain.html#current",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:property:flash/system/WorkerDomain.html#isSupported",
+          "status": "implemented_subset",
+          "scopeNote": "Verified on real background OS threads (Browser Web Worker & Node worker_threads) executing compiled AVM2 SWF bytecode and NeoFlash AS3 self-workers with SharedArrayBuffer shareable ByteArray CAS, blocking MessageChannel.receive(true), Mutex/Condition, and #2012 ctor guards; external boundary: browser SharedArrayBuffer/Atomics.wait requires HTTP COOP/COEP headers, and Stage/DOM display APIs are unavailable inside background workers."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#getRemote()",
+          "status": "partial",
+          "scopeNote": "Temporary, server-only and client/server-persistent WebSocket rooms work. A local cache path restores the remote object offline. The native Adobe RTMP/FMS endpoint is unsupported."
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#connect()",
+          "status": "partial",
+          "scopeNote": "The relay restores the authoritative snapshot and reconciles offline changes across publications, including conflict notifications. Native Adobe RTMP/FMS connections are unsupported."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:class:flash/events/DRMAuthenticationCompleteEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMAuthenticationErrorEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMDeviceGroupErrorEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMDeviceGroupEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMErrorEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMLicenseRequestEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMMetadataEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMReturnVoucherCompleteEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMReturnVoucherErrorEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/events/DRMStatusEvent.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/AuthenticationMethod.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMContentData.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMDeviceGroup.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMManager.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMPlaybackTimeWindow.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/DRMVoucher.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/LoadVoucherSetting.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/net/drm/VoucherAccessInfo.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/SystemUpdater.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/SystemUpdaterType.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/Worker.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:class:flash/system/WorkerDomain.html#",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMAuthenticationCompleteEvent.html#DRMAuthenticationCompleteEvent()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMAuthenticationErrorEvent.html#DRMAuthenticationErrorEvent()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMErrorEvent.html#DRMErrorEvent()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMLicenseRequestEvent.html#DRMLicenseRequestEvent()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMReturnVoucherCompleteEvent.html#DRMReturnVoucherCompleteEvent()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMReturnVoucherErrorEvent.html#DRMReturnVoucherErrorEvent()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/events/DRMStatusEvent.html#DRMStatusEvent()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/net/drm/DRMContentData.html#DRMContentData()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:constructor:flash/system/SystemUpdater.html#SystemUpdater()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:drmError",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/NetStream.html#event:drmStatus",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:authenticationComplete",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:authenticationError",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:drmError",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/net/drm/DRMManager.html#event:drmStatus",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:cancel",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:complete",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:ioError",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:open",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:progress",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:securityError",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/SystemUpdater.html#event:status",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:event:flash/system/Worker.html#event:workerState",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
           "catalogId": "AS3:method:flash/display/Loader.html#load()",
           "status": "partial",
-          "ruleId": "AS3-JXR-AREA8-CONFORMANCE-20261122",
+          "ruleId": "AS3-SWF-LOADER-20261122",
           "evidenceKind": "test_backed_review"
         },
         {
           "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
           "status": "partial",
+          "ruleId": "AS3-SWF-LOADER-20261122",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMErrorEvent.html#clone()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/events/DRMErrorEvent.html#toString()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/NetStream.html#resetDRMVouchers()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMContentData.html#getVoucherAccessInfo()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#addToDeviceGroup()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#authenticate()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#getDRMManager()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#loadPreviewVoucher()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#loadVoucher()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#removeFromDeviceGroup()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#resetDRMVouchers()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#returnVoucher()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#setAuthenticationToken()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/drm/DRMManager.html#storeVoucher()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/SystemUpdater.html#cancel()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/SystemUpdater.html#update()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Worker.html#start()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/Worker.html#terminate()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/WorkerDomain.html#createWorker()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/system/WorkerDomain.html#listWorkers()",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationCompleteEvent.html#domain",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationCompleteEvent.html#serverURL",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationCompleteEvent.html#token",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationErrorEvent.html#domain",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationErrorEvent.html#serverURL",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMAuthenticationErrorEvent.html#subErrorID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#contentData",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#drmUpdateNeeded",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#subErrorID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMErrorEvent.html#systemUpdateNeeded",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMLicenseRequestEvent.html#serverURL",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#licenseID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#numberOfVouchersReturned",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#policyID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherCompleteEvent.html#serverURL",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#licenseID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#policyID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#serverURL",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMReturnVoucherErrorEvent.html#subErrorID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#contentData",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#isLocal",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/events/DRMStatusEvent.html#voucher",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#authenticationMethod",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#domain",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#licenseID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMContentData.html#serverURL",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMDeviceGroup.html#name",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMManager.html#isSupported",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMPlaybackTimeWindow.html#endDate",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMPlaybackTimeWindow.html#period",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMPlaybackTimeWindow.html#startDate",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#licenseID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#offlineLeaseEndDate",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#offlineLeaseStartDate",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#playbackTimeWindow",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#policies",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#policyID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#serverURL",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#voucherEndDate",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/DRMVoucher.html#voucherStartDate",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#authenticationMethod",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#displayName",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#domain",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/net/drm/VoucherAccessInfo.html#policyID",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/WorkerDomain.html#current",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:property:flash/system/WorkerDomain.html#isSupported",
+          "status": "partial",
+          "ruleId": "AS3-STATUS-CALIBRATION-A01-20261102",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#getRemote()",
+          "status": "implemented_subset",
+          "ruleId": "AS3-JXR-AREA8-CONFORMANCE-20261122",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/net/SharedObject.html#connect()",
+          "status": "implemented_subset",
           "ruleId": "AS3-JXR-AREA8-CONFORMANCE-20261122",
           "evidenceKind": "test_backed_review"
         }

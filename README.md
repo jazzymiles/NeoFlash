@@ -20,10 +20,10 @@ Open-source vector animation, interactive media and application authoring studio
 | --- | ---: | ---: | ---: | ---: |
 | Editor and graphics | 170 of 170 | 0 | 0 | 12 / 0 / 0 |
 | Timelines and animation | 84 of 84 | 0 | 0 | 10 / 0 / 0 |
-| HTML5 and interactivity | 110 of 111 | 1 | 0 | 11 / 1 / 0 |
+| HTML5 and interactivity | 111 of 111 | 0 | 0 | 12 / 0 / 0 |
 | Import and file compatibility | 62 of 69 | 7 | 0 | 4 / 6 / 0 |
-| Platform and quality | 64 of 68 | 3 | 1 | 8 / 2 / 0 |
-| **All areas** | 490 of 502 | 11 | 1 | 45 / 9 / 0 |
+| Platform and quality | 63 of 68 | 3 | 2 | 8 / 2 / 0 |
+| **All areas** | 490 of 502 | 10 | 2 | 46 / 8 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -31,8 +31,8 @@ Each capability group lists its user-visible functions; a group is closed only w
 
 | Language | Now (areas 1–6 working) | All Flash Player areas working | Partial / missing | Outside target (never in %) |
 | --- | ---: | ---: | ---: | --- |
-| ActionScript 3 — Flash Player | 1,939 of 1,939 (100.0%) | 4,051 of 4,164 (97.3%) | 113 / 0 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
-| ActionScript 2 — Flash Player | 925 of 925 (100.0%) | 1,238 of 1,238 (100.0%) | 0 / 0 | AS2 UI components 1,044 · Other libraries and extensions 25 |
+| ActionScript 3 — Flash Player | 1,939 of 1,939 (100.0%) | 4,162 of 4,164 (<100%) | 2 / 0 | AIR-only APIs 1,448 · Flex, components and libraries 37,990 · Platform not resolved 138 |
+| ActionScript 2 — Flash Player | 925 of 925 (100.0%) | 1,236 of 1,238 (99.8%) | 2 / 0 | AS2 UI components 1,044 · Other libraries and extensions 25 |
 
 Test-backed declaration statuses only (not an overall Flash compatibility score); last status review: 2026-11-22. Full eight-area breakdown and per-declaration provenance: [ActionScript declaration audit](docs/progress/ACTIONSCRIPT.md).
 
