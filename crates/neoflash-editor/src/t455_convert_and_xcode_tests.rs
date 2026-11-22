@@ -267,15 +267,16 @@ fn t455_new_xcode_swift_scene_live_guardrails_non_destructive_export_and_menus()
         file_items.iter().any(|item| matches!(
             item,
             NativeMenuItemSpec::Action {
+                label,
                 command_id: Some(CommandId::FileNewXcodeSwiftScene),
                 enabled: true,
                 ..
-            }
+            } if label.contains("Experimental")
         )),
-        "File ▸ New Xcode / Swift Scene must be enabled in zero-document mode"
+        "File ▸ New Xcode / Swift Scene (Experimental) must be enabled and labeled Experimental in zero-document mode"
     );
     let zero_doc_search =
-        crate::panels::function_search::results_for_editor(&editor, Some(&ctx), "xcode");
+        crate::panels::function_search::results_for_editor(&editor, Some(&ctx), "experimental");
     assert!(zero_doc_search.contains(&CommandId::FileNewXcodeSwiftScene));
 
     // Execute File ▸ New Xcode / Swift Scene
@@ -316,13 +317,17 @@ fn t455_new_xcode_swift_scene_live_guardrails_non_destructive_export_and_menus()
         export_items.iter().any(|it| matches!(
             it,
             NativeMenuItemSpec::Action {
+                label,
                 command_id: Some(CommandId::FileExportXcodeSwift),
                 enabled: true,
                 ..
-            }
+            } if label.contains("Experimental")
         )),
-        "File ▸ Export ▸ Export Xcode Project (Swift)… must be enabled"
+        "File ▸ Export ▸ Export Xcode Project (Swift, Experimental)… must be enabled and labeled Experimental"
     );
+    let doc_exp_search =
+        crate::panels::function_search::results_for_editor(&editor, Some(&ctx), "experimental");
+    assert!(doc_exp_search.contains(&CommandId::FileExportXcodeSwift));
 
     // Export Xcode project for the first time
     let xcode_out = dir.path().join("ExportedSwiftApp");
@@ -344,7 +349,7 @@ fn t455_new_xcode_swift_scene_live_guardrails_non_destructive_export_and_menus()
     );
     std::fs::write(&app_host_path, &custom_host).expect("write customized AppSwiftHost.swift");
 
-    // Add a new portable method to SwiftHost.as
+    // Add a new portable method to SwiftHost.as AND an ad-hoc proxy call on a Stage button without declaring it in SwiftHost.as!
     editor.transact(|ed| {
         let unit = ed
             .project
@@ -356,10 +361,32 @@ fn t455_new_xcode_swift_scene_live_guardrails_non_destructive_export_and_menus()
             "public static function hapticImpact(",
             "public static function unlockAchievement(badgeId:String, points:int):Boolean {\n            trace(\"[SwiftHost mock] unlockAchievement\", badgeId, points);\n            return true;\n        }\n\n        public static function hapticImpact(",
         );
+        let btn_sym = make_test_symbol("sym_bonus_btn", "BonusBtn", SymbolKind::Button);
+        let btn_id = btn_sym.id.clone();
+        ed.project.symbols.push(btn_sym);
+        let root_id = ed.project.root.clone();
+        let root = ed.project.symbol_mut(&root_id).expect("root");
+        root.timeline.layers[0].keyframes[0].elements.push(Element {
+            id: "el_bonus_btn".into(),
+            name: String::new(),
+            kind: ElementKind::Instance {
+                symbol_id: btn_id,
+                playback: InstancePlayback::Loop,
+            },
+            transform: Transform::default(),
+            scripts: vec![ObjectScript {
+                event: ObjectEvent::Click,
+                script: Script {
+                    language: ScriptLanguage::ActionScript2,
+                    source: "on (release) {\n    SwiftHost.claimDailyBonus(\"gold\");\n}".into(),
+                },
+            }],
+            ..Element::default()
+        });
     });
     assert!(neoflash_script::check_project_warnings(&editor.project).is_empty());
 
-    // Re-export to the same folder -> App/ custom code preserved + new stub spliced in!
+    // Re-export to the same folder -> App/ custom code preserved + both explicit & ad-hoc empty stubs spliced in!
     assert!(editor.export_xcode_dialog(Some(xcode_out)));
     let updated_host =
         std::fs::read_to_string(&app_host_path).expect("read updated AppSwiftHost.swift");
@@ -370,7 +397,11 @@ fn t455_new_xcode_swift_scene_live_guardrails_non_destructive_export_and_menus()
     );
     assert!(
         updated_host.contains("func unlockAchievement(badgeId: String, points: Int) -> Bool"),
-        "re-export must append stub for newly added SwiftHost method:\n{updated_host}"
+        "re-export must append stub for newly added SwiftHost.as method:\n{updated_host}"
+    );
+    assert!(
+        updated_host.contains("    func claimDailyBonus(arg0: String) {\n    }"),
+        "re-export must append pure empty stub for ad-hoc button proxy SwiftHost.claimDailyBonus:\n{updated_host}"
     );
 
     // Finally, verify live guardrail warning fires when a non-portable Flash type is put in SwiftHost.as

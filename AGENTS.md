@@ -171,3 +171,12 @@ Tweens, motion guides, scenes and frame sounds are finished features with open t
 5. Browser: extend `web/tests/*.test.cjs` (scenes: `as2-timeline.test.cjs`; sound: `wasm.test.cjs`) or the `sound-playback` family in `crates/neoflash-script/tests/sound-playback.mjs`.
 6. Look: open `examples/timeline-tweens.nflash` or `examples/timeline-sound.nflash` and capture both themes: `NEOFLASH_OPEN=examples/timeline-tweens.nflash NEOFLASH_SCREENSHOT_FRAME=2,16 NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light cargo run -p neoflash-editor` (`NEOFLASH_SCREENSHOT_FRAME=<layer index>,<frame>`, zero-based; layer 0 is the bottom row).
 7. Docs and progress: update the task card in `docs/NF2-WIRING-PLAN.md` §7.4, the spec entry in `docs/NF2-FUNCTIONAL-SPEC.md`, `docs/progress/product.json` items, CHANGELOG, then the progress scripts above.
+
+## Experimental R&D — Xcode / Swift export (non-release-blocking, voluntary)
+
+`File ▸ New Xcode / Swift Scene (Experimental)`, `File ▸ Export ▸ Export Xcode Project (Swift, Experimental)…` and `neoflash-export xcode` (`crates/neoflash-export/src/xcode/`, `crates/neoflash-script/src/convert/{emit_swift,swift_contract}.rs`) form an owner-directed **experimental R&D track** (tracked under `## Experimental tracks` in `ai/TASKS.md` and `ai/knowledge/experimental-xcode-swift.md`). Note that `File ▸ Save As…` script conversion (`AS1/AS2 ↔ AS3`, `AS1/AS2 → JS`, `AS3 → JS`) is a standard non-experimental feature.
+
+- **Never release-blocking:** Limitations, `FIXME` fallbacks or unsupported Flash/ActionScript constructs in the Xcode/Swift target never block Beta 1, release packaging or delivery sign-off. Do not raise completeness alarms or rewrite core HTML5/SWF/FLA subsystems for Swift parity.
+- **Voluntary work only:** Agents only expand or touch the Xcode/Swift track when explicitly asked by the owner (or to keep shared workspace compilation green after a core AST/model change).
+- **Proxy stub contract:** Both explicit `SwiftHost.as` static methods and direct Flash proxy calls (`SwiftHost.<fn>(...)`, `fscommand("<fn>", ...)`, `ExternalInterface.call("<fn>", ...)`) must emit `@MainActor protocol SwiftHostProtocol` signatures in `Generated/Scenes/SwiftHostContract.swift` and empty stub functions in `App/AppSwiftHost.swift` without overwriting existing developer Swift code in `App/`.
+

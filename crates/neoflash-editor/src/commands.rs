@@ -1180,8 +1180,8 @@ impl CommandId {
             Self::FileNewXcodeSwiftScene => CommandMeta {
                 id: "file.new.xcode_swift_scene",
                 category: C::File,
-                title: "File ▸ New Xcode / Swift Scene",
-                keywords: "xcode swift ios macos scene proxy swifthost liquid stage",
+                title: "File ▸ New Xcode / Swift Scene (Experimental)",
+                keywords: "xcode swift ios macos scene proxy swifthost liquid stage experimental",
                 defaults: &[],
                 allow_when_typing: false,
             },
@@ -1276,8 +1276,8 @@ impl CommandId {
             Self::FileExportXcodeSwift => CommandMeta {
                 id: "file.export.xcode_swift",
                 category: C::File,
-                title: "File ▸ Export ▸ Export Xcode Project (Swift)…",
-                keywords: "xcode swift xcodeproj ios macos apple coregraphics swifthost native app",
+                title: "File ▸ Export ▸ Export Xcode Project (Swift, Experimental)…",
+                keywords: "xcode swift xcodeproj ios macos apple coregraphics swifthost native app experimental",
                 defaults: &[],
                 allow_when_typing: false,
             },

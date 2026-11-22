@@ -12,11 +12,18 @@ use super::hir::{
     map_as2_percent_prop_to_modern, map_as3_keyboard_constant, parse_class_unit,
     parse_timeline_script, sanitize_swift_type_ident, short_type_name, stmts_use_key_is_down,
 };
-use super::swift_contract::{SwiftProxyMethod, inspect_swift_host_class, is_swift_host_class};
+use super::swift_contract::{
+    SwiftProxyMethod, SwiftProxyParam, inspect_swift_host_class, is_swift_host_class,
+    map_portable_as_type_to_swift,
+};
 use super::{ConversionIssue, ConversionIssueKind};
-use crate::actionscript::ast::{Case, CatchClause, Expr, Function, PropertyKey, Stmt};
+use crate::actionscript::ast::{
+    Case, CatchClause, Expr, Function, LegacyTrigger, PropertyKey, Stmt,
+};
 use crate::byte_offset_to_line_col;
-use neoflash_core::{AuthoredPlayback, ObjectEvent, Project, ResourceUnit, ScriptLanguage, Symbol};
+use neoflash_core::{
+    AuthoredPlayback, ObjectEvent, Project, ResourceUnit, Script, ScriptLanguage, Symbol,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -164,6 +171,17 @@ pub fn compile_project_scripts_to_swift(project: &Project) -> SwiftCompiledProje
                 }
             }
         }
+    }
+
+    // 1b. Discover implicit / ad-hoc Flash proxy calls (`SwiftHost.<fn>(...)`, `fscommand("<fn>", ...)`,
+    //     `ExternalInterface.call("<fn>", ...)`) across all project classes, timeline frame scripts, and
+    //     stage button/clip `ObjectScript` handlers so Xcode export immediately generates empty stub
+    //     functions in `App/AppSwiftHost.swift` even without an explicit `SwiftHost.as` declaration!
+    let discovered_proxies =
+        discover_implicit_host_proxies(project, &parsed_units, &stage, &includes, &host_method_map);
+    for m in discovered_proxies {
+        host_method_map.insert(m.name.clone(), m.clone());
+        host_methods.push(m);
     }
 
     // 2. Emit non-`SwiftHost` project classes into `source_classes_swift`
@@ -454,18 +472,17 @@ fn compile_symbol_to_swift(
         frame_methods_swift.insert(*frame_idx, method_code);
     }
 
-    // 5. Emit stage instance `ObjectScript` handlers
+    // 5. Emit stage instance `ObjectScript` handlers (including classic AS1/AS2 `on(release)` /
+    //    `onClipEvent(...)` blocks and unnamed Stage buttons bound by `elementId`)
     let mut instance_handlers_swift = Vec::new();
-    let mut auto_idx = 0usize;
     for layer in &sym.timeline.layers {
         for kf in &layer.keyframes {
             for el in &kf.elements {
                 if el.scripts.is_empty() {
                     continue;
                 }
-                let inst_name = if el.name.is_empty() {
-                    auto_idx += 1;
-                    format!("instance_{auto_idx}")
+                let target_key = if el.name.is_empty() {
+                    el.id.clone()
                 } else {
                     el.name.clone()
                 };
@@ -473,27 +490,47 @@ fn compile_symbol_to_swift(
                     if os.script.source.trim().is_empty() {
                         continue;
                     }
-                    let loc = format!("{}::{}::{:?}", sym.name, inst_name, os.event);
-                    if let Ok(parsed) = parse_timeline_script(&os.script, "", includes) {
-                        let mut emitter = SwiftEmitter::new(
-                            &loc,
-                            &parsed.expanded_source,
-                            parsed.language == ScriptLanguage::ActionScript3,
-                            stage,
-                            host_methods,
-                            Some(sym.id.clone()),
-                            None,
-                        );
-                        emitter.set_instance_props(prop_types.clone());
-                        emitter.stage_child_props = stage_child_props.clone();
-                        emitter.instance_methods = helper_names.clone();
-                        for (hn, hr) in &helper_return_types {
-                            emitter.env.functions.insert(hn.clone(), hr.clone());
+                    let loc = format!("{}::{}::{:?}", sym.name, target_key, os.event);
+                    if let Ok(parsed) = parse_object_script_for_swift(&os.script, includes) {
+                        let mut handler_blocks: Vec<(ObjectEvent, Vec<Stmt>)> = Vec::new();
+                        let mut direct_stmts: Vec<Stmt> = Vec::new();
+
+                        for stmt in &parsed.statements {
+                            if let Stmt::LegacyEvent(triggers, func) = stmt.unlocated() {
+                                let mapped_ev = map_legacy_triggers_to_object_event(triggers)
+                                    .unwrap_or(os.event);
+                                handler_blocks.push((mapped_ev, func.body.clone()));
+                            } else {
+                                direct_stmts.push(stmt.clone());
+                            }
                         }
-                        emitter.indent = 1;
-                        let body = emitter.emit_stmt_list(&parsed.statements);
-                        issues.extend(emitter.issues);
-                        instance_handlers_swift.push((inst_name.clone(), os.event, body));
+                        if !direct_stmts.is_empty() {
+                            handler_blocks.push((os.event, direct_stmts));
+                        }
+
+                        for (ev, body_stmts) in handler_blocks {
+                            let mut emitter = SwiftEmitter::new(
+                                &loc,
+                                &parsed.expanded_source,
+                                parsed.language == ScriptLanguage::ActionScript3,
+                                stage,
+                                host_methods,
+                                Some(sym.id.clone()),
+                                None,
+                            );
+                            emitter.set_instance_props(prop_types.clone());
+                            emitter.stage_child_props = stage_child_props.clone();
+                            emitter.instance_methods = helper_names.clone();
+                            for (hn, hr) in &helper_return_types {
+                                emitter.env.functions.insert(hn.clone(), hr.clone());
+                            }
+                            emitter.indent = 0;
+                            let body = emitter.emit_stmt_list(&body_stmts);
+                            issues.extend(emitter.issues);
+                            if !body.trim().is_empty() || el.scripts.len() == 1 {
+                                instance_handlers_swift.push((target_key.clone(), ev, body));
+                            }
+                        }
                     }
                 }
             }
@@ -540,6 +577,7 @@ struct SwiftEmitter<'a> {
     instance_methods: BTreeSet<String>,
     static_methods: BTreeSet<String>,
     current_class_short: Option<String>,
+    class_has_stage: bool,
     top_level_is_symbol_frame: bool,
     use_key_down_shim: bool,
     in_key_handler_event: Option<String>,
@@ -576,6 +614,7 @@ impl<'a> SwiftEmitter<'a> {
             instance_methods: BTreeSet::new(),
             static_methods: BTreeSet::new(),
             current_class_short: None,
+            class_has_stage: true,
             top_level_is_symbol_frame: false,
             use_key_down_shim: false,
             in_key_handler_event: None,
@@ -639,8 +678,90 @@ impl<'a> SwiftEmitter<'a> {
         });
     }
 
+    fn host_receiver(&self) -> &'static str {
+        if self.class_has_stage {
+            "self.stage?.host?"
+        } else {
+            "NFRuntime.activeHost?"
+        }
+    }
+
+    fn emit_host_proxy_call_inner(
+        &mut self,
+        method: &str,
+        payload_args: &[Expr],
+        offset: usize,
+    ) -> (String, Option<String>) {
+        let m_esc = escape_swift_ident(method);
+        let contract = self.host_methods.get(method).cloned();
+        let mut call_args = Vec::new();
+        let param_len = contract.as_ref().map_or(payload_args.len(), |c| {
+            c.params.len().max(payload_args.len())
+        });
+        for idx in 0..param_len {
+            if let Some(spec) = contract.as_ref().and_then(|c| c.params.get(idx)) {
+                let label = escape_swift_ident(&spec.name);
+                if let Some(arg) = payload_args.get(idx) {
+                    let expected = match spec.swift_type.as_str() {
+                        "Int" => HirType::Int,
+                        "UInt" => HirType::UInt,
+                        "Double" => HirType::Float,
+                        "Bool" => HirType::Bool,
+                        "String" => HirType::String,
+                        "[NFValue]" => HirType::Array,
+                        _ => HirType::Unknown,
+                    };
+                    let coerced = if spec.swift_type == "[NFValue]" {
+                        if let Expr::Array(items) = arg {
+                            let parts: Vec<String> = items
+                                .iter()
+                                .map(|it| {
+                                    it.as_ref()
+                                        .map(|e| self.wrap_nfvalue(e, offset))
+                                        .unwrap_or_else(|| ".undefined".into())
+                                })
+                                .collect();
+                            format!("[{}]", parts.join(", "))
+                        } else {
+                            self.emit_expr_with_offset(arg, offset)
+                        }
+                    } else if spec.swift_type == "[String: NFValue]" {
+                        self.emit_expr_with_offset(arg, offset)
+                    } else {
+                        self.emit_coerced_expr(arg, &expected, offset)
+                    };
+                    call_args.push(format!("{label}: {coerced}"));
+                } else {
+                    let def_expr = swift_default_for_proxy_type(&spec.swift_type);
+                    call_args.push(format!("{label}: {def_expr}"));
+                }
+            } else if let Some(arg) = payload_args.get(idx) {
+                call_args.push(self.emit_expr_with_offset(arg, offset));
+            }
+        }
+        let recv = self.host_receiver();
+        let ret_ty = contract.and_then(|c| c.return_swift_type);
+        (format!("{recv}.{m_esc}({})", call_args.join(", ")), ret_ty)
+    }
+
     fn infer(&self, expr: &Expr) -> HirType {
         match expr {
+            Expr::Call(callee, args, _) => {
+                if let Some((method, _)) = match_host_proxy_call(callee, args)
+                    && let Some(spec) = self.host_methods.get(&method)
+                {
+                    return match spec.return_swift_type.as_deref() {
+                        None => HirType::Void,
+                        Some("Bool") => HirType::Bool,
+                        Some("Int") => HirType::Int,
+                        Some("UInt") => HirType::UInt,
+                        Some("Double") => HirType::Float,
+                        Some("String") => HirType::String,
+                        Some("[NFValue]") => HirType::Array,
+                        _ => HirType::Unknown,
+                    };
+                }
+            }
             Expr::Name(n) => {
                 if let Some(t) = self.env.lookup(n) {
                     return t.clone();
@@ -653,6 +774,9 @@ impl<'a> SwiftEmitter<'a> {
                 if let Some(t) = self.instance_props.get(p) {
                     return t.clone();
                 }
+            }
+            Expr::Member(b, p) if is_external_interface_base(b) && p == "available" => {
+                return HirType::Bool;
             }
             _ => {}
         }
@@ -1252,6 +1376,56 @@ impl<'a> SwiftEmitter<'a> {
                 return Some(format!(
                     "{pad}self.stage?.addEventListener(\"resize\") {closure}"
                 ));
+            }
+        }
+
+        // 5. Statement-level Flash-to-Swift proxy calls (`SwiftHost.fn(...)`, `fscommand("fn", ...)`,
+        //    `ExternalInterface.call("fn", ...)`) emit clean one-line optional-chained calls without `??`
+        if let Expr::Call(callee, args, call_off) = expr {
+            if let Some((method, payload_args)) = match_host_proxy_call(callee, args) {
+                let (call_str, ret_ty) =
+                    self.emit_host_proxy_call_inner(&method, payload_args, *call_off);
+                if ret_ty.is_some() {
+                    return Some(format!("{pad}_ = {call_str}"));
+                }
+                return Some(format!("{pad}{call_str}"));
+            }
+            if matches!(callee.as_ref(), Expr::Name(n) if n == "fscommand" && !self.is_local(n)) {
+                self.record_issue(
+                    ConversionIssueKind::ManualAttention,
+                    *call_off,
+                    "Dynamic 'fscommand(...)' requires a string literal command name to generate a SwiftHostProtocol stub.",
+                );
+                let raw_args = self.emit_args(args, *call_off);
+                return Some(format!(
+                    "{pad}/* FIXME [NeoFlash Swift]: dynamic fscommand({raw_args}) */"
+                ));
+            }
+            if let Expr::Member(base, m) = callee.as_ref()
+                && is_external_interface_base(base)
+            {
+                if m == "call" {
+                    self.record_issue(
+                        ConversionIssueKind::ManualAttention,
+                        *call_off,
+                        "Dynamic 'ExternalInterface.call(...)' requires a string literal function name to generate a SwiftHostProtocol stub.",
+                    );
+                    let raw_args = self.emit_args(args, *call_off);
+                    return Some(format!(
+                        "{pad}/* FIXME [NeoFlash Swift]: dynamic ExternalInterface.call({raw_args}) */"
+                    ));
+                }
+                if m == "addCallback" {
+                    self.record_issue(
+                        ConversionIssueKind::ManualAttention,
+                        *call_off,
+                        "'ExternalInterface.addCallback' is inbound from host; call public methods on MainScene directly from Swift.",
+                    );
+                    let raw_args = self.emit_args(args, *call_off);
+                    return Some(format!(
+                        "{pad}/* FIXME [NeoFlash Swift]: ExternalInterface.addCallback({raw_args}) */"
+                    ));
+                }
             }
         }
 
@@ -2134,6 +2308,10 @@ impl<'a> SwiftEmitter<'a> {
     }
 
     fn emit_swift_member(&mut self, base: &Expr, prop: &str, offset: usize) -> String {
+        if is_external_interface_base(base) && prop == "available" {
+            return "true".into();
+        }
+
         if let Expr::Name(cls) = base {
             if cls == "Key"
                 && let Some((_, code)) = map_as2_key_constant(prop)
@@ -2220,31 +2398,39 @@ impl<'a> SwiftEmitter<'a> {
             return format!("super.init({})", self.emit_args(args, offset));
         }
 
-        // 1. `SwiftHost.foo(a, b)` -> `self.stage?.host?.foo(a, b)`!
-        if let Expr::Member(base, method) = callee
-            && matches!(base.as_ref(), Expr::Name(n) if n == "SwiftHost")
-        {
-            let m_esc = escape_swift_ident(method);
-            let mut call_args = Vec::new();
-            let contract = self.host_methods.get(method).cloned();
-            for (idx, arg) in args.iter().enumerate() {
-                if let Some(spec) = contract.as_ref().and_then(|c| c.params.get(idx)) {
-                    let expected = match spec.swift_type.as_str() {
-                        "Int" => HirType::Int,
-                        "UInt" => HirType::UInt,
-                        "Double" => HirType::Float,
-                        "Bool" => HirType::Bool,
-                        "String" => HirType::String,
-                        _ => HirType::Unknown,
-                    };
-                    let coerced = self.emit_coerced_expr(arg, &expected, offset);
-                    let label = escape_swift_ident(&spec.name);
-                    call_args.push(format!("{label}: {coerced}"));
-                } else {
-                    call_args.push(self.emit_expr_with_offset(arg, offset));
-                }
+        // 1. `SwiftHost.foo(a, b)`, `fscommand("foo", a)`, `ExternalInterface.call("foo", a)` -> `self.stage?.host?.foo(...)`!
+        if let Some((method, payload_args)) = match_host_proxy_call(callee, args) {
+            let (call_str, ret_ty) = self.emit_host_proxy_call_inner(&method, payload_args, offset);
+            if let Some(rt) = ret_ty {
+                let def_expr = swift_default_for_proxy_type(&rt);
+                return format!("({call_str} ?? {def_expr})");
             }
-            return format!("self.stage?.host?.{m_esc}({})", call_args.join(", "));
+            return call_str;
+        }
+        if matches!(callee, Expr::Name(n) if n == "fscommand" && !self.is_local(n)) {
+            self.record_issue(
+                ConversionIssueKind::ManualAttention,
+                offset,
+                "Dynamic 'fscommand(...)' requires a string literal command name to generate a SwiftHostProtocol stub.",
+            );
+            return format!(
+                "/* FIXME [NeoFlash Swift]: fscommand({}) */ NFValue.undefined",
+                self.emit_args(args, offset)
+            );
+        }
+        if let Expr::Member(base, m) = callee
+            && is_external_interface_base(base)
+            && matches!(m.as_str(), "call" | "addCallback")
+        {
+            self.record_issue(
+                ConversionIssueKind::ManualAttention,
+                offset,
+                format!("'ExternalInterface.{m}(...)' requires a static method contract or direct MainScene call in Swift."),
+            );
+            return format!(
+                "/* FIXME [NeoFlash Swift]: ExternalInterface.{m}({}) */ NFValue.undefined",
+                self.emit_args(args, offset)
+            );
         }
 
         // 2. Type casts (`int(expr)`, `uint(expr)`, `Number(expr)`, `String(expr)`, `Boolean(expr)`) and `eval`
@@ -2501,6 +2687,15 @@ fn emit_swift_class(
         Some(parsed.qualified_name.clone()),
     );
     emitter.current_class_short = Some(cls_name.clone());
+    emitter.class_has_stage = parsed.base_class.as_deref().is_some_and(|base| {
+        matches!(
+            HirType::from_annotation(base),
+            HirType::MovieClip | HirType::Sprite | HirType::Button | HirType::TextField
+        ) || matches!(
+            short_type_name(base),
+            "DisplayObject" | "InteractiveObject" | "DisplayObjectContainer" | "Shape"
+        )
+    });
 
     let mut cls_props = BTreeMap::new();
     for f in &parsed.fields {
@@ -2730,4 +2925,645 @@ fn is_nonneg_int_literal(expr: &Expr) -> bool {
         expr,
         Expr::Literal(s) if s.parse::<u64>().is_ok() || s.starts_with("0x") || s.starts_with("0X")
     )
+}
+
+fn parse_object_script_for_swift(
+    script: &Script,
+    includes: &BTreeMap<String, ResourceUnit>,
+) -> Result<ParsedScript, String> {
+    match parse_timeline_script(script, "", includes) {
+        Ok(parsed) => Ok(parsed),
+        Err(err) if script.language == ScriptLanguage::ActionScript3 => {
+            // Allow classic `on(release)` / `onClipEvent(...)` snippets typed on a Stage button/clip
+            // inside an AS3 document to parse cleanly through the AS2 grammar fallback!
+            let as2_probe = Script {
+                language: ScriptLanguage::ActionScript2,
+                source: script.source.clone(),
+            };
+            parse_timeline_script(&as2_probe, "", includes).map_err(|_| err)
+        }
+        Err(err) => Err(err),
+    }
+}
+
+fn map_legacy_triggers_to_object_event(triggers: &[LegacyTrigger]) -> Option<ObjectEvent> {
+    for trig in triggers {
+        match trig.event.to_ascii_lowercase().as_str() {
+            "load" | "initialize" => return Some(ObjectEvent::Load),
+            "enterframe" => return Some(ObjectEvent::EnterFrame),
+            "release" | "press" | "releaseoutside" | "mousedown" | "mouseup" => {
+                return Some(ObjectEvent::Click);
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn unquote_string_literal(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    if bytes.len() < 2 {
+        return None;
+    }
+    let quote = bytes[0];
+    if (quote != b'"' && quote != b'\'') || bytes[bytes.len() - 1] != quote {
+        return None;
+    }
+    let inner = &raw[1..raw.len() - 1];
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(esc) = chars.next() {
+                match esc {
+                    'n' => out.push('\n'),
+                    'r' => out.push('\r'),
+                    't' => out.push('\t'),
+                    other => out.push(other),
+                }
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    Some(out)
+}
+
+fn proxy_method_ident_from_literal(raw_lit: &str) -> Option<String> {
+    let decoded = unquote_string_literal(raw_lit)?;
+    let trimmed = decoded.trim();
+    if trimmed.is_empty() || !trimmed.chars().any(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let mut ident = String::with_capacity(trimmed.len());
+    let mut prev_underscore = false;
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+            ident.push(ch);
+            prev_underscore = ch == '_';
+        } else if !prev_underscore && !ident.is_empty() {
+            ident.push('_');
+            prev_underscore = true;
+        }
+    }
+    let cleaned = ident.trim_matches('_');
+    if cleaned.is_empty() {
+        return None;
+    }
+    if cleaned.as_bytes()[0].is_ascii_digit() {
+        Some(format!("_{cleaned}"))
+    } else {
+        Some(cleaned.to_owned())
+    }
+}
+
+fn is_external_interface_base(expr: &Expr) -> bool {
+    match expr {
+        Expr::Name(n) => n == "ExternalInterface",
+        Expr::Member(_, prop) => prop == "ExternalInterface",
+        _ => false,
+    }
+}
+
+fn match_host_proxy_call<'b>(callee: &'b Expr, args: &'b [Expr]) -> Option<(String, &'b [Expr])> {
+    if let Expr::Member(base, method) = callee
+        && matches!(base.as_ref(), Expr::Name(n) if n == "SwiftHost")
+    {
+        let clean = method.trim();
+        if !clean.is_empty() {
+            return Some((clean.to_owned(), args));
+        }
+    }
+    if matches!(callee, Expr::Name(n) if n == "fscommand")
+        && let Some(Expr::Literal(cmd_lit)) = args.first()
+        && let Some(name) = proxy_method_ident_from_literal(cmd_lit)
+    {
+        return Some((name, &args[1..]));
+    }
+    if let Expr::Member(base, m) = callee
+        && m == "call"
+        && is_external_interface_base(base)
+        && let Some(Expr::Literal(fn_lit)) = args.first()
+        && let Some(name) = proxy_method_ident_from_literal(fn_lit)
+    {
+        return Some((name, &args[1..]));
+    }
+    None
+}
+
+fn swift_default_for_proxy_type(swift_ty: &str) -> &'static str {
+    match swift_ty.trim() {
+        "Bool" => "false",
+        "Int" | "UInt" => "0",
+        "Double" => "0.0",
+        "String" => "\"\"",
+        "[NFValue]" => "[]",
+        "[String: NFValue]" => "[:]",
+        _ => ".undefined",
+    }
+}
+
+#[derive(Clone, Debug)]
+struct InferredProxySig {
+    params: Vec<(String, String, String)>, // (name, swift_type, as_type)
+    return_swift_type: Option<String>,
+}
+
+fn merge_proxy_swift_types(
+    existing_swift: &str,
+    existing_as: &str,
+    next_swift: &str,
+    _next_as: &str,
+) -> (String, String) {
+    if existing_swift == next_swift {
+        return (existing_swift.to_owned(), existing_as.to_owned());
+    }
+    let is_num_a = matches!(existing_swift, "Int" | "UInt" | "Double");
+    let is_num_b = matches!(next_swift, "Int" | "UInt" | "Double");
+    if is_num_a && is_num_b {
+        if existing_swift == "Double" || next_swift == "Double" {
+            return ("Double".into(), "Number".into());
+        }
+        return ("Int".into(), "int".into());
+    }
+    ("NFValue".into(), "*".into())
+}
+
+fn infer_arg_param_name(arg: &Expr, idx: usize) -> String {
+    let raw = match arg {
+        Expr::Name(n)
+            if !matches!(
+                n.as_str(),
+                "true" | "false" | "null" | "undefined" | "this" | "NaN" | "Infinity"
+            ) =>
+        {
+            Some(n.as_str())
+        }
+        Expr::Member(_, prop) => Some(prop.as_str()),
+        _ => None,
+    };
+    if let Some(candidate) = raw {
+        let cleaned: String = candidate
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        let trimmed = cleaned.trim_start_matches('_');
+        if !trimmed.is_empty() && !trimmed.as_bytes()[0].is_ascii_digit() {
+            return trimmed.to_owned();
+        }
+    }
+    format!("arg{idx}")
+}
+
+fn infer_portable_proxy_arg_type(
+    arg: &Expr,
+    env: &TypeEnv,
+    stage: &ProjectStageIndex,
+) -> (&'static str, &'static str) {
+    if matches!(arg, Expr::Object(_)) {
+        return ("[String: NFValue]", "Object");
+    }
+    if matches!(arg, Expr::Array(_) | Expr::NewVector(_, _, _)) {
+        return ("[NFValue]", "Array");
+    }
+    match env.infer_expr(arg, stage) {
+        HirType::Int => ("Int", "int"),
+        HirType::UInt => ("UInt", "uint"),
+        HirType::Float => ("Double", "Number"),
+        HirType::Bool => ("Bool", "Boolean"),
+        HirType::String => ("String", "String"),
+        HirType::Array | HirType::Vector(_) => ("[NFValue]", "Array"),
+        _ => ("NFValue", "*"),
+    }
+}
+
+struct ProxyCallScanner<'a> {
+    stage: &'a ProjectStageIndex,
+    explicit_host_methods: &'a BTreeMap<String, SwiftProxyMethod>,
+    discovered_order: Vec<String>,
+    discovered: BTreeMap<String, InferredProxySig>,
+    env: TypeEnv,
+    current_fn_return: Option<&'static str>,
+}
+
+impl<'a> ProxyCallScanner<'a> {
+    fn record_call(&mut self, name: String, payload_args: &[Expr], expected_ret: Option<&str>) {
+        if self.explicit_host_methods.contains_key(&name) {
+            return;
+        }
+        let mut inferred_params = Vec::with_capacity(payload_args.len());
+        let mut used_names = BTreeSet::new();
+        for (idx, arg) in payload_args.iter().enumerate() {
+            let base_pname = infer_arg_param_name(arg, idx);
+            let mut pname = base_pname.clone();
+            let mut suffix = 2usize;
+            while !used_names.insert(pname.clone()) {
+                pname = format!("{base_pname}{suffix}");
+                suffix += 1;
+            }
+            let (sw_ty, as_ty) = infer_portable_proxy_arg_type(arg, &self.env, self.stage);
+            inferred_params.push((pname, sw_ty.to_owned(), as_ty.to_owned()));
+        }
+
+        if let Some(existing) = self.discovered.get_mut(&name) {
+            for (idx, (pname, sw_ty, as_ty)) in inferred_params.into_iter().enumerate() {
+                if let Some(slot) = existing.params.get_mut(idx) {
+                    let (merged_sw, merged_as) =
+                        merge_proxy_swift_types(&slot.1, &slot.2, &sw_ty, &as_ty);
+                    slot.1 = merged_sw;
+                    slot.2 = merged_as;
+                    if slot.0.starts_with("arg") && !pname.starts_with("arg") {
+                        slot.0 = pname;
+                    }
+                } else {
+                    existing.params.push((pname, sw_ty, as_ty));
+                }
+            }
+            // Deduplicate param names if widening merged a duplicate
+            let mut seen = BTreeSet::new();
+            for (idx, slot) in existing.params.iter_mut().enumerate() {
+                if !seen.insert(slot.0.clone()) {
+                    slot.0 = format!("arg{idx}");
+                    seen.insert(slot.0.clone());
+                }
+            }
+            match (&existing.return_swift_type, expected_ret) {
+                (_, None) => {}
+                (None, Some(r)) => existing.return_swift_type = Some(r.to_owned()),
+                (Some(prev), Some(r)) if prev != r => {
+                    let (merged, _) = merge_proxy_swift_types(prev, "*", r, "*");
+                    existing.return_swift_type = Some(merged);
+                }
+                _ => {}
+            }
+        } else {
+            self.discovered_order.push(name.clone());
+            self.discovered.insert(
+                name,
+                InferredProxySig {
+                    params: inferred_params,
+                    return_swift_type: expected_ret.map(str::to_owned),
+                },
+            );
+        }
+    }
+
+    fn scan_stmt_list(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            self.scan_stmt(stmt);
+        }
+    }
+
+    fn scan_stmt(&mut self, stmt: &Stmt) {
+        match stmt.unlocated() {
+            Stmt::Located(_, inner) => self.scan_stmt(inner),
+            Stmt::Empty | Stmt::Break(_) | Stmt::Continue(_) | Stmt::DefaultXmlNamespace(_) => {}
+            Stmt::Block(b) | Stmt::InitClip(_, b, _) => {
+                self.env.push_scope();
+                self.scan_stmt_list(b);
+                self.env.pop_scope();
+            }
+            Stmt::Var(vars) => {
+                for (vname, vty, val_opt) in vars {
+                    let expected = vty
+                        .as_deref()
+                        .and_then(map_portable_as_type_to_swift)
+                        .map(|(sw, _)| sw)
+                        .or(Some("NFValue"));
+                    if let Some(val) = val_opt {
+                        self.scan_expr(val, expected);
+                    }
+                    let hir_ty =
+                        vty.as_deref()
+                            .map(HirType::from_annotation)
+                            .unwrap_or_else(|| {
+                                val_opt.as_ref().map_or(HirType::Unknown, |e| {
+                                    self.env.infer_expr(e, self.stage)
+                                })
+                            });
+                    self.env.define(vname.clone(), hir_ty);
+                }
+            }
+            Stmt::Function(f) => self.scan_function(f),
+            Stmt::Expr(expr) => self.scan_expr(expr, None),
+            Stmt::If(cond, yes, no) => {
+                self.scan_expr(cond, Some("Bool"));
+                self.scan_stmt(yes);
+                if let Some(n) = no {
+                    self.scan_stmt(n);
+                }
+            }
+            Stmt::While(cond, body) => {
+                self.scan_expr(cond, Some("Bool"));
+                self.scan_stmt(body);
+            }
+            Stmt::DoWhile(body, cond) => {
+                self.scan_stmt(body);
+                self.scan_expr(cond, Some("Bool"));
+            }
+            Stmt::For(init, cond, update, body) => {
+                self.env.push_scope();
+                self.scan_stmt(init);
+                if let Some(c) = cond {
+                    self.scan_expr(c, Some("Bool"));
+                }
+                self.scan_stmt(body);
+                if let Some(u) = update {
+                    self.scan_expr(u, None);
+                }
+                self.env.pop_scope();
+            }
+            Stmt::ForIn(init, coll, _, body) => {
+                self.env.push_scope();
+                self.scan_stmt(init);
+                self.scan_expr(coll, Some("NFValue"));
+                self.scan_stmt(body);
+                self.env.pop_scope();
+            }
+            Stmt::Switch(disc, cases) => {
+                self.scan_expr(disc, Some("NFValue"));
+                for Case { test, body } in cases {
+                    if let Some(t) = test {
+                        self.scan_expr(t, Some("NFValue"));
+                    }
+                    self.scan_stmt_list(body);
+                }
+            }
+            Stmt::Return(val, _) => {
+                if let Some(v) = val {
+                    let ret_hint = self.current_fn_return.or(Some("NFValue"));
+                    self.scan_expr(v, ret_hint);
+                }
+            }
+            Stmt::Throw(val) => self.scan_expr(val, Some("NFValue")),
+            Stmt::Try(body, catches, fin) => {
+                self.scan_stmt_list(body);
+                for c in catches {
+                    self.env.push_scope();
+                    self.scan_stmt_list(&c.body);
+                    self.env.pop_scope();
+                }
+                if let Some(f) = fin {
+                    self.scan_stmt_list(f);
+                }
+            }
+            Stmt::Label(_, inner) | Stmt::IfFrameLoaded(_, inner) => self.scan_stmt(inner),
+            Stmt::With(tgt, body, _) | Stmt::TellTarget(tgt, body, _) => {
+                self.scan_expr(tgt, Some("NFValue"));
+                self.scan_stmt(body);
+            }
+            Stmt::LegacyEvent(_, func) => self.scan_function(func),
+        }
+    }
+
+    fn scan_function(&mut self, f: &Function) {
+        let saved_ret = self.current_fn_return;
+        self.current_fn_return = f
+            .returns
+            .as_deref()
+            .and_then(map_portable_as_type_to_swift)
+            .map(|(sw, _)| sw);
+        self.env.push_scope();
+        for (i, (pname, pty)) in f.params.iter().enumerate() {
+            let hty = pty
+                .as_deref()
+                .map_or(HirType::Unknown, HirType::from_annotation);
+            self.env.define(pname.clone(), hty);
+            if let Some(Some(def)) = f.defaults.get(i) {
+                self.scan_expr(def, Some("NFValue"));
+            }
+        }
+        self.scan_stmt_list(&f.body);
+        self.env.pop_scope();
+        self.current_fn_return = saved_ret;
+    }
+
+    fn scan_expr(&mut self, expr: &Expr, expected_ret: Option<&str>) {
+        match expr {
+            Expr::Call(callee, args, _) => {
+                if let Some((method, payload_args)) = match_host_proxy_call(callee, args) {
+                    for arg in payload_args {
+                        self.scan_expr(arg, Some("NFValue"));
+                    }
+                    self.record_call(method, payload_args, expected_ret);
+                    return;
+                }
+                self.scan_expr(callee, Some("NFValue"));
+                for arg in args {
+                    self.scan_expr(arg, Some("NFValue"));
+                }
+            }
+            Expr::Member(base, _)
+            | Expr::Delete(base, _)
+            | Expr::Update(_, base, _)
+            | Expr::TypeTest(_, base, _, _) => self.scan_expr(base, Some("NFValue")),
+            Expr::Unary(op, inner) => {
+                let hint = if op == "!" || op == "not" {
+                    Some("Bool")
+                } else if op == "void" {
+                    None
+                } else {
+                    Some("Double")
+                };
+                self.scan_expr(inner, hint);
+            }
+            Expr::Index(a, b) | Expr::InstanceOf(a, b) | Expr::XmlFilter(a, b, _) => {
+                self.scan_expr(a, Some("NFValue"));
+                self.scan_expr(b, Some("NFValue"));
+            }
+            Expr::Binary(op, lhs, rhs) => {
+                let hint = match op.as_str() {
+                    "&&" | "||" | "and" | "or" => Some("Bool"),
+                    "-" | "*" | "/" | "%" => Some("Double"),
+                    "&" | "|" | "^" | "<<" | ">>" | ">>>" => Some("Int"),
+                    "+" | "add" => {
+                        let lt = self.env.infer_expr(lhs, self.stage);
+                        let rt = self.env.infer_expr(rhs, self.stage);
+                        if lt == HirType::String || rt == HirType::String {
+                            Some("String")
+                        } else {
+                            Some("Double")
+                        }
+                    }
+                    _ => Some("NFValue"),
+                };
+                self.scan_expr(lhs, hint);
+                self.scan_expr(rhs, hint);
+            }
+            Expr::Assign(op, lhs, rhs) => {
+                self.scan_expr(lhs, Some("NFValue"));
+                let hint = if op == "=" {
+                    match self.env.infer_expr(lhs, self.stage) {
+                        HirType::Bool => Some("Bool"),
+                        HirType::Int => Some("Int"),
+                        HirType::UInt => Some("UInt"),
+                        HirType::Float => Some("Double"),
+                        HirType::String => Some("String"),
+                        HirType::Array | HirType::Vector(_) => Some("[NFValue]"),
+                        _ => Some("NFValue"),
+                    }
+                } else {
+                    Some("Double")
+                };
+                self.scan_expr(rhs, hint);
+            }
+            Expr::Conditional(c, y, n) => {
+                self.scan_expr(c, Some("Bool"));
+                self.scan_expr(y, expected_ret.or(Some("NFValue")));
+                self.scan_expr(n, expected_ret.or(Some("NFValue")));
+            }
+            Expr::Array(items) => {
+                for it in items.iter().flatten() {
+                    self.scan_expr(it, Some("NFValue"));
+                }
+            }
+            Expr::Object(props) => {
+                for (_, val) in props {
+                    self.scan_expr(val, Some("NFValue"));
+                }
+            }
+            Expr::Function(f) => self.scan_function(f),
+            Expr::NewError(_, args, _)
+            | Expr::NewBuiltin(_, args, _)
+            | Expr::NewClass(_, args, _)
+            | Expr::NewValue(_, args, _)
+            | Expr::NewVector(_, args, _)
+            | Expr::XmlLiteral(_, args) => {
+                for arg in args {
+                    self.scan_expr(arg, Some("NFValue"));
+                }
+            }
+            Expr::XmlSelect {
+                base,
+                local,
+                namespace,
+                ..
+            } => {
+                self.scan_expr(base, Some("NFValue"));
+                self.scan_expr(local, Some("NFValue"));
+                if let Some(ns) = namespace {
+                    self.scan_expr(ns, Some("NFValue"));
+                }
+            }
+            Expr::XmlWithAttr {
+                local, namespace, ..
+            } => {
+                self.scan_expr(local, Some("NFValue"));
+                if let Some(ns) = namespace {
+                    self.scan_expr(ns, Some("NFValue"));
+                }
+            }
+            Expr::Literal(_)
+            | Expr::Name(_)
+            | Expr::RegExpLiteral(_, _)
+            | Expr::TypeValue(_, _) => {}
+        }
+    }
+}
+
+fn discover_implicit_host_proxies(
+    project: &Project,
+    parsed_units: &[(usize, ParsedClass)],
+    stage: &ProjectStageIndex,
+    includes: &BTreeMap<String, ResourceUnit>,
+    explicit_host_methods: &BTreeMap<String, SwiftProxyMethod>,
+) -> Vec<SwiftProxyMethod> {
+    let mut scanner = ProxyCallScanner {
+        stage,
+        explicit_host_methods,
+        discovered_order: Vec::new(),
+        discovered: BTreeMap::new(),
+        env: TypeEnv::new(None, None),
+        current_fn_return: None,
+    };
+
+    // 1. Scan non-SwiftHost `.as` classes
+    for (_, parsed) in parsed_units {
+        scanner.env = TypeEnv::new(None, Some(parsed.qualified_name.clone()));
+        for f in &parsed.fields {
+            let fty =
+                f.ty.as_deref()
+                    .map_or(HirType::Unknown, HirType::from_annotation);
+            scanner.env.define(f.name.clone(), fty);
+            if let Some(val) = &f.value {
+                let hint =
+                    f.ty.as_deref()
+                        .and_then(map_portable_as_type_to_swift)
+                        .map(|(sw, _)| sw)
+                        .or(Some("NFValue"));
+                scanner.scan_expr(val, hint);
+            }
+        }
+        for m in &parsed.methods {
+            scanner.scan_function(&m.function);
+        }
+    }
+
+    // 2. Scan all symbol timelines and stage element `ObjectScript`s
+    for sym in &project.symbols {
+        let mut sym_env = TypeEnv::new(Some(sym.id.clone()), None);
+        if let Some(children) = stage.symbol_children.get(&sym.id) {
+            for (cname, info) in children {
+                sym_env.define(cname.clone(), info.hir_type.clone());
+            }
+        }
+        scanner.env = sym_env;
+
+        for entry in &sym.timeline.scripts {
+            if entry.script.source.trim().is_empty() {
+                continue;
+            }
+            if matches!(
+                entry.script.language,
+                ScriptLanguage::ActionScript1
+                    | ScriptLanguage::ActionScript2
+                    | ScriptLanguage::ActionScript3
+            ) && let Ok(parsed) = parse_timeline_script(&entry.script, "", includes)
+            {
+                scanner.scan_stmt_list(&parsed.statements);
+            }
+        }
+
+        for layer in &sym.timeline.layers {
+            for kf in &layer.keyframes {
+                for el in &kf.elements {
+                    for os in &el.scripts {
+                        if os.script.source.trim().is_empty() {
+                            continue;
+                        }
+                        if matches!(
+                            os.script.language,
+                            ScriptLanguage::ActionScript1
+                                | ScriptLanguage::ActionScript2
+                                | ScriptLanguage::ActionScript3
+                        ) && let Ok(parsed) = parse_object_script_for_swift(&os.script, includes)
+                        {
+                            scanner.scan_stmt_list(&parsed.statements);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    scanner
+        .discovered_order
+        .into_iter()
+        .filter_map(|name| {
+            let sig = scanner.discovered.remove(&name)?;
+            Some(SwiftProxyMethod {
+                name,
+                params: sig
+                    .params
+                    .into_iter()
+                    .map(|(pname, swift_type, as_type)| SwiftProxyParam {
+                        name: pname,
+                        swift_type,
+                        as_type,
+                    })
+                    .collect(),
+                return_swift_type: sig.return_swift_type,
+            })
+        })
+        .collect()
 }

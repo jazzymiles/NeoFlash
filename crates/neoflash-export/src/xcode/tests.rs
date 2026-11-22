@@ -699,7 +699,20 @@ fn assert_plutil_lint(path: &Path) {
     );
 }
 
+fn xcode_toolchain_available() -> bool {
+    if std::env::var_os("NEOFLASH_SKIP_XCODEBUILD").is_some() {
+        return false;
+    }
+    Command::new("/usr/bin/xcodebuild")
+        .arg("-version")
+        .output()
+        .is_ok_and(|out| out.status.success())
+}
+
 fn assert_xcodebuild_succeeds(xcodeproj_path: &Path, scheme: &str, derived_data_dir: &Path) {
+    if !xcode_toolchain_available() {
+        return;
+    }
     let out = Command::new("/usr/bin/xcodebuild")
         .arg("-project")
         .arg(xcodeproj_path)
@@ -1114,6 +1127,10 @@ struct RuntimeVerifyMain {
 "#;
     fs::write(&verifier_swift_path, verifier_swift).expect("write RuntimeVerifyMain.swift");
 
+    if !xcode_toolchain_available() {
+        return;
+    }
+
     let swiftc_out = Command::new("/usr/bin/swiftc")
         .arg("-swift-version")
         .arg("6")
@@ -1470,5 +1487,226 @@ fn end_to_end_ast_to_xcodebuild_for_starter_scene_and_tetris_as2_as3() {
         &as3_report.xcodeproj_path,
         &as3_report.scheme_name,
         &tmp.path().join("dd-as3"),
+    );
+}
+
+#[test]
+fn adhoc_flash_proxies_without_swifthost_as_generate_empty_stubs_and_fire_button_clicks() {
+    let tmp = TempDir::new().expect("tempdir");
+    let out_dir = tmp.path().join("AdhocProxyApp");
+
+    let mut proj = Project::blank();
+    proj.name = "Adhoc Proxy App".into();
+    proj.script_language = Some(neoflash_core::ScriptLanguage::ActionScript2);
+
+    let btn_sym = Symbol {
+        id: "sym-buy-btn".into(),
+        name: "BuyButton".into(),
+        folder: String::new(),
+        kind: SymbolKind::Button,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 4,
+            scripts: Vec::new(),
+            guides: Vec::new(),
+            layers: vec![Layer {
+                id: "lyr-buy-btn".into(),
+                name: "Hit".into(),
+                visible: true,
+                locked: false,
+                properties: LayerProperties::default(),
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: "el-buy-hit".into(),
+                        name: String::new(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Rectangle {
+                            width: 140.0,
+                            height: 48.0,
+                            fill: [40, 120, 255, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+            }],
+        },
+    };
+    proj.symbols.push(btn_sym);
+
+    let root_id = proj.root.clone();
+    let root = proj.symbol_mut(&root_id).expect("root symbol");
+    // Unnamed button on Stage with classic AS2 `on (release)` calling undeclared SwiftHost + fscommand + trace!
+    root.timeline.layers[0].keyframes[0].elements.push(Element {
+        id: "el-unnamed-buy-btn".into(),
+        name: String::new(),
+        transform: Transform {
+            x: 100.0,
+            y: 120.0,
+            ..Transform::default()
+        },
+        kind: ElementKind::Instance {
+            symbol_id: "sym-buy-btn".into(),
+            playback: InstancePlayback::Loop,
+        },
+        scripts: vec![neoflash_core::ObjectScript {
+            event: ObjectEvent::Click,
+            script: neoflash_core::Script {
+                language: neoflash_core::ScriptLanguage::ActionScript2,
+                source: "on (release) {\n    trace(\"buy clicked\");\n    SwiftHost.openPaywall(\"vip\", 1);\n    fscommand(\"hapticTap\");\n}".into(),
+            },
+        }],
+        ..Element::default()
+    });
+    root.timeline.scripts.push(neoflash_core::FrameScript {
+        layer: None,
+        frame: 0,
+        script: neoflash_core::Script {
+            language: neoflash_core::ScriptLanguage::ActionScript2,
+            source: "ExternalInterface.call(\"trackScreen\", \"storefront\");\nif (SwiftHost.isProUnlocked(\"vip\")) {\n    stop();\n}".into(),
+        },
+    });
+
+    assert!(
+        proj.sources.is_empty(),
+        "test intentionally omits SwiftHost.as to verify automatic proxy stub discovery"
+    );
+
+    let report = export_xcode_project(&proj, &out_dir, &XcodeExportOptions::default(), None)
+        .expect("export ad-hoc proxy project");
+    let contract_src =
+        fs::read_to_string(out_dir.join("Generated/Scenes/SwiftHostContract.swift")).unwrap();
+    let app_host_src = fs::read_to_string(out_dir.join("App/AppSwiftHost.swift")).unwrap();
+
+    // 1. Protocol requirements discovered from frame + unnamed button `on(release)`
+    assert!(
+        contract_src.contains("func trackScreen(arg0: String)"),
+        "expected trackScreen in SwiftHostContract.swift:\n{contract_src}"
+    );
+    assert!(
+        contract_src.contains("func isProUnlocked(arg0: String) -> Bool"),
+        "expected Bool-returning isProUnlocked in SwiftHostContract.swift:\n{contract_src}"
+    );
+    assert!(
+        contract_src.contains("func openPaywall(arg0: String, arg1: Int)"),
+        "expected openPaywall in SwiftHostContract.swift:\n{contract_src}"
+    );
+    assert!(
+        contract_src.contains("func hapticTap()"),
+        "expected hapticTap in SwiftHostContract.swift:\n{contract_src}"
+    );
+
+    // 2. Empty stub functions immediately generated in App/AppSwiftHost.swift
+    assert!(
+        app_host_src.contains("    func openPaywall(arg0: String, arg1: Int) {\n    }"),
+        "Void proxy openPaywall must generate a pure empty stub function in AppSwiftHost.swift:\n{app_host_src}"
+    );
+    assert!(
+        app_host_src.contains("    func hapticTap() {\n    }"),
+        "Void proxy hapticTap must generate a pure empty stub function in AppSwiftHost.swift:\n{app_host_src}"
+    );
+    assert!(
+        app_host_src.contains("    func trackScreen(arg0: String) {\n    }"),
+        "Void proxy trackScreen must generate a pure empty stub function in AppSwiftHost.swift:\n{app_host_src}"
+    );
+    assert!(
+        app_host_src.contains(
+            "    func isProUnlocked(arg0: String) -> Bool {\n        return false\n    }"
+        ),
+        "Bool proxy isProUnlocked must generate minimal return false stub:\n{app_host_src}"
+    );
+
+    // 3. Real xcodebuild compiles the generated project with zero edits!
+    assert_xcodebuild_succeeds(
+        &report.xcodeproj_path,
+        &report.scheme_name,
+        &tmp.path().join("dd-adhoc"),
+    );
+
+    // 4. Verify clicking the unnamed AS2 button at runtime fires AppSwiftHost.openPaywall + hapticTap!
+    if !xcode_toolchain_available() {
+        return;
+    }
+    let test_host_path = tmp.path().join("VerifyAdhocHost.swift");
+    let test_bin_path = tmp.path().join("VerifyAdhocBin");
+    fs::write(
+        &test_host_path,
+        r#"import Foundation
+import CoreGraphics
+
+@MainActor
+final class SpyHost: SwiftHostProtocol {
+    var log: [String] = []
+    func trackScreen(arg0: String) { log.append("screen:\(arg0)") }
+    func isProUnlocked(arg0: String) -> Bool {
+        log.append("check:\(arg0)")
+        return true
+    }
+    func openPaywall(arg0: String, arg1: Int) { log.append("paywall:\(arg0):\(arg1)") }
+    func hapticTap() { log.append("haptic") }
+}
+
+@main
+@MainActor
+struct VerifyAdhocMain {
+    static func main() {
+        let spy = SpyHost()
+        let scene = MainScene()
+        scene.host = spy
+        let stage = NFStage(scene: scene)
+        assert(spy.log == ["screen:storefront", "check:vip"], "frame 0 proxies failed: \(spy.log)")
+        assert(scene.isPlaying == false, "isProUnlocked() == true should trigger stop()")
+
+        // Click unnamed button at stage (120, 140) inside (100..240, 120..168)
+        let pt = CGPoint(x: 120, y: 140)
+        stage.handlePointerDown(viewPoint: pt)
+        stage.handlePointerUp(viewPoint: pt)
+        assert(
+            spy.log == ["screen:storefront", "check:vip", "paywall:vip:1", "haptic"],
+            "unnamed button on(release) proxy click failed: \(spy.log)"
+        )
+        print("ADHOC_PROXY_OK")
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    let swiftc_out = Command::new("/usr/bin/swiftc")
+        .args([
+            "-swift-version",
+            "6",
+            "-strict-concurrency=complete",
+            "-warnings-as-errors",
+        ])
+        .arg(out_dir.join("Generated/NeoFlashKit/NFValue.swift"))
+        .arg(out_dir.join("Generated/NeoFlashKit/NFDisplayList.swift"))
+        .arg(out_dir.join("Generated/NeoFlashKit/NFRenderer.swift"))
+        .arg(out_dir.join("Generated/NeoFlashKit/NFAudio.swift"))
+        .arg(out_dir.join("Generated/Scenes/SwiftHostContract.swift"))
+        .arg(out_dir.join("Generated/Scenes/GeneratedScenes.swift"))
+        .arg(&test_host_path)
+        .arg("-o")
+        .arg(&test_bin_path)
+        .output()
+        .expect("swiftc VerifyAdhocBin");
+    assert!(
+        swiftc_out.status.success(),
+        "VerifyAdhocBin swiftc failed:\n{}",
+        String::from_utf8_lossy(&swiftc_out.stderr)
+    );
+    let run_out = Command::new(&test_bin_path)
+        .output()
+        .expect("run VerifyAdhocBin");
+    assert!(
+        run_out.status.success()
+            && String::from_utf8_lossy(&run_out.stdout).contains("ADHOC_PROXY_OK"),
+        "VerifyAdhocBin failed:\nstdout:{}\nstderr:{}",
+        String::from_utf8_lossy(&run_out.stdout),
+        String::from_utf8_lossy(&run_out.stderr)
     );
 }

@@ -62,7 +62,7 @@ where
             }
             "--help" | "-h" => {
                 println!(
-                    "neoflash-export xcode (<project.nflash> | --demo) [--output DIR] [--bundle-id-prefix PREFIX] [--overwrite-app-shell] [--jpeg-quality 1..100] [--scripts-json FILE.json]"
+                    "neoflash-export xcode (<project.nflash> | --demo) [--output DIR] [--bundle-id-prefix PREFIX] [--overwrite-app-shell] [--jpeg-quality 1..100] [--scripts-json FILE.json]  [Experimental]"
                 );
                 return Ok(CliRunOutput::default());
             }
@@ -107,7 +107,7 @@ where
     };
     let report = export_xcode_project(&project, &output, &options, scripts.as_ref())?;
     println!(
-        "Xcode project export: {} (scheme {}, {} symbols, {} resources)",
+        "Xcode project export [Experimental]: {} (scheme {}, {} symbols, {} resources)",
         report.xcodeproj_path.display(),
         report.scheme_name,
         report.symbol_count,
@@ -347,7 +347,7 @@ where
             "--assets-folder" => assets_folder = true,
             "--help" | "-h" => {
                 println!(
-                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--export-profile FILE.json] [--import-profile FILE.json] [--profile NAME_OR_ID]\n  [--simulate-network fast-3g|slow-3g|cable|offline-local|<kbps>/<rtt_ms>]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export xcode (<project.nflash> | --demo) [--output DIR] [--bundle-id-prefix PREFIX] [--overwrite-app-shell] [--jpeg-quality 1..100] [--scripts-json FILE.json]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
+                    "neoflash-export <project.nflash> | --demo [--output DIR] [--runtime DIR] [--size-report]\n  [--size-level full|balanced|compact|shared] [--runtime-url URL] [--size-estimate]\n  [--export-profile FILE.json] [--import-profile FILE.json] [--profile NAME_OR_ID]\n  [--simulate-network fast-3g|slow-3g|cable|offline-local|<kbps>/<rtt_ms>]\n  [--lottie FILE.json] [--video FILE.mp4|.webm|.mov|.gif|.png] [--audio FILE.wav|.mp3|.ogg|.aac] [--audio-format wav|mp3|ogg|aac] [--symbol ID_OR_NAME] [--pretty]\nneoflash-export xcode (<project.nflash> | --demo) [--output DIR] [--bundle-id-prefix PREFIX] [--overwrite-app-shell] [--jpeg-quality 1..100] [--scripts-json FILE.json]  [Experimental]\nneoflash-export --shared-runtime DIR [--runtime DIR]"
                 );
                 return Ok(CliRunOutput::default());
             }

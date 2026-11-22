@@ -93,7 +93,6 @@ pub(super) fn render_host_method_stub(method: &XcodeSwiftProxyMethod) -> String 
     let clean_name = sanitize_swift_identifier(&method.name, "hostMethod");
     let mut out = String::new();
     let _ = writeln!(out, "    {sig} {{");
-    let _ = writeln!(out, "        // NeoFlash host stub: {clean_name}");
     if let Some(ret_stmt) =
         default_return_statement(&clean_name, method.return_swift_type.as_deref())
     {
@@ -145,6 +144,14 @@ struct ContentView: View {
 
 pub(super) fn render_initial_app_swift_host(host_methods: &[XcodeSwiftProxyMethod]) -> String {
     let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "// AppSwiftHost.swift — Experimental Xcode / Swift host (developer-owned; never overwritten on re-export)."
+    );
+    let _ = writeln!(
+        out,
+        "// Proxy functions referenced in NeoFlash are generated below as empty stubs ready to implement in Xcode."
+    );
     let _ = writeln!(out, "import Foundation");
     let _ = writeln!(out);
     let _ = writeln!(out, "@MainActor");

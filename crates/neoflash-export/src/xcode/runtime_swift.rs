@@ -544,6 +544,61 @@ extension Bool {
         self = value.isTruthy
     }
 }
+
+@MainActor
+public enum NFRuntime {
+    public static weak var activeHost: (any SwiftHostProtocol)?
+
+    public static func trace(_ items: Any...) {
+        let msg = items.map { String(describing: $0) }.joined(separator: " ")
+        print("[NeoFlash]", msg)
+    }
+
+    public static func isTruthy(_ value: NFValue) -> Bool { value.isTruthy }
+    public static func isTruthy(_ value: Bool) -> Bool { value }
+    public static func isTruthy(_ value: Bool?) -> Bool { value ?? false }
+    public static func isTruthy(_ value: Int) -> Bool { value != 0 }
+    public static func isTruthy(_ value: UInt) -> Bool { value != 0 }
+    public static func isTruthy(_ value: Double) -> Bool { value != 0.0 && !value.isNaN }
+    public static func isTruthy(_ value: String) -> Bool { !value.isEmpty }
+    public static func isTruthy(_ value: Any?) -> Bool { value != nil }
+
+    public static func keys(_ value: NFValue) -> [String] {
+        switch value {
+        case .object(let box):
+            return Array(box.properties.keys).sorted()
+        case .array(let box):
+            return (0..<box.elements.count).map(String.init)
+        default:
+            return []
+        }
+    }
+
+    public static func typeofValue(_ value: NFValue) -> String {
+        switch value {
+        case .null: return "undefined"
+        case .bool: return "boolean"
+        case .int, .number: return "number"
+        case .string: return "string"
+        case .array, .object, .displayObject: return "object"
+        }
+    }
+
+    public static func typeofValue(_ value: Any?) -> String {
+        guard let value else { return "undefined" }
+        if value is Bool { return "boolean" }
+        if value is Int || value is UInt || value is Double || value is Float { return "number" }
+        if value is String { return "string" }
+        return "object"
+    }
+
+    @discardableResult
+    public static func deleteProperty(_ value: Any?) -> Bool { true }
+
+    public static func throwError(_ error: Any) {
+        print("[NeoFlash Error]", error)
+    }
+}
 "#
 }
 
@@ -2232,6 +2287,9 @@ open class NFMovieClip: NFSprite {
         set {
             pendingHost = newValue
             stage?.host = newValue
+            if let newValue {
+                NFRuntime.activeHost = newValue
+            }
         }
     }
 
@@ -2824,7 +2882,13 @@ public final class NFStage: NFSprite {
     public private(set) var viewportTransform: NFViewportTransform = NFViewportTransform()
 
     public weak var focus: NFDisplayObject?
-    public weak var host: (any SwiftHostProtocol)?
+    public weak var host: (any SwiftHostProtocol)? {
+        didSet {
+            if let host {
+                NFRuntime.activeHost = host
+            }
+        }
+    }
     public let audioManager: NFAudioManager
 
     private var viewWidth: Double

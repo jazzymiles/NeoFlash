@@ -1185,8 +1185,8 @@ impl Editor {
         let out_dir = if let Some(explicit_dir) = dest_dir {
             explicit_dir
         } else {
-            let mut picker =
-                rfd::FileDialog::new().set_title("Choose output folder for Xcode Project (Swift)");
+            let mut picker = rfd::FileDialog::new()
+                .set_title("Choose output folder for Xcode Project (Swift, Experimental)");
             if let Some(doc_dir) = self.path.as_deref().and_then(std::path::Path::parent) {
                 picker = picker.set_directory(doc_dir);
             }
@@ -1260,7 +1260,7 @@ impl Editor {
                     crate::output_pipeline::OutputSeverity::Info,
                     crate::output_pipeline::OutputSource::Publish,
                     format!(
-                        "Xcode project exported ({} symbol(s){preserved_note}{appended_note}): {}",
+                        "Xcode project exported [Experimental] ({} symbol(s){preserved_note}{appended_note}): {}",
                         report.symbol_count,
                         report.xcodeproj_path.display()
                     ),
@@ -1273,7 +1273,7 @@ impl Editor {
                 let _ = self.message_event(
                     crate::output_pipeline::OutputSeverity::Error,
                     crate::output_pipeline::OutputSource::Publish,
-                    format!("Xcode export failed: {err}"),
+                    format!("Xcode export [Experimental] failed: {err}"),
                     Some(crate::output_pipeline::OutputLocation::for_file(out_dir)),
                 );
                 self.show_panel(PanelId::Output);

@@ -149,9 +149,13 @@ pub fn export_xcode_project(
     }
 
     // Automatically compile ActionScript timelines, object handlers, project classes, and
-    // `SwiftHost` contracts to Swift 6 when no explicit override bundle is supplied.
+    // `SwiftHost` / ad-hoc Flash proxy calls to Swift 6 when no explicit override bundle is supplied.
+    // Note: run on `project` (prior to AVM1/AVM2 `strip_skipped_foreign_scripts`) because the Swift 6
+    // AST compiler natively lowers both AS1/AS2 (`on(release)`) and AS3 scripts into one target!
     let auto_compiled_bundle = if scripts.is_none() {
-        let compiled = neoflash_script::compile_project_scripts_to_swift(&derived);
+        let (flattened_for_scripts, _) = neoflash_core::flatten_scenes_cow(project);
+        let compiled =
+            neoflash_script::compile_project_scripts_to_swift(flattened_for_scripts.as_ref());
         for issue in &compiled.issues {
             let severity = match issue.kind {
                 neoflash_script::ConversionIssueKind::ShimInjected => XcodePreflightSeverity::Info,

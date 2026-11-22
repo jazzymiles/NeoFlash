@@ -4919,8 +4919,8 @@ impl Project {
 
         let swift_host_source = match lang {
             ScriptLanguage::ActionScript2 => [
-                "// SwiftHost.as — Native Xcode / Swift Proxy Contract",
-                "// 1) Static methods in SwiftHost are proxies to native Swift (@MainActor protocol SwiftHostProtocol in Xcode).",
+                "// SwiftHost.as — Native Xcode / Swift Proxy Contract [Experimental]",
+                "// 1) Static methods in SwiftHost (and direct SwiftHost.<fn> / fscommand / ExternalInterface.call proxies) generate empty stubs on @MainActor protocol SwiftHostProtocol in Xcode (App/AppSwiftHost.swift).",
                 "// 2) Bodies inside SwiftHost.as execute as local mocks during Test Movie in NeoFlash and are stripped on Xcode export.",
                 "// 3) Parameters and return types must use portable data types (int, uint, Number, Boolean, String, Array, Object).",
                 "class SwiftHost {",
@@ -4936,8 +4936,8 @@ impl Project {
             ]
             .join("\n"),
             _ => [
-                "// SwiftHost.as — Native Xcode / Swift Proxy Contract",
-                "// 1) Static methods in SwiftHost are proxies to native Swift (@MainActor protocol SwiftHostProtocol in Xcode).",
+                "// SwiftHost.as — Native Xcode / Swift Proxy Contract [Experimental]",
+                "// 1) Static methods in SwiftHost (and direct SwiftHost.<fn> / fscommand / ExternalInterface.call proxies) generate empty stubs on @MainActor protocol SwiftHostProtocol in Xcode (App/AppSwiftHost.swift).",
                 "// 2) Bodies inside SwiftHost.as execute as local mocks during Test Movie in NeoFlash and are stripped on Xcode export.",
                 "// 3) Parameters and return types must use portable data types (int, uint, Number, Boolean, String, Array, Object).",
                 "package {",

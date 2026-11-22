@@ -513,7 +513,7 @@ impl Editor {
                 crate::output_pipeline::OutputSeverity::Info,
                 crate::output_pipeline::OutputSource::Publish,
                 format!(
-                    "Created Xcode / Swift Scene ({}): SwiftHost.as proxy contract + liquid Stage onResize ready.",
+                    "Created Xcode / Swift Scene [Experimental] ({}): SwiftHost.as proxy contract + liquid Stage onResize ready.",
                     lang.display_label()
                 ),
                 None,
