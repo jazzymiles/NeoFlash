@@ -594,6 +594,169 @@ fn t451_avm1_clipactions_lifecycle_recursive_unload_and_swf7_events() {
 }
 
 #[test]
+fn button_transition_flags_distinguish_drag_release_and_keypress() {
+    let mut movie = SwfWriter::new();
+    for (id, menu) in [(1u16, false), (2, true)] {
+        let mut button = SwfWriter::new();
+        button.u16(id);
+        button.u8(u8::from(menu));
+        button.u16(3);
+        button.u8(0); // Empty display record list.
+        for (condition, message) in [
+            (0x0010u16, "push-drag-out"),
+            (0x0020, "push-drag-over"),
+            (0x0040, "push-release-outside"),
+            (0x0080, "menu-drag-over"),
+            (0x0100, "menu-drag-out"),
+            (0x0008, "release"),
+            (0x0004, "press"),
+            (u16::from(b'k') << 9, "key"),
+        ] {
+            let actions = avm1_trace_bytes(&format!("{id}-{message}"));
+            button.u16(if message == "key" {
+                0
+            } else {
+                (actions.len() + 4) as u16
+            });
+            button.u16(condition);
+            button.bytes(&actions);
+        }
+        movie.tag(34, &button.buf);
+        let mut place = SwfWriter::new();
+        place.u8(0x02);
+        place.u16(id);
+        place.u16(id);
+        movie.tag(26, &place.buf);
+    }
+    movie.tag(1, &[]);
+    let mut player = SwfBytecodePlayer::from_bytes(&movie.into_swf(8, 100, 100, 1)).unwrap();
+    player.step_frame();
+    player.trigger_pointer_drag_out();
+    player.trigger_pointer_drag_over();
+    player.trigger_pointer_release_outside();
+    player.trigger_pointer_click();
+    player.trigger_key_down(Some(b'k'));
+    player.trigger_key_up(Some(b'k'));
+    player.trigger_key_press(b'k');
+    assert_eq!(
+        player.trace_output(),
+        [
+            "1-push-drag-out",
+            "2-menu-drag-out",
+            "1-push-drag-over",
+            "2-menu-drag-over",
+            "1-push-release-outside",
+            "1-press",
+            "2-press",
+            "1-release",
+            "2-release",
+            "1-key",
+            "2-key"
+        ]
+    );
+}
+
+#[test]
+fn native_stream_uses_its_own_start_and_event_audio_preserves_controls() {
+    use neoflash_core::{SoundCommand, SoundSync};
+    let mut film = SwfWriter::new();
+    let mut sound = SwfWriter::new();
+    sound.u16(4);
+    sound.u8(0x3e); // 44.1 kHz, mono, 16-bit little-endian PCM.
+    sound.u32(4410);
+    sound.bytes(&vec![0; 8820]);
+    film.tag(14, &sound.buf);
+    film.tag(45, &[0x0e, 0x3e, 2, 0]);
+    film.tag(19, &[1, 0, 1, 0]);
+    film.tag(1, &[]);
+    film.tag(19, &[2, 0, 2, 0]);
+    film.tag(1, &[]);
+    film.tag(45, &[0x0e, 0x3e, 2, 0]);
+    film.tag(1, &[]);
+    let mut start = SwfWriter::new();
+    start.u16(4);
+    start.u8(0x1f); // no multiple, envelope, loops, out and in
+    start.u32(441);
+    start.u32(2205);
+    start.u16(3);
+    start.u8(1);
+    start.u32(0);
+    start.u16(32768);
+    start.u16(0);
+    let mut by_class = SwfWriter::new();
+    by_class.c_str("clips.Bell");
+    by_class.bytes(&start.buf[2..]);
+    film.tag(89, &by_class.buf);
+    // The class binding appears after the trigger in this same SWF frame.
+    let mut binding = SwfWriter::new();
+    binding.u16(1);
+    binding.u16(4);
+    binding.c_str("clips.Bell");
+    film.tag(76, &binding.buf);
+    film.tag(19, &[3, 0, 3, 0]);
+    film.tag(1, &[]);
+    film.tag(19, &[4, 0, 4, 0]);
+    film.tag(1, &[]);
+    let bytes = film.into_swf(9, 100, 100, 5);
+    let path = std::env::temp_dir().join(format!(
+        "neoflash-stream-preview-{}.swf",
+        std::process::id()
+    ));
+    std::fs::write(&path, &bytes).unwrap();
+    let project = import_project(&path).unwrap();
+    let report = inspect(&path).unwrap();
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|d| d.code != "swf_sound_approximated")
+    );
+    let authored = project
+        .symbol(&project.root)
+        .unwrap()
+        .timeline
+        .layers
+        .iter()
+        .filter_map(|layer| {
+            layer
+                .keyframes
+                .iter()
+                .find(|key| key.frame == 3)?
+                .sound
+                .as_ref()
+        })
+        .find(|sound| sound.resource == "swf-sound-4")
+        .unwrap();
+    assert_eq!(
+        (authored.loops, authored.in_point, authored.out_point),
+        (3, Some(0.01), Some(0.05))
+    );
+    std::fs::remove_file(&path).unwrap();
+    let mut player = SwfBytecodePlayer::from_bytes(&bytes).unwrap();
+    player.step_frame();
+    assert!(
+        matches!(player.drain_sound_commands(&project).as_slice(), [SoundCommand::StreamStart { resource, offset: 0.0, .. }] if resource=="swf-stream-root-1")
+    );
+    player.step_frame();
+    assert!(player.drain_sound_commands(&project).is_empty());
+    player.step_frame();
+    assert!(matches!(player.drain_sound_commands(&project).as_slice(),
+        [SoundCommand::StreamStop { channel }] if channel == "swf-root-stream"));
+    player.step_frame();
+    let commands = player.drain_sound_commands(&project);
+    assert!(
+        matches!(&commands[..], [SoundCommand::Play {resource, sync: SoundSync::Start, loops: 3, envelope, in_point: Some(0.01), out_point: Some(0.05), .. }, SoundCommand::StreamStart {resource: stream,offset: 0.0,..}] if resource=="swf-sound-4" && envelope.iter().all(|point|point[1]==1.0 && point[2]==0.0) && !envelope.is_empty() && stream=="swf-stream-root-2"),
+        "{commands:?}"
+    );
+    player.seek_to_frame(4);
+    let commands = player.drain_sound_commands(&project);
+    assert!(
+        matches!(&commands[..],[SoundCommand::StreamStart {resource,offset,..}] if resource=="swf-stream-root-2" && (*offset - 1.0/24.0).abs()<1e-6),
+        "{commands:?}"
+    );
+}
+
+#[test]
 fn t451_inline_text_alpha_multiplication_and_define_video_stream_viewport_fidelity() {
     let mut swf = SwfWriter::new();
 

@@ -999,7 +999,7 @@ fn swf_inspects_fws_cws_zws_and_rejects_truncated_or_bomb_containers() {
 }
 
 #[test]
-fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
+fn binary_fla_exceeding_pretty_json_limit_keeps_all_pcm_and_artwork_in_compact_form() {
     use neoflash_core::MAX_PROJECT_JSON_BYTES;
 
     fn u16b(out: &mut Vec<u8>, v: u16) {
@@ -1344,19 +1344,10 @@ fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
         report.diagnostics
     );
     assert!(
-        report.diagnostics.iter().any(|d| {
-            d.code == "fla_media_not_imported"
-                && d.location == "media 4"
-                && d.message.contains("128 MiB")
-        }),
-        "{:?}",
-        report.diagnostics
-    );
-    assert!(
         report
             .diagnostics
             .iter()
-            .any(|d| { d.code == "fla_frame_sound" && d.message.contains("media #4") }),
+            .all(|d| d.code != "fla_media_not_imported" && d.code != "fla_frame_sound"),
         "{:?}",
         report.diagnostics
     );
@@ -1371,9 +1362,16 @@ fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
         MAX_PROJECT_JSON_BYTES
     );
 
-    // Largest sound (legacy-sound-4) was shed, while sounds 1..=3 and all 25 vector frames remain:
-    assert!(project.resources.iter().all(|r| r.id != "legacy-sound-4"));
-    for kept in ["legacy-sound-1", "legacy-sound-2", "legacy-sound-3"] {
+    // Every authored sound and all 25 vector frames survive the native save/reopen boundary.
+    assert!(serde_json::to_string_pretty(&project).unwrap().len() > MAX_PROJECT_JSON_BYTES);
+    let reopened = neoflash_core::Project::from_json(&json).unwrap();
+    assert_eq!(reopened.symbols.len(), project.symbols.len());
+    for kept in [
+        "legacy-sound-1",
+        "legacy-sound-2",
+        "legacy-sound-3",
+        "legacy-sound-4",
+    ] {
         assert!(
             project.resources.iter().any(|r| r.id == kept),
             "expected {kept} to remain imported"
@@ -1385,7 +1383,7 @@ fn binary_fla_exceeding_128_mib_json_sheds_largest_pcm_wav_and_validates() {
     assert_eq!(kfs[0].sound.as_ref().unwrap().resource, "legacy-sound-1");
     assert_eq!(kfs[1].sound.as_ref().unwrap().resource, "legacy-sound-2");
     assert_eq!(kfs[2].sound.as_ref().unwrap().resource, "legacy-sound-3");
-    assert!(kfs[3].sound.is_none());
+    assert_eq!(kfs[3].sound.as_ref().unwrap().resource, "legacy-sound-4");
     let total_quads: usize = kfs
         .iter()
         .flat_map(|k| &k.elements)

@@ -1038,7 +1038,7 @@ pub fn preflight_swf_publish(
                                     "Shape tween compiled into DefineMorphShape (tag 46) with per-frame ratio."
                                         .to_owned()
                                 } else {
-                                    "Multi-shape morph span evaluated into frame-by-frame DefineShape tags."
+                                    "Shape tween sampled into separate shapes for each frame to preserve its geometry, paint and timing."
                                         .to_owned()
                                 },
                             );

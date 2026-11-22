@@ -486,13 +486,18 @@ fn local_legacy_samples_preserve_structure_animation_scripts_and_source() {
     let images: Vec<_> = as2_sample
         .resources
         .iter()
-        .filter(|resource| resource.media_type == "image/png")
+        .filter(|resource| resource.is_image())
         .collect();
     assert_eq!(images.len(), 20);
     for resource in images {
         let bytes = resource.decoded_bytes().unwrap();
-        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
-        let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).unwrap();
+        let expected_format = match resource.media_type.as_str() {
+            "image/png" => image::ImageFormat::Png,
+            "image/jpeg" => image::ImageFormat::Jpeg,
+            other => panic!("unexpected imported bitmap format {other}"),
+        };
+        assert_eq!(image::guess_format(&bytes).unwrap(), expected_format);
+        let image = image::load_from_memory_with_format(&bytes, expected_format).unwrap();
         assert!(image.width() > 0 && image.height() > 0);
     }
     let provenance = as2_sample

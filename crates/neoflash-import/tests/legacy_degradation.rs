@@ -1597,3 +1597,72 @@ fn binary_fla_folder_artwork_and_nested_mask_layers_degrade_and_validate() {
     assert_eq!(inner_mask.properties.mask_mode, MaskMode::Geometry);
     assert!(!inner_mask.properties.mask_invert);
 }
+
+#[test]
+fn over_budget_fla_preserves_the_exact_source_as_a_standard_gzip_stream() {
+    use std::io::Read;
+    let dir = TempDir::new();
+    let mut page = MfcWriter::new();
+    page.begin("CPicPage");
+    page.base_start();
+    page.begin("CPicLayer");
+    page.base_start();
+    page.base_end();
+    page.layer_tail("Original layer");
+    page.base_end();
+    page.page_tail();
+    let contents = build_contents_bytes("Page 1", &[], &[], &[]);
+    let file = dir.write(
+        "archive.fla",
+        &build_cfb("Contents", &contents, "Page 1", &page.bytes, &[], &[]),
+    );
+    {
+        let mut cfb = cfb::open_rw(&file).unwrap();
+        // Independent source data that exceeds the aggregate resource limit.
+        // Each CFB stream stays below the per-stream read limit.
+        for i in 0..4 {
+            let mut stream = cfb.create_stream(format!("Original {i}")).unwrap();
+            for n in 0..17 {
+                stream.write_all(&vec![i * 17 + n; 1024 * 1024]).unwrap();
+            }
+        }
+    }
+    let project = import_project(&file).unwrap();
+    assert_eq!(project.symbols[0].timeline.layers[0].name, "Original layer");
+    let provenance = project
+        .resources
+        .iter()
+        .find(|r| r.id == "fla-provenance")
+        .unwrap();
+    let meta: serde_json::Value =
+        serde_json::from_slice(&provenance.decoded_bytes().unwrap()).unwrap();
+    assert_eq!(meta["schema"], 3);
+    assert_eq!(meta["source_resources"], serde_json::json!([]));
+    assert_eq!(meta["source_archive"]["encoding"], "gzip");
+    let mut compressed = Vec::new();
+    for id in meta["source_archive"]["resources"].as_array().unwrap() {
+        let blob = project
+            .resources
+            .iter()
+            .find(|r| Some(r.id.as_str()) == id.as_str())
+            .unwrap();
+        assert_eq!(blob.media_type, "application/gzip");
+        compressed.extend(blob.decoded_bytes().unwrap());
+    }
+    let mut original = fs::File::open(&file).unwrap();
+    let mut decoder = flate2::read::GzDecoder::new(compressed.as_slice());
+    let mut expected = [0; 8192];
+    let mut restored = [0; 8192];
+    let mut total = 0;
+    loop {
+        let len = original.read(&mut expected).unwrap();
+        if len == 0 {
+            break;
+        }
+        decoder.read_exact(&mut restored[..len]).unwrap();
+        assert_eq!(&expected[..len], &restored[..len]);
+        total += len;
+    }
+    assert_eq!(decoder.read(&mut restored).unwrap(), 0);
+    assert_eq!(meta["source_bytes"].as_u64(), Some(total as u64));
+}

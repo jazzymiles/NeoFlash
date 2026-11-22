@@ -3154,3 +3154,408 @@ fn t451_multi_fixture_ruffle_differential_swf_import_and_republish_roundtrip() {
         }
     }
 }
+
+#[test]
+fn compiled_loops_and_computed_updates_observe_each_side_effect_once() {
+    let source = r#"
+        function exercise() {
+            var hits = 0;
+            var keys = 0;
+            var values = { score: 10 };
+            function receiver() { hits++; return values; }
+            function key() { keys++; return "score"; }
+            receiver()[key()] += 4;
+            receiver().score++;
+            receiver()[key()]--;
+            trace(values.score);
+            trace(hits);
+            trace(keys);
+            var i = 0;
+            var checks = 0;
+            function again() { checks++; return i < 9; }
+            do {
+                i++;
+                if (i == 1) { continue; }
+                if (i == 3) { break; }
+            } while (again());
+            do { i += 2; } while (false);
+            trace(i);
+            trace(checks);
+            var mask = 9;
+            mask <<= 2;
+            mask |= 3;
+            mask ^= 7;
+            mask &= 63;
+            mask >>= 2;
+            mask >>>= 1;
+            trace(mask);
+        }
+        exercise();
+        stop();
+    "#;
+    for (language, profile) in [
+        (
+            ScriptLanguage::ActionScript2,
+            SwfPublishProfile::FlashPlayer8Avm1,
+        ),
+        (
+            ScriptLanguage::ActionScript3,
+            SwfPublishProfile::FlashPlayer10Avm2,
+        ),
+    ] {
+        let mut project = Project::blank();
+        project.script_language = Some(language);
+        project.symbols[0].timeline.scripts = vec![FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language,
+                source: source.to_owned(),
+            },
+        }];
+        let (bytes, _) =
+            publish_swf_bytes(&project, &SwfPublishOptions::for_profile(profile)).unwrap();
+        let playback = play_swf_bytes(&bytes, 1).unwrap();
+        assert!(
+            playback.unsupported_diagnostics.is_empty(),
+            "{profile:?}: {:?}",
+            playback.unsupported_diagnostics
+        );
+        assert_eq!(
+            playback.trace_output,
+            ["14", "3", "2", "5", "2", "4"],
+            "{profile:?}"
+        );
+    }
+}
+
+#[test]
+fn compiled_shape_morph_preserves_gradient_endpoints_and_static_spread_modes() {
+    use neoflash_core::{
+        Easing, GradientKind, GradientPaint, GradientSpread, GradientStop, TweenKind,
+    };
+    let paint = |last: [u8; 4], spread, linear_rgb| GradientPaint {
+        kind: GradientKind::Linear,
+        matrix: [0.015, 0.0, 0.0, 0.015, 42.0, 40.0],
+        stops: vec![
+            GradientStop {
+                ratio: 0,
+                color: [255, 0, 0, 255],
+            },
+            GradientStop {
+                ratio: 255,
+                color: last,
+            },
+        ],
+        spread,
+        linear_rgb,
+        ..Default::default()
+    };
+    let shape = |fill_gradient| Element {
+        id: "shape".into(),
+        transform: Transform {
+            x: 8.0,
+            ..Default::default()
+        },
+        kind: ElementKind::PaintedPath {
+            commands: vec![
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 85.0, y: 0.0 },
+                PathCommand::LineTo { x: 0.0, y: 60.0 },
+                PathCommand::Close,
+            ],
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            stroke: [0; 4],
+            stroke_width: 0.0,
+            fill_gradient: Some(fill_gradient),
+            stroke_gradient: None,
+        },
+        ..Default::default()
+    };
+    for (spread, linear_rgb, use_morph) in [
+        (GradientSpread::Extend, false, true),
+        (GradientSpread::Reflect, true, false),
+        (GradientSpread::Repeat, false, false),
+    ] {
+        let mut project = Project::blank();
+        let tl = &mut project.symbols[0].timeline;
+        tl.frame_count = 4;
+        let end_color = [0, 0, 255, 128];
+        tl.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                tween: Some(Easing::Linear),
+                tween_kind: TweenKind::Shape,
+                elements: vec![shape(paint([0, 255, 0, 255], spread, linear_rgb))],
+                ..Default::default()
+            },
+            Keyframe {
+                frame: 3,
+                elements: vec![shape(paint(end_color, spread, linear_rgb))],
+                ..Default::default()
+            },
+        ];
+        project.upgrade_format_for_features();
+        // Sample inside and on both sides of the gradient's primary span.
+        use neoflash_export::image_export::{ImageExportOptions, export_project_image};
+        let dir = TempDirGuard::new("gradient-frame");
+        let file = dir.0.join("frame.png");
+        let mut options = ImageExportOptions::for_project(&project, 0);
+        options.runtime_capture = false;
+        export_project_image(&project, &file, &options).unwrap();
+        let pixels = image::open(file).unwrap().into_rgba8();
+        let gradient = paint([0, 255, 0, 255], spread, linear_rgb);
+        for x in [20, 45, 68] {
+            let u = gradient.raw_unit_at(f64::from(x) + 0.5 - 8.0, 1.5).unwrap();
+            let expected = gradient.sample_at_unit(u);
+            let actual = pixels.get_pixel(x, 1).0;
+            assert!(
+                actual.iter().zip(expected).all(|(v, e)| v.abs_diff(e) <= 3),
+                "{spread:?} x={x}: {actual:?} vs {expected:?}"
+            );
+        }
+        let (bytes, _) = publish_swf_bytes(&project, &SwfPublishOptions::default()).unwrap();
+        assert_eq!(
+            collect_swf_tags_raw(&bytes)
+                .iter()
+                .any(|(tag, _)| *tag == 46),
+            use_morph
+        );
+        let recovered = import_swf_bytes(&bytes).unwrap();
+        let gradients: Vec<_> = recovered
+            .symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .flat_map(|l| &l.keyframes)
+            .flat_map(|k| &k.elements)
+            .filter_map(|e| match &e.kind {
+                ElementKind::PaintedPath { fill_gradient, .. } => fill_gradient.as_ref(),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            gradients
+                .iter()
+                .any(|g| g.stops.last().unwrap().color == end_color
+                    && g.spread == spread
+                    && g.linear_rgb == linear_rgb),
+            "{spread:?}"
+        );
+        if use_morph {
+            assert!(
+                gradients.iter().any(|g| (g.matrix[4] - 50.0).abs() < 0.1
+                    && g.stops.last().unwrap().color == end_color)
+            );
+        }
+    }
+}
+
+#[test]
+fn swf_shape_tween_preserves_contours_arcs_overshoot_and_property_expressions() {
+    use neoflash_core::{Easing, GradientPaint, GradientStop, OvalOptions, Player, TweenKind};
+
+    let square = |commands| Element {
+        id: "square".into(),
+        kind: ElementKind::PaintedPath {
+            commands,
+            fill_rule: FillRule::NonZero,
+            fill: [0; 4],
+            fill_gradient: Some(GradientPaint {
+                matrix: [0.032, 0., 0., 0.032, 32., 32.],
+                stops: vec![
+                    GradientStop {
+                        ratio: 0,
+                        color: [255, 10, 30, 255],
+                    },
+                    GradientStop {
+                        ratio: 255,
+                        color: [10, 30, 255, 255],
+                    },
+                ],
+                ..Default::default()
+            }),
+            stroke: [0; 4],
+            stroke_width: 0.,
+            stroke_gradient: None,
+        },
+        ..Default::default()
+    };
+    let square_a = square(vec![
+        PathCommand::MoveTo { x: 8., y: 8. },
+        PathCommand::LineTo { x: 56., y: 8. },
+        PathCommand::LineTo { x: 56., y: 56. },
+        PathCommand::LineTo { x: 8., y: 56. },
+        PathCommand::Close,
+    ]);
+    // Same square, beginning at the opposite corner with a straight quadratic edge.
+    // The core aligns this contour before interpolating. Pairing raw SWF edges collapses it.
+    let square_b = square(vec![
+        PathCommand::MoveTo { x: 56., y: 56. },
+        PathCommand::QuadraticTo {
+            cx: 32.,
+            cy: 56.,
+            x: 8.,
+            y: 56.,
+        },
+        PathCommand::LineTo { x: 8., y: 8. },
+        PathCommand::LineTo { x: 56., y: 8. },
+        PathCommand::Close,
+    ]);
+    let mut arc = Element {
+        id: "arc".into(),
+        kind: ElementKind::Ellipse {
+            width: 56.,
+            height: 56.,
+            fill: [22, 165, 210, 255],
+            stroke: [11, 11, 11, 255],
+            stroke_width: 3.,
+        },
+        ..Default::default()
+    };
+    arc.set_oval_options(OvalOptions {
+        end_angle: 180.,
+        close_path: false,
+        ..Default::default()
+    });
+
+    fn pixels(project: &Project, frame: u32) -> Vec<[u8; 4]> {
+        let mut player = Player::new(project);
+        player.seek(project, frame);
+        let image = player.render_snapshot_rgba(project, 64, 64).unwrap();
+        image.as_chunks::<4>().0.to_vec()
+    }
+    fn movie(a: Element, b: Element, ease: Easing, end: u32) -> Project {
+        let mut project = Project::blank();
+        project.width = 64;
+        project.height = 64;
+        project.background = [255; 4];
+        let tl = &mut project.symbols[0].timeline;
+        tl.frame_count = end + 1;
+        tl.layers[0].keyframes = vec![
+            Keyframe {
+                frame: 0,
+                elements: vec![a],
+                tween: Some(ease),
+                tween_kind: TweenKind::Shape,
+                ..Default::default()
+            },
+            Keyframe {
+                frame: end,
+                elements: vec![b],
+                ..Default::default()
+            },
+        ];
+        project.upgrade_format_for_features();
+        project
+    }
+    for (a, b, native) in [(square_a, square_b, false), (arc.clone(), arc, true)] {
+        let project = movie(a, b, Easing::Linear, 2);
+        let (swf, _) = publish_swf_bytes(&project, &SwfPublishOptions::default()).unwrap();
+        assert_eq!(
+            collect_swf_tags_raw(&swf)
+                .iter()
+                .any(|(code, _)| *code == 46),
+            native
+        );
+        let published = import_swf_bytes(&swf).unwrap();
+        // At the endpoint a static DefineShape is placed; the midpoint exercises the tween.
+        for frame in [1, 2] {
+            let expected = pixels(&project, frame);
+            let actual = pixels(&published, frame);
+            if native {
+                assert!(actual.iter().any(|p| p[3] > 0), "missing arc stroke");
+                for (x, y) in [(28, 28), (28, 36)] {
+                    assert_eq!(
+                        actual[y * 64 + x][3],
+                        0,
+                        "open arc gained a chord or a fill at {x},{y}, frame {frame}"
+                    );
+                }
+            } else {
+                for (x, y) in [(15, 15), (32, 32), (48, 48)] {
+                    let index = y * 64 + x;
+                    assert!(expected[index][3] > 0);
+                    assert!(
+                        actual[index]
+                            .iter()
+                            .zip(expected[index])
+                            .all(|(v, e)| v.abs_diff(e) <= 3),
+                        "shifted contour at {x},{y}, frame {frame}: {:?} vs {:?}",
+                        actual[index],
+                        expected[index]
+                    );
+                }
+            }
+        }
+    }
+
+    let mut tile = Element {
+        id: "tile".into(),
+        kind: ElementKind::Rectangle {
+            width: 8.,
+            height: 8.,
+            fill: [90, 55, 10, 255],
+            stroke: [0; 4],
+            stroke_width: 0.,
+        },
+        ..Default::default()
+    };
+    tile.transform.x = 16.;
+    tile.transform.y = 16.;
+    let mut end = tile.clone();
+    end.transform.x = 32.;
+    for expressions in [false, true] {
+        let ease = if expressions {
+            Easing::Linear
+        } else {
+            Easing::CubicBezier {
+                x1: 1. / 3.,
+                y1: -3.,
+                x2: 2. / 3.,
+                y2: 4.,
+            }
+        };
+        let mut project = movie(tile.clone(), end.clone(), ease, 4);
+        if expressions {
+            project.symbols[0].timeline.layers[0].keyframes[0]
+                .property_expressions
+                .push(neoflash_core::PropertyExpression {
+                    expression: "value + 12".into(),
+                    ..Default::default()
+                });
+            project.upgrade_format_for_features();
+        }
+        let (swf, _) = publish_swf_bytes(&project, &SwfPublishOptions::default()).unwrap();
+        assert!(
+            !collect_swf_tags_raw(&swf)
+                .iter()
+                .any(|(code, _)| *code == 46)
+        );
+        let recovered = import_swf_bytes(&swf).unwrap();
+        for frame in [1, 3] {
+            let left_edge = |p: &Project| {
+                pixels(p, frame)
+                    .chunks(64)
+                    .nth(18)
+                    .unwrap()
+                    .iter()
+                    .position(|color| color[3] > 127)
+                    .unwrap()
+            };
+            let expected = left_edge(&project);
+            if expressions {
+                assert_eq!(expected, 16 + 4 * frame as usize + 12);
+            } else if frame == 1 {
+                assert!(expected < 16, "undershoot {expected}");
+            } else {
+                assert!(expected > 32, "overshoot {expected}");
+            }
+            assert_eq!(
+                left_edge(&recovered),
+                expected,
+                "frame {frame}, expression={expressions}"
+            );
+        }
+    }
+}

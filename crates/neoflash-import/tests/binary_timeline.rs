@@ -132,6 +132,17 @@ impl Writer {
         source: Option<&str>,
         morph: impl FnOnce(&mut Self),
     ) {
+        self.frame_fields_with_metadata(rev, duration, label, source, morph, |w| w.word(0));
+    }
+    fn frame_fields_with_metadata(
+        &mut self,
+        rev: u8,
+        duration: u16,
+        label: &str,
+        source: Option<&str>,
+        morph: impl FnOnce(&mut Self),
+        sound: impl FnOnce(&mut Self),
+    ) {
         self.byte(rev);
         self.word(duration);
         self.word(0);
@@ -167,7 +178,7 @@ impl Writer {
             self.dword(0);
         }
         if rev >= 15 {
-            self.word(0);
+            sound(self);
         }
         if rev >= 16 {
             self.string("");
@@ -1840,4 +1851,83 @@ fn historical_frame_and_button_actions_decode_through_the_timeline_reader() {
         decoded.source,
         "on (release) {\n    gotoAndPlay(\"next\");\n}\n"
     );
+}
+
+#[test]
+fn authoring_only_records_preserve_frame_siblings_and_typed_references() {
+    let mut w = Writer::new();
+    w.begin("CPicPage");
+    w.base_start();
+    w.begin("CPicLayer");
+    w.base_start();
+    w.begin("CPicFrame");
+    w.base_start();
+    let plain = w.begin("CPicObj");
+    w.base_start();
+    let pic = w.begin("CPicOle");
+    w.base_start();
+    w.base_end();
+    w.byte(1);
+    for n in [65536, 0, 0, 65536, 100, 200, 0, 500, 0, 200] {
+        w.dword(n);
+    }
+    w.word(0);
+    let start = w.bytes.len();
+    let item = w.begin("CSketchCntrItem");
+    w.bytes[start + 2..start + 4].fill(0);
+    w.dword(0x100);
+    w.dword(5);
+    w.dword(0);
+    w.word(0);
+    w.dword(1);
+    w.byte(0);
+    w.word(17);
+    let page = w.begin("CDocumentPage");
+    w.byte(0);
+    w.string("Page 1");
+    w.string("Original");
+    w.base_end();
+    w.base_end();
+    w.shape();
+    let mut sounds = 0;
+    w.frame_fields_with_metadata(
+        21,
+        1,
+        "ole",
+        None,
+        |w| w.word(0),
+        |w| {
+            sounds = w.begin("CPicSoundCreator");
+            w.byte(0);
+            w.word(23);
+        },
+    );
+    w.frame(1, "next", None, false);
+    w.base_end();
+    w.layer_tail("Original", 0);
+    w.base_end();
+    w.page_tail();
+    let doc = Archive::new().read(&w.bytes);
+    let stream = &doc.streams[0];
+    assert!(
+        stream.objects.iter().all(|r| r.complete),
+        "{:?}",
+        doc.inspection.streams
+    );
+    assert_eq!(object(stream, u32::from(plain)).children, [u32::from(pic)]);
+    assert!(
+        matches!(&object(stream,u32::from(item)).payload, Some(TimelinePayload::OleClient { item, document_page:Some(p) }) if *p==u32::from(page) && item.item_id==17)
+    );
+    assert!(
+        stream
+            .pointers
+            .iter()
+            .any(|p| p.relation == TimelineRelation::SoundSettings
+                && p.target == Some(u32::from(sounds)))
+    );
+    assert!(matches!(
+        &object(stream, u32::from(sounds)).payload,
+        Some(TimelinePayload::SoundCreator { media_id: 23, .. })
+    ));
+    assert!(stream.objects.iter().any(|r| matches!(&r.payload, Some(TimelinePayload::Frame(f)) if f.label.as_ref().is_some_and(|l| text(stream,l)==b"next"))));
 }

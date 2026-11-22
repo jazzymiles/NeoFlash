@@ -675,24 +675,36 @@ fn configure_paint_shader<'a>(
             paint.set_color_rgba8(c[0], c[1], c[2], c[3]);
             return paint;
         }
-        let stops: Vec<SkiaGradientStop> = grad
-            .stops
-            .iter()
-            .map(|s| {
-                let c = apply_color(s.color, ct, alpha);
-                SkiaGradientStop::new(
-                    f32::from(s.ratio) / 255.0,
-                    SkiaColor::from_rgba8(c[0], c[1], c[2], c[3]),
-                )
-            })
-            .collect();
+        let mut stops = Vec::with_capacity(grad.stops.len());
+        let mut push_stop = |ratio: u8, color: Color| {
+            let c = apply_color(color, ct, alpha);
+            stops.push(SkiaGradientStop::new(
+                f32::from(ratio) / 255.0,
+                SkiaColor::from_rgba8(c[0], c[1], c[2], c[3]),
+            ));
+        };
+        for (i, stop) in grad.stops.iter().enumerate() {
+            if grad.linear_rgb && i > 0 {
+                // The raster shader interpolates sRGB bytes. Sample the shared linear-light ramp
+                // between authored stops, keeping hard stops and ordinary layer compositing intact.
+                for ratio in u16::from(grad.stops[i - 1].ratio) + 1..u16::from(stop.ratio) {
+                    push_stop(ratio as u8, grad.sample_at_unit(f64::from(ratio) / 255.0));
+                }
+            }
+            push_stop(stop.ratio, stop.color);
+        }
+        let spread = match grad.spread {
+            neoflash_core::GradientSpread::Extend => SpreadMode::Pad,
+            neoflash_core::GradientSpread::Reflect => SpreadMode::Reflect,
+            neoflash_core::GradientSpread::Repeat => SpreadMode::Repeat,
+        };
         let grad_xf = affine_to_skia(grad.matrix);
         let shader = match grad.kind {
             GradientKind::Linear => LinearGradient::new(
                 SkiaPoint::from_xy(-819.2, 0.0),
                 SkiaPoint::from_xy(819.2, 0.0),
                 stops,
-                SpreadMode::Pad,
+                spread,
                 grad_xf,
             ),
             GradientKind::Radial => {
@@ -708,7 +720,7 @@ fn configure_paint_shader<'a>(
                     SkiaPoint::from_xy(0.0, 0.0),
                     819.2,
                     stops,
-                    SpreadMode::Pad,
+                    spread,
                     grad_xf,
                 )
             }

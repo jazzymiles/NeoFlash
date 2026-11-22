@@ -1,6 +1,51 @@
 use super::*;
 
 impl Parser<'_> {
+    fn motion_object_poses(
+        &mut self,
+        wrapper: Node<'_, '_>,
+        key: &Keyframe,
+        duration: u32,
+        location: &str,
+        file: &str,
+    ) -> Vec<Keyframe> {
+        let sampled = (|| {
+            let root = child(wrapper, "AnimationCore").ok_or("missing AnimationCore")?;
+            let pivot = wrapper
+                .parent()
+                .and_then(|frame| child(frame, "elements"))
+                .and_then(|n| child(n, "DOMSymbolInstance"))
+                .and_then(|n| child(n, "transformationPoint"))
+                .and_then(|n| child(n, "Point"))
+                .and_then(|n| {
+                    Some([
+                        n.attribute("x").unwrap_or("0").parse::<f64>().ok()?,
+                        n.attribute("y").unwrap_or("0").parse::<f64>().ok()?,
+                    ])
+                });
+            crate::motion_xml::poses(root, key, duration, pivot, &mut self.motion_pose_budget)
+        })();
+        match sampled {
+            Ok(poses) => {
+                self.report.warning(
+                    "xfl_motion_sampled",
+                    location,
+                    "Sampled 2D motion-object tracks into editable per-frame poses.",
+                );
+                poses
+            }
+            Err(reason) => {
+                self.audit_unmodeled_xfl_subtree(wrapper, file);
+                self.report.warning(
+                    "motion_object_not_supported",
+                    location,
+                    format!("Motion-object tracks use the stored pose: {reason}."),
+                );
+                vec![]
+            }
+        }
+    }
+
     pub(super) fn symbol(
         &mut self,
         node: Node<'_, '_>,
@@ -99,6 +144,10 @@ impl Parser<'_> {
             if let Some(anim) = layer_node.attribute("animationType")
                 && !anim.is_empty()
                 && anim != "none"
+                && !(anim == "motion object"
+                    && layer_node.descendants().any(|n| {
+                        n.has_tag_name("motionObjectXML") || n.has_tag_name("MotionObjectXML")
+                    }))
             {
                 self.report.warning(
                     "motion_object_not_supported",
@@ -168,15 +217,23 @@ impl Parser<'_> {
                 locked: self.boolean(layer_node, "locked", false, file),
                 keyframes: vec![],
             };
-            type RawKeyframeEntry = (u32, u32, String, Vec<(Id, String)>, Keyframe);
+            type RawKeyframeEntry<'a, 'input> = (
+                u32,
+                u32,
+                String,
+                Vec<(Id, String)>,
+                Keyframe,
+                Option<Node<'a, 'input>>,
+            );
             let mut ends = vec![];
             let mut raw_keys: Vec<RawKeyframeEntry> = vec![];
             let mut pending_morph_hints: HashMap<u32, Vec<RawXflMorphHint>> = HashMap::new();
             if let Some(frames) = child(layer_node, "frames") {
                 self.audit(frames, file, &[], &["DOMFrame"]);
                 for frame_node in elements(frames).filter(|n| n.has_tag_name("DOMFrame")) {
-                    let has_motion_xml = child(frame_node, "MotionObjectXML").is_some()
-                        || child(frame_node, "motionObjectXML").is_some();
+                    let motion_wrapper = child(frame_node, "MotionObjectXML")
+                        .or_else(|| child(frame_node, "motionObjectXML"));
+                    let has_motion_xml = motion_wrapper.is_some();
                     self.audit(
                         frame_node,
                         file,
@@ -228,16 +285,6 @@ impl Parser<'_> {
                     let _ = self.boolean(frame_node, "isMotionObject", false, file);
                     let _ = self.boolean(frame_node, "bookmark", false, file);
                     let _ = self.boolean(frame_node, "isIKPose", false, file);
-                    for motion_tag in ["MotionObjectXML", "motionObjectXML"] {
-                        if let Some(sub) = child(frame_node, motion_tag) {
-                            self.audit_unmodeled_xfl_subtree(sub, file);
-                            self.report.warning(
-                                "motion_object_not_supported",
-                                self.location(frame_node, file),
-                                "XFL motion-object property-track XML is approximated by holding the authored keyframe pose.",
-                            );
-                        }
-                    }
                     let mut warn_morph_ignored = false;
                     for morph_tag in ["MorphShape", "morphHintsList", "betweenFrameMatrixList"] {
                         if let Some(sub) = child(frame_node, morph_tag) {
@@ -439,7 +486,7 @@ impl Parser<'_> {
                         if !parsed_morph_hints.is_empty() {
                             pending_morph_hints.insert(frame, parsed_morph_hints);
                         }
-                        raw_keys.push((frame, end, frame_loc, elem_locs, key));
+                        raw_keys.push((frame, end, frame_loc, elem_locs, key, motion_wrapper));
                     }
                 }
             }
@@ -554,7 +601,7 @@ impl Parser<'_> {
             // Record true instance placement lifetimes (continuous classic-tween chains
             // share one element ID and do not end/restart at intermediate tween keys).
             let mut active_instances: HashMap<Id, (Id, u32)> = HashMap::new();
-            for (frame, end, _, elem_locs, key) in &raw_keys {
+            for (frame, end, _, elem_locs, key, _) in &raw_keys {
                 let current_ids: BTreeSet<&str> =
                     key.elements.iter().map(|e| e.id.as_str()).collect();
                 active_instances.retain(|elem_id, (sym_id, prev_end)| {
@@ -590,7 +637,17 @@ impl Parser<'_> {
             for (_, (sym_id, last_end)) in active_instances {
                 instance_ends.entry(last_end).or_default().insert(sym_id);
             }
-            layer.keyframes = raw_keys.into_iter().map(|entry| entry.4).collect();
+            // Classic tween endpoints now have their continuing placement IDs. Build
+            // MotionObjectXML poses from those endpoints to keep the child playhead.
+            for (frame, end, frame_loc, _, key, wrapper) in raw_keys {
+                let poses = wrapper.map(|wrapper| {
+                    self.motion_object_poses(wrapper, &key, end - frame, &frame_loc, file)
+                });
+                layer.keyframes.push(key);
+                if let Some(poses) = poses {
+                    layer.keyframes.extend(poses);
+                }
+            }
             spans.push(ends);
             timeline.layers.push(layer);
         }

@@ -1246,6 +1246,8 @@ impl SwfBytecodePlayer {
                         Avm1Value::Number(f64::NAN)
                     } else if name == "Infinity" {
                         Avm1Value::Number(f64::INFINITY)
+                    } else if pkg.is_empty() && name == "undefined" {
+                        Avm1Value::Undefined
                     } else {
                         self.get_avm2_property_eval(
                             &Avm1Value::MovieClip("_root".into()),
@@ -1547,9 +1549,13 @@ impl SwfBytecodePlayer {
                     // add
                     let b = stack.pop().unwrap_or(Avm1Value::Undefined);
                     let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a_str = matches!(&a, Avm1Value::String(s) if !is_avm2_fn_token(s));
-                    let b_str = matches!(&b, Avm1Value::String(s) if !is_avm2_fn_token(s));
-                    if a_str || b_str {
+                    let a = self.avm2_add_operand(a, abc_idx, steps, depth);
+                    let b = if self.avm2_thrown.is_none() {
+                        self.avm2_add_operand(b, abc_idx, steps, depth)
+                    } else {
+                        Avm1Value::Undefined
+                    };
+                    if matches!(a, Avm1Value::String(_)) || matches!(b, Avm1Value::String(_)) {
                         let sa = avm2_convert_string(&a, &self.avm1_objects);
                         let sb = avm2_convert_string(&b, &self.avm1_objects);
                         self.push_avm_stack(&mut stack, Avm1Value::String(format!("{sa}{sb}")));

@@ -774,6 +774,7 @@ fn component_props_only_attach_to_implemented_avm1_movieclips_and_broken_tweens_
         stream_stops: BTreeSet::new(),
         language: ScriptLanguage::ActionScript2,
         include_hidden: true,
+        motion_pose_budget: crate::motion_xml::DOCUMENT_POSE_BUDGET,
         contents_revision: Some(0x3f),
         generated: vec![],
         inline_resources: vec![],
@@ -1086,6 +1087,7 @@ fn pressure_compaction_warns_on_jpeg_reencode_preserves_linked_sounds_and_sheds_
     let mut total = MAX_RESOURCE_TOTAL_BYTES;
     let mut rep = empty_report();
     assets::compact_bitmaps_under_pressure(
+        &mut Default::default(),
         &mut resources,
         &mut used_paths,
         &mut total,
@@ -1189,5 +1191,38 @@ fn pressure_compaction_warns_on_jpeg_reencode_preserves_linked_sounds_and_sheds_
             .diagnostics
             .iter()
             .any(|d| d.code == "fla_media_not_imported" && d.location == "media 9")
+    );
+    // Actual compact-JSON exhaustion still removes the largest audio first and
+    // clears only keys that use it, with separate located diagnostics.
+    for (id, size) in [(1, 32), (4, 256)] {
+        proj.resources.push(
+            ResourceUnit::from_bytes(
+                format!("legacy-sound-{id}"),
+                format!("legacy/sounds/{id}/clip.wav"),
+                "audio/wav",
+                &vec![0; size],
+            )
+            .unwrap(),
+        );
+    }
+    proj.symbols[0].timeline.layers[0].keyframes[0].sound = Some(FrameSound::new("legacy-sound-4"));
+    assert!(shed_audio_resources(&mut proj, &mut v_rep, 100));
+    assert!(proj.resource("legacy-sound-4").is_none() && proj.resource("legacy-sound-1").is_some());
+    assert!(
+        proj.symbols[0].timeline.layers[0].keyframes[0]
+            .sound
+            .is_none()
+    );
+    assert!(
+        v_rep
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_media_not_imported" && d.location == "media 4")
+    );
+    assert!(
+        v_rep
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "fla_frame_sound" && d.message.contains("media #4"))
     );
 }

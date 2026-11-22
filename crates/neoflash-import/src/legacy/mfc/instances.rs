@@ -663,11 +663,19 @@ impl Reader<'_> {
         self.objects[index].payload = Some(TimelinePayload::Auxiliary(Box::new(aux)));
         parsed
     }
-    pub(super) fn temp_clipboard_object(&mut self, id: u32) -> Result<()> {
+    pub(super) fn clipboard_object(&mut self, id: u32, depth: usize, class: Class) -> Result<()> {
         let mut aux = TimelineAuxiliaryObject::default();
         let parsed = (|| {
             aux.revision = Some(self.byte()?);
             aux.matrix_words = Some(self.signed_words()?);
+            if class == Class::Ole {
+                aux.bounds_words = Some(self.signed_words()?);
+                let item_id = self.word()?;
+                aux.ole_item_id = Some(item_id);
+                if item_id == 0 {
+                    self.typed_object(depth + 1, id, TimelineRelation::OleItem, Class::OleClient)?;
+                }
+            }
             Ok(())
         })();
         let index = self.object_index(id);

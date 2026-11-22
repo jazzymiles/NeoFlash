@@ -604,7 +604,7 @@ fn t414_swf_morph_transforms_gradient_guard_trimmed_sound_pos44_multilabel_and_t
     let p2 = u32::from_le_bytes([payload[28], payload[29], payload[30], payload[31]]);
     assert_eq!((p0, p1, p2), (44_100, 88_200, 132_300));
 
-    // 2) P2-16: `can_morph_keys` rejects gradient `PaintedPath` while solid shape tweens bake `start_el.transform` & `end_el.transform`!
+    // 2) P2-16: `can_morph_keys` retains compatible gradient `PaintedPath` fills while solid shape tweens bake `start_el.transform` & `end_el.transform`!
     let grad_el = Element {
         id: new_id("element"),
         kind: ElementKind::PaintedPath {
@@ -649,7 +649,7 @@ fn t414_swf_morph_transforms_gradient_guard_trimmed_sound_pos44_multilabel_and_t
         elements: vec![grad_el],
         ..Default::default()
     };
-    assert!(!can_morph_keys(&kf_g0, &kf_g1));
+    assert!(can_morph_keys(&kf_g0, &kf_g1));
 
     // 3) P2-16 + P3-20 + P1-12 end-to-end SWF publication:
     // - Shape tween moving from `x = 10` to `x = 150` via `DefineMorphShape`

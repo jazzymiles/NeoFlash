@@ -118,6 +118,13 @@ pub(super) fn emit_avm2_int(pool: &mut AbcPoolBuilder, code: &mut SwfBitWriter, 
     }
 }
 
+/// Adobe's verifier needs an instruction boundary marked before a backward jump.
+pub(super) fn emit_avm2_loop_label(code: &mut SwfBitWriter) -> usize {
+    let target = code.buf.len();
+    code.u8(0x09);
+    target
+}
+
 pub(super) fn emit_avm2_s24_placeholder(code: &mut SwfBitWriter, op: u8) -> usize {
     code.u8(op);
     let pos = code.buf.len();
@@ -133,6 +140,9 @@ pub(super) fn patch_avm2_s24(
     target_pos: usize,
 ) -> Result<(), String> {
     let after_insn = s24_pos + 3;
+    if target_pos < after_insn && code.buf.get(target_pos) != Some(&0x09) {
+        return Err("AVM2 backward branch does not target a label".to_owned());
+    }
     let rel = (target_pos as isize) - (after_insn as isize);
     let offset = i32::try_from(rel)
         .ok()
@@ -918,7 +928,7 @@ pub(super) fn stmts_have_direct_self_named_fn(stmts: &[SwfStmt]) -> bool {
         }
         SwfStmt::IncDec { target, .. } => lvalue_has_direct_self_named_fn(target),
         SwfStmt::Block(inner) => stmts_have_direct_self_named_fn(inner),
-        SwfStmt::While { cond, body } => {
+        SwfStmt::While { cond, body, .. } => {
             expr_has_direct_self_named_fn(cond) || stmts_have_direct_self_named_fn(body)
         }
         SwfStmt::If {
@@ -1285,8 +1295,8 @@ pub(super) fn compute_avm2_method_metrics(
         let op = code[pos];
         pos += 1;
         match op {
-            0x02 | 0x1D | 0x47 => {
-                // nop / popscope / returnvoid
+            0x02 | 0x09 | 0x1D | 0x47 => {
+                // nop / label / popscope / returnvoid
             }
             0x03 | 0x29 | 0x30 | 0x48 => {
                 // throw / pop / pushscope / returnvalue

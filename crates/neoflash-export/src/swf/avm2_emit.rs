@@ -563,44 +563,13 @@ pub(super) fn compile_avm2_call(
     Ok(())
 }
 
-pub(super) fn compile_avm2_load_lvalue(
-    pool: &mut AbcPoolBuilder,
-    target: &SwfLValue,
-    code: &mut SwfBitWriter,
-    state: &mut Avm2CompilerState,
-    env: &mut Avm2LexicalEnv,
-) -> Result<(), String> {
-    match target {
-        SwfLValue::Ident(name) => {
-            emit_avm2_load_ident(pool, name, code, env);
-        }
-        SwfLValue::Member(obj, prop) => {
-            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "super") {
-                code.u8(0xD0); // getlocal_0
-                let mn = pool.add_qname("", prop);
-                code.u8(0x04); // getsuper
-                code.u32_v(mn);
-            } else {
-                compile_avm2_expr(pool, obj, code, state, env)?;
-                let mn = pool.add_qname("", prop);
-                code.u8(0x66); // getproperty
-                code.u32_v(mn);
-            }
-        }
-        SwfLValue::Index(obj, idx) => {
-            let expr = SwfExpr::Index(obj.clone(), idx.clone());
-            compile_avm2_expr(pool, &expr, code, state, env)?;
-        }
-    }
-    Ok(())
-}
-
 pub(super) fn compile_avm2_store_lvalue_with_rhs<F>(
     pool: &mut AbcPoolBuilder,
     target: &SwfLValue,
     code: &mut SwfBitWriter,
     state: &mut Avm2CompilerState,
     env: &mut Avm2LexicalEnv,
+    read_previous: bool,
     emit_rhs: F,
 ) -> Result<(), String>
 where
@@ -614,18 +583,31 @@ where
     match target {
         SwfLValue::Ident(name) => {
             if let Some(&reg) = env.local_regs.get(name) {
+                if read_previous {
+                    emit_avm2_getlocal(code, reg);
+                }
                 emit_rhs(pool, code, state, env)?;
                 code.u8(0x82); // coerce_a
                 emit_avm2_setlocal(code, reg);
             } else if let Some(&slot_id) = env.own_slots.get(name) {
                 code.u8(0x65); // getscopeobject 1
                 code.u8(0x01);
+                if read_previous {
+                    code.u8(0x2a);
+                    code.u8(0x6c);
+                    code.u32_v(slot_id);
+                }
                 emit_rhs(pool, code, state, env)?;
                 code.u8(0x6D); // setslot
                 code.u32_v(slot_id);
             } else if let Some(&(outer_idx, slot_id)) = env.outer_slots.get(name) {
                 code.u8(0x67); // getouterscope
                 code.u32_v(outer_idx);
+                if read_previous {
+                    code.u8(0x2a);
+                    code.u8(0x6c);
+                    code.u32_v(slot_id);
+                }
                 emit_rhs(pool, code, state, env)?;
                 code.u8(0x6D); // setslot
                 code.u32_v(slot_id);
@@ -633,46 +615,52 @@ where
                 let prop_mn = pool.add_qname("", name);
                 code.u8(0x5E); // findproperty
                 code.u32_v(prop_mn);
+                if read_previous {
+                    code.u8(0x2a);
+                    code.u8(0x66);
+                    code.u32_v(prop_mn);
+                }
                 emit_rhs(pool, code, state, env)?;
                 code.u8(0x61); // setproperty
                 code.u32_v(prop_mn);
             }
         }
-        SwfLValue::Member(obj, prop) => {
-            let prop_mn = pool.add_qname("", prop);
-            if matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "super") {
+        SwfLValue::Member(obj, _) | SwfLValue::Index(obj, _) => {
+            let super_ref = matches!(obj.as_ref(), SwfExpr::Ident(id) if id == "super");
+            if super_ref {
                 code.u8(0xD0); // getlocal_0
-                emit_rhs(pool, code, state, env)?;
-                code.u8(0x05); // setsuper
-                code.u32_v(prop_mn);
             } else {
                 compile_avm2_expr(pool, obj, code, state, env)?;
-                emit_rhs(pool, code, state, env)?;
-                code.u8(0x61); // setproperty
-                code.u32_v(prop_mn);
             }
-        }
-        SwfLValue::Index(obj, idx) => {
-            if let SwfExpr::Int(iv) = idx.as_ref() {
-                let prop_mn = pool.add_qname("", &iv.to_string());
-                compile_avm2_expr(pool, obj, code, state, env)?;
-                emit_rhs(pool, code, state, env)?;
-                code.u8(0x61); // setproperty
-                code.u32_v(prop_mn);
-            } else if let SwfExpr::Str(s) = idx.as_ref() {
-                let prop_mn = pool.add_qname("", s);
-                compile_avm2_expr(pool, obj, code, state, env)?;
-                emit_rhs(pool, code, state, env)?;
-                code.u8(0x61); // setproperty
-                code.u32_v(prop_mn);
-            } else {
-                compile_avm2_expr(pool, obj, code, state, env)?;
-                compile_avm2_expr(pool, idx, code, state, env)?;
-                emit_rhs(pool, code, state, env)?;
-                let mn_l = pool.intern_multiname_l();
-                code.u8(0x61); // setproperty (MultinameL)
-                code.u32_v(mn_l);
+            if read_previous {
+                code.u8(0x2a); // dup receiver for the read
             }
+            let property = match target {
+                SwfLValue::Member(_, name) => pool.add_qname("", name),
+                SwfLValue::Index(_, index) => match index.as_ref() {
+                    SwfExpr::Int(value) => pool.add_qname("", &value.to_string()),
+                    SwfExpr::Str(name) => pool.add_qname("", name),
+                    expr => {
+                        compile_avm2_expr(pool, expr, code, state, env)?;
+                        if read_previous {
+                            let key = env.alloc_temp_reg();
+                            code.u8(0x2a); // keep one key on the stack
+                            emit_avm2_setlocal(code, key);
+                            code.u8(0x2b); // swap key below the second receiver
+                            emit_avm2_getlocal(code, key);
+                        }
+                        pool.intern_multiname_l()
+                    }
+                },
+                SwfLValue::Ident(_) => unreachable!(),
+            };
+            if read_previous {
+                code.u8(if super_ref { 0x04 } else { 0x66 }); // getsuper / getproperty
+                code.u32_v(property);
+            }
+            emit_rhs(pool, code, state, env)?;
+            code.u8(if super_ref { 0x05 } else { 0x61 }); // setsuper / setproperty
+            code.u32_v(property);
         }
     }
     Ok(())
@@ -810,30 +798,50 @@ pub(super) fn compile_avm2_stmt(
             }
         }
         SwfStmt::Assign { target, op, value } => {
-            compile_avm2_store_lvalue_with_rhs(pool, target, code, state, env, |p, c, st, ev| {
-                if *op == SwfAssignOp::Assign {
-                    compile_avm2_expr(p, value, c, st, ev)
-                } else {
-                    compile_avm2_load_lvalue(p, target, c, st, ev)?;
-                    compile_avm2_expr(p, value, c, st, ev)?;
-                    c.u8(match op {
-                        SwfAssignOp::AddAssign => 0xA0, // add
-                        SwfAssignOp::SubAssign => 0xA1, // subtract
-                        SwfAssignOp::MulAssign => 0xA2, // multiply
-                        SwfAssignOp::DivAssign => 0xA3, // divide
-                        SwfAssignOp::ModAssign => 0xA4, // modulo
-                        SwfAssignOp::Assign => unreachable!(),
-                    });
-                    Ok(())
-                }
-            })?;
+            compile_avm2_store_lvalue_with_rhs(
+                pool,
+                target,
+                code,
+                state,
+                env,
+                *op != SwfAssignOp::Assign,
+                |p, c, st, ev| {
+                    if *op == SwfAssignOp::Assign {
+                        compile_avm2_expr(p, value, c, st, ev)
+                    } else {
+                        compile_avm2_expr(p, value, c, st, ev)?;
+                        c.u8(match op {
+                            SwfAssignOp::AddAssign => 0xA0, // add
+                            SwfAssignOp::SubAssign => 0xA1, // subtract
+                            SwfAssignOp::MulAssign => 0xA2, // multiply
+                            SwfAssignOp::DivAssign => 0xA3, // divide
+                            SwfAssignOp::ModAssign => 0xA4, // modulo
+                            SwfAssignOp::BitAndAssign => 0xa8,
+                            SwfAssignOp::BitOrAssign => 0xa9,
+                            SwfAssignOp::BitXorAssign => 0xaa,
+                            SwfAssignOp::ShlAssign => 0xa5,
+                            SwfAssignOp::ShrAssign => 0xa6,
+                            SwfAssignOp::UShrAssign => 0xa7,
+                            SwfAssignOp::Assign => unreachable!(),
+                        });
+                        Ok(())
+                    }
+                },
+            )?;
         }
         SwfStmt::IncDec { target, increment } => {
-            compile_avm2_store_lvalue_with_rhs(pool, target, code, state, env, |p, c, st, ev| {
-                compile_avm2_load_lvalue(p, target, c, st, ev)?;
-                c.u8(if *increment { 0x91 } else { 0x93 }); // increment / decrement
-                Ok(())
-            })?;
+            compile_avm2_store_lvalue_with_rhs(
+                pool,
+                target,
+                code,
+                state,
+                env,
+                true,
+                |_, c, _, _| {
+                    c.u8(if *increment { 0x91 } else { 0x93 }); // increment / decrement
+                    Ok(())
+                },
+            )?;
         }
         SwfStmt::Expr(SwfExpr::Call { callee, args }) => {
             compile_avm2_call(pool, callee, args, true, code, state, env)?;
@@ -867,9 +875,13 @@ pub(super) fn compile_avm2_stmt(
                 patch_avm2_s24(code, skip_then_patch, end_pos)?;
             }
         }
-        SwfStmt::While { cond, body } => {
-            let jump_to_cond = emit_avm2_s24_placeholder(code, 0x10); // jump L_cond
-            let body_pos = code.buf.len();
+        SwfStmt::While {
+            cond,
+            body,
+            post_test,
+        } => {
+            let jump_to_cond = (!post_test).then(|| emit_avm2_s24_placeholder(code, 0x10));
+            let body_pos = emit_avm2_loop_label(code);
             env.flow_stack.push(Avm2ControlFrame {
                 is_loop: true,
                 break_patches: Vec::new(),
@@ -879,8 +891,7 @@ pub(super) fn compile_avm2_stmt(
             compile_avm2_stmt_list(pool, body, code, state, env)?;
             let frame = env.flow_stack.pop().expect("while control frame");
             let cond_pos = code.buf.len();
-            patch_avm2_s24(code, jump_to_cond, cond_pos)?;
-            for cp in frame.continue_patches {
+            for cp in jump_to_cond.into_iter().chain(frame.continue_patches) {
                 patch_avm2_s24(code, cp, cond_pos)?;
             }
             compile_avm2_expr(pool, cond, code, state, env)?;
@@ -901,7 +912,7 @@ pub(super) fn compile_avm2_stmt(
                 compile_avm2_stmt(pool, init_stmt, code, state, env)?;
             }
             let jump_to_cond = emit_avm2_s24_placeholder(code, 0x10); // jump L_cond
-            let body_pos = code.buf.len();
+            let body_pos = emit_avm2_loop_label(code);
             env.flow_stack.push(Avm2ControlFrame {
                 is_loop: true,
                 break_patches: Vec::new(),
@@ -948,7 +959,7 @@ pub(super) fn compile_avm2_stmt(
             emit_avm2_setlocal(code, idx_reg);
 
             let jump_to_cond = emit_avm2_s24_placeholder(code, 0x10); // jump L_cond
-            let body_pos = code.buf.len();
+            let body_pos = emit_avm2_loop_label(code);
             let next_op = if *is_each { 0x23 } else { 0x1E }; // nextvalue / nextname
             let target_lv = SwfLValue::Ident(var_name.clone());
             compile_avm2_store_lvalue_with_rhs(
@@ -957,6 +968,7 @@ pub(super) fn compile_avm2_stmt(
                 code,
                 state,
                 env,
+                false,
                 |_, c, _, _| {
                     emit_avm2_getlocal(c, obj_reg);
                     emit_avm2_getlocal(c, idx_reg);

@@ -410,7 +410,24 @@ python3 scripts/verify-animate-oracle.py check target/artifacts/animate-oracle -
 
 The check compares RGBA frames from FLA and XFL authoring views, script traces and frame checksums from Test Movie, and frames after reimporting Adobe-saved AS3 FLA and SWF files. Animate 24.0.16 converts AS1/AS2 authoring documents to AS3 when opening them. Test Movie exercises the original FP8 AVM1 publications directly and the FP10 AVM2 publication plus both Adobe-republished AS3 movies.
 
-The public Ruffle CS6 `goto_label` FLA exercises duplicate names, label case and a blank tail in an independent seven-frame scene. Its upstream SWF and the FP8 SWF republished from the editable import produce the same 17-line reference trace in Adobe Test Movie (Flash Player 35.0.0.61). The HTML5 publication also reproduces the trace after Restart. The bounded native preview emits eight reference lines and diagnoses the two unsupported callback statements.
+The public Ruffle CS6 `goto_label` FLA exercises duplicate names, label case and a blank tail in an independent seven-frame scene. Its upstream SWF and the FP8 SWF republished from the editable import produce the same 17-line reference trace in Adobe Test Movie (Flash Player 35.0.0.61). The HTML5 publication also reproduces the trace after Restart. Native preview now reproduces the 17-line companion trace. The original SWF and a movie republished from its FLA are separate test subjects.
+
+The FP8 and FP10 writers also publish a scenario that modifies a computed property through functions with side effects, exercises `do…while` with `break` and `continue`, and uses bitwise assignments. The standalone Adobe Flash Player Debugger 35.0.0.60 and native preview each emit the same six lines, `14, 3, 2, 5, 2, 4`. The AVM2 writer marks backward loop targets for Adobe bytecode verification.
+
+For a per-file comparison with Python 3.11 or later, stage copies of the pinned corpus and run the generated `corpus.jsfl` in Adobe Animate. The comparison samples the first, middle and last distinct frame of every scene. It records RGBA differences separately from editable scene structure and companion SWF traces. Reports include the source and tool hashes. Generate everything under an ignored output directory.
+
+```sh
+cargo build --locked --release -p neoflash-export --example compare_fla_corpus
+python3 scripts/compare-fla-corpus.py prepare target/artifacts/adobe-corpus
+# Open target/artifacts/adobe-corpus/corpus.jsfl in Animate and let the capture finish.
+python3 scripts/compare-fla-corpus.py compare target/artifacts/adobe-corpus
+```
+
+Adobe Animate 27.0.1.5 opened all 21 pinned inputs. Across 42 authoring frames the stage size, frame rate, background and scene durations agreed in every document. Seven individual frames matched pixel for pixel. Four documents matched on every sampled frame. Seventeen had differences, including antialiasing, font rendering and bitmap placement. Eighteen documents matched on scene structure, including layer, keyframe, label and script counts. Two XFL imports use an extra key to represent a blank tail. The CS4 motion scene stores 60 sampled poses for two authored motion spans. The five companion SWFs with published Flash Player traces reproduced them exactly in native preview. The other sixteen inputs have no independent companion trace.
+
+A local historical collection contained 105 nonempty FLA documents and one empty file. Animate opened all 105 documents. Across 107 scenes and 179 sampled frames the editable stage settings, background and scene durations agreed. The full structure comparison agreed in 94 files. The other eleven differed in keyframe count. Sixteen of the 179 sampled RGBA frames matched exactly, covering all samples in seven documents. The other 98 documents show visible differences. These private projects have no independent ActionScript trace. Of 68 same-name SWF companions, 67 had matching dimensions, frame rate and frame count. A matching filename alone cannot establish that the movie was published from that revision.
+
+Three static SWFs also have independent Flash Player PNGs for nonsequential and duplicate gradient stops. For the nonsequential case, preserving the visible spans in Flash file order reduced the mean absolute RGBA channel difference from 87.31 to 1.71 on the 0–255 scale. [Flash Player reference images](https://github.com/ruffle-rs/ruffle/pull/23059)
 
 For an authoring comparison, render the imported project with `ImageExportOptions.runtime_capture = false` and compare against Animate’s seven timeline PNGs. Both renderers clear the last two frames. On the five visible frames the square’s edges differ at 84 or 169 of 220,000 pixels per frame, including a one-pixel width difference on frames two and four. The ordinary image-export setting captures scripted playback, which can visit a different frame from the authoring playhead.
 

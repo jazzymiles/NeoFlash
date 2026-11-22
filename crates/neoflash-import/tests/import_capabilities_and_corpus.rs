@@ -6,7 +6,7 @@
 //! - `imports-swf-playback`: Deterministic AVM1 & AVM2 SWF bytecode player (`SwfBytecodePlayer`),
 //!   display list stepping, clip/button event dispatch, audio event tracking, and corpus SWF playback.
 //! - `imports-xfl` & `imports-binary-*`: XFL `BitmapFill` color sampling, `reflect`/`repeat`/`linearRGB`
-//!   gradient synthesis, and 3D transform (`matrix3D`/`rotationX`/`rotationY`/`rotationZ` and binary
+//!   gradient modes and editable stops, and 3D transform (`matrix3D`/`rotationX`/`rotationY`/`rotationZ` and binary
 //!   `matrix_3d`) 2D projection.
 //! - `imports-corpus`: Automated structural, visual (stage evaluation across frames), and behavioral
 //!   comparison across the 21 corpus cases and companion SWF/FLA/XFL/SWC fixtures.
@@ -954,7 +954,7 @@ fn xfl_bitmap_fill_sampling_gradient_spread_and_3d_transform_projection() {
     };
     assert_eq!(*fill, [20, 220, 60, 255]);
 
-    // 2. LinearGradient with spreadMethod="reflect" and interpolationMethod="linearRGB" has synthesized stops:
+    // 2. LinearGradient with spreadMethod="reflect" and interpolationMethod="linearRGB" retains the author’s two editable stops and both paint modes:
     let ElementKind::PaintedPath {
         fill_gradient: Some(grad),
         ..
@@ -963,15 +963,11 @@ fn xfl_bitmap_fill_sampling_gradient_spread_and_3d_transform_projection() {
         panic!("expected PaintedPath with gradient");
     };
     assert_eq!(grad.kind, GradientKind::Linear);
-    assert!(
-        grad.stops.len() >= 5,
-        "expected linearRGB + reflect synthesized stops, got: {:?}",
-        grad.stops
-    );
-    assert_eq!(
-        grad.stops.first().unwrap().color,
-        grad.stops.last().unwrap().color
-    );
+    assert_eq!(grad.stops.len(), 2);
+    assert_eq!(grad.stops[0].color, [255, 0, 0, 255]);
+    assert_eq!(grad.stops[1].color, [0, 0, 255, 255]);
+    assert_eq!(grad.spread, neoflash_core::GradientSpread::Reflect);
+    assert!(grad.linear_rgb);
 
     // 3. 3D instance rotationX="60" (cos(60deg)=0.5 foreshortens scale_y) and rotationZ="30":
     let card_inst = elems.iter().find(|e| e.name == "card3d").unwrap();

@@ -36,6 +36,11 @@ pub enum TimelineClass {
     Screen,
     Font,
     TempClipboardObj,
+    Object,
+    SoundCreator,
+    Ole,
+    OleClient,
+    DocumentPage,
     Unknown,
 }
 impl TimelineClass {
@@ -65,6 +70,11 @@ impl TimelineClass {
             b"CPicScreen" => Self::Screen,
             b"CPicFont" => Self::Font,
             b"CPicTempClipboardObj" => Self::TempClipboardObj,
+            b"CPicObj" => Self::Object,
+            b"CPicSoundCreator" => Self::SoundCreator,
+            b"CPicOle" => Self::Ole,
+            b"CSketchCntrItem" => Self::OleClient,
+            b"CDocumentPage" => Self::DocumentPage,
             _ => Self::Unknown,
         }
     }
@@ -94,6 +104,11 @@ impl TimelineClass {
             Self::Screen => "CPicScreen",
             Self::Font => "CPicFont",
             Self::TempClipboardObj => "CPicTempClipboardObj",
+            Self::Object => "CPicObj",
+            Self::SoundCreator => "CPicSoundCreator",
+            Self::Ole => "CPicOle",
+            Self::OleClient => "CSketchCntrItem",
+            Self::DocumentPage => "CDocumentPage",
             Self::Unknown => "Unknown",
         }
     }
@@ -120,6 +135,8 @@ pub enum TimelineRelation {
     LegacyRelatedLayer,
     MorphShape,
     SoundSettings,
+    OleItem,
+    OleDocumentPage,
     /// Ordered CMorphSegment pointer of a CPicMorphShape. Null entries are values.
     MorphSegment,
     /// Ordered CMorphHintItem pointer of a CPicMorphShape.
@@ -774,6 +791,8 @@ pub struct TimelineVideo {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TimelineAuxiliaryObject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ole_item_id: Option<u16>,
     pub revision: Option<u8>,
     pub matrix_words: Option<[i32; 6]>,
     pub bounds_words: Option<[i32; 4]>,
@@ -799,6 +818,15 @@ pub enum TimelinePayload {
     CompiledClip(Box<TimelineCompiledClip>),
     Video(Box<TimelineVideo>),
     Auxiliary(Box<TimelineAuxiliaryObject>),
+    SoundCreator {
+        revision: u8,
+        media_id: u16,
+    },
+    OleClient {
+        item: super::contents::OleClientItem,
+        document_page: Option<u32>,
+    },
+    DocumentPage(Box<super::contents::ContentsDescriptor>),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimelineObject {

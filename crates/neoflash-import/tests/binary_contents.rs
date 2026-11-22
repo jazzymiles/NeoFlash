@@ -818,10 +818,7 @@ fn cstring_encoding_compact_names_and_counted_ole_have_distinct_boundaries() {
     assert_eq!(p.ole_count, Some(2));
     bytes[5] = 1;
     let p = archive.read(&bytes, &["Page 1", "Symbol 1"]);
-    assert_eq!(
-        p.stop.as_ref().unwrap().code,
-        "fla_contents_record_unsupported"
-    );
+    assert_eq!(p.stop.as_ref().unwrap().code, "fla_contents_invalid_record");
     assert_eq!(p.bytes_consumed, 7);
 }
 #[test]
@@ -1098,7 +1095,19 @@ fn modern_extensions(out: &mut Vec<u8>, version: u8) -> usize {
     }
     if version >= 0x1d {
         u32b(out, 0);
-        u32b(out, 0);
+        u32b(out, 1);
+        out.push(3);
+        wide_string(out, "Headline");
+        u16b(out, 37);
+        u32b(out, 1234);
+        out.push(2); // Historical compact font style.
+        u16b(out, 240);
+        compact(out, "Courier", false);
+        u32b(out, 0xff00_0000);
+        out.extend([0, 0, 1, 1, 0]); // family, charset, bold, italic, alignment
+        out.extend([0; 10]); // five spacing words
+        metadata(out, 1);
+        u32b(out, 42);
     }
     if version >= 0x1e {
         string(out, "");
@@ -1241,6 +1250,23 @@ fn every_revision_suffix_preserves_publish_folders_linkage_and_auxiliary_identit
             .filter(|r| matches!(r, ContentsReference::AuxiliaryObject { .. }))
             .count();
         assert_eq!(auxiliary, if version >= 0x1a { 2 } else { 0 });
+        if version >= 0x1d {
+            let font = &extensions.fonts[0];
+            assert_eq!(
+                document.string_text(&font.name).as_deref(),
+                Some("Headline")
+            );
+            assert_eq!(
+                document
+                    .string_text(font.style.font_family.as_ref().unwrap())
+                    .as_deref(),
+                Some("Courier")
+            );
+            assert_eq!(
+                (font.style.bold, font.style.italic, font.font_id, font.flags),
+                (Some(1), Some(1), 37, Some(42))
+            );
+        }
         assert_eq!(extensions.folders.len(), usize::from(version >= 0x19));
         if let Some(folder) = extensions.folders.first() {
             assert_eq!(document.string_text(&folder.name).as_deref(), Some("Папка"));
@@ -1382,4 +1408,37 @@ fn compiled_clip_media_and_embedded_component_icons_have_exact_boundaries() {
             assert!(p.settings.is_none());
         }
     }
+}
+
+#[test]
+fn ole_client_preserves_nested_scene_identity_across_the_counted_list() {
+    let archive = Archive::new();
+    let mut bytes = header(0x14);
+    bytes[1..5].copy_from_slice(&2u32.to_le_bytes());
+    let mut ole = Vec::new();
+    class(&mut ole, "CSketchCntrItem");
+    ole[2..4].fill(0);
+    u32b(&mut ole, 0x100);
+    u32b(&mut ole, 7);
+    u32b(&mut ole, 0);
+    u16b(&mut ole, 0);
+    u32b(&mut ole, 1);
+    ole.push(255);
+    u16b(&mut ole, 9);
+    class(&mut ole, "CDocumentPage");
+    page(&mut ole, 4, "Page 1");
+    u16b(&mut ole, 2);
+    bytes.splice(5..5, ole);
+    for n in [4, 0, 1, 3, 4, 0, 0, 0, 0] {
+        u16b(&mut bytes, n);
+    }
+    settings(&mut bytes);
+    empty_publish(&mut bytes);
+    let p = archive.read(&bytes, &["Page 1"]);
+    assert!(p.stop.is_none(), "{:?}", p.stop);
+    assert_eq!(p.scenes, [4]);
+    assert_eq!(p.selected_scene, Some(4));
+    assert!(
+        matches!(&p.references[2], ContentsReference::OleClient { item, document_page: Some(4), .. } if item.item_number == 7 && item.item_id == 9)
+    );
 }

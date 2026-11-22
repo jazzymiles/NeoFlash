@@ -47,6 +47,7 @@ pub enum ContentsDescriptorClass {
     Color,
     ColorList,
     QuickTimeAudioSettings,
+    OleClientItem,
 }
 
 /// This is the archive's combined class/object identity table, including index 0.
@@ -63,12 +64,39 @@ pub enum ContentsReference {
     Object {
         descriptor_index: Option<usize>,
     },
+    OleClient {
+        item: OleClientItem,
+        document_page: Option<u32>,
+        encoded: ContentsByteSpan,
+    },
     AuxiliaryObject {
         class: ContentsDescriptorClass,
         encoded: ContentsByteSpan,
     },
 }
 
+/// An MFC OLE client item refers to separately stored data in the source CFB.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OleClientItem {
+    pub item_number: u32,
+    pub moniker_present: u16,
+    pub draw_aspect: u32,
+    pub revision: u8,
+    pub item_id: u16,
+}
+impl OleClientItem {
+    pub(super) fn read(data: &[u8]) -> Option<Self> {
+        let word = |i| u16::from_le_bytes([data[i], data[i + 1]]);
+        let dword = |i| u32::from_le_bytes(data[i..i + 4].try_into().unwrap());
+        (data.len() == 21 && dword(0) == 0x100).then(|| Self {
+            item_number: dword(4),
+            moniker_present: word(12),
+            draw_aspect: dword(14),
+            revision: data[18],
+            item_id: word(19),
+        })
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContentsString {
     /// Includes length/encoding header. ANSI bytes have no inferred code page.
@@ -258,9 +286,22 @@ pub struct ContentsExtensions {
     pub profiles: Vec<Vec<ContentsProperty>>,
     pub extension_properties: Vec<ContentsProperty>,
     pub folders: Vec<ContentsFolder>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fonts: Vec<ContentsFont>,
     pub document_type: Option<u32>,
     pub metadata_xml: Option<ContentsString>,
     pub shared_library_url: Option<ContentsString>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContentsFont {
+    pub encoded: ContentsByteSpan,
+    pub revision: u8,
+    pub name: ContentsString,
+    pub font_id: u16,
+    pub source_time: u32,
+    pub style: super::timeline::TimelineTextStyle,
+    pub metadata: ContentsLibraryMetadata,
+    pub flags: Option<u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ContentsFolder {
@@ -315,17 +356,7 @@ pub(super) fn inspect(
     inventory: &Inventory,
     retain: bool,
 ) -> BinaryContentsPrefix {
-    let mut reader = Reader {
-        bytes,
-        at: 0,
-        items: 0,
-        object_depth: 0,
-        refs: vec![ContentsReference::Null],
-        descriptors: Vec::new(),
-        inventory,
-        claimed_streams: BTreeSet::new(),
-        counts: ContentsCounts::default(),
-    };
+    let mut reader = Reader::new(bytes, inventory);
     let mut out = BinaryContentsPrefix {
         revision: None,
         compatibility_marker: None,
@@ -377,7 +408,32 @@ struct Reader<'a> {
     claimed_streams: BTreeSet<usize>,
     counts: ContentsCounts,
 }
-impl Reader<'_> {
+/// A document-page descriptor embedded in an OLE timeline reference has the
+/// same inline body as the one attached to a scene in Contents.
+pub(super) fn ole_page(data: &[u8], cursor: &mut usize, id: u32) -> Result<ContentsDescriptor> {
+    let inventory = Inventory::new();
+    let mut reader = Reader::new(data, &inventory);
+    reader.at = *cursor;
+    let page = reader.descriptor(id, ContentsDescriptorClass::DocumentPage, 1);
+    *cursor = reader.at;
+    page
+}
+
+impl<'a> Reader<'a> {
+    fn new(bytes: &'a [u8], inventory: &'a Inventory) -> Self {
+        Self {
+            bytes,
+            at: 0,
+            items: 0,
+            object_depth: 0,
+            refs: vec![ContentsReference::Null],
+            descriptors: Vec::new(),
+            inventory,
+            claimed_streams: BTreeSet::new(),
+            counts: ContentsCounts::default(),
+        }
+    }
+
     fn error(&self, code: &str, message: &str) -> BinaryContentsStop {
         BinaryContentsStop {
             code: code.into(),
@@ -496,8 +552,10 @@ impl Reader<'_> {
         self.count_value(ole_count as usize, 2)?;
         // Counted OLE pointers are not a null-terminated descriptor list.
         for _ in 0..ole_count {
-            if self.u16()? != 0 {
-                return self.unsupported("Non-null OLE descriptor is unsupported.");
+            if let Some(id) = self.object()?
+                && !matches!(self.refs[id as usize], ContentsReference::OleClient { .. })
+            {
+                return self.invalid("OLE item pointer targets a different record class.");
             }
         }
         self.take(1)?;
@@ -633,6 +691,7 @@ impl Reader<'_> {
                 b"CColorDef" => Some(ContentsDescriptorClass::Color),
                 b"CColorList" => Some(ContentsDescriptorClass::ColorList),
                 b"CQTAudioSettings" => Some(ContentsDescriptorClass::QuickTimeAudioSettings),
+                b"CSketchCntrItem" => Some(ContentsDescriptorClass::OleClientItem),
                 _ => None,
             };
             self.add_reference(ContentsReference::Class {
@@ -654,6 +713,7 @@ impl Reader<'_> {
                 Some(ContentsReference::Object {
                     descriptor_index: Some(_),
                 })
+                | Some(ContentsReference::OleClient { .. })
                 | Some(ContentsReference::AuxiliaryObject { .. }) => Ok(Some(tag)),
                 _ => {
                     self.invalid("MFC object pointer does not identify a complete existing object.")
@@ -666,6 +726,35 @@ impl Reader<'_> {
         let Some(class) = class else {
             return self.unsupported("MFC Contents descriptor class is unsupported.");
         };
+        if class == ContentsDescriptorClass::OleClientItem {
+            if schema != 0 {
+                return self.unsupported("Unsupported OLE client item schema.");
+            }
+            let Some(item) = OleClientItem::read(self.take(21)?) else {
+                return self.invalid("Invalid OLE client item signature.");
+            };
+            let document_page = self.object()?;
+            if let Some(page) = document_page {
+                let Some(ContentsReference::Object {
+                    descriptor_index: Some(index),
+                }) = self.refs.get(page as usize)
+                else {
+                    return self.invalid("OLE client item page reference is not a document page.");
+                };
+                if self.descriptors[*index].class != ContentsDescriptorClass::DocumentPage {
+                    return self.invalid("OLE client item page reference is not a document page.");
+                }
+            }
+            self.refs[id as usize] = ContentsReference::OleClient {
+                item,
+                document_page,
+                encoded: ContentsByteSpan {
+                    start,
+                    end: self.at,
+                },
+            };
+            return Ok(Some(id));
+        }
         if class == ContentsDescriptorClass::QuickTimeAudioSettings {
             if schema != 1 {
                 return self.unsupported("MFC QuickTime audio-settings schema is unsupported.");

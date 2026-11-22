@@ -756,11 +756,10 @@ pub(super) fn decode_button_tag(
 ) -> Result<(), String> {
     let mut r = BitReader::new(data, 0);
     let button_id = r.read_u16()?;
-    let action_offset = if is_v2 {
-        let _flags = r.read_u8()?;
-        usize::from(r.read_u16()?)
+    let (track_as_menu, action_offset) = if is_v2 {
+        (r.read_u8()? & 1 != 0, usize::from(r.read_u16()?))
     } else {
-        0usize
+        (false, 0usize)
     };
     let cond_actions_start = if is_v2 && action_offset > 0 {
         Some(3usize.saturating_add(action_offset))
@@ -909,6 +908,9 @@ pub(super) fn decode_button_tag(
 
     // Decode button AVM1 actions
     let mut js_registrations = String::new();
+    if track_as_menu {
+        js_registrations.push_str("__nfSwfSet(this, 'trackAsMenu', true);\n");
+    }
     if !is_v2 {
         let pos = r.byte_pos();
         if pos < data.len() {
@@ -947,11 +949,9 @@ pub(super) fn decode_button_tag(
                         (0x0002, "rollOut"),
                         (0x0004, "press"),
                         (0x0008, "release"),
-                        (0x0010, "dragOut"),
-                        (0x0020, "dragOver"),
-                        (0x0040, "releaseOutside"),
-                        (0x0080, "dragOver"),
-                        (0x0100, "releaseOutside"),
+                        (if track_as_menu { 0x0100 } else { 0x0010 }, "dragOut"),
+                        (if track_as_menu { 0x0080 } else { 0x0020 }, "dragOver"),
+                        (if track_as_menu { 0 } else { 0x0040 }, "releaseOutside"),
                     ] {
                         if (cond_flags & mask) != 0 {
                             js_registrations.push_str(&format!(

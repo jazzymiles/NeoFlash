@@ -169,11 +169,12 @@ pub enum ExportError {
     #[error("Missing root symbol: {0}")]
     MissingRootSymbol(String),
     #[error(
-        "Compatibility preflight blocked export for {profile} ({blocking_count} blocking item(s))"
+        "Compatibility preflight blocked export for {profile} ({blocking_count} blocking item(s)): {first_issue}"
     )]
     CompatibilityBlocked {
         profile: &'static str,
         blocking_count: usize,
+        first_issue: String,
     },
     #[error("Round-trip verification failed: {0}")]
     RoundTripVerification(String),

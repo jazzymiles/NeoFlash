@@ -48,6 +48,12 @@ pub(super) enum SwfAssignOp {
     MulAssign,
     DivAssign,
     ModAssign,
+    BitAndAssign,
+    BitOrAssign,
+    BitXorAssign,
+    ShlAssign,
+    ShrAssign,
+    UShrAssign,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -123,6 +129,7 @@ pub(super) enum SwfStmt {
         else_branch: Option<Vec<SwfStmt>>,
     },
     While {
+        post_test: bool,
         cond: SwfExpr,
         body: Vec<SwfStmt>,
     },
@@ -196,11 +203,7 @@ pub(super) enum SwfToken {
     MinusMinus,
     Assign,
     FatArrow,
-    PlusAssign,
-    MinusAssign,
-    StarAssign,
-    SlashAssign,
-    PercentAssign,
+    CompoundAssign(SwfAssignOp),
     Eq,
     Ne,
     StrictEq,
@@ -360,63 +363,37 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
             continue;
         }
         let rem = &source[i..];
-        if rem.starts_with("===") {
-            tokens.push(SwfToken::StrictEq);
-            i += 3;
-        } else if rem.starts_with("!==") {
-            tokens.push(SwfToken::StrictNe);
-            i += 3;
-        } else if rem.starts_with(">>>") {
-            tokens.push(SwfToken::UShr);
-            i += 3;
-        } else if rem.starts_with("==") {
-            tokens.push(SwfToken::Eq);
-            i += 2;
-        } else if rem.starts_with("=>") {
-            tokens.push(SwfToken::FatArrow);
-            i += 2;
-        } else if rem.starts_with("!=") {
-            tokens.push(SwfToken::Ne);
-            i += 2;
-        } else if rem.starts_with("<=") {
-            tokens.push(SwfToken::Le);
-            i += 2;
-        } else if rem.starts_with(">=") {
-            tokens.push(SwfToken::Ge);
-            i += 2;
-        } else if rem.starts_with("&&") {
-            tokens.push(SwfToken::And);
-            i += 2;
-        } else if rem.starts_with("||") {
-            tokens.push(SwfToken::Or);
-            i += 2;
-        } else if rem.starts_with("++") {
-            tokens.push(SwfToken::PlusPlus);
-            i += 2;
-        } else if rem.starts_with("--") {
-            tokens.push(SwfToken::MinusMinus);
-            i += 2;
-        } else if rem.starts_with("+=") {
-            tokens.push(SwfToken::PlusAssign);
-            i += 2;
-        } else if rem.starts_with("-=") {
-            tokens.push(SwfToken::MinusAssign);
-            i += 2;
-        } else if rem.starts_with("*=") {
-            tokens.push(SwfToken::StarAssign);
-            i += 2;
-        } else if rem.starts_with("/=") {
-            tokens.push(SwfToken::SlashAssign);
-            i += 2;
-        } else if rem.starts_with("%=") {
-            tokens.push(SwfToken::PercentAssign);
-            i += 2;
-        } else if rem.starts_with("<<") {
-            tokens.push(SwfToken::Shl);
-            i += 2;
-        } else if rem.starts_with(">>") {
-            tokens.push(SwfToken::Shr);
-            i += 2;
+        // Prefer the longest spelling so >>>= stays a single update of its left operand.
+        const OPERATORS: &[(&str, SwfToken)] = &[
+            (">>>=", SwfToken::CompoundAssign(SwfAssignOp::UShrAssign)),
+            ("===", SwfToken::StrictEq),
+            ("!==", SwfToken::StrictNe),
+            (">>>", SwfToken::UShr),
+            ("<<=", SwfToken::CompoundAssign(SwfAssignOp::ShlAssign)),
+            (">>=", SwfToken::CompoundAssign(SwfAssignOp::ShrAssign)),
+            ("==", SwfToken::Eq),
+            ("=>", SwfToken::FatArrow),
+            ("!=", SwfToken::Ne),
+            ("<=", SwfToken::Le),
+            (">=", SwfToken::Ge),
+            ("&&", SwfToken::And),
+            ("||", SwfToken::Or),
+            ("++", SwfToken::PlusPlus),
+            ("--", SwfToken::MinusMinus),
+            ("+=", SwfToken::CompoundAssign(SwfAssignOp::AddAssign)),
+            ("-=", SwfToken::CompoundAssign(SwfAssignOp::SubAssign)),
+            ("*=", SwfToken::CompoundAssign(SwfAssignOp::MulAssign)),
+            ("/=", SwfToken::CompoundAssign(SwfAssignOp::DivAssign)),
+            ("%=", SwfToken::CompoundAssign(SwfAssignOp::ModAssign)),
+            ("<<", SwfToken::Shl),
+            (">>", SwfToken::Shr),
+            ("&=", SwfToken::CompoundAssign(SwfAssignOp::BitAndAssign)),
+            ("|=", SwfToken::CompoundAssign(SwfAssignOp::BitOrAssign)),
+            ("^=", SwfToken::CompoundAssign(SwfAssignOp::BitXorAssign)),
+        ];
+        if let Some((spelling, token)) = OPERATORS.iter().find(|(op, _)| rem.starts_with(op)) {
+            tokens.push(token.clone());
+            i += spelling.len();
         } else {
             let tok = match b {
                 b'(' => SwfToken::LParen,
@@ -614,7 +591,7 @@ impl SwfParser {
                 Ok(())
             }
             SwfToken::Ident(ref kw) => match kw.as_str() {
-                "with" | "do" | "interface" => Err(format!(
+                "with" | "interface" => Err(format!(
                     "ActionScript '{kw}' is not supported by the bounded SWF compiler"
                 )),
                 "catch" | "finally" | "case" | "default" => Err(format!(
@@ -795,13 +772,31 @@ impl SwfParser {
                     });
                     Ok(())
                 }
-                "while" => {
+                "while" | "do" => {
+                    let post_test = kw == "do";
                     self.pos += 1;
+                    let first_body = if post_test {
+                        let body = self.parse_block_or_single()?;
+                        self.expect(&SwfToken::Ident("while".to_owned()))?;
+                        Some(body)
+                    } else {
+                        None
+                    };
                     self.expect(&SwfToken::LParen)?;
                     let cond = self.parse_expr()?;
                     self.expect(&SwfToken::RParen)?;
-                    let body = self.parse_block_or_single()?;
-                    out.push(SwfStmt::While { cond, body });
+                    let body = match first_body {
+                        Some(body) => {
+                            self.consume_optional_semi();
+                            body
+                        }
+                        None => self.parse_block_or_single()?,
+                    };
+                    out.push(SwfStmt::While {
+                        post_test,
+                        cond,
+                        body,
+                    });
                     Ok(())
                 }
                 "for" => {
@@ -1195,11 +1190,7 @@ impl SwfParser {
         let lhs = self.parse_expr()?;
         if let Some(op) = match self.peek() {
             Some(SwfToken::Assign) => Some(SwfAssignOp::Assign),
-            Some(SwfToken::PlusAssign) => Some(SwfAssignOp::AddAssign),
-            Some(SwfToken::MinusAssign) => Some(SwfAssignOp::SubAssign),
-            Some(SwfToken::StarAssign) => Some(SwfAssignOp::MulAssign),
-            Some(SwfToken::SlashAssign) => Some(SwfAssignOp::DivAssign),
-            Some(SwfToken::PercentAssign) => Some(SwfAssignOp::ModAssign),
+            Some(SwfToken::CompoundAssign(op)) => Some(*op),
             _ => None,
         } {
             self.pos += 1;

@@ -57,24 +57,13 @@ pub(super) fn inspect(
     retained_items_remaining: &mut usize,
     timeline_items_remaining: &mut usize,
 ) -> MfcRead {
-    let mut reader = Reader {
+    let mut reader = Reader::new(
         data,
-        pos: 0,
-        refs: vec![TimelineReference::Null],
-        objects: vec![],
-        pointers: vec![],
-        counts: RecordCounts::default(),
-        geometry: geometry::GeometryCounts::default(),
-        retained: vec![],
-        retain_geometry: retain_geometry || retain_timeline,
+        retain_geometry || retain_timeline,
         retain_timeline,
         retained_items_remaining,
         timeline_items_remaining,
-        root_class: None,
-        root_schema: None,
-        root: None,
-        stream_kind: None,
-    };
+    );
     let result = reader.root();
     stream.bytes_consumed = reader.pos;
     stream.records = reader.counts;
@@ -109,7 +98,55 @@ pub(super) fn inspect(
         }
     }
 }
+/// Font descriptors in Contents use the same text-style wire record as timeline text.
+pub(super) fn contents_text_style(
+    data: &[u8],
+    cursor: &mut usize,
+) -> std::result::Result<TimelineTextStyle, super::contents::BinaryContentsStop> {
+    let (mut geometry_budget, mut timeline_budget) = (0, 0);
+    let mut reader = Reader::new(
+        data,
+        false,
+        false,
+        &mut geometry_budget,
+        &mut timeline_budget,
+    );
+    reader.pos = *cursor;
+    let style = reader.text_style();
+    *cursor = reader.pos;
+    style.map_err(|err| super::contents::BinaryContentsStop {
+        code: err.code,
+        message: err.message,
+        offset: *cursor,
+    })
+}
 impl<'a> Reader<'a> {
+    fn new(
+        data: &'a [u8],
+        retain_geometry: bool,
+        retain_timeline: bool,
+        retained_items_remaining: &'a mut usize,
+        timeline_items_remaining: &'a mut usize,
+    ) -> Self {
+        Self {
+            data,
+            pos: 0,
+            refs: vec![TimelineReference::Null],
+            objects: vec![],
+            pointers: vec![],
+            counts: RecordCounts::default(),
+            geometry: geometry::GeometryCounts::default(),
+            retained: vec![],
+            retain_geometry,
+            retain_timeline,
+            retained_items_remaining,
+            timeline_items_remaining,
+            root_class: None,
+            root_schema: None,
+            root: None,
+            stream_kind: None,
+        }
+    }
     fn bytes(&mut self, n: usize) -> Result<&'a [u8]> {
         if n > self.data.len() - self.pos {
             return stop(
@@ -327,6 +364,22 @@ impl<'a> Reader<'a> {
         }
         Ok(())
     }
+    fn typed_object(
+        &mut self,
+        depth: usize,
+        owner: u32,
+        relation: TimelineRelation,
+        expected: Class,
+    ) -> Result<Option<u32>> {
+        let target = self.object(depth, Some(owner), relation)?;
+        if target.is_some_and(|id| self.class(id) != expected) {
+            return stop(
+                "fla_mfc_reference",
+                "Object pointer targets the wrong record class.",
+            );
+        }
+        Ok(target)
+    }
     fn object(
         &mut self,
         depth: usize,
@@ -445,11 +498,48 @@ impl<'a> Reader<'a> {
             self.root_schema = Some(schema);
         }
         let parsed = (|| {
-            if schema != 1 {
+            let expected_schema = u16::from(class != Class::OleClient);
+            if schema != expected_schema {
                 return stop(
                     "fla_mfc_schema_unsupported",
                     format!("MFC schema {schema} is not implemented."),
                 );
+            }
+            // These three records are not CPicObj subclasses; they have no shared base.
+            if class == Class::SoundCreator {
+                let revision = self.byte()?;
+                let media_id = self.word()?;
+                self.objects[object_index].payload =
+                    Some(TimelinePayload::SoundCreator { revision, media_id });
+                return Ok(());
+            }
+            if class == Class::OleClient && relation == TimelineRelation::OleItem {
+                let Some(item) = super::contents::OleClientItem::read(self.bytes(21)?) else {
+                    return stop("fla_invalid_record", "Invalid OLE client item signature.");
+                };
+                let document_page = self.typed_object(
+                    depth + 1,
+                    id,
+                    TimelineRelation::OleDocumentPage,
+                    Class::DocumentPage,
+                )?;
+                self.objects[object_index].payload = Some(TimelinePayload::OleClient {
+                    item,
+                    document_page,
+                });
+                return Ok(());
+            }
+            if class == Class::DocumentPage && relation == TimelineRelation::OleDocumentPage {
+                let page =
+                    super::contents::ole_page(self.data, &mut self.pos, id).map_err(|err| {
+                        Stop {
+                            code: err.code,
+                            message: err.message,
+                        }
+                    })?;
+                self.objects[object_index].payload =
+                    Some(TimelinePayload::DocumentPage(Box::new(page)));
+                return Ok(());
             }
             // Morph records are not CPicObj subclasses; each is accepted only
             // through the typed pointer that owns it in the archive layout.
@@ -511,6 +601,8 @@ impl<'a> Reader<'a> {
                     | Class::Screen
                     | Class::Font
                     | Class::TempClipboardObj
+                    | Class::Ole
+                    | Class::Object
             ) {
                 // Unrecognized archive class names may be private; only
                 // known Flash class names appear in public diagnostics.
@@ -554,7 +646,8 @@ impl<'a> Reader<'a> {
                     self.as_or_tlf_object(id, class)?
                 }
                 Class::Font => self.font_object(id)?,
-                Class::TempClipboardObj => self.temp_clipboard_object(id)?,
+                Class::TempClipboardObj | Class::Ole => self.clipboard_object(id, depth, class)?,
+                Class::Object => self.objects[object_index].payload = Some(TimelinePayload::Shape),
                 _ => unreachable!("class checked above"),
             }
             Ok(())

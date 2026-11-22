@@ -886,6 +886,19 @@ fn panoramic_jpeg_downscales_without_skip_and_bitmap_origin_translates_exact_bou
         other => panic!("expected Bitmap 0, got {other:?}"),
     }
 
+    let ElementKind::Bitmap { resource_id, .. } = &elems[1].kind else {
+        panic!("expected offset JPEG bitmap");
+    };
+    let resource = proj
+        .resources
+        .iter()
+        .find(|r| &r.id == resource_id)
+        .unwrap();
+    assert_eq!(resource.media_type, "image/jpeg");
+    assert_eq!(
+        resource.decoded_bytes().unwrap().as_slice(),
+        &jpg_off[..enc_len_2 as usize]
+    );
     assert!((elems[1].transform.x - 80.0).abs() < 1e-4);
     assert!((elems[1].transform.y - 160.0).abs() < 1e-4);
     assert!((elems[1].transform.scale_x - 2.0).abs() < 1e-4);

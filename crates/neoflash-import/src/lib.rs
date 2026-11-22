@@ -2,6 +2,7 @@
 pub mod figma;
 mod legacy;
 pub mod legacy_interchange;
+mod motion_xml;
 pub mod psd;
 pub mod sequence;
 mod source;

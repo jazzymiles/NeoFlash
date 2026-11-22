@@ -67,6 +67,7 @@ Original audit `neoflash-as-2026-10-27-f05cd2e` (2026-10-26T23:21:26.344721+00:0
 
 | Review | Date | Commit | Changed entries |
 | --- | --- | --- | --- |
+| `AS3-SWF-LOADER-20261122` | 2026-11-22 | `aeccdb6407b6` |  |
 | `AS3-JXR-AREA8-CONFORMANCE-20261122` | 2026-11-22 | `8aa13792aef9` | 295 → working |
 | `AS2-AREA8-SECURITY-XMLSOCKET-20261122` | 2026-11-22 | `8aa13792aef9` | 16 → working |
 | `AS3-AREA8-UI-IME-A11Y-20261121` | 2026-11-21 | `657aacb1504e` | 55 → working |
@@ -13161,3 +13162,14 @@ Partial entries name their missing behavior; working entries are covered by the 
 - `AS3:method:flash/display/Loader.html#loadBytes()` — **partial**: Loads PNG/JPEG/GIF/WebP/JXR images, NeoFlash HTML5 child bundles, and FWS/CWS/ZWS SWF movies (shapes, morphs, embedded font glyphs, buttons, PlaceObject3 filters/blends, dynamic graphics, and isolated AVM1/AVM2 closures, clip events, and root/non-root SymbolClass trees with unload cleanup); raw-SWF audio/video streams, E4X/domain-memory opcodes, and cross-SWF ApplicationDomain merging emit warnings.
 
 Evidence: [crates/neoflash-core/src/pixels/jxr.rs](../../crates/neoflash-core/src/pixels/jxr.rs), [crates/neoflash-core/src/pixels/pipeline.rs](../../crates/neoflash-core/src/pixels/pipeline.rs), [crates/neoflash-core/src/as3_net_sys/tests.rs](../../crates/neoflash-core/src/as3_net_sys/tests.rs), [crates/neoflash-web/src/swf_loader/tests.rs](../../crates/neoflash-web/src/swf_loader/tests.rs), [crates/neoflash-script/tests/bitmap-pixels.mjs](../../crates/neoflash-script/tests/bitmap-pixels.mjs), [crates/neoflash-script/tests/media-netstream.mjs](../../crates/neoflash-script/tests/media-netstream.mjs), [web/tests/as3-area8-conformance.test.cjs](../../web/tests/as3-area8-conformance.test.cjs), [web/tests/media-netstream.test.cjs](../../web/tests/media-netstream.test.cjs), [web/tests/swf-loader.test.cjs](../../web/tests/swf-loader.test.cjs)
+
+### AS3-SWF-LOADER-20261122 — Verify button events and numeric behavior in loaded SWF movies
+
+AS3 Loader child movies preserve AVM2 integer wraparound, NaN comparison results, nearest lexical bindings and AVM1 button transitions. Both loading entry points remain Partial for the named media, VM and application-domain gaps.
+
+Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.
+
+- `AS3:method:flash/display/Loader.html#load()` — **partial**: Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete.
+- `AS3:method:flash/display/Loader.html#loadBytes()` — **partial**: Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete.
+
+Evidence: [web/tests/swf-loader.test.cjs](../../web/tests/swf-loader.test.cjs)

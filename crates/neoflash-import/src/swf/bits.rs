@@ -290,3 +290,52 @@ pub(crate) fn decode_swf_string(raw: &[u8], swf_version: u8) -> (String, bool) {
     }
     (String::from_utf8_lossy(raw).into_owned(), false)
 }
+
+pub(super) fn walk_swf_tags(bytes: &[u8], mut on_tag: impl FnMut(u16, &[u8]) -> bool) {
+    let mut pos = 0usize;
+    while pos + 2 <= bytes.len() {
+        let code_and_len = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
+        pos += 2;
+        let code = code_and_len >> 6;
+        let short_len = usize::from(code_and_len & 0x3f);
+        let len = if short_len == 0x3f {
+            if pos + 4 > bytes.len() {
+                break;
+            }
+            let l = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+                as usize;
+            pos += 4;
+            l
+        } else {
+            short_len
+        };
+        let end = pos.saturating_add(len).min(bytes.len());
+        let payload = &bytes[pos..end];
+        pos = end;
+        if !on_tag(code, payload) {
+            break;
+        }
+    }
+}
+
+/// SymbolClass is a dictionary for the whole movie. A StartSound2 may precede
+/// its class tag on the same frame, including when the trigger is inside a sprite.
+pub(super) fn symbol_class_bindings(tags: &[u8]) -> Vec<(u16, String)> {
+    let mut bindings = Vec::new();
+    walk_swf_tags(tags, |code, payload| {
+        if code == 76 {
+            let mut reader = SwfSlice::new(payload);
+            for _ in 0..reader.u16().unwrap_or(0) {
+                let Some(id) = reader.u16() else { break };
+                let Some((name, _)) = reader.c_string(9) else {
+                    break;
+                };
+                if !name.is_empty() {
+                    bindings.push((id, name));
+                }
+            }
+        }
+        code != 0
+    });
+    bindings
+}

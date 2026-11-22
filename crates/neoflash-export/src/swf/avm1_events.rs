@@ -467,7 +467,7 @@ pub(super) fn find_event_handler_in_stmts(stmts: &[SwfStmt]) -> Option<&SwfStmt>
                     return Some(found);
                 }
             }
-            SwfStmt::While { cond, body }
+            SwfStmt::While { cond, body, .. }
             | SwfStmt::ForIn {
                 object: cond, body, ..
             } => {

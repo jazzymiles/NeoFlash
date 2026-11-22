@@ -266,7 +266,7 @@ pub(super) fn collect_refs_and_child_free_in_stmts(
                     collect_refs_and_child_free_in_stmts(eb, direct_refs, child_free);
                 }
             }
-            SwfStmt::While { cond, body } => {
+            SwfStmt::While { cond, body, .. } => {
                 collect_refs_and_child_free_in_expr(cond, direct_refs, child_free);
                 collect_refs_and_child_free_in_stmts(body, direct_refs, child_free);
             }
@@ -951,38 +951,11 @@ pub(super) fn avm1_compile_call(
     Ok(())
 }
 
-pub(super) fn avm1_load_lvalue(
-    out: &mut Vec<u8>,
-    target: &SwfLValue,
-    reg_map: &HashMap<String, u8>,
-) -> Result<(), String> {
-    match target {
-        SwfLValue::Ident(name) => {
-            if let Some(&reg) = reg_map.get(name) {
-                avm1_push_register(out, reg);
-            } else {
-                avm1_push_string(out, name)?;
-                out.push(0x1c); // ActionGetVariable
-            }
-        }
-        SwfLValue::Member(obj, prop) => {
-            avm1_compile_expr(out, obj, reg_map)?;
-            avm1_push_string(out, prop)?;
-            out.push(0x4e); // ActionGetMember
-        }
-        SwfLValue::Index(obj, idx) => {
-            avm1_compile_expr(out, obj, reg_map)?;
-            avm1_compile_expr(out, idx, reg_map)?;
-            out.push(0x4e); // ActionGetMember
-        }
-    }
-    Ok(())
-}
-
 pub(super) fn avm1_store_lvalue_with_rhs<F>(
     out: &mut Vec<u8>,
     target: &SwfLValue,
     reg_map: &HashMap<String, u8>,
+    read_previous: bool,
     emit_rhs: F,
 ) -> Result<(), String>
 where
@@ -991,6 +964,9 @@ where
     match target {
         SwfLValue::Ident(name) => {
             if let Some(&reg) = reg_map.get(name) {
+                if read_previous {
+                    avm1_push_register(out, reg);
+                }
                 emit_rhs(out)?;
                 out.push(0x87); // ActionStoreRegister
                 out.extend_from_slice(&1u16.to_le_bytes());
@@ -998,21 +974,32 @@ where
                 out.push(0x17); // ActionPop
             } else {
                 avm1_push_string(out, name)?;
+                if read_previous {
+                    out.extend([0x4c, 0x1c]); // duplicate name, get variable
+                }
                 emit_rhs(out)?;
                 out.push(0x1d); // ActionSetVariable
             }
         }
-        SwfLValue::Member(obj, prop) => {
+        SwfLValue::Member(obj, _) | SwfLValue::Index(obj, _) => {
             avm1_compile_expr(out, obj, reg_map)?;
-            avm1_push_string(out, prop)?;
+            if read_previous {
+                out.push(0x4c); // keep the receiver for the write
+            }
+            match target {
+                SwfLValue::Member(_, name) => avm1_push_string(out, name)?,
+                SwfLValue::Index(_, index) => avm1_compile_expr(out, index, reg_map)?,
+                SwfLValue::Ident(_) => unreachable!(),
+            }
+            if read_previous {
+                // [obj, obj, key] -> [obj, key, obj, key]. Register zero is scratch
+                // only until GetMember; the getter and RHS may call arbitrary functions.
+                out.extend([0x87, 1, 0, 0, 0x4d]); // StoreRegister 0, StackSwap
+                avm1_push_register(out, 0);
+                out.push(0x4e); // GetMember
+            }
             emit_rhs(out)?;
-            out.push(0x4f); // ActionSetMember
-        }
-        SwfLValue::Index(obj, idx) => {
-            avm1_compile_expr(out, obj, reg_map)?;
-            avm1_compile_expr(out, idx, reg_map)?;
-            emit_rhs(out)?;
-            out.push(0x4f); // ActionSetMember
+            out.push(0x4f); // SetMember
         }
     }
     Ok(())
@@ -1231,11 +1218,10 @@ fn avm1_compile_stmt_with_flow(
             }
         }
         SwfStmt::Assign { target, op, value } => {
-            avm1_store_lvalue_with_rhs(out, target, reg_map, |buf| {
+            avm1_store_lvalue_with_rhs(out, target, reg_map, *op != SwfAssignOp::Assign, |buf| {
                 if *op == SwfAssignOp::Assign {
                     avm1_compile_expr(buf, value, reg_map)
                 } else {
-                    avm1_load_lvalue(buf, target, reg_map)?;
                     avm1_compile_expr(buf, value, reg_map)?;
                     buf.push(match op {
                         SwfAssignOp::AddAssign => 0x47,
@@ -1243,6 +1229,12 @@ fn avm1_compile_stmt_with_flow(
                         SwfAssignOp::MulAssign => 0x0c,
                         SwfAssignOp::DivAssign => 0x0d,
                         SwfAssignOp::ModAssign => 0x3f,
+                        SwfAssignOp::BitAndAssign => 0x60,
+                        SwfAssignOp::BitOrAssign => 0x61,
+                        SwfAssignOp::BitXorAssign => 0x62,
+                        SwfAssignOp::ShlAssign => 0x63,
+                        SwfAssignOp::ShrAssign => 0x64,
+                        SwfAssignOp::UShrAssign => 0x65,
                         SwfAssignOp::Assign => unreachable!(),
                     });
                     Ok(())
@@ -1250,8 +1242,7 @@ fn avm1_compile_stmt_with_flow(
             })?;
         }
         SwfStmt::IncDec { target, increment } => {
-            avm1_store_lvalue_with_rhs(out, target, reg_map, |buf| {
-                avm1_load_lvalue(buf, target, reg_map)?;
+            avm1_store_lvalue_with_rhs(out, target, reg_map, true, |buf| {
                 buf.push(if *increment { 0x50 } else { 0x51 }); // ActionIncrement / ActionDecrement
                 Ok(())
             })?;
@@ -1289,29 +1280,42 @@ fn avm1_compile_stmt_with_flow(
                 patch_avm1_branch(out, skip_then_patch, after_then)?;
             }
         }
-        SwfStmt::While { cond, body } => {
+        SwfStmt::While {
+            cond,
+            body,
+            post_test,
+        } => {
             let loop_start = out.len();
-            avm1_compile_expr(out, cond, reg_map)?;
-            out.push(0x12); // ActionNot
-            let exit_patch = emit_avm1_branch_placeholder(out, 0x9d);
+            let mut break_patches = Vec::new();
+            if !post_test {
+                avm1_compile_expr(out, cond, reg_map)?;
+                out.push(0x12); // ActionNot
+                break_patches.push(emit_avm1_branch_placeholder(out, 0x9d));
+            }
             ctx.frames.push(Avm1ControlFrame {
                 is_switch: false,
-                continue_target: Some(loop_start),
+                continue_target: (!post_test).then_some(loop_start),
                 continue_patches: Vec::new(),
-                break_patches: vec![exit_patch],
+                break_patches,
                 finally_depth: ctx.finally_stack.len(),
             });
             let body_res = avm1_compile_stmt_list_with_flow(out, body, in_function, reg_map, ctx);
             let frame = ctx.frames.pop().unwrap();
             body_res?;
-            let back_patch = emit_avm1_branch_placeholder(out, 0x99);
-            patch_avm1_branch(out, back_patch, loop_start)?;
+            let repeat = if *post_test {
+                let cond_pos = out.len();
+                for patch in frame.continue_patches {
+                    patch_avm1_branch(out, patch, cond_pos)?;
+                }
+                avm1_compile_expr(out, cond, reg_map)?;
+                emit_avm1_branch_placeholder(out, 0x9d) // ActionIf
+            } else {
+                emit_avm1_branch_placeholder(out, 0x99) // ActionJump
+            };
+            patch_avm1_branch(out, repeat, loop_start)?;
             let after_loop = out.len();
-            for cp in frame.continue_patches {
-                patch_avm1_branch(out, cp, loop_start)?;
-            }
-            for bp in frame.break_patches {
-                patch_avm1_branch(out, bp, after_loop)?;
+            for patch in frame.break_patches {
+                patch_avm1_branch(out, patch, after_loop)?;
             }
         }
         SwfStmt::For {

@@ -56,7 +56,7 @@ Their bytes remain intact to preserve this real container compatibility case.
 Every upstream payload, companion file and license has a commit-pinned download
 URL, byte length and SHA-256 in [manifest.json](manifest.json). Collection
 metadata retains the upstream paths and purpose. The manifest contains 84
-verified files totaling 2,231,673 bytes, including the native imports and
+verified files totaling 2,282,331 bytes, including the native imports and
 excluding local explanatory metadata.
 Upstream files retain their own licenses; NeoFlash's license applies to its own
 authored examples and checking scripts.

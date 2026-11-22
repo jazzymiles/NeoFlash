@@ -49,6 +49,731 @@
                 ],
                 "tween": null,
                 "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 112.7143988790204,
+                      "y": 86.07092485864828,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 149.13793103448276,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 2,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 52.04741999588271,
+                      "y": 94.57737922115234,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 298.2758620689655,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 3,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 126.03465464905968,
+                      "y": 48.90249367162928,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 447.41379310344826,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 4,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 112.22764940480378,
+                      "y": 118.8111115236646,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 596.551724137931,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 5,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 114.4924057142722,
+                      "y": 44.46622578460414,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 745.6896551724138,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 6,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 176.95925083666336,
+                      "y": 102.1936055682756,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 894.8275862068965,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 7,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 119.99882327628816,
+                      "y": 77.43158386725807,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1043.9655172413793,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 8,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 207.8701695855951,
+                      "y": 62.21587535549324,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1193.103448275862,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 9,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 166.52023981147337,
+                      "y": 113.10036824369648,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1342.2413793103449,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 10,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 202.18683581475648,
+                      "y": 40.957101764656144,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1491.3793103448277,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 11,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 234.85201357199793,
+                      "y": 113.92884590222418,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1640.5172413793102,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 12,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 195.65352856786117,
+                      "y": 60.79353713526619,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1789.655172413793,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 13,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 282.83267254870276,
+                      "y": 79.04498981524041,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1938.793103448276,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 14,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 224.90917967284247,
+                      "y": 100.84603331362628,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2087.9310344827586,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 15,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 289.72162669662634,
+                      "y": 45.166344531676906,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2237.0689655172414,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 16,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 288.9224969615191,
+                      "y": 118.9567133420457,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2386.206896551724,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 17,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 278.029998134741,
+                      "y": 47.95240435614565,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2535.3448275862065,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 18,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 350.0774668594969,
+                      "y": 96.06289965710393,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2684.4827586206898,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 19,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 289.8261899113802,
+                      "y": 84.47065874664005,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2833.620689655172,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 20,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 373.7666737350119,
+                      "y": 56.261831445194815,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2982.7586206896553,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 21,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 342.4561349589974,
+                      "y": 116.28325183399429,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 3131.896551724138,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 22,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 364.8178727529795,
+                      "y": 41.44674125268058,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 3281.0344827586205,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 23,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 410.2855649648451,
+                      "y": 109.9053446431445,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 3430.1724137931037,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 24,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 362.41246119029057,
+                      "y": 67.21148237329328,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 3579.310344827586,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 25,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 451.68175764127545,
+                      "y": 72.0501024510321,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 3728.448275862069,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 26,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 398.84449015698215,
+                      "y": 106.4369763562769,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 3877.586206896552,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 27,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 452.83470521922015,
+                      "y": 42.5626484038374,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 4026.7241379310344,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 28,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 465.52905950127536,
+                      "y": 117.8358202498844,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 4175.862068965517,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 29,
+                "elements": [
+                  {
+                    "id": "fla-1-4-8",
+                    "name": "",
+                    "transform": {
+                      "x": 442.29305262593897,
+                      "y": 52.48046026527675,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 4325.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
               }
             ],
             "properties": {
@@ -80,6 +805,731 @@
                       "scale_x": 1.0,
                       "scale_y": 1.0,
                       "rotation": 0.0,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 1,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 54.13793103448276,
+                      "y": 224.6551724137931,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2.1538324689504383e-14,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 2,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 68.27586206896552,
+                      "y": 224.31034482758625,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -1.925126256562995e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 3,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 82.41379310344828,
+                      "y": 223.9655172413793,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -2.1538310194856324e-14,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 4,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 96.55172413793105,
+                      "y": 223.6206896551724,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -8.104631019485633e-14,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 5,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 110.6896551724138,
+                      "y": 223.27586206896552,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -3.390621411177427e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 6,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 124.82758620689656,
+                      "y": 222.93103448275863,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -5.839771019485632e-14,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 7,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 138.9655172413793,
+                      "y": 222.58620689655172,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -5.5511110194856334e-14,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 8,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 153.10344827586206,
+                      "y": 222.24137931034485,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -1.0613731019485632e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 9,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 167.24137931034485,
+                      "y": 221.8965517241379,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -5.5511110194856334e-14,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 10,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 181.3793103448276,
+                      "y": 221.55172413793105,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -1.2907452473928057e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 11,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 195.51724137931035,
+                      "y": 221.20689655172413,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -7.771560963371827e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 12,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 209.6551724137931,
+                      "y": 220.86206896551724,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -7.771560963371827e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 13,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 223.79310344827587,
+                      "y": 220.51724137931035,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 7.926994205523952e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 14,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 237.93103448275863,
+                      "y": 220.17241379310343,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 9.776626461208772e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 15,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 252.0689655172414,
+                      "y": 219.82758620689657,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 7.53397320552395e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 16,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 266.2068965517241,
+                      "y": 219.48275862068965,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 4.725104205523952e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 17,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 280.34482758620686,
+                      "y": 219.13793103448276,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 1.5620837716893593e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 18,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 294.48275862068965,
+                      "y": 218.79310344827587,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -6.843414963371827e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 19,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 308.6206896551724,
+                      "y": 218.44827586206895,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 6.52367020552395e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 20,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 322.7586206896552,
+                      "y": 218.1034482758621,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -1.2685405773007396e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 21,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 336.8965517241379,
+                      "y": 217.75862068965515,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -2.1216362240169105e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 22,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 351.0344827586207,
+                      "y": 217.41379310344828,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -2.2144508240169098e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 23,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 365.1724137931035,
+                      "y": 217.06896551724137,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -1.0014217076870069e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 24,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 379.3103448275862,
+                      "y": 216.72413793103448,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -9.920955773007397e-13,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 25,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 393.44827586206895,
+                      "y": 216.3793103448276,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 3.500088824937569e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 26,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 407.58620689655174,
+                      "y": 216.0344827586207,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -1.0096365773007396e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 27,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 421.7241379310345,
+                      "y": 215.68965517241375,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2.595035273800605e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 28,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 435.86206896551727,
+                      "y": 215.3448275862069,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": -1.1677325773007396e-12,
+                      "alpha": 1.0
+                    },
+                    "kind": {
+                      "type": "instance",
+                      "symbol_id": "fla-symbol-2",
+                      "playback": "independent"
+                    },
+                    "scripts": []
+                  }
+                ],
+                "tween": null,
+                "label": ""
+              },
+              {
+                "frame": 29,
+                "elements": [
+                  {
+                    "id": "fla-1-9-11",
+                    "name": "",
+                    "transform": {
+                      "x": 450.0,
+                      "y": 215.0,
+                      "scale_x": 1.0,
+                      "scale_y": 1.0,
+                      "rotation": 2.3141483738006047e-12,
                       "alpha": 1.0
                     },
                     "kind": {

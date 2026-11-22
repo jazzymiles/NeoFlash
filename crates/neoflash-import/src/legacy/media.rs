@@ -46,6 +46,15 @@ pub struct DecodedBinaryBitmap {
     pub original_bytes: Vec<u8>,
 }
 impl DecodedBinaryBitmap {
+    /// Validated JPEG data ends immediately before the four-twip bounds trailer.
+    pub(crate) fn source_jpeg(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        let end = self.original_bytes.len().checked_sub(16)?;
+        let payload = &self.original_bytes[..end];
+        payload
+            .starts_with(&[0xff, 0xd8])
+            .then(|| normalize_flash_jpeg(payload))
+    }
+
     pub fn png_bytes(&self) -> Result<Vec<u8>, BinaryMediaError> {
         let mut bytes = Vec::new();
         image::codecs::png::PngEncoder::new(&mut bytes)

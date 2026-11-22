@@ -748,19 +748,13 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     && kf.tween_kind == TweenKind::Shape
                     && let Some(next_kf) = layer.keyframes.get(k_idx + 1)
                     && next_kf.frame < effective_end
-                    && can_morph_keys(kf, next_kf)
+                    && let Some(morph) = prepare_morph_keys(kf, next_kf)
                 {
                     let morph_id = self.alloc_char_id();
-                    if let Some(payload) = build_define_morph_shape_payload(
-                        morph_id,
-                        &kf.elements[0],
-                        &next_kf.elements[0],
-                    ) {
-                        self.root_tags.write_tag(46, &payload);
-                        morph_spans
-                            .insert((l_idx, k_idx), (morph_id, kf.frame, next_kf.frame, easing));
-                        continue;
-                    }
+                    let payload = build_define_morph_shape_payload(morph_id, morph);
+                    self.root_tags.write_tag(46, &payload);
+                    morph_spans.insert((l_idx, k_idx), (morph_id, kf.frame, next_kf.frame, easing));
+                    continue;
                 }
                 for el in &kf.elements {
                     let _ = self.ensure_timeline_element_character(el, kf.bitmap_fill(&el.id))?;

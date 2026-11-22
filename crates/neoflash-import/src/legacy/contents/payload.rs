@@ -215,7 +215,8 @@ impl Reader<'_> {
                 Class::DocumentPage
                 | Class::Color
                 | Class::ColorList
-                | Class::QuickTimeAudioSettings => unreachable!(),
+                | Class::QuickTimeAudioSettings
+                | Class::OleClientItem => unreachable!(),
             }
         }
         Ok(result)

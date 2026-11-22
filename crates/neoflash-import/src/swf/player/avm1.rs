@@ -172,8 +172,7 @@ impl SwfBytecodePlayer {
                 }
                 0x09 => {
                     // ActionStopSounds
-                    self.stream_sound_active = false;
-                    self.stop_all_sounds_pending = true;
+                    self.stop_swf_sounds();
                 }
                 0x0A => {
                     // ActionAdd (numeric)

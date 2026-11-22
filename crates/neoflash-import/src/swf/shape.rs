@@ -4,8 +4,8 @@
 use super::bits::SwfSlice;
 use crate::ImportReport;
 use neoflash_core::{
-    Color, Element, ElementKind, FillRule, GradientKind, GradientPaint, GradientStop, Id,
-    MAX_PATH_COMMANDS, PathCommand, Transform, validate_path_commands,
+    Color, Element, ElementKind, FillRule, GradientKind, GradientPaint, GradientSpread,
+    GradientStop, Id, MAX_PATH_COMMANDS, PathCommand, Transform, validate_path_commands,
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -686,6 +686,66 @@ fn read_fill_styles(
     Some(out)
 }
 
+fn gradient_flags(
+    flags: u8,
+    approx_reason: &mut Option<&'static str>,
+) -> (usize, GradientSpread, bool) {
+    let spread = match flags >> 6 {
+        0 => GradientSpread::Extend,
+        1 => GradientSpread::Reflect,
+        2 => GradientSpread::Repeat,
+        _ => {
+            approx_reason.get_or_insert("Reserved gradient spread was replaced with pad.");
+            GradientSpread::Extend
+        }
+    };
+    let interpolation = (flags >> 4) & 3;
+    if interpolation > 1 {
+        approx_reason.get_or_insert("Reserved gradient interpolation was replaced with RGB.");
+    }
+    (usize::from(flags & 15), spread, interpolation == 1)
+}
+
+/// Flash Player consumes records in file order. A backwards record changes the
+/// color after the preceding span, without repainting any of that span.
+fn preserve_gradient_order(paint: &mut GradientPaint, approx_reason: &mut Option<&'static str>) {
+    if paint.stops.windows(2).all(|p| p[0].ratio <= p[1].ratio) {
+        return;
+    }
+    approx_reason.get_or_insert(
+        "Backwards SWF gradient stops were converted to editable stops at their visible boundaries.",
+    );
+    let records = std::mem::take(&mut paint.stops);
+    let mut edge = records[0].ratio.min(records[1].ratio);
+    let mut visible = vec![GradientStop {
+        ratio: edge,
+        color: records[0].color,
+    }];
+    for pair in records.windows(2) {
+        let (start, end) = (&pair[0], &pair[1]);
+        if end.ratio <= edge {
+            continue;
+        }
+        let color = if start.ratio < edge {
+            paint.stops.clear();
+            paint.stops.extend_from_slice(pair);
+            paint.sample_at_unit(f64::from(edge) / 255.0)
+        } else {
+            start.color
+        };
+        if visible.last().is_some_and(|last| last.color != color) {
+            visible.push(GradientStop { ratio: edge, color });
+        }
+        visible.push(end.clone());
+        edge = end.ratio;
+    }
+    let color = records.last().unwrap().color;
+    if visible.last().is_some_and(|last| last.color != color) {
+        visible.push(GradientStop { ratio: edge, color });
+    }
+    paint.stops = visible;
+}
+
 fn read_single_fill_style(
     r: &mut SwfSlice<'_>,
     has_rgba: bool,
@@ -700,14 +760,7 @@ fn read_single_fill_style(
         0x10 | 0x12 | 0x13 => {
             let matrix = r.matrix_px()?;
             r.align();
-            let spread = r.ub(2)?;
-            let interp = r.ub(2)?;
-            let num_grads = r.ub(4)? as usize;
-            if spread != 0 || interp != 0 {
-                approx_reason.get_or_insert(
-                    "Non-pad gradient spread or linear-RGB interpolation is approximated with standard pad RGB gradient.",
-                );
-            }
+            let (num_grads, spread, linear_rgb) = gradient_flags(r.u8()?, approx_reason);
             let mut stops = Vec::with_capacity(num_grads);
             for _ in 0..num_grads {
                 let ratio = r.u8()?;
@@ -720,9 +773,8 @@ fn read_single_fill_style(
             } else {
                 0.0
             };
-            stops.sort_by_key(|s| s.ratio);
             let fallback = stops.first().map_or([0, 0, 0, 255], |s| s.color);
-            let paint = GradientPaint {
+            let mut paint = GradientPaint {
                 kind: if fill_type == 0x10 {
                     GradientKind::Linear
                 } else {
@@ -731,8 +783,10 @@ fn read_single_fill_style(
                 matrix,
                 stops,
                 focal_point_ratio: focal,
-                ..Default::default()
+                spread,
+                linear_rgb,
             };
+            preserve_gradient_order(&mut paint, approx_reason);
             if paint.validate().is_ok() {
                 Some(SwfPaint::Gradient { fallback, paint })
             } else {
@@ -832,7 +886,7 @@ fn read_morph_fill_style(
         0x10 | 0x12 | 0x13 => {
             let sm = r.matrix_px()?;
             let em = r.matrix_px()?;
-            let num_grads = usize::from(r.u8()? & 0x0f);
+            let (num_grads, spread, linear_rgb) = gradient_flags(r.u8()?, approx_reason);
             let mut s_stops = Vec::with_capacity(num_grads);
             let mut e_stops = Vec::with_capacity(num_grads);
             for _ in 0..num_grads {
@@ -868,14 +922,16 @@ fn read_morph_fill_style(
                 matrix: sm,
                 stops: s_stops,
                 focal_point_ratio: sfocal,
-                ..Default::default()
+                spread,
+                linear_rgb,
             };
             let ep = GradientPaint {
                 kind,
                 matrix: em,
                 stops: e_stops,
                 focal_point_ratio: efocal,
-                ..Default::default()
+                spread,
+                linear_rgb,
             };
             let s_out = if sp.validate().is_ok() {
                 SwfPaint::Gradient {
@@ -1421,4 +1477,36 @@ fn split_valid_command_chunks(commands: Vec<PathCommand>) -> Vec<Vec<PathCommand
         chunks.push(current);
     }
     chunks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn descending_swf_gradient_records_preserve_visible_spans_in_file_order() {
+        // Linear fill, identity matrix, reflect/linearRGB and six RGB records.
+        let fill = [
+            0x10, 0, 0x56, 31, 255, 0, 0, 80, 0, 255, 0, 50, 0, 255, 255, 100, 255, 0, 255, 200, 0,
+            0, 255, 150, 255, 255, 0,
+        ];
+        let mut reason = None;
+        let Some(SwfPaint::Gradient { paint, .. }) =
+            read_single_fill_style(&mut SwfSlice::new(&fill), false, &mut reason)
+        else {
+            panic!("expected a gradient");
+        };
+        assert!(reason.is_some_and(|reason| reason.contains("visible boundaries")));
+        assert_eq!(paint.spread, GradientSpread::Reflect);
+        assert!(paint.linear_rgb);
+        assert_eq!(
+            paint.stops.iter().map(|s| s.ratio).collect::<Vec<_>>(),
+            [31, 80, 80, 100, 200, 200]
+        );
+        assert_eq!(paint.sample_at_unit(80. / 255.), [0, 255, 0, 255]);
+        let [r, g, b, a] = paint.sample_at_unit(90. / 255.);
+        assert!(r > 225 && (115..130).contains(&g) && b == 255 && a == 255);
+        assert_eq!(paint.sample_at_unit(200. / 255.), [0, 0, 255, 255]);
+        assert_eq!(paint.sample_at_unit(225. / 255.), [255, 255, 0, 255]);
+    }
 }

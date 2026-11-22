@@ -12,7 +12,7 @@ use super::{Parser, child, elements};
 use crate::Severity;
 use neoflash_core::{
     AuthoredBitmapFill, Color, Element, ElementKind, FillRule, GradientKind, GradientPaint,
-    GradientStop, Id, PathCommand, validate_path_commands,
+    GradientSpread, GradientStop, Id, PathCommand, validate_path_commands,
 };
 use roxmltree::Node;
 use std::collections::{BTreeMap, BTreeSet};
@@ -563,24 +563,23 @@ impl Parser<'_> {
                         &["matrix", "GradientEntry"],
                     );
                 }
-                let spread = paint_node.attribute("spreadMethod").unwrap_or("pad");
-                if !matches!(spread, "pad" | "reflect" | "repeat") {
-                    return Err(ShapeError(
-                        "xfl_shape_paint",
-                        "Unsupported gradient spreadMethod.",
-                    ));
-                }
+                let spread = match paint_node.attribute("spreadMethod").unwrap_or("pad") {
+                    "pad" => GradientSpread::Extend,
+                    "reflect" => GradientSpread::Reflect,
+                    "repeat" => GradientSpread::Repeat,
+                    _ => {
+                        return Err(ShapeError(
+                            "xfl_shape_paint",
+                            "Unsupported gradient spreadMethod.",
+                        ));
+                    }
+                };
                 let interp = paint_node.attribute("interpolationMethod").unwrap_or("rgb");
                 if !matches!(interp, "rgb" | "linearRGB") {
                     return Err(ShapeError(
                         "xfl_shape_paint",
                         "Unsupported gradient interpolationMethod.",
                     ));
-                }
-                if spread != "pad" || interp != "rgb" {
-                    warn_approximated.get_or_insert(
-                        "Gradient spreadMethod/interpolationMethod is approximated with pad/RGB.",
-                    );
                 }
                 let focal = if is_radial {
                     let f = self.number(paint_node, "focalPointRatio", 0.0, file);
@@ -626,65 +625,6 @@ impl Parser<'_> {
                     });
                 }
                 stops.sort_by_key(|s| s.ratio);
-                if interp == "linearRGB" && (2..=7).contains(&stops.len()) {
-                    let mut expanded = Vec::with_capacity(stops.len() * 2 - 1);
-                    for i in 0..stops.len() {
-                        expanded.push(stops[i].clone());
-                        if i + 1 < stops.len() && stops[i + 1].ratio > stops[i].ratio + 1 {
-                            let mid_ratio = ((u16::from(stops[i].ratio)
-                                + u16::from(stops[i + 1].ratio))
-                                / 2) as u8;
-                            let lin_mid = |a: u8, b: u8| -> u8 {
-                                let la = (f64::from(a) / 255.0).powf(2.2);
-                                let lb = (f64::from(b) / 255.0).powf(2.2);
-                                (((la + lb) * 0.5).powf(1.0 / 2.2) * 255.0).round() as u8
-                            };
-                            let c0 = stops[i].color;
-                            let c1 = stops[i + 1].color;
-                            expanded.push(GradientStop {
-                                ratio: mid_ratio,
-                                color: [
-                                    lin_mid(c0[0], c1[0]),
-                                    lin_mid(c0[1], c1[1]),
-                                    lin_mid(c0[2], c1[2]),
-                                    ((u16::from(c0[3]) + u16::from(c1[3])) / 2) as u8,
-                                ],
-                            });
-                        }
-                    }
-                    if expanded.len() <= 15 {
-                        stops = expanded;
-                    }
-                }
-                if matches!(spread, "reflect" | "repeat") && (2..=5).contains(&stops.len()) {
-                    let mut tiled = Vec::with_capacity(stops.len() * 2);
-                    for s in &stops {
-                        tiled.push(GradientStop {
-                            ratio: (u16::from(s.ratio) * 127 / 255) as u8,
-                            color: s.color,
-                        });
-                    }
-                    if spread == "reflect" {
-                        for s in stops.iter().rev() {
-                            tiled.push(GradientStop {
-                                ratio: 128 + ((255 - u16::from(s.ratio)) * 127 / 255) as u8,
-                                color: s.color,
-                            });
-                        }
-                    } else {
-                        for s in &stops {
-                            tiled.push(GradientStop {
-                                ratio: 128 + (u16::from(s.ratio) * 127 / 255) as u8,
-                                color: s.color,
-                            });
-                        }
-                    }
-                    tiled.sort_by_key(|s| s.ratio);
-                    tiled.dedup_by_key(|s| s.ratio);
-                    if tiled.len() >= 2 && tiled.len() <= 15 {
-                        stops = tiled;
-                    }
-                }
                 let fallback = stops[0].color;
                 let paint = GradientPaint {
                     kind: if is_radial {
@@ -695,7 +635,8 @@ impl Parser<'_> {
                     matrix,
                     stops,
                     focal_point_ratio: focal,
-                    ..Default::default()
+                    spread,
+                    linear_rgb: interp == "linearRGB",
                 };
                 paint.validate().map_err(|_| {
                     ShapeError(

@@ -5,6 +5,7 @@ use neoflash_core::{SymbolKind, Timeline};
 use std::collections::{HashMap, HashSet};
 
 const MAX_AVM_BLOCK_INSTS: usize = 4096;
+const MAX_AVM2_METHOD_INSTS: usize = 8192;
 const MAX_AVM_NESTED_FN_DEPTH: usize = 16;
 const MAX_SWF_OPCODE_ARITY: i64 = 4096;
 
@@ -1718,7 +1719,9 @@ fn scan_static_frame_script_indices(abc: &AbcFile, leaf_idx: usize) -> Vec<u32> 
     let mut frames = Vec::new();
     for ci in chain {
         if let Some(body) = abc.bodies.get(&abc.instances[ci].iinit) {
-            let insts = decode_avm2_instructions(&body.code);
+            let Ok(insts) = decode_avm2_instructions(&body.code) else {
+                continue;
+            };
             for (idx, inst) in insts.iter().enumerate() {
                 if matches!(inst.op, 0x46 | 0x4F) && inst.args.len() >= 2 {
                     let mn_idx = inst.args[0] as usize;
@@ -2112,7 +2115,7 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     int: __nfSwfFn(v => Number(v) | 0), uint: __nfSwfFn(v => Number(v) >>> 0),\n\
     parseInt: __nfSwfFn((s, r) => parseInt(s, r)), parseFloat: __nfSwfFn(s => parseFloat(s)),\n\
     isNaN: __nfSwfFn(v => Number.isNaN(Number(v))), isFinite: __nfSwfFn(v => Number.isFinite(Number(v))),\n\
-    Math: __nfSwfEnv.mathObj,\n\
+    NaN, Infinity, undefined, Math: __nfSwfEnv.mathObj,\n\
     Event: __evCtor, MouseEvent: __mouseEvCtor, KeyboardEvent: __keyEvCtor,\n\
     Error: 'Error', TypeError: 'TypeError', RangeError: 'RangeError',\n\
     ReferenceError: 'ReferenceError', ArgumentError: 'ArgumentError',\n\
@@ -2220,6 +2223,23 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
     const raw = __nfSwfGet(obj, k);\n\
     if (__nfSwfEnv.isUnconstructedChild(raw)) return undefined;\n\
     return raw;\n\
+  };\n\
+  __nfSwfEnv.addOperand = value => {\n\
+    if (value == null || (typeof value !== 'object' && typeof value !== 'function')) return value;\n\
+    const entry = __nfSwfEnv.entryOf.get(value);\n\
+    for (const name of ['valueOf', 'toString']) {\n\
+      const authored = __nfSwfHasOwn(value, name) || entry?.getters[name] || (name === 'toString' ? entry?.hasCustomToString : entry?.hasCustomValueOf);\n\
+      if (!authored) {\n\
+        if (name === 'toString') return __nfSwfEnv.toStr(value);\n\
+        continue;\n\
+      }\n\
+      const method = __nfSwfEnv.avm2Get(value, name);\n\
+      if (typeof method === 'function') {\n\
+        const result = __nfSwfApply(method, value, []);\n\
+        if (result == null || (typeof result !== 'object' && typeof result !== 'function')) return result;\n\
+      }\n\
+    }\n\
+    throw new TypeError('Cannot convert object to primitive value');\n\
   };\n\
   __nfSwfEnv.avm2Set = (obj, prop, val) => {\n\
     if (obj == null) return val;\n\
@@ -2786,6 +2806,7 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
   entry.superEntry = superEntry;\n\
   entry.getters = Object.assign(Object.create(null), superEntry ? superEntry.getters : null);\n\
   entry.setters = Object.assign(Object.create(null), superEntry ? superEntry.setters : null);\n\
+  entry.hasCustomValueOf = Boolean(superEntry && superEntry.hasCustomValueOf);\n\
   entry.hasCustomToString = Boolean(superEntry && superEntry.hasCustomToString);\n\
   const scopes = Array.isArray(baseScopes) && baseScopes.length ? [...baseScopes] : [__nfSwfEnv.globals];\n\
   entry.initChain = target => {\n\
@@ -2850,6 +2871,7 @@ fn compile_abc_module_js(ctx: &mut SwfDecodeCtx, abc_idx: usize, abc: &AbcFile) 
   __nfSwfEnv.globals[spec.qname] = ctor;\n\
   __nfSwfEnv.globals[spec.shortName] = ctor;\n\
   for (const [mn, mid] of spec.instMethods) {\n\
+    if (mn === 'valueOf') entry.hasCustomValueOf = true;\n\
     if (mn === 'toString') entry.hasCustomToString = true;\n\
     const mf = __abc.methods[mid];\n\
     if (mf) __nfSwfSet(entry.proto, mn, mf(entry.methodScopes, entry));\n\
@@ -2917,14 +2939,17 @@ struct Avm2Inst {
     args: Vec<i64>,
 }
 
-fn decode_avm2_instructions(code: &[u8]) -> Vec<Avm2Inst> {
+fn decode_avm2_instructions(code: &[u8]) -> Result<Vec<Avm2Inst>, String> {
     let mut r = AbcReader::new(code);
     let mut out = Vec::new();
-    while r.pos < r.data.len() && out.len() < MAX_AVM_BLOCK_INSTS {
+    while r.pos < r.data.len() {
         let offset = r.pos;
-        let Ok(op) = r.read_u8() else {
-            break;
-        };
+        if out.len() >= MAX_AVM2_METHOD_INSTS {
+            return Err(format!(
+                "instruction limit {MAX_AVM2_METHOD_INSTS} at byte 0x{offset:x}"
+            ));
+        }
+        let op = r.read_u8()?;
         let args_res: Result<Vec<i64>, String> = (|| match op {
             // 1 u8
             0x24 | 0x65 | 0xF2 => Ok(vec![i64::from(r.read_u8()?)]),
@@ -2948,7 +2973,12 @@ fn decode_avm2_instructions(code: &[u8]) -> Vec<Avm2Inst> {
                 let def_off = i64::from(r.read_s24()?);
                 let cnt = r.read_u30()? as usize;
                 let mut v = vec![def_off];
-                for _ in 0..=cnt.min(1024) {
+                if cnt > 1024 {
+                    return Err(format!(
+                        "lookupswitch exceeds 1025 destinations at byte 0x{offset:x}"
+                    ));
+                }
+                for _ in 0..=cnt {
                     v.push(i64::from(r.read_s24()?));
                 }
                 Ok(v)
@@ -2963,12 +2993,10 @@ fn decode_avm2_instructions(code: &[u8]) -> Vec<Avm2Inst> {
             }
             _ => Ok(Vec::new()),
         })();
-        match args_res {
-            Ok(args) => out.push(Avm2Inst { offset, op, args }),
-            Err(_) => break,
-        }
+        let args = args_res.map_err(|e| format!("{e} (byte 0x{offset:x})"))?;
+        out.push(Avm2Inst { offset, op, args });
     }
-    out
+    Ok(out)
 }
 
 fn compile_avm2_method_factory(
@@ -2978,7 +3006,13 @@ fn compile_avm2_method_factory(
     minfo: Option<&AbcMethodInfo>,
 ) -> Option<String> {
     let code = &body.code;
-    let insts = decode_avm2_instructions(code);
+    let insts = match decode_avm2_instructions(code) {
+        Ok(instructions) => instructions,
+        Err(error) => {
+            ctx.warn(format!("SWF AVM2 method skipped: {error}"));
+            return None;
+        }
+    };
     if insts.is_empty() {
         return None;
     }
@@ -3437,9 +3471,9 @@ fn compile_avm2_method_factory(
                 // nextvalue
                 js.push_str("      { const __ni = (Number(__st.pop()) | 0) - 1, __no = __st.pop(); const __ks = __no != null ? __nfSwfKeys(__no) : []; __st.push(__ks[__ni] !== undefined ? __nfSwfEnv.avm2Get(__no, __ks[__ni]) : undefined); }\n");
             }
-            0xA0 => js.push_str("      { const __b = __st.pop(), __a = __st.pop(); const __na = typeof __a === 'number' || typeof __a === 'boolean' || __a === null || __a === undefined, __nb = typeof __b === 'number' || typeof __b === 'boolean' || __b === null || __b === undefined; __st.push((__na && __nb && !(__a === undefined && __b === undefined)) ? Number(__a) + Number(__b) : (__a === undefined && __b === undefined ? NaN : __nfSwfEnv.toStr(__a) + __nfSwfEnv.toStr(__b))); }\n"),
-            0xA1 | 0xC6 => js.push_str("      { const __b = Number(__st.pop()) || 0, __a = Number(__st.pop()) || 0; __st.push(__a - __b); }\n"),
-            0xA2 | 0xC7 => js.push_str("      { const __b = Number(__st.pop()) || 0, __a = Number(__st.pop()) || 0; __st.push(__a * __b); }\n"),
+            0xA0 => js.push_str("      { const right = __st.pop(); const a = __nfSwfEnv.addOperand(__st.pop()), b = __nfSwfEnv.addOperand(right); __st.push(a + b); }\n"),
+            0xA1 => js.push_str("      { const __b = Number(__st.pop()), __a = Number(__st.pop()); __st.push(__a - __b); }\n"),
+            0xA2 => js.push_str("      { const __b = Number(__st.pop()), __a = Number(__st.pop()); __st.push(__a * __b); }\n"),
             0xC4 => js.push_str("      __st.push((-(Number(__st.pop()) | 0)) | 0);\n"),
             0xC5 => js.push_str("      { const __b = Number(__st.pop()) | 0, __a = Number(__st.pop()) | 0; __st.push((__a + __b) | 0); }\n"),
             0xA3 => js.push_str("      { const __b = Number(__st.pop()), __a = Number(__st.pop()); __st.push(__a / __b); }\n"),
@@ -3450,15 +3484,24 @@ fn compile_avm2_method_factory(
             0xA8 => js.push_str("      { const __b = Number(__st.pop()) | 0, __a = Number(__st.pop()) | 0; __st.push(__a & __b); }\n"),
             0xA9 => js.push_str("      { const __b = Number(__st.pop()) | 0, __a = Number(__st.pop()) | 0; __st.push(__a | __b); }\n"),
             0xAA => js.push_str("      { const __b = Number(__st.pop()) | 0, __a = Number(__st.pop()) | 0; __st.push(__a ^ __b); }\n"),
-            0x90 => js.push_str("      __st.push(-(Number(__st.pop()) || 0));\n"),
-            0x91 | 0xC0 => js.push_str("      __st.push((Number(__st.pop()) || 0) + 1);\n"),
-            0x93 | 0xC1 => js.push_str("      __st.push((Number(__st.pop()) || 0) - 1);\n"),
-            0x92 | 0xC2 => js.push_str(&format!(
-                "      __loc[{}] = (Number(__loc[{}]) || 0) + 1;\n",
+            0x90 => js.push_str("      __st.push(-(Number(__st.pop())));\n"),
+            0x91 => js.push_str("      __st.push((Number(__st.pop())) + 1);\n"),
+            0x93 => js.push_str("      __st.push((Number(__st.pop())) - 1);\n"),
+            0xC0 => js.push_str("      __st.push(((Number(__st.pop()) | 0) + 1) | 0);\n"),
+            0xC1 => js.push_str("      __st.push(((Number(__st.pop()) | 0) - 1) | 0);\n"),
+            0xC6 => js.push_str("      { const b = Number(__st.pop()) | 0, a = Number(__st.pop()) | 0; __st.push((a - b) | 0); }\n"),
+            0xC7 => js.push_str("      { const b = Number(__st.pop()) | 0, a = Number(__st.pop()) | 0; __st.push(Math.imul(a, b)); }\n"),
+            0xC2 | 0xC3 => {
+                let register = inst.args[0];
+                let sign = if inst.op == 0xC2 { "+" } else { "-" };
+                js.push_str(&format!("      __loc[{register}] = ((Number(__loc[{register}]) | 0) {sign} 1) | 0;\n"));
+            }
+            0x92 => js.push_str(&format!(
+                "      __loc[{}] = Number(__loc[{}]) + 1;\n",
                 inst.args[0], inst.args[0]
             )),
-            0x94 | 0xC3 => js.push_str(&format!(
-                "      __loc[{}] = (Number(__loc[{}]) || 0) - 1;\n",
+            0x94 => js.push_str(&format!(
+                "      __loc[{}] = Number(__loc[{}]) - 1;\n",
                 inst.args[0], inst.args[0]
             )),
             0x95 => js.push_str("      { const __v = __st.pop(); __st.push(__v === null ? 'object' : typeof __v === 'function' ? 'function' : typeof __v); }\n"),

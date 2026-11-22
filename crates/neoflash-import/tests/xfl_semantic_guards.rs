@@ -246,3 +246,161 @@ fn nonempty_editor_containers_cannot_hide_nested_semantics() {
         source.blocked("duplicate_container");
     }
 }
+
+const TRANSLATE_X_BY_45: &str = r#"<motionObjectXML><AnimationCore Version="1" TimeScale="24000" duration="2000"><Property id="Motion_X" enabled="1"><Keyframe timevalue="0" anchor="0,0" next="0,0" previous="0,0"/><Keyframe timevalue="1000" anchor="0,45" next="0,45" previous="0,45"/></Property></AnimationCore></motionObjectXML>"#;
+
+#[test]
+fn classic_tween_continues_the_same_instance_through_motion_object_samples() {
+    let source = Source::new();
+    source.replace(
+        "index=\"0\" duration=\"1\"",
+        "index=\"0\" duration=\"2\" tweenType=\"motion\"",
+    );
+    source.replace(
+        "<DOMFrame index=\"2\" duration=\"2\"><elements>",
+        &format!("<DOMFrame index=\"2\" duration=\"2\">{TRANSLATE_X_BY_45}<elements>"),
+    );
+    let project = import_project(&source.0).unwrap();
+    let timeline = &project.symbol(&project.root).unwrap().timeline;
+    let layer = timeline
+        .layers
+        .iter()
+        .find(|l| l.name == "Foreground")
+        .unwrap();
+    let keys = &layer.keyframes;
+    assert_eq!(keys.len(), 3);
+    for (key, (frame, x)) in keys.iter().zip([(0, 40.), (2, 80.), (3, 125.)]) {
+        assert_eq!((key.frame, key.elements[0].transform.x), (frame, x));
+        assert_eq!(key.elements[0].id, keys[0].elements[0].id);
+        assert_eq!(
+            neoflash_core::placement_start(layer, frame, &key.elements[0].id),
+            0
+        );
+    }
+}
+
+#[test]
+fn motion_object_samples_2d_tracks_and_retains_the_start_label_and_script_once() {
+    let source = Source::new();
+    source.replace("index=\"0\" duration=\"1\"", "index=\"0\" duration=\"2\"");
+
+    source.replace(
+        "<Actionscript>",
+        &format!("{TRANSLATE_X_BY_45}<Actionscript>"),
+    );
+    let project = import_project(&source.0).unwrap();
+    let timeline = &project.symbol(&project.root).unwrap().timeline;
+    let layer = timeline
+        .layers
+        .iter()
+        .find(|l| l.name == "Foreground")
+        .unwrap();
+    let start = &layer.keyframes[0];
+    let mid = &layer.keyframes[1];
+    assert_eq!(mid.frame, 1);
+    assert_eq!(mid.elements[0].id, start.elements[0].id);
+    assert_eq!(mid.elements[0].transform.x, 85.);
+    assert_eq!(start.label, "start");
+    assert!(mid.label.is_empty());
+    assert_eq!(timeline.scripts.len(), 1);
+    assert_eq!(
+        inspect(&source.0)
+            .unwrap()
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "xfl_motion_sampled")
+            .count(),
+        1
+    );
+
+    let source_text = fs::read_to_string(source.0.join("DOMDocument.xml")).unwrap();
+    // Unused future editor data cannot change the pose; active unknown, malformed
+    // or over-budget tracks leave the usable key, its label and its script intact.
+    let inactive = r#"<Property id="Future" enabled="0"><FutureControls/></Property>"#;
+    let active = r#"<Property id="Future" enabled="1"><Keyframe timevalue="0" anchor="0,7" next="0,7" previous="0,7"/></Property>"#;
+    let huge = format!("<!--{}-->", "x".repeat(2 * 1024 * 1024));
+    for (extra, reason) in [
+        (inactive, None),
+        (active, Some("unknown enabled")),
+        (
+            r#"<TimeMap type="Custom" strength="100"/>"#,
+            Some("time map"),
+        ),
+        (
+            r#"<Property id="Scale_Y"><Keyframe timevalue="bad"/></Property>"#,
+            Some("key time"),
+        ),
+        (&huge, Some("sampling limit")),
+    ] {
+        fs::write(
+            source.0.join("DOMDocument.xml"),
+            source_text.replace("</AnimationCore>", &format!("{extra}</AnimationCore>")),
+        )
+        .unwrap();
+        let report = inspect(&source.0).unwrap();
+        assert!(report.can_import);
+        if let Some(reason) = reason {
+            assert!(
+                report
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code == "motion_object_not_supported" && d.message.contains(reason))
+            );
+        } else {
+            assert!(
+                report
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code == "xfl_motion_sampled")
+            );
+        }
+        let imported = import_project(&source.0).unwrap();
+        let timeline = &imported.symbol(&imported.root).unwrap().timeline;
+        let layer = timeline
+            .layers
+            .iter()
+            .find(|l| l.name == "Foreground")
+            .unwrap();
+        assert_eq!(
+            neoflash_core::sample_layer(layer, 1)[0].transform.x,
+            if reason.is_some() { 40. } else { 85. }
+        );
+        assert_eq!(layer.keyframes[0].label, "start");
+        assert_eq!(timeline.scripts.len(), 1);
+        assert_eq!(timeline.scripts[0].script.source, "stop();");
+    }
+}
+
+#[test]
+fn public_cs4_motion_file_preserves_rotation_around_the_authored_pivot_and_translation() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../examples/fla-corpus/upstream/flacomdoc/cs4-motion-tween/0022_motiontween-cs4.fla",
+    );
+    let project = import_project(&path).unwrap();
+    let timeline = &project.symbol(&project.root).unwrap().timeline;
+    assert_eq!(timeline.frame_count, 30);
+    for layer in &timeline.layers {
+        assert_eq!(layer.keyframes.len(), 30);
+        let top = layer.name == "Layer 7";
+        let initial = &layer.keyframes[0].elements[0];
+        for frame in [14, 29] {
+            let pose = neoflash_core::sample_layer(layer, frame).remove(0);
+            assert_eq!(pose.id, initial.id);
+            let m = neoflash_core::transform_matrix(pose.transform);
+            let pivot = [
+                m[0] * 30. + m[2] * 25. + m[4],
+                m[1] * 30. + m[3] * 25. + m[5],
+            ];
+            let fraction = f64::from(frame) / 29.;
+            let target = if top {
+                [60. + 410. * fraction, 80.]
+            } else {
+                [70. + 410. * fraction, 250. - 10. * fraction]
+            };
+            assert!((pivot[0] - target[0]).abs() < 1e-6 && (pivot[1] - target[1]).abs() < 1e-6);
+            assert!(
+                (pose.transform.rotation - if top { 4325. * fraction } else { 0. }).abs() < 1e-6
+            );
+        }
+    }
+}

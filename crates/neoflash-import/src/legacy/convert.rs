@@ -719,6 +719,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         stream_stops,
         language,
         include_hidden,
+        motion_pose_budget: crate::motion_xml::DOCUMENT_POSE_BUDGET,
         contents_revision: c.revision,
         generated: vec![],
         inline_resources: vec![],
@@ -859,19 +860,8 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     }
     normalize_playback(&mut symbols, context.report);
     attach_companion_includes(&context.report.source, &symbols, &mut resources);
-    // The exact original is embedded when it fits the project resource budget,
-    // split into parts of at most one resource each. Larger sources stay
-    // external; provenance records their size and digest either way.
-    let parts: Vec<_> = document.original_bytes.chunks(MAX_RESOURCE_BYTES).collect();
-    let part_ids: Vec<String> = if parts.len() <= 1 {
-        vec!["fla-original".into()]
-    } else {
-        (0..parts.len())
-            .map(|i| format!("fla-original-{i}"))
-            .collect()
-    };
     if !document.inspection.container_tolerances.is_empty() {
-        context.report.warning("fla_container_compatibility","CFB directory",format!("The source container has non-canonical metadata outside its live streams ({}). Streams were read from their directory chains unchanged; the original FLA is retained.",document.inspection.container_tolerances.join("; ")))
+        context.report.warning("fla_container_compatibility","CFB directory",format!("The source container has non-canonical metadata outside its live streams ({}). Streams were read from their original directory chains.",document.inspection.container_tolerances.join("; ")))
     }
     let mut imported_sources = Vec::new();
     let mut seen_source_paths = std::collections::HashSet::new();
@@ -984,49 +974,96 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
     enforce_project_structural_limits(&mut project, &mut context.provenance, context.report);
     // Size the converted document first: the original shares both the resource
     // budget and the project's encoded JSON limit with the converted content.
-    // Saved projects are pretty-printed JSON; measure that form.
-    let encoded = |bytes: usize| bytes.div_ceil(3) * 4;
-    let measure_budget = |proj: &Project, placements: &[serde_json::Value]| {
-        let doc_json = serde_json::to_string_pretty(proj).map_or(usize::MAX, |v| v.len());
-        let used_bytes: usize = proj
-            .resources
-            .iter()
-            .map(|r| r.data_base64.len() / 4 * 3 + 3)
-            .sum();
-        let prov_val = serde_json::json!({
-            "schema": 2,
-            "source_resources": part_ids,
-            "source_bytes": document.original_bytes.len(),
-            "source_fnv1a64": format!("{:016x}", fnv1a64(&document.original_bytes)),
-            "authoring_version": document.inspection.authoring_version,
-            "contents_revision": c.revision,
-            "language": language,
-            "publish_hidden_layers": include_hidden,
-            "container_tolerances": document.inspection.container_tolerances,
-            "descriptors": &c.descriptors,
-            "folders": c.extensions.as_ref().map(|e| &e.folders),
-            "placements": placements,
-            "note": "Offsets refer to original logical streams. Concatenating source_resources in order reproduces the original FLA. Source bytes retain authoring properties, editor visibility, guides, metadata and unresolved source references."
-        });
-        let prov_len = serde_json::to_vec(&prov_val).map_or(usize::MAX, |v| v.len());
-        let fits_source = !parts.is_empty()
-            && proj.resources.len() + parts.len() < MAX_RESOURCES
-            && used_bytes + document.original_bytes.len() + prov_len + 4096
-                <= MAX_RESOURCE_TOTAL_BYTES
-            && doc_json
-                .saturating_add(encoded(document.original_bytes.len()))
-                .saturating_add(encoded(prov_len))
-                .saturating_add(1 << 20)
-                <= MAX_PROJECT_JSON_BYTES;
-        (doc_json, fits_source)
-    };
-    let (mut document_json, mut embedded) = measure_budget(&project, &context.provenance);
-    if (!embedded || document_json > MAX_PROJECT_JSON_BYTES)
-        && deduplicate_project_for_budget(&mut project, &mut context.provenance)
-    {
-        (document_json, embedded) = measure_budget(&project, &context.provenance);
+    // The normal saver uses compact JSON when indentation would exceed the file
+    // limit. Measure that representation before omitting any source or artwork.
+    let library_fonts: Vec<_> = c
+        .extensions
+        .iter()
+        .flat_map(|ext| &ext.fonts)
+        .map(|font| {
+            let label = |s: Option<&ContentsString>| optional_text(&c.original_bytes, s);
+            Ok::<_, String>(serde_json::json!({
+                "name": label(Some(&font.name))?,
+                "id": font.font_id,
+                "family": label(font.style.font_family.as_ref())?,
+                "face": label(font.style.font_face.as_ref())?,
+                "bold": font.style.bold,
+                "italic": font.style.italic,
+                "flags": font.flags,
+                "linkage": label(font.metadata.linkage.as_ref().map(|l| &l.identifier))?,
+                "record": font.encoded,
+            }))
+        })
+        .collect::<Result<_, _>>()?;
+    if !library_fonts.is_empty() {
+        context.report.warning("fla_font_library", "Contents / font library",
+            format!("{} font library descriptor(s) retained in provenance. Text uses the installed family; the descriptor supplies no portable font file.", library_fonts.len()));
     }
-    let _ = document_json;
+    let source_len = document.original_bytes.len();
+    let source_digest = format!("{:016x}", fnv1a64(&document.original_bytes));
+    let archive_budget =
+        |proj: &Project, placements: &[serde_json::Value]| -> Result<usize, String> {
+            let doc_json = serde_json::to_string(proj)
+                .map_err(|e| e.to_string())?
+                .len();
+            let used_bytes: usize = proj.resources.iter().map(ResourceUnit::byte_len).sum();
+            let prov_len = serde_json::to_vec(&serde_json::json!({
+                "descriptors": &c.descriptors,
+                "folders": c.extensions.as_ref().map(|e| &e.folders),
+                "placements": placements,
+                "library_fonts": &library_fonts,
+            }))
+            .map_err(|e| e.to_string())?
+            .len();
+            // Reserve room for the provenance resource and its scalar fields, the
+            // source part IDs, headers and alignment at individual Base64 boundaries.
+            let prov_bytes = prov_len.saturating_add(4096);
+            let json_left = MAX_PROJECT_JSON_BYTES
+                .saturating_sub(doc_json)
+                .saturating_sub(prov_bytes.div_ceil(3) * 4)
+                .saturating_sub(1 << 20);
+            Ok(MAX_RESOURCE_TOTAL_BYTES
+                .saturating_sub(used_bytes)
+                .saturating_sub(prov_bytes)
+                .min(json_left / 4 * 3)
+                .min(
+                    MAX_RESOURCES
+                        .saturating_sub(proj.resources.len() + 1)
+                        .saturating_mul(MAX_RESOURCE_BYTES),
+                ))
+        };
+    let mut budget = archive_budget(&project, &context.provenance)?;
+    if source_len > budget && deduplicate_project_for_budget(&mut project, &mut context.provenance)
+    {
+        budget = archive_budget(&project, &context.provenance)?;
+    }
+    let compressed = if source_len > budget && budget > 0 {
+        // Limit speculative compression by available storage, even for incompressible input.
+        use std::io::Read;
+        let mut data = Vec::new();
+        flate2::read::GzEncoder::new(
+            document.original_bytes.as_slice(),
+            flate2::Compression::fast(),
+        )
+        .take(budget as u64 + 1)
+        .read_to_end(&mut data)
+        .map_err(|e| e.to_string())?;
+        (data.len() <= budget).then_some(data)
+    } else {
+        None
+    };
+    let source_data = compressed.as_deref().unwrap_or(&document.original_bytes);
+    let parts = source_data.chunks(MAX_RESOURCE_BYTES);
+    let part_ids: Vec<_> = (0..parts.len())
+        .map(|i| {
+            if parts.len() == 1 {
+                "fla-original".to_owned()
+            } else {
+                format!("fla-original-{i}")
+            }
+        })
+        .collect();
+    let mut embedded = !source_data.is_empty() && source_data.len() <= budget;
     let provenance = |embedded: bool, detail: ProvenanceDetail| {
         let (descriptors, folders, placements) = match detail {
             ProvenanceDetail::Full => (
@@ -1047,11 +1084,12 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
                 serde_json::Value::Array(vec![]),
             ),
         };
-        serde_json::json!({
-            "schema": 2,
-            "source_resources": if embedded { part_ids.clone() } else { vec![] },
+        let archived = embedded && compressed.is_some();
+        let mut result = serde_json::json!({
+            "schema": if archived { 3 } else { 2 },
+            "source_resources": if embedded && !archived { &part_ids[..] } else { &[] },
             "source_bytes": document.original_bytes.len(),
-            "source_fnv1a64": format!("{:016x}", fnv1a64(&document.original_bytes)),
+            "source_fnv1a64": source_digest,
             "authoring_version": document.inspection.authoring_version,
             "contents_revision": c.revision,
             "language": language,
@@ -1061,19 +1099,34 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
             "folders": folders,
             "placements": placements,
             "note": "Offsets refer to original logical streams. Concatenating source_resources in order reproduces the original FLA. Source bytes retain authoring properties, editor visibility, guides, metadata and unresolved source references."
-        })
+        });
+        if !library_fonts.is_empty() && detail != ProvenanceDetail::Minimal {
+            result["library_fonts"] = serde_json::json!(library_fonts);
+        }
+        if archived {
+            result["source_archive"] =
+                serde_json::json!({"encoding": "gzip", "resources": part_ids});
+            result["note"] = serde_json::json!(
+                "Concatenate source_archive.resources in order and decompress the gzip stream to recover the original FLA. Offsets refer to the original logical streams."
+            );
+        }
+        result
     };
     if embedded {
-        for (i, (part, id)) in parts.iter().zip(&part_ids).enumerate() {
-            let path = if parts.len() == 1 {
-                "legacy/source.fla".to_owned()
+        let (base, mime) = if compressed.is_some() {
+            ("legacy/source.fla.gz", "application/gzip")
+        } else {
+            ("legacy/source.fla", "application/x-neoflash-fla-source")
+        };
+        for (i, (part, id)) in parts.zip(&part_ids).enumerate() {
+            let path = if part_ids.len() == 1 {
+                base.to_owned()
             } else {
-                format!("legacy/source.fla.part{i:02}")
+                format!("{base}.part{i:02}")
             };
-            project.resources.push(
-                ResourceUnit::from_bytes(id, path, "application/x-neoflash-fla-source", part)
-                    .map_err(|e| e.to_string())?,
-            );
+            project
+                .resources
+                .push(ResourceUnit::from_bytes(id, path, mime, part).map_err(|e| e.to_string())?);
         }
     } else {
         context.report.warning("fla_source_not_embedded","Original FLA",format!("The original FLA ({} MiB) does not fit the project's limits next to the converted document (64 MiB of resources, 128 MiB in total), so it is not embedded. Keep the original file; provenance records its size and FNV-1a digest.",document.original_bytes.len()/(1024*1024)));
@@ -1090,7 +1143,7 @@ fn build(document: &BinaryTimelineDocument, report: &mut ImportReport) -> Result
         &provenance,
     )?;
     project.upgrade_format_for_features();
-    let mut json = serde_json::to_string_pretty(&project).map_err(|e| e.to_string())?;
+    let mut json = serde_json::to_string(&project).map_err(|e| e.to_string())?;
     if json.len() > MAX_PROJECT_JSON_BYTES {
         fit_project_json_budget(
             &mut project,
@@ -1144,6 +1197,7 @@ struct Context<'a> {
     stream_stops: std::collections::BTreeSet<usize>,
     language: ScriptLanguage,
     include_hidden: bool,
+    motion_pose_budget: usize,
     contents_revision: Option<u8>,
     generated: Vec<Symbol>,
     inline_resources: Vec<ResourceUnit>,
@@ -1630,7 +1684,7 @@ impl Context<'_> {
                 self.report.warning(
                     "fla_layer_animation",
                     format!("stream #{} layer {name}", s.index),
-                    "Motion-object or IK layer animation is imported as its stored keyframe poses.",
+                    "Original motion-layer or IK metadata remains in the source. Supported motion-object tracks are sampled at each authored frame.",
                 );
             }
             self.provenance.push(serde_json::json!({"stream":s.index,"object":id,"target":layer_id,"editor_visible":editor_visible,"source":o.encoded}));
@@ -1657,6 +1711,7 @@ impl Context<'_> {
                         )
                     });
             let mut cursor = 0u32;
+            let mut motion_keys = Vec::new();
             let mut pending_morphs: Vec<(usize, u32)> = Vec::new();
             let mut pending_custom_eases: Vec<(usize, TimelineFrame, String)> = Vec::new();
             for frame_id in &o.children {
@@ -1782,16 +1837,6 @@ impl Context<'_> {
                     );
                 }
                 let video = frame_videos.into_iter().next();
-                if f.motion_xml
-                    .as_ref()
-                    .is_some_and(|v| v.data.end > v.data.start)
-                {
-                    self.report.warning(
-                        "fla_motion_xml",
-                        &at,
-                        "Motion-tween XML is imported as its stored keyframe poses.",
-                    );
-                }
                 if f.pose_matrices.is_some() && l.animation_type.unwrap_or(0) == 0 {
                     self.report.warning(
                         "fla_layer_animation",
@@ -2048,6 +2093,78 @@ impl Context<'_> {
                     ..Default::default()
                 });
                 let duration = u32::from(f.duration.unwrap_or(1)).max(1);
+                if let Some(span) = f.motion_xml.as_ref().filter(|v| v.data.end > v.data.start) {
+                    let key = layer.keyframes.last().unwrap();
+                    let sampled = (|| {
+                        if span.data.end - span.data.start > crate::motion_xml::MAX_XML_BYTES {
+                            return Err("motion XML exceeds the sampling limit");
+                        }
+                        let xml = read_string(&s.original_bytes, span)
+                            .map_err(|_| "invalid motion XML text")?;
+                        let doc = roxmltree::Document::parse_with_options(
+                            &xml,
+                            roxmltree::ParsingOptions {
+                                nodes_limit: crate::motion_xml::MAX_XML_NODES,
+                                ..Default::default()
+                            },
+                        )
+                        .map_err(|_| "invalid or oversized motion XML")?;
+                        let pivot = frame
+                            .children
+                            .iter()
+                            .filter_map(|id| object(s, *id).ok())
+                            .find_map(|placed| {
+                                let Some(TimelinePayload::Instance(instance)) = &placed.payload
+                                else {
+                                    return None;
+                                };
+                                let world = placed
+                                    .base
+                                    .as_ref()
+                                    .and_then(|base| base.registration_words)
+                                    .filter(|xy| !xy.contains(&i32::MIN))
+                                    .or_else(|| {
+                                        instance
+                                            .center_point_3d
+                                            .map(|[x, y, _]| [x, y])
+                                            .filter(|p| !p.contains(&i32::MIN))
+                                    })?;
+                                let inv = invert_affine_matrix(transform_matrix(
+                                    key.elements.first()?.transform,
+                                ))?;
+                                let [x, y] = world.map(|v| f64::from(v) / 20.);
+                                Some([
+                                    inv[0] * x + inv[2] * y + inv[4],
+                                    inv[1] * x + inv[3] * y + inv[5],
+                                ])
+                            });
+                        if duration > MAX_TIMELINE_FRAMES - cursor {
+                            return Err("motion span exceeds timeline limit");
+                        }
+                        crate::motion_xml::poses(
+                            doc.root_element(),
+                            key,
+                            duration,
+                            pivot,
+                            &mut self.motion_pose_budget,
+                        )
+                    })();
+                    match sampled {
+                        Ok(poses) => {
+                            motion_keys.extend(poses);
+                            self.report.warning(
+                                "fla_motion_xml",
+                                &at,
+                                "Sampled 2D motion-object tracks into editable per-frame poses.",
+                            );
+                        }
+                        Err(reason) => self.report.warning(
+                            "fla_motion_xml",
+                            &at,
+                            format!("Motion-object tracks use the stored pose: {reason}."),
+                        ),
+                    }
+                }
                 let next_cursor = u64::from(cursor) + u64::from(duration);
                 if next_cursor > u64::from(MAX_TIMELINE_FRAMES) {
                     self.report.warning(
@@ -2127,6 +2244,8 @@ impl Context<'_> {
                     );
                 }
             }
+            layer.keyframes.extend(motion_keys);
+            layer.keyframes.sort_by_key(|key| key.frame);
             if layer.keyframes.is_empty() && layer.properties.role != LayerRole::Folder {
                 if o.complete && o.children.is_empty() {
                     layer.properties.end_frame = Some(0);
@@ -4916,9 +5035,12 @@ fn fit_project_json_budget(
     make_provenance: &dyn Fn(bool, ProvenanceDetail) -> serde_json::Value,
 ) -> Result<(), String> {
     if *embedded {
-        project
-            .resources
-            .retain(|r| r.media_type != "application/x-neoflash-fla-source");
+        project.resources.retain(|r| {
+            r.media_type != "application/x-neoflash-fla-source"
+                && !(r.media_type == "application/gzip"
+                    && (r.path == "legacy/source.fla.gz"
+                        || r.path.starts_with("legacy/source.fla.gz.part")))
+        });
         *embedded = false;
         report.warning(
             "fla_source_not_embedded",
@@ -4937,7 +5059,7 @@ fn fit_project_json_budget(
             report,
             make_provenance,
         )?;
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     // 0. Shed imported video resources (legacy-video-*, largest first) before audio/bitmaps/shapes.
@@ -4948,7 +5070,7 @@ fn fit_project_json_budget(
         }
         project.format_version = 5;
         project.upgrade_format_for_features();
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     // 1. Shed imported audio resources (legacy-sound-*, largest first).
@@ -4959,7 +5081,7 @@ fn fit_project_json_budget(
         }
         project.format_version = 5;
         project.upgrade_format_for_features();
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     // 1b. Downscale/compress imported bitmap resources (legacy-bitmap-*, largest first)
@@ -4971,7 +5093,7 @@ fn fit_project_json_budget(
         }
         project.format_version = 5;
         project.upgrade_format_for_features();
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     // 2. Shed imported bitmap resources (legacy-bitmap-*, largest first).
@@ -4982,7 +5104,7 @@ fn fit_project_json_budget(
         }
         project.format_version = 5;
         project.upgrade_format_for_features();
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     // Compact bulky provenance placement mappings before degrading vector artwork.
@@ -4997,7 +5119,7 @@ fn fit_project_json_budget(
             report,
             make_provenance,
         )?;
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     // 2b. Deduplicate repeated PaintedPath/Path shapes into shared Graphic symbols before degrading.
@@ -5006,7 +5128,7 @@ fn fit_project_json_budget(
     {
         project.format_version = 5;
         project.upgrade_format_for_features();
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     // 3. Degrade excess vector shape elements in later symbols/frames to placeholders.
@@ -5017,7 +5139,7 @@ fn fit_project_json_budget(
         }
         project.format_version = 5;
         project.upgrade_format_for_features();
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     if json.len() > MAX_PROJECT_JSON_BYTES && *prov_detail != ProvenanceDetail::Minimal {
@@ -5031,7 +5153,7 @@ fn fit_project_json_budget(
             report,
             make_provenance,
         )?;
-        *json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
+        *json = serde_json::to_string(project).map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -5522,14 +5644,8 @@ fn is_vector_path(element: &Element) -> bool {
     )
 }
 
-fn pretty_element_bytes(element: &Element) -> usize {
-    match serde_json::to_string_pretty(element) {
-        Ok(s) => {
-            let lines = s.bytes().filter(|&b| b == b'\n').count() + 1;
-            s.len() + 18 * lines + 2
-        }
-        Err(_) => 512,
-    }
+fn encoded_element_bytes(element: &Element) -> usize {
+    serde_json::to_string(element).map_or(512, |text| text.len() + 1)
 }
 
 fn symbols_allowing_leaf_instance(symbols: &[Symbol]) -> std::collections::HashSet<String> {
@@ -5622,7 +5738,7 @@ fn degrade_excess_vector_shapes(
                         .elements
                         .iter()
                         .filter(|e| is_vector_path(e))
-                        .map(pretty_element_bytes)
+                        .map(encoded_element_bytes)
                         .sum();
                     if is_group_symbol {
                         key.elements.retain(|e| !is_vector_path(e));
@@ -5674,7 +5790,7 @@ fn degrade_excess_vector_shapes(
                             accessibility: None,
                             ..Element::default()
                         };
-                        let repl_bytes = pretty_element_bytes(&replacement);
+                        let repl_bytes = encoded_element_bytes(&replacement);
                         if path_bytes <= repl_bytes {
                             continue;
                         }

@@ -6,7 +6,7 @@
 //! output, and audio events across frames.
 
 use super::avm2::{AbcFile, AbcReader, AbcTraitData, parse_abc_file};
-use super::bits::SwfSlice;
+use super::bits::{SwfSlice, symbol_class_bindings, walk_swf_tags};
 use super::timeline::parse_swf_filter_list;
 use super::{SwfContainer, read_container, read_container_from_bytes};
 use crate::ImportError;
@@ -29,6 +29,7 @@ mod avm1_runtime;
 mod avm2;
 mod avm2_runtime;
 mod display;
+mod sound;
 
 use self::{avm1::*, avm2_runtime::*, display::*};
 
@@ -165,7 +166,6 @@ impl TimelineDef {
 #[derive(Clone, Debug)]
 struct ClipEventHandler {
     event_flags: u32,
-    #[allow(dead_code)]
     key_code: Option<u8>,
     actions: Vec<u8>,
 }
@@ -561,6 +561,15 @@ impl Avm1Value {
     }
 
     fn to_trace_string(&self, swf_version: u8, objects: &[Avm1Object]) -> String {
+        self.format_trace_string(swf_version, objects, &mut Vec::new())
+    }
+
+    fn format_trace_string(
+        &self,
+        swf_version: u8,
+        objects: &[Avm1Object],
+        arrays: &mut Vec<usize>,
+    ) -> String {
         match self {
             Self::Undefined => {
                 if swf_version <= 6 {
@@ -609,7 +618,11 @@ impl Avm1Value {
                         };
                     }
                     if let Some(elements) = &obj.array_elements {
-                        return (0..elements.len())
+                        if arrays.contains(id) {
+                            return String::new();
+                        }
+                        arrays.push(*id);
+                        let joined = (0..elements.len())
                             .map(|idx| {
                                 if obj.deleted_indices.contains(&idx) {
                                     if swf_version <= 8 {
@@ -618,11 +631,13 @@ impl Avm1Value {
                                         String::new()
                                     }
                                 } else {
-                                    elements[idx].to_trace_string(swf_version, objects)
+                                    elements[idx].format_trace_string(swf_version, objects, arrays)
                                 }
                             })
                             .collect::<Vec<_>>()
                             .join(",");
+                        arrays.pop();
+                        return joined;
                     }
                     if obj.function.is_some() {
                         return "[type Function]".to_owned();
@@ -730,6 +745,10 @@ pub struct SwfBytecodePlayer {
     vm_kind: SwfVmKind,
     stage_offset: (f64, f64),
     root_timeline: TimelineDef,
+    root_audio: BTreeMap<u32, Vec<sound::RootSoundCue>>,
+    frame_sound_commands: Vec<sound::PendingAudio>,
+    last_stream_frame: Option<(u32, u32)>,
+    frame_rate: f64,
     sprites: HashMap<u16, TimelineDef>,
     buttons: HashMap<u16, Vec<ButtonCondAction>>,
     button_records: HashMap<u16, Vec<(u8, u16, u16)>>,
@@ -826,7 +845,7 @@ impl SwfBytecodePlayer {
         } else {
             -(f64::from(bounds[2]) / 20.0)
         };
-        let _fps = r
+        let frame_rate = r
             .ufixed8()
             .ok_or_else(|| ImportError::Container("truncated SWF frame rate".into()))?;
         let declared_frames = r
@@ -843,9 +862,11 @@ impl SwfBytecodePlayer {
         let mut exports: HashMap<String, u16> = HashMap::new();
         let mut init_actions: Vec<(u16, Vec<u8>)> = Vec::new();
         let mut abc_tags: Vec<LoadedAbc> = Vec::new();
-        let mut symbol_classes: HashMap<u16, String> = HashMap::new();
+        let symbol_classes: HashMap<u16, String> =
+            symbol_class_bindings(tag_stream).into_iter().collect();
         let mut scenes: Vec<(u32, String)> = Vec::new();
 
+        let mut sound_assets = HashMap::new();
         let mut root_frames: Vec<Vec<RawFrameTag>> = Vec::new();
         let mut cur_tags: Vec<RawFrameTag> = Vec::new();
         let mut root_labels: Vec<(String, u32)> = Vec::new();
@@ -876,6 +897,11 @@ impl SwfBytecodePlayer {
                     if payload.len() >= 2 {
                         let cid = u16::from_le_bytes([payload[0], payload[1]]);
                         char_kinds.insert(cid, "TextField");
+                    }
+                }
+                14 => {
+                    if let Some((id, asset)) = sound::define_sound_asset(payload) {
+                        sound_assets.insert(id, asset);
                     }
                 }
                 60 => {
@@ -935,18 +961,6 @@ impl SwfBytecodePlayer {
                         abc_tags.push(LoadedAbc { abc });
                     }
                 }
-                76 => {
-                    // SymbolClass
-                    let mut sr = SwfSlice::new(payload);
-                    let count = sr.u16().unwrap_or(0);
-                    for _ in 0..count {
-                        let Some(tag_id) = sr.u16() else { break };
-                        let Some((cls, _)) = sr.c_string(container.swf_version) else {
-                            break;
-                        };
-                        symbol_classes.insert(tag_id, cls);
-                    }
-                }
                 86 => {
                     // DefineSceneAndFrameLabelData
                     let mut sr = AbcReader::new(payload);
@@ -979,7 +993,7 @@ impl SwfBytecodePlayer {
                     // ShowFrame
                     root_frames.push(std::mem::take(&mut cur_tags));
                 }
-                4 | 5 | 12 | 15 | 18 | 19 | 26 | 28 | 45 | 70 => {
+                4 | 5 | 12 | 15 | 18 | 19 | 26 | 28 | 45 | 70 | 89 => {
                     cur_tags.push(RawFrameTag {
                         code,
                         payload: payload.to_vec(),
@@ -993,6 +1007,12 @@ impl SwfBytecodePlayer {
         if !cur_tags.is_empty() || root_frames.is_empty() {
             root_frames.push(cur_tags);
         }
+        let sound_classes = symbol_classes
+            .iter()
+            .filter(|(id, _)| sound_assets.contains_key(id))
+            .map(|(id, class)| (class.as_str(), *id))
+            .collect();
+        let root_audio = sound::decode_root_audio(&mut root_frames, &sound_assets, &sound_classes);
         let total_frames = (root_frames.len() as u32).max(u32::from(declared_frames).max(1));
         let vm_kind = if as3_flag || has_do_abc {
             SwfVmKind::Avm2
@@ -1004,6 +1024,10 @@ impl SwfBytecodePlayer {
             swf_version: container.swf_version,
             vm_kind,
             stage_offset: (stage_dx, stage_dy),
+            root_audio,
+            frame_sound_commands: Vec::new(),
+            last_stream_frame: None,
+            frame_rate,
             root_timeline: TimelineDef {
                 total_frames,
                 frames: root_frames,
@@ -1123,6 +1147,8 @@ impl SwfBytecodePlayer {
         self.frame_traces.clear();
         self.audio_events.clear();
         self.frame_audio_events.clear();
+        self.frame_sound_commands.clear();
+        self.last_stream_frame = None;
         self.unsupported_diagnostics.clear();
         self.frame_unsupported_diagnostics.clear();
         self.stream_sound_active = false;
@@ -1183,57 +1209,6 @@ impl SwfBytecodePlayer {
         state
     }
 
-    /// Drain pending audio events from the most recent frame step into host `SoundCommand`s.
-    pub fn drain_sound_commands(&mut self, project: &Project) -> Vec<SoundCommand> {
-        let mut out = Vec::new();
-        if self.stop_all_sounds_pending {
-            self.stop_all_sounds_pending = false;
-            out.push(SoundCommand::StopAll);
-        }
-        let events = std::mem::take(&mut self.frame_audio_events);
-        for ev in events {
-            if ev.sound_id > 0 {
-                let resource = format!("swf-sound-{}", ev.sound_id);
-                if project.resources.iter().any(|r| r.id == resource) {
-                    if ev.sync == "stop" {
-                        out.push(SoundCommand::Stop { resource });
-                    } else {
-                        out.push(SoundCommand::Play {
-                            resource,
-                            sync: if ev.sync == "start" {
-                                SoundSync::Start
-                            } else {
-                                SoundSync::Event
-                            },
-                            loops: u32::from(ev.loops.max(1)),
-                            loop_forever: false,
-                            envelope: Vec::new(),
-                            in_point: None,
-                            out_point: None,
-                        });
-                    }
-                }
-            } else if ev.sync == "stream"
-                && let Some(res) = project
-                    .resources
-                    .iter()
-                    .find(|r| r.id.starts_with("swf-stream-"))
-            {
-                out.push(SoundCommand::StreamStart {
-                    channel: "swf-root-stream".to_owned(),
-                    resource: res.id.clone(),
-                    offset: f64::from(ev.frame) / f64::from(project.fps.max(1)),
-                    loops: 1,
-                    loop_forever: false,
-                    envelope: Vec::new(),
-                    in_point: None,
-                    out_point: None,
-                });
-            }
-        }
-        out
-    }
-
     /// Execute one frame step on the SWF timeline and return the resulting `SwfFrameState`.
     pub fn step_frame(&mut self) -> SwfFrameState {
         self.step_frame_inner(0, true)
@@ -1241,6 +1216,7 @@ impl SwfBytecodePlayer {
 
     fn step_frame_inner(&mut self, jump_depth: usize, follow_frame_control: bool) -> SwfFrameState {
         if jump_depth == 0 {
+            self.frame_sound_commands.clear();
             self.avm1_thrown = None;
             self.avm2_thrown = None;
         }
@@ -1275,6 +1251,9 @@ impl SwfBytecodePlayer {
         let mut entering_frame = self.current_frame;
         let frame_changed = self.last_applied_frame != Some(entering_frame);
         self.last_applied_frame = Some(entering_frame);
+        if frame_changed {
+            self.apply_root_audio(entering_frame);
+        }
         self.avm2_sync_goto_handled = false;
 
         let mut frame_label = None;
@@ -1314,22 +1293,6 @@ impl SwfBytecodePlayer {
                                 target: "_root".to_owned(),
                                 actions: tag.payload,
                             });
-                        }
-                        15 => {
-                            self.apply_start_sound(&tag.payload, entering_frame);
-                        }
-                        18 | 45 => {
-                            self.stream_sound_active = true;
-                        }
-                        19 if self.stream_sound_active => {
-                            let ev = SwfAudioEvent {
-                                frame: entering_frame,
-                                sound_id: 0,
-                                sync: "stream".to_owned(),
-                                loops: 1,
-                            };
-                            self.audio_events.push(ev.clone());
-                            self.frame_audio_events.push(ev);
                         }
                         _ => {}
                     }
@@ -1378,22 +1341,6 @@ impl SwfBytecodePlayer {
                         }
                         5 | 28 => {
                             let _ = self.apply_remove_tag(tag.code, &tag.payload);
-                        }
-                        15 => {
-                            self.apply_start_sound(&tag.payload, entering_frame);
-                        }
-                        18 | 45 => {
-                            self.stream_sound_active = true;
-                        }
-                        19 if self.stream_sound_active => {
-                            let ev = SwfAudioEvent {
-                                frame: entering_frame,
-                                sound_id: 0,
-                                sync: "stream".to_owned(),
-                                loops: 1,
-                            };
-                            self.audio_events.push(ev.clone());
-                            self.frame_audio_events.push(ev);
                         }
                         _ => {}
                     }
@@ -1505,10 +1452,8 @@ impl SwfBytecodePlayer {
 
     /// Trigger button condition / clip mouse press+release events on placed buttons/clips.
     pub fn trigger_pointer_click(&mut self) {
-        self.trigger_pointer_event(
-            CLIP_EVENT_MOUSE_UP | CLIP_EVENT_MOUSE_DOWN | CLIP_EVENT_RELEASE | CLIP_EVENT_PRESS,
-            0x000C,
-        );
+        self.trigger_pointer_event(CLIP_EVENT_MOUSE_DOWN | CLIP_EVENT_PRESS, 0x0004);
+        self.trigger_pointer_event(CLIP_EVENT_MOUSE_UP | CLIP_EVENT_RELEASE, 0x0008);
     }
 
     /// Trigger SWF 6/7+ RollOver / RollOut / ReleaseOutside / DragOver / DragOut / MouseMove clip & button events.
@@ -1521,15 +1466,15 @@ impl SwfBytecodePlayer {
     }
 
     pub fn trigger_pointer_release_outside(&mut self) {
-        self.trigger_pointer_event(CLIP_EVENT_RELEASE_OUTSIDE, 0x0010);
+        self.trigger_pointer_event(CLIP_EVENT_RELEASE_OUTSIDE, 0x0040);
     }
 
     pub fn trigger_pointer_drag_over(&mut self) {
-        self.trigger_pointer_event(CLIP_EVENT_DRAG_OVER, 0x0020 | 0x0100);
+        self.trigger_pointer_event(CLIP_EVENT_DRAG_OVER, 0x0020 | 0x0080);
     }
 
     pub fn trigger_pointer_drag_out(&mut self) {
-        self.trigger_pointer_event(CLIP_EVENT_DRAG_OUT, 0x0040 | 0x0080);
+        self.trigger_pointer_event(CLIP_EVENT_DRAG_OUT, 0x0010 | 0x0100);
     }
 
     pub fn trigger_pointer_move(&mut self) {
@@ -1554,12 +1499,11 @@ impl SwfBytecodePlayer {
 
     /// Trigger specific SWF clip mouse/button condition flags (e.g. RollOver, RollOut, ReleaseOutside, DragOver, DragOut).
     pub fn trigger_pointer_event(&mut self, clip_mask: u32, btn_cond_mask: u16) {
-        let buttons = self.buttons.clone();
         let mut actions = Vec::new();
         collect_pointer_actions_filtered(
             &self.display_list,
             "",
-            &buttons,
+            &self.buttons,
             clip_mask,
             btn_cond_mask,
             &mut actions,
@@ -1571,12 +1515,11 @@ impl SwfBytecodePlayer {
 
     /// Trigger SWF clip/button key events (`KeyDown`, `KeyUp`, `KeyPress` with SWF key code).
     pub fn trigger_key_event(&mut self, clip_mask: u32, key_code: Option<u8>) {
-        let buttons = self.buttons.clone();
         let mut actions = Vec::new();
         collect_key_actions_filtered(
             &self.display_list,
             "",
-            &buttons,
+            &self.buttons,
             clip_mask,
             key_code,
             &mut actions,
@@ -1654,44 +1597,6 @@ impl SwfBytecodePlayer {
         }
         stack.push(val);
     }
-
-    fn apply_start_sound(&mut self, payload: &[u8], frame: u32) {
-        let mut r = SwfSlice::new(payload);
-        let Some(sound_id) = r.u16() else { return };
-        let Some(flags) = r.u8() else { return };
-        let sync_stop = (flags & 0x20) != 0;
-        let sync_no_multiple = (flags & 0x10) != 0;
-        let has_in_point = (flags & 0x01) != 0;
-        let has_out_point = (flags & 0x02) != 0;
-        let has_loops = (flags & 0x04) != 0;
-        if has_in_point {
-            let _ = r.u32();
-        }
-        if has_out_point {
-            let _ = r.u32();
-        }
-        let loops = if has_loops {
-            r.u16().unwrap_or(1).max(1)
-        } else {
-            1
-        };
-        let sync = if sync_stop {
-            "stop"
-        } else if sync_no_multiple {
-            "start"
-        } else {
-            "event"
-        }
-        .to_owned();
-        let ev = SwfAudioEvent {
-            frame,
-            sound_id,
-            sync,
-            loops,
-        };
-        self.audio_events.push(ev.clone());
-        self.frame_audio_events.push(ev);
-    }
 }
 
 pub fn play_swf_path(path: &Path, max_frames: usize) -> Result<SwfPlaybackResult, ImportError> {
@@ -1702,31 +1607,4 @@ pub fn play_swf_path(path: &Path, max_frames: usize) -> Result<SwfPlaybackResult
 pub fn play_swf_bytes(bytes: &[u8], max_frames: usize) -> Result<SwfPlaybackResult, ImportError> {
     let mut player = SwfBytecodePlayer::from_bytes(bytes)?;
     Ok(player.run_frames(max_frames))
-}
-
-fn walk_swf_tags(bytes: &[u8], mut on_tag: impl FnMut(u16, &[u8]) -> bool) {
-    let mut pos = 0usize;
-    while pos + 2 <= bytes.len() {
-        let code_and_len = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
-        pos += 2;
-        let code = code_and_len >> 6;
-        let short_len = usize::from(code_and_len & 0x3f);
-        let len = if short_len == 0x3f {
-            if pos + 4 > bytes.len() {
-                break;
-            }
-            let l = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
-                as usize;
-            pos += 4;
-            l
-        } else {
-            short_len
-        };
-        let end = pos.saturating_add(len).min(bytes.len());
-        let payload = &bytes[pos..end];
-        pos = end;
-        if !on_tag(code, payload) {
-            break;
-        }
-    }
 }

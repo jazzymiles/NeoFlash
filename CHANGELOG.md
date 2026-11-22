@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- CS4 motion objects with supported 2D tracks reopen as editable frame poses in binary FLA and XFL. Binary FLA imports preserve font-library metadata, keep unscaled JPEGs in their original encoding, and can retain the complete source as a lossless gzip archive when raw bytes exceed the project budget. Projects that fit as compact JSON keep their media and source.
+- SWF export preserves post-test loops, bitwise compound assignments and side effects on indexed properties for both VM targets. Compatible gradient shape tweens keep editable endpoints. Static SWF and XFL gradients keep their spread and interpolation in interchange and raster output. SWF import respects Flash’s draw order for out-of-order color stops.
+- SWF preview handles button drag-out and release-outside transitions and resolves class-linked sound events. SWF playback preserves Flash integer wraparound and comparisons involving NaN.
+
 - Save As now preserves Unicode filenames when switching formats. A converted copy cannot overwrite the open source document, another open import, or an XFL directory containing an open file.
 - Converted projects retain editable ActionScript include sources and attach a converted object handler once when multiple layers have scripts on the same frame.
 - SWF Stream audio now fills the authored loop span for short WAV trims and low-frame-rate MP3 movies. Finite repeats keep their configured length.

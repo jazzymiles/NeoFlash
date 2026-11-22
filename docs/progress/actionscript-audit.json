@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "catalogSha256": "0e7ee597cb0eb07582c526d3654f598a19da647bd18e8945b6322dd23bb5e177",
+  "catalogSha256": "27e6bceaa746f4afcff0f05d8aadfb56197778056b0f311b1a463429aa7b4d37",
   "metadata": {
     "auditId": "neoflash-as-2026-10-27-f05cd2e",
     "auditedAt": "2026-10-26T23:21:26.344721+00:00",
@@ -41101,6 +41101,14 @@
         "reviewIds": [
           "AS3-JXR-AREA8-CONFORMANCE-20261122"
         ]
+      },
+      {
+        "path": "docs/progress/reviews/2026-11-22-as3-swf-loader.json",
+        "sha256": "e12f681e86ec39fb173121383769e1c7a0ffaf15f26897a0a47a47ce2c73142e",
+        "baseCatalogSha256": "0e7ee597cb0eb07582c526d3654f598a19da647bd18e8945b6322dd23bb5e177",
+        "reviewIds": [
+          "AS3-SWF-LOADER-20261122"
+        ]
       }
     ],
     "statusReviews": [
@@ -41586,6 +41594,13 @@
         "changes": {
           "working": 295
         }
+      },
+      {
+        "id": "AS3-SWF-LOADER-20261122",
+        "date": "2026-11-22",
+        "commit": "aeccdb6407b69093cefe3f39bcbc6cec849b233e",
+        "path": "docs/progress/reviews/2026-11-22-as3-swf-loader.json",
+        "changes": {}
       }
     ]
   },
@@ -182277,6 +182292,44 @@
           "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
           "status": "partial",
           "ruleId": "AS3-AUDIT-RECALIBRATION-20261121",
+          "evidenceKind": "test_backed_review"
+        }
+      ]
+    },
+    {
+      "id": "AS3-SWF-LOADER-20261122",
+      "title": "Verify button events and numeric behavior in loaded SWF movies",
+      "reason": "AS3 Loader child movies preserve AVM2 integer wraparound, NaN comparison results, nearest lexical bindings and AVM1 button transitions. Both loading entry points remain Partial for the named media, VM and application-domain gaps.",
+      "limitations": "Partial entries name their missing behavior; working entries are covered by the listed tests. Not an original Flash differential result.",
+      "evidence": [
+        {
+          "path": "web/tests/swf-loader.test.cjs",
+          "sha256": "350ef2c459599636d5743400318e9c7709bac3f2d1b9209b4d24930a85df2603"
+        }
+      ],
+      "reviewedEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "partial",
+          "scopeNote": "Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete."
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "partial",
+          "scopeNote": "Loads images, NeoFlash child bundles and bounded FWS/CWS/ZWS movies with isolated AVM1/AVM2 playback. Child movies preserve integer wraparound, NaN comparisons, lexical shadowing and button transitions. Raw SWF audio/video playback, E4X and domain-memory opcodes, and cross-movie ApplicationDomain merging remain incomplete."
+        }
+      ],
+      "previousEntries": [
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#load()",
+          "status": "partial",
+          "ruleId": "AS3-JXR-AREA8-CONFORMANCE-20261122",
+          "evidenceKind": "test_backed_review"
+        },
+        {
+          "catalogId": "AS3:method:flash/display/Loader.html#loadBytes()",
+          "status": "partial",
+          "ruleId": "AS3-JXR-AREA8-CONFORMANCE-20261122",
           "evidenceKind": "test_backed_review"
         }
       ]

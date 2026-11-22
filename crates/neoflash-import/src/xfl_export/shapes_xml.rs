@@ -205,6 +205,14 @@ pub(super) fn render_paint_element(
             GradientKind::Radial => "RadialGradient",
         };
         write!(xml, "{indent}<{tag}").unwrap();
+        match grad.spread {
+            neoflash_core::GradientSpread::Extend => {}
+            neoflash_core::GradientSpread::Reflect => xml.push_str(" spreadMethod=\"reflect\""),
+            neoflash_core::GradientSpread::Repeat => xml.push_str(" spreadMethod=\"repeat\""),
+        }
+        if grad.linear_rgb {
+            xml.push_str(" interpolationMethod=\"linearRGB\"");
+        }
         if grad.kind == GradientKind::Radial && grad.focal_point_ratio.abs() > 1e-6 {
             write!(
                 xml,

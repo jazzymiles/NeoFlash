@@ -2,124 +2,53 @@
 
 use super::*;
 
-fn element_has_gradient(el: &Element) -> bool {
-    matches!(
-        &el.kind,
-        ElementKind::PaintedPath {
-            fill_gradient: Some(_),
-            ..
-        } | ElementKind::PaintedPath {
-            stroke_gradient: Some(_),
-            ..
+enum MorphFill<'a> {
+    Solid,
+    Gradient(&'a GradientPaint, &'a GradientPaint),
+}
+
+fn morph_fill<'a>(start: &'a Element, end: &'a Element) -> Option<MorphFill<'a>> {
+    fn compatible_fill(el: &Element) -> Option<Option<&GradientPaint>> {
+        match &el.kind {
+            ElementKind::PaintedPath {
+                stroke_gradient: Some(_),
+                ..
+            } => None,
+            ElementKind::PaintedPath { fill_gradient, .. } => Some(fill_gradient.as_ref()),
+            _ => Some(None),
         }
-    )
+    }
+    match (compatible_fill(start)?, compatible_fill(end)?) {
+        (None, None) => Some(MorphFill::Solid),
+        (Some(a), Some(b))
+            if a.kind == b.kind
+                && (1..=8).contains(&a.stops.len())
+                && a.stops.len() == b.stops.len()
+                && [a, b].iter().all(|g| {
+                    g.spread == GradientSpread::Extend
+                        && !g.linear_rgb
+                        && g.focal_point_ratio == 0.0
+                }) =>
+        {
+            Some(MorphFill::Gradient(a, b))
+        }
+        _ => None,
+    }
 }
 
 pub(super) fn can_morph_keys(
     start: &neoflash_core::Keyframe,
     end: &neoflash_core::Keyframe,
 ) -> bool {
-    start.bitmap_fills.is_empty()
-        && end.bitmap_fills.is_empty()
-        && start.appearances.is_empty()
-        && end.appearances.is_empty()
-        && can_build_morph_shape(&start.elements, &end.elements)
-}
-
-pub(super) fn can_build_morph_shape(start_els: &[Element], end_els: &[Element]) -> bool {
-    if start_els.len() != 1 || end_els.len() != 1 {
-        return false;
-    }
-    if element_has_gradient(&start_els[0]) || element_has_gradient(&end_els[0]) {
-        return false;
-    }
-    let a_cmds = element_vector_commands(&start_els[0]);
-    let b_cmds = element_vector_commands(&end_els[0]);
-    match (a_cmds, b_cmds) {
-        (Some(a), Some(b)) => a.len() == b.len() && !a.is_empty(),
-        _ => false,
-    }
+    prepare_morph_keys(start, end).is_some()
 }
 
 pub(super) fn element_vector_commands(el: &Element) -> Option<Vec<PathCommand>> {
-    match &el.kind {
-        ElementKind::Rectangle { width, height, .. } => Some(vec![
-            PathCommand::MoveTo { x: 0.0, y: 0.0 },
-            PathCommand::LineTo { x: *width, y: 0.0 },
-            PathCommand::LineTo {
-                x: *width,
-                y: *height,
-            },
-            PathCommand::LineTo { x: 0.0, y: *height },
-            PathCommand::Close,
-        ]),
-        ElementKind::Ellipse { width, height, .. } => Some(oval_commands(*width, *height)),
-        ElementKind::Path { commands, .. } | ElementKind::PaintedPath { commands, .. } => {
-            Some(commands.clone())
-        }
-        _ => None,
-    }
+    el.to_path_commands().map(|(commands, _)| commands)
 }
 
-pub(super) fn oval_commands(width: f64, height: f64) -> Vec<PathCommand> {
-    let rx = width * 0.5;
-    let ry = height * 0.5;
-    let cx = rx;
-    let cy = ry;
-    let k = std::f64::consts::FRAC_1_SQRT_2;
-    let t = (std::f64::consts::PI / 8.0).tan();
-    vec![
-        PathCommand::MoveTo { x: cx + rx, y: cy },
-        PathCommand::QuadraticTo {
-            cx: cx + rx,
-            cy: cy + ry * t,
-            x: cx + rx * k,
-            y: cy + ry * k,
-        },
-        PathCommand::QuadraticTo {
-            cx: cx + rx * t,
-            cy: cy + ry,
-            x: cx,
-            y: cy + ry,
-        },
-        PathCommand::QuadraticTo {
-            cx: cx - rx * t,
-            cy: cy + ry,
-            x: cx - rx * k,
-            y: cy + ry * k,
-        },
-        PathCommand::QuadraticTo {
-            cx: cx - rx,
-            cy: cy + ry * t,
-            x: cx - rx,
-            y: cy,
-        },
-        PathCommand::QuadraticTo {
-            cx: cx - rx,
-            cy: cy - ry * t,
-            x: cx - rx * k,
-            y: cy - ry * k,
-        },
-        PathCommand::QuadraticTo {
-            cx: cx - rx * t,
-            cy: cy - ry,
-            x: cx,
-            y: cy - ry,
-        },
-        PathCommand::QuadraticTo {
-            cx: cx + rx * t,
-            cy: cy - ry,
-            x: cx + rx * k,
-            y: cy - ry * k,
-        },
-        PathCommand::QuadraticTo {
-            cx: cx + rx,
-            cy: cy - ry * t,
-            x: cx + rx,
-            y: cy,
-        },
-        PathCommand::Close,
-    ]
+fn open_oval(el: &Element) -> bool {
+    matches!(el.kind, ElementKind::Ellipse { .. }) && !el.oval_options().close_path
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -425,8 +354,8 @@ pub(super) fn write_shape_edges_records(
 
     for (index, edge) in edges.iter().enumerate() {
         let need_move = first || edge.start[0] != cur_x || edge.start[1] != cur_y;
-        let need_f1 = first || edge.fill_1 != cur_f1;
-        let need_ls = first || edge.line != cur_ls;
+        let need_f1 = num_fill_bits > 0 && (first || edge.fill_1 != cur_f1);
+        let need_ls = num_line_bits > 0 && (first || edge.line != cur_ls);
         first = false;
 
         if need_move || need_f1 || need_ls {
@@ -550,33 +479,18 @@ pub(super) fn build_define_shape_for_element(
             stroke,
             stroke_width,
             ..
-        } => {
-            let f_idx = add_fill(*fill, None, bitmap);
-            let l_idx = add_line(
-                *stroke,
-                *stroke_width,
-                None,
-                StrokeCap::Round,
-                StrokeJoin::Round,
-                3.0,
-            );
-            let Some(cmds) = element
-                .to_path_commands()
-                .map(|(c, _)| c)
-                .or_else(|| element_vector_commands(element))
-            else {
-                return Ok(None);
-            };
-            convert_commands_to_swf_edges(&cmds, f_idx, l_idx, true, &mut edges);
         }
-        ElementKind::Ellipse {
-            width,
-            height,
+        | ElementKind::Ellipse {
             fill,
             stroke,
             stroke_width,
+            ..
         } => {
-            let f_idx = add_fill(*fill, None, bitmap);
+            let f_idx = if open_oval(element) {
+                0
+            } else {
+                add_fill(*fill, None, bitmap)
+            };
             let l_idx = add_line(
                 *stroke,
                 *stroke_width,
@@ -585,11 +499,10 @@ pub(super) fn build_define_shape_for_element(
                 StrokeJoin::Round,
                 3.0,
             );
-            let cmds = element
-                .to_path_commands()
-                .map(|(c, _)| c)
-                .unwrap_or_else(|| oval_commands(*width, *height));
-            convert_commands_to_swf_edges(&cmds, f_idx, l_idx, true, &mut edges);
+            let Some(cmds) = element_vector_commands(element) else {
+                return Ok(None);
+            };
+            convert_commands_to_swf_edges(&cmds, f_idx, l_idx, false, &mut edges);
         }
         ElementKind::Path {
             commands,
@@ -831,18 +744,58 @@ fn bake_affine_into_commands(cmds: &[PathCommand], m: [f64; 6]) -> Vec<PathComma
         .collect()
 }
 
-/// Build a `DefineMorphShape` (tag 46) payload for a compatible start/end shape pair.
-pub(super) fn build_define_morph_shape_payload(
-    morph_id: u16,
-    start_el: &Element,
-    end_el: &Element,
-) -> Option<Vec<u8>> {
-    if element_has_gradient(start_el) || element_has_gradient(end_el) {
+struct MorphEndpoint {
+    matrix: [f64; 6],
+    fill: Color,
+    stroke: Color,
+    stroke_width: f64,
+    edges: Vec<SwfEdge>,
+}
+
+pub(super) struct PreparedMorph<'a> {
+    start: MorphEndpoint,
+    end: MorphEndpoint,
+    fill: MorphFill<'a>,
+    has_fill: bool,
+    has_line: bool,
+}
+
+pub(super) fn prepare_morph_keys<'a>(
+    start: &'a neoflash_core::Keyframe,
+    end: &'a neoflash_core::Keyframe,
+) -> Option<PreparedMorph<'a>> {
+    let ([start_el], [end_el]) = (start.elements.as_slice(), end.elements.as_slice()) else {
+        return None;
+    };
+    // The SWF ratio cannot express geometry beyond either endpoint. These easing
+    // curves can overshoot, so publish the core's evaluated frames for them.
+    if matches!(start.tween, Some(Easing::Elastic))
+        || matches!(start.tween, Some(Easing::CubicBezier { y1, y2, .. })
+            if !(0.0..=1.0).contains(&y1) || !(0.0..=1.0).contains(&y2))
+        || start.property_expressions.iter().any(|expr| expr.enabled)
+    {
         return None;
     }
+    if [start, end].iter().any(|key| {
+        !key.bitmap_fills.is_empty()
+            || !key.appearances.is_empty()
+            || !key.shape_hints.is_empty()
+            || !key.vector_effects.is_empty()
+    }) || [start_el, end_el]
+        .iter()
+        .any(|el| !el.stroke_width_profile().is_default())
+        || start_el.transform.color_transform != end_el.transform.color_transform
+    {
+        return None;
+    }
+    let morph_fill = morph_fill(start_el, end_el)?;
     let raw_start_cmds = element_vector_commands(start_el)?;
     let raw_end_cmds = element_vector_commands(end_el)?;
-    if raw_start_cmds.len() != raw_end_cmds.len() || raw_start_cmds.is_empty() {
+    if raw_start_cmds.is_empty()
+        || !neoflash_core::paths_have_same_topology(&raw_start_cmds, &raw_end_cmds)
+    {
+        // Different command sequences use the core's contour alignment and resampling.
+        // Matching only edge counts would pair unrelated points in the native SWF morph.
         return None;
     }
     let start_m = transform_matrix(start_el.transform);
@@ -879,7 +832,11 @@ pub(super) fn build_define_morph_shape_payload(
                 stroke,
                 stroke_width,
                 ..
-            } => (*fill, *stroke, *stroke_width),
+            } => (
+                if open_oval(el) { [0; 4] } else { *fill },
+                *stroke,
+                *stroke_width,
+            ),
             _ => ([0, 0, 0, 255], [0, 0, 0, 0], 0.0),
         }
     };
@@ -887,7 +844,7 @@ pub(super) fn build_define_morph_shape_payload(
     let (e_fill, e_stroke, e_raw_width) = extract_paints(end_el);
     let s_width = s_raw_width * start_stroke_scale;
     let e_width = e_raw_width * end_stroke_scale;
-    let has_fill = s_fill[3] > 0 || e_fill[3] > 0;
+    let has_fill = matches!(morph_fill, MorphFill::Gradient(..)) || s_fill[3] > 0 || e_fill[3] > 0;
     let has_line = (s_width > 0.0 && s_stroke[3] > 0) || (e_width > 0.0 && e_stroke[3] > 0);
     let fill_idx = u16::from(has_fill);
     let line_idx = u16::from(has_line);
@@ -900,31 +857,90 @@ pub(super) fn build_define_morph_shape_payload(
         return None;
     }
 
-    let start_bounds = compute_edges_bounds(&start_edges);
-    let end_bounds = compute_edges_bounds(&end_edges);
+    // A MoveTo in only one endpoint changes contour correspondence. Use evaluated
+    // keyframes when those contours cannot share the StartEdges style sequence.
+    if start_edges
+        .windows(2)
+        .zip(end_edges.windows(2))
+        .any(|(s, e)| (s[0].end != s[1].start) != (e[0].end != e[1].start))
+    {
+        return None;
+    }
+    Some(PreparedMorph {
+        start: MorphEndpoint {
+            matrix: start_m,
+            fill: s_fill,
+            stroke: s_stroke,
+            stroke_width: s_width,
+            edges: start_edges,
+        },
+        end: MorphEndpoint {
+            matrix: end_m,
+            fill: e_fill,
+            stroke: e_stroke,
+            stroke_width: e_width,
+            edges: end_edges,
+        },
+        fill: morph_fill,
+        has_fill,
+        has_line,
+    })
+}
+
+/// Emit the same prepared geometry used to choose native morph or baked frame export.
+pub(super) fn build_define_morph_shape_payload(morph_id: u16, morph: PreparedMorph<'_>) -> Vec<u8> {
+    let PreparedMorph {
+        start,
+        end,
+        fill,
+        has_fill,
+        has_line,
+    } = morph;
+    let start_bounds = compute_edges_bounds(&start.edges);
+    let end_bounds = compute_edges_bounds(&end.edges);
 
     let mut styles_and_start = SwfBitWriter::new();
     if has_fill {
         styles_and_start.u8(1); // 1 morph fill style
-        styles_and_start.u8(0x00); // solid morph fill
-        styles_and_start.rgba(s_fill);
-        styles_and_start.rgba(e_fill);
+        match fill {
+            MorphFill::Solid => {
+                styles_and_start.u8(0);
+                styles_and_start.rgba(start.fill);
+                styles_and_start.rgba(end.fill);
+            }
+            MorphFill::Gradient(a, b) => {
+                styles_and_start.u8(match a.kind {
+                    GradientKind::Linear => 0x10,
+                    GradientKind::Radial => 0x12,
+                });
+                styles_and_start.matrix_px(neoflash_core::affine_multiply(start.matrix, a.matrix));
+                styles_and_start.matrix_px(neoflash_core::affine_multiply(end.matrix, b.matrix));
+                styles_and_start.u8(a.stops.len() as u8);
+                for (start, end) in a.stops.iter().zip(&b.stops) {
+                    styles_and_start.u8(start.ratio);
+                    styles_and_start.rgba(start.color);
+                    styles_and_start.u8(end.ratio);
+                    styles_and_start.rgba(end.color);
+                }
+            }
+        }
     } else {
         styles_and_start.u8(0);
     }
     if has_line {
         styles_and_start.u8(1); // 1 morph line style
-        styles_and_start.u16((s_width * 20.0).round().clamp(1.0, 65535.0) as u16);
-        styles_and_start.u16((e_width * 20.0).round().clamp(1.0, 65535.0) as u16);
-        styles_and_start.rgba(s_stroke);
-        styles_and_start.rgba(e_stroke);
+        styles_and_start.u16((start.stroke_width * 20.0).round().clamp(1.0, 65535.0) as u16);
+        styles_and_start.u16((end.stroke_width * 20.0).round().clamp(1.0, 65535.0) as u16);
+        styles_and_start.rgba(start.stroke);
+        styles_and_start.rgba(end.stroke);
     } else {
         styles_and_start.u8(0);
     }
-    write_shape_edges_records(&mut styles_and_start, &start_edges, 1, 1, Some(&end_edges));
+    write_shape_edges_records(&mut styles_and_start, &start.edges, 1, 1, Some(&end.edges));
 
     let mut end_edges_writer = SwfBitWriter::new();
-    write_shape_edges_records(&mut end_edges_writer, &end_edges, 1, 1, Some(&start_edges));
+    // EndEdges inherits fill and line selection from the matching StartEdges.
+    write_shape_edges_records(&mut end_edges_writer, &end.edges, 0, 0, Some(&start.edges));
 
     let mut w = SwfBitWriter::new();
     w.u16(morph_id);
@@ -933,5 +949,5 @@ pub(super) fn build_define_morph_shape_payload(
     w.u32(styles_and_start.buf.len() as u32);
     w.bytes(&styles_and_start.buf);
     w.bytes(&end_edges_writer.buf);
-    Some(w.buf)
+    w.buf
 }

@@ -207,11 +207,20 @@ fn allocate_unique_jpg_path(old_path: &str, used_paths: &BTreeSet<String>) -> St
     }
 }
 
+/// Import-time resources keep their IDs while the remaining descriptors are read.
+/// Record which encodings have been tried so each new arrival does not recompress
+/// the same already-optimal PNGs or retest every translucent bitmap.
+#[derive(Default)]
+pub(super) struct BitmapCompaction {
+    lossless: BTreeSet<String>,
+    jpeg: BTreeSet<String>,
+}
 /// Only invoked when total decoded media exceeds the 64 MiB resource budget:
 /// 1. First tries lossless `CompressionType::Best` PNG across all PNG bitmaps.
 /// 2. Only if budget is still exceeded, re-encodes opaque photographic PNGs into quality-90 JPEG,
 ///    deduplicating `.jpg` paths and emitting an explicit `fla_bitmap_reencoded` warning.
 pub(super) fn compact_bitmaps_under_pressure(
+    attempted: &mut BitmapCompaction,
     resources: &mut [ResourceUnit],
     used_paths: &mut BTreeSet<String>,
     total: &mut usize,
@@ -225,7 +234,10 @@ pub(super) fn compact_bitmaps_under_pressure(
             return;
         }
         let old_len = res.byte_len();
-        if res.media_type != "image/png" || old_len <= 64 * 1024 {
+        if res.media_type != "image/png"
+            || old_len <= 64 * 1024
+            || !attempted.lossless.insert(res.id.clone())
+        {
             continue;
         }
         let Ok(decoded) = res.decode_image() else {
@@ -257,7 +269,10 @@ pub(super) fn compact_bitmaps_under_pressure(
             break;
         }
         let old_len = res.byte_len();
-        if res.media_type != "image/png" || old_len <= 128 * 1024 {
+        if res.media_type != "image/png"
+            || old_len <= 128 * 1024
+            || !attempted.jpeg.insert(res.id.clone())
+        {
             continue;
         }
         let Ok(decoded) = res.decode_image() else {
@@ -621,6 +636,7 @@ pub(super) fn resources(
     let mut used_ids = BTreeSet::new();
     let mut used_paths = BTreeSet::new();
     let mut total = 0usize;
+    let mut bitmap_compaction = BitmapCompaction::default();
     let mut streams = BTreeMap::new();
     let mut decoded_streams = BTreeSet::new();
     let mut swf_budget = super::compiled_clip::CompiledClipSwfBudget::default();
@@ -773,6 +789,7 @@ pub(super) fn resources(
                     .is_none_or(|n| n > budget)
                 {
                     compact_bitmaps_under_pressure(
+                        &mut bitmap_compaction,
                         &mut resources,
                         &mut used_paths,
                         &mut total,
@@ -1066,6 +1083,7 @@ pub(super) fn resources(
                             .is_none_or(|n| n > budget)
                         {
                             compact_bitmaps_under_pressure(
+                                &mut bitmap_compaction,
                                 &mut resources,
                                 &mut used_paths,
                                 &mut total,
@@ -1411,9 +1429,21 @@ pub(super) fn resources(
             .0
             .iter()
             .all(|px| px[3] == 255);
-        let mut cand_bytes = decoded.png_bytes().map_err(|e| e.to_string())?;
-        let mut cand_mime = "image/png";
-        let mut cand_ext = "png";
+        // A validated source JPEG already contains the authored pixels at its original
+        // quality. Expanding photographs to PNG wastes the shared resource budget and
+        // can force a second lossy encoding when other library items arrive.
+        let (mut cand_bytes, mut cand_mime, mut cand_ext) = if let Some(jpeg) = decoded
+            .source_jpeg()
+            .filter(|data| !downscaled && data.len() <= MAX_RESOURCE_BYTES)
+        {
+            (jpeg.into_owned(), "image/jpeg", "jpg")
+        } else {
+            (
+                decoded.png_bytes().map_err(|e| e.to_string())?,
+                "image/png",
+                "png",
+            )
+        };
         let mut reencoded_jpeg = false;
 
         if cand_bytes.len() > MAX_RESOURCE_BYTES {
@@ -1559,6 +1589,7 @@ pub(super) fn resources(
                 .is_none_or(|n| n > budget)
             {
                 compact_bitmaps_under_pressure(
+                    &mut bitmap_compaction,
                     &mut resources,
                     &mut used_paths,
                     &mut total,

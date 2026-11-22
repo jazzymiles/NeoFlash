@@ -280,9 +280,32 @@ impl Reader<'_> {
         if version >= 0x1d {
             self.take(4)?; // font library header
             let fonts = self.count(1)?;
-            if fonts != 0 {
-                return self
-                    .unsupported("Embedded font library records require typed font preservation.");
+            for _ in 0..fonts {
+                let start = self.at;
+                let revision = self.revision(3)?;
+                let name = self.string()?;
+                let font_id = self.u16()?;
+                let source_time = self.u32()?;
+                let style = super::super::mfc::contents_text_style(self.bytes, &mut self.at)?;
+                let metadata = self.library_metadata()?;
+                let flags = if revision >= 3 {
+                    Some(self.u32()?)
+                } else {
+                    None
+                };
+                out.extensions.as_mut().unwrap().fonts.push(ContentsFont {
+                    encoded: ContentsByteSpan {
+                        start,
+                        end: self.at,
+                    },
+                    revision,
+                    name,
+                    font_id,
+                    source_time,
+                    style,
+                    metadata,
+                    flags,
+                });
             }
         }
         if version >= 0x1e {

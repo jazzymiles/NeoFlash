@@ -1144,7 +1144,11 @@ fn compile_swf_document(
     }
 
     let mut report = preflight_swf_publish(project, options);
-    if !report.can_proceed() {
+    if let Some(first) = report
+        .items
+        .iter()
+        .find(|item| item.disposition.is_blocking())
+    {
         return Err(ExportError::CompatibilityBlocked {
             profile: match options.profile {
                 SwfPublishProfile::FlashPlayer8Avm1 => "FlashPlayer8Avm1 (SWF 8)",
@@ -1152,6 +1156,7 @@ fn compile_swf_document(
                 SwfPublishProfile::FlashPlayer10Avm2 => "FlashPlayer10Avm2 (SWF 10)",
             },
             blocking_count: report.blocking_count(),
+            first_issue: format!("{} [{}] {}", first.location, first.code, first.message),
         });
     }
 

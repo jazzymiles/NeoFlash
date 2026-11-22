@@ -537,15 +537,15 @@
       "path": "imported/flacomdoc-flash8-scripts.nflash",
       "derived_from": "upstream/flacomdoc/flash8-scripts/0018_scripts_as2.fla",
       "license": "LGPL-2.1",
-      "sha256": "f684b25cace01bf200161cf5c80a31b70cd01be21ea62c75552bb5933837c7d3",
-      "bytes": 54781
+      "sha256": "a03f8a407b34cc1fe079bb0d4ac2580262972c4336506a4bd2226f86ae5ff0ec",
+      "bytes": 55005
     },
     {
       "path": "imported/flacomdoc-cs4-motion-tween.nflash",
       "derived_from": "upstream/flacomdoc/cs4-motion-tween/0022_motiontween-cs4.fla",
       "license": "LGPL-2.1",
-      "sha256": "f3ff7895eddf77c2838e9f47f0e1b5a555b4a577c5d1debc38455c13b61fb5a7",
-      "bytes": 81681
+      "sha256": "99d3687809dc8684d7a760da291facb79152fd4b54ef00de92d7ec1fa4f97eee",
+      "bytes": 129603
     },
     {
       "path": "imported/ruffle-avm1-clip-events.nflash",
@@ -985,8 +985,7 @@
         "format": "legacy_binary_fla",
         "can_import": true,
         "required_diagnostics": [
-          "fla_contents_partial",
-          "fla_contents_record_unsupported",
+          "fla_font_library",
           "fla_text_metrics"
         ],
         "statistics": {
@@ -1019,8 +1018,8 @@
         "statistics": {
           "symbols": 2,
           "layers": 3,
-          "keyframes": 3,
-          "elements": 4,
+          "keyframes": 61,
+          "elements": 62,
           "scripts": 0
         }
       },
