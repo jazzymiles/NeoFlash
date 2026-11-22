@@ -52,16 +52,17 @@ def main():
         total += len(data)
     # Every source/companion/license belongs to the manifest. Local prose and
     # provenance metadata are exempt; generated build/report files belong in target/.
+    root_exempt = {"manifest.json", "behavioral-oracles.json", "VERIFICATION.md"}
     for path in CORPUS.rglob("*"):
-        if path.is_file() and path.name not in {
-            "README.md",
-            "metadata.json",
-            "manifest.json",
-            "behavioral-oracles.json",
-            "VERIFICATION.md",
-        }:
-            if path.relative_to(CORPUS).as_posix() not in seen:
-                raise ValueError(f"Unlisted corpus file: {path.relative_to(CORPUS)}")
+        if not path.is_file():
+            continue
+        rel = path.relative_to(CORPUS)
+        is_root_meta = path.parent == CORPUS and path.name in root_exempt
+        is_prose_or_provenance = (
+            path.name in {"README.md", "metadata.json"} and "xfl" not in rel.parts
+        )
+        if not (is_root_meta or is_prose_or_provenance) and rel.as_posix() not in seen:
+            raise ValueError(f"Unlisted corpus file: {rel}")
     print(f"Integrity: {len(seen)} pinned files, {total:,} bytes", flush=True)
     if args.integrity_only:
         return 0
