@@ -551,7 +551,7 @@ function createArea8LiveHost(wasm, extraOptions = {}) {
   const storage = Storage.create({
     amf,
     events: mergedEvents,
-    storage: mockLocalStorage,
+    storage: extraOptions.storage || mockLocalStorage,
     url: extraOptions.url || 'https://app.neoflash.local/main.swf',
     channelName,
   });
@@ -1952,6 +1952,83 @@ test('Remote SharedObject relay merges AS2/AS3 fields, snapshots late joins and 
   c.nc.close();
 });
 
+test('Client-persistent AS2/AS3 rooms reopen offline, reconcile dirty fields and report conflicts', async t => {
+  const wasm = await loadWasmRuntime();
+  const origin = 'https://persistent.example';
+  const store = fs.mkdtempSync(path.join(os.tmpdir(),'neoflash-offline-'));
+  t.after(()=>fs.rmSync(store,{recursive:true,force:true}));
+  const relay = await startSharedObjectRelay(t,[origin],store);
+  const online = await openRoom(t,wasm,relay,origin,false,true);
+  const entries = new Map();
+  const disk = {getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)};
+  class Socket extends NodeRfc6455Client { constructor(uri){super(uri,origin);} }
+  const create = () => {
+    const host = createArea8LiveHost(wasm,{WebSocket:Socket,url:origin+'/movie',storage:disk,soChannelName:crypto.randomUUID()});
+    t.after(()=>host.dispose());
+    return host;
+  };
+  const host = create();
+  const before = host.storage.LegacySharedObject.getRemote('stage',relay.url,'/slot');
+  const first = new host.video.LegacyNetConnection();
+  first.connect(relay.url);
+  await until(()=>first.connected,'AS2 WebSocket connected');
+  const notices=[];
+  before.onSync = changes=>notices.push(...changes);
+  before.connect(first);
+  await until(()=>notices.length>0,'empty persistent snapshot');
+  before.data.shared = 'initial';
+  before.data.removeMe = 1;
+  await until(()=>notices.some(e=>e.name==='removeMe' && e.code==='success'),'baseline acknowledged');
+  first.close();
+  before.data.shared = 'offline conflict';
+  before.data.nested = {paint:'red'};
+  before.data.nested.paint = 'blue';
+  before.setDirty('nested');
+  delete before.data.removeMe;
+  assert.equal(before.flush(),true,'AS2 local persist completes offline');
+  host.storage.dispose();
+  online.so.setProperty('shared','server wins');
+  online.so.setProperty('newOnServer',2);
+  await until(()=>online.events.flat().some(e=>e.name==='newOnServer' && e.code==='success'),'other client changes shared room');
+
+  const fresh = create();
+  const get = (name='stage',url=relay.url,path='/slot')=>fresh.storage.SharedObject.getRemote(name,url,path);
+  const restored = get();
+  assert.deepEqual({...restored.data},{shared:'offline conflict',nested:{paint:'blue'}});
+  assert.deepEqual({...get('other').data},{});
+  assert.deepEqual({...get('stage',relay.url+'/other').data},{});
+  assert.deepEqual({...get('stage',relay.url,'/other-slot').data},{});
+  assert.deepEqual({...get('stage',relay.url,true).data},{});
+  assert.deepEqual(fresh.storage.SharedObject.getLocal('stage').data,{});
+  const saveItem = disk.setItem;
+  disk.setItem = ()=>{throw new Error('QuotaExceededError');};
+  assert.throws(()=>restored.setProperty('tooLarge',3),/quota/i);
+  assert.equal(Object.hasOwn(restored.data,'tooLarge'),false);
+  disk.setItem = saveItem;
+  const otherMovie = create().storage.SharedObject.getRemote('stage',relay.url,'/slot');
+  otherMovie.data.otherMovie = 'same browser cache';
+  restored.data.extra = 'offline property';
+  assert.equal(restored.flush(),'flushed','AS3 local persist completes offline');
+  const second = new fresh.video.NetConnection();
+  second.connect(relay.url);
+  await until(()=>second.connected,'fresh AS3 connection');
+  const sync=[];
+  restored.addEventListener('sync',e=>sync.push(...e.changeList));
+  restored.connect(second);
+  await until(()=>sync.some(e=>e.code==='reject' && e.name==='shared') && online.so.data.extra==='offline property','server reconciles offline outbox');
+  assert.ok(sync.some(e=>e.code==='reject' && e.oldValue==='offline conflict'));
+  assert.deepEqual({...restored.data},{shared:'server wins',nested:{paint:'blue'},newOnServer:2,otherMovie:'same browser cache',extra:'offline property'});
+  assert.deepEqual({...online.so.data},{...restored.data});
+  second.close();
+  // A rejected edit must not reappear when the next session reads only disk.
+  const snapshot = create().storage.LegacySharedObject.getRemote('stage',relay.url,'/slot');
+  assert.deepEqual({...snapshot.data},{...restored.data});
+  snapshot.clear();
+  assert.equal(entries.size,0);
+  online.so.close();
+  online.nc.close();
+});
+
 test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser WebSocket Socket/XMLSocket, Blob Web Worker + MessageChannel, Security.showSettings DOM, and AVURLLoader)', async t => {
   const chromeBin = findChromeBinary();
   if (!chromeBin) {
@@ -2016,8 +2093,8 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
 
   const origin = `http://127.0.0.1:${port}`;
   const secondOrigin = `http://localhost:${port}`;
-  const relay = await startSharedObjectRelay(t,[origin,secondOrigin,'https://author.example']);
-  const peer = await openRoom(t,await loadWasmRuntime(),relay,'https://author.example',true);
+  const relay = await startSharedObjectRelay(t,[origin,secondOrigin,'https://author.example'],path.join(workDir,'rooms'));
+  const peer = await openRoom(t,await loadWasmRuntime(),relay,'https://author.example',true,true);
   peer.so.data.score = 41;
   await until(()=>peer.events.flat().some(e=>e.name==='score' && e.code==='success'),'seed remote room for published player');
   const project = {
@@ -2058,7 +2135,7 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
       connection = new NetConnection();
       connection.addEventListener(NetStatusEvent.NET_STATUS,function(e:NetStatusEvent):void {
         if (e.info.code != "NetConnection.Connect.Success") return;
-        room = SharedObject.getRemote("stage","${relay.url}",false);
+        room = SharedObject.getRemote("stage","${relay.url}",true);
         room.addEventListener(SyncEvent.SYNC,function(e:SyncEvent):void {
           if (!checks.replied && room.data.score == 41) {
             checks.replied = true;
@@ -2182,7 +2259,8 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
   legacyProject.symbols[0].timeline.scripts = [{frame:0,script:{language:'action_script2',source:`
     stop();
     var nc:NetConnection = new NetConnection();
-    var room:SharedObject = SharedObject.getRemote("stage","${relay.url}",false);
+    var room:SharedObject = SharedObject.getRemote("stage","${relay.url}","/cache");
+    if (room.data.verified == 43) room.data.reloaded = 44;
     nc.onStatus = function(info:Object):Void {
       if (info.code == "NetConnection.Connect.Success") room.connect(nc);
     };
@@ -2271,9 +2349,10 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
       return res.result?.value;
     };
 
-    await until(()=>peer.so.data.reply===42,'published AS3 writes to the independent AS2 client');
+    await until(()=>peer.so.data.reply===42,'published AS3 writes to the independent AS2 client',15000);
     await evalInPage(`(() => {
       const player = document.createElement('iframe');
+      player.id = 'offline-sharedobject-client';
       player.src = '${secondOrigin}/as2/index.html';
       document.body.appendChild(player);
     })()`);
@@ -2291,6 +2370,13 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     })`);
 
     await until(()=>peer.so.data.verified===43,'published AS2 on another origin replies to the published AS3 movie');
+    await evalInPage(`(() => {
+      const previous=document.getElementById('offline-sharedobject-client');
+      const next=document.createElement('iframe');
+      next.src='${secondOrigin}/as2/index.html?reopen';
+      previous.replaceWith(next);
+    })()`);
+    await until(()=>peer.so.data.reloaded===44,'reopened AS2 movie reads native browser storage and sends its offline edit',15000);
     peer.so.close();
     peer.nc.close();
     const domCheck = await evalInPage(`(() => {

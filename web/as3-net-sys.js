@@ -4577,7 +4577,7 @@
             if (!Number.isInteger(minDiskSpace) || minDiskSpace < 0 || minDiskSpace > sh.MAX_BYTES) {
               throw new RangeError('Invalid minDiskSpace.');
             }
-            if (sh.network.isNetwork(rec)) return sh.network.flush(this);
+            if (sh.network.isNetwork(rec)) return sh.network.flush(this,rec);
             sh.bytes(rec);
             emitRemoteSoSyncPayload(rec, Object.keys(rec.data).map(k => ({ code: 'change', name: k })));
             return 'flushed';
@@ -4589,7 +4589,7 @@
           value: function clear() {
             const rec = sh.state(this);
             if (!rec.remote) return Reflect.apply(origClear, this, []);
-            if (sh.network.isNetwork(rec)) return sh.network.clear(this);
+            if (sh.network.isNetwork(rec)) return sh.network.clear(this,rec);
             if (rec.fpsTimer) {
               untrackTimer(rec.fpsTimer);
               rec.fpsTimer = null;

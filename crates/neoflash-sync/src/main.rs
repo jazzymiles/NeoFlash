@@ -50,7 +50,7 @@ impl Outbox {
 }
 type RoomKey = (String, String);
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireValue {
     encoding: u8,
@@ -58,6 +58,13 @@ struct WireValue {
 }
 
 impl WireValue {
+    fn version(&self) -> String {
+        let mut hash = Sha256::new();
+        hash.update([self.encoding]);
+        hash.update(self.bytes.as_bytes());
+        format!("{:x}", hash.finalize())
+    }
+
     fn valid(&self, arguments: bool) -> bool {
         if self.bytes.len() > MAX_STATE {
             return false;
@@ -205,8 +212,10 @@ impl Relay {
             if room.peers.contains_key(&peer) {
                 return Err("Room is already joined.");
             }
+            let versions: BTreeMap<_, _> =
+                room.fields.iter().map(|(k, v)| (k, v.version())).collect();
             out.send(
-                json!({"type":"so","op":"snapshot","room":key.1,"sub":sub,"fields":room.fields})
+                json!({"type":"so","op":"snapshot","room":key.1,"sub":sub,"fields":room.fields,"versions":versions})
                     .to_string(),
             )?;
             room.peers.insert(peer, (sub, out.clone()));
@@ -222,6 +231,7 @@ impl Relay {
                 .send(json!({"type":"so","op":"flushed","room":key.1,"sub":sub}).to_string());
         }
         let mut event = json!({"type":"so","op":op,"room":key.1});
+        let mut rejected: BTreeMap<String, Option<WireValue>> = BTreeMap::new();
         match op {
             "leave" => {
                 self.leave(key, peer);
@@ -236,22 +246,55 @@ impl Relay {
                     if patch.len() > MAX_FIELDS {
                         return Err("Too many property updates.");
                     }
+                    let expected: Option<BTreeMap<String, Option<String>>> = message
+                        .get("expected")
+                        .map(|v| {
+                            serde_json::from_value(v.clone())
+                                .map_err(|_| "Invalid offline field versions.")
+                        })
+                        .transpose()?;
+                    if expected
+                        .as_ref()
+                        .is_some_and(|values| !values.keys().eq(patch.keys()))
+                    {
+                        return Err("Missing offline field version.");
+                    }
+                    if expected.as_ref().is_some_and(|fields| {
+                        fields
+                            .values()
+                            .flatten()
+                            .any(|v| v.len() != 64 || !v.bytes().all(|b| b.is_ascii_hexdigit()))
+                    }) {
+                        return Err("Invalid offline field version.");
+                    }
+                    let mut accepted = BTreeMap::new();
+                    let mut versions = BTreeMap::new();
                     fields = room.fields.clone();
                     for (key, value) in patch {
-                        if !field_name(&key) {
-                            return Err("Invalid property name.");
+                        if !field_name(&key) || value.as_ref().is_some_and(|v| !v.valid(false)) {
+                            return Err("Invalid AMF property update.");
                         }
+                        let current = fields.get(&key);
+                        if let Some(checks) = &expected
+                            && current.map(WireValue::version) != checks[&key]
+                            && current != value.as_ref()
+                        {
+                            rejected.insert(key, current.cloned());
+                            continue;
+                        }
+                        accepted.insert(key.clone(), value.clone());
                         match value {
-                            Some(v) if v.valid(false) => {
+                            Some(v) => {
+                                versions.insert(key.clone(), v.version());
                                 fields.insert(key, v);
                             }
                             None => {
                                 fields.remove(&key);
                             }
-                            _ => return Err("Invalid AMF envelope."),
                         }
                     }
-                    event["fields"] = message["fields"].clone();
+                    event["fields"] = json!(accepted);
+                    event["versions"] = json!(versions);
                 }
                 let bytes = serde_json::to_vec(&fields).map_err(|_| "Cannot encode room.")?;
                 if fields.len() > MAX_FIELDS || bytes.len() > MAX_STATE {
@@ -295,9 +338,25 @@ impl Relay {
         }
         // A slow recipient is disconnected; it will obtain a fresh snapshot when it rejoins.
         for (id, (token, channel)) in &room.peers {
-            event["sub"] = json!(token);
-            event["own"] = json!(*id == peer);
-            let _ = channel.send(event.to_string());
+            if *id != peer
+                && op == "patch"
+                && event["fields"].as_object().is_some_and(|v| v.is_empty())
+            {
+                continue;
+            }
+            let mut outgoing = event.clone();
+            outgoing["sub"] = json!(token);
+            outgoing["own"] = json!(*id == peer);
+            if *id == peer && !rejected.is_empty() {
+                outgoing["rejected"] = json!(rejected.keys().collect::<Vec<_>>());
+                for (key, value) in &rejected {
+                    outgoing["fields"][key] = json!(value);
+                    if let Some(v) = value {
+                        outgoing["versions"][key] = json!(v.version());
+                    }
+                }
+            }
+            let _ = channel.send(outgoing.to_string());
         }
         Ok(())
     }
