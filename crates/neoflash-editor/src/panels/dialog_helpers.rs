@@ -425,6 +425,17 @@ impl DialogShell {
         id_salt: &'static str,
         add: impl FnOnce(&mut Ui, PageArea) -> R,
     ) -> R {
+        self.page_with_scroll_reset(ui, id_salt, false, add)
+    }
+
+    /// Clear both the offset and any pending scroll-to-focus animation before drawing a new page.
+    pub(super) fn page_with_scroll_reset<R>(
+        &self,
+        ui: &mut Ui,
+        id_salt: &'static str,
+        reset_scroll: bool,
+        add: impl FnOnce(&mut Ui, PageArea) -> R,
+    ) -> R {
         use crate::theme::ScrollTheme as _;
         let height = (self.page.height() - 2.0 * space::s4()).max(0.0);
         region(
@@ -433,6 +444,10 @@ impl DialogShell {
             self.page,
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
+                if reset_scroll {
+                    let id = ui.make_persistent_id(egui::Id::new(id_salt));
+                    ui.data_mut(|d| d.remove::<egui::scroll_area::State>(id));
+                }
                 // Wheel and scroll bar only: pressing or dragging a control must not move the page.
                 egui::ScrollArea::vertical()
                     .id_salt(id_salt)

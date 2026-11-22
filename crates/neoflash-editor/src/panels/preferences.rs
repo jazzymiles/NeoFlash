@@ -61,6 +61,8 @@ pub(crate) const PAGE_UPDATES: usize = 9;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PreferencesDraft {
     pub(crate) page: usize,
+    /// A newly opened or selected category starts at the top before its first layout.
+    displayed_page: Option<usize>,
     /// Theme to restore on Cancel (the draft theme is previewed live).
     pub(crate) original_theme: ThemeMode,
     pub(crate) theme: ThemeMode,
@@ -111,6 +113,7 @@ impl PreferencesDraft {
             .or_else(|| prefs.ai.profiles.first().map(|p| p.id.clone()));
         Self {
             page,
+            displayed_page: None,
             original_theme: prefs.theme,
             theme: prefs.theme,
             density: prefs.density,
@@ -377,23 +380,26 @@ impl Editor {
                         }
                     }
                 });
-                shell.page(ui, "preferences-body", |ui, area| match draft.page {
-                    PAGE_GENERAL => prefs_general(ui, &mut draft),
-                    PAGE_CODE_EDITOR => prefs_code_editor(ui, &mut draft),
-                    PAGE_TIMELINE => prefs_timeline(ui, &mut draft),
-                    PAGE_DRAWING => prefs_drawing(ui, &mut draft),
-                    PAGE_TEXT => prefs_text(ui, &mut draft),
-                    PAGE_CLIPBOARD => prefs_clipboard(ui, &mut draft),
-                    PAGE_SHORTCUTS => prefs_shortcuts(ui, area, &mut draft),
-                    PAGE_PUBLISH => prefs_publish(ui, &mut draft),
-                    PAGE_AI => prefs_ai(
-                        ui,
-                        area,
-                        &mut draft,
-                        &mut self.ai_manager,
-                        &mut self.ai_connection_modal,
-                    ),
-                    _ => prefs_updates(ui, &mut draft, &mut self.updater, installed_ext_count),
+                let entering_page = draft.displayed_page.replace(draft.page) != Some(draft.page);
+                shell.page_with_scroll_reset(ui, "preferences-body", entering_page, |ui, area| {
+                    match draft.page {
+                        PAGE_GENERAL => prefs_general(ui, &mut draft),
+                        PAGE_CODE_EDITOR => prefs_code_editor(ui, &mut draft),
+                        PAGE_TIMELINE => prefs_timeline(ui, &mut draft),
+                        PAGE_DRAWING => prefs_drawing(ui, &mut draft),
+                        PAGE_TEXT => prefs_text(ui, &mut draft),
+                        PAGE_CLIPBOARD => prefs_clipboard(ui, &mut draft),
+                        PAGE_SHORTCUTS => prefs_shortcuts(ui, area, &mut draft),
+                        PAGE_PUBLISH => prefs_publish(ui, &mut draft),
+                        PAGE_AI => prefs_ai(
+                            ui,
+                            area,
+                            &mut draft,
+                            &mut self.ai_manager,
+                            &mut self.ai_connection_modal,
+                        ),
+                        _ => prefs_updates(ui, &mut draft, &mut self.updater, installed_ext_count),
+                    }
                 });
                 shell.footer(
                     ui,
@@ -2750,6 +2756,87 @@ mod tests {
     use crate::sources::{SyntaxColorOverrides, SyntaxColorSlot};
     use neoflash_core::{FrameScript, Project, Script, ScriptLanguage};
 
+    fn find_center(output: &egui::FullOutput, label: &str) -> egui::Pos2 {
+        let b = output
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .find_map(|(_, n)| {
+                ((n.label() == Some(label) || n.value() == Some(label)) && !n.is_disabled())
+                    .then(|| n.bounds())
+                    .flatten()
+            })
+            .unwrap_or_else(|| panic!("expected enabled control `{label}`"));
+        egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32)
+    }
+
+    #[test]
+    fn preferences_category_switch_starts_at_top_after_scrolling_either_page() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.open_preferences(PAGE_GENERAL);
+        let mut time = 0.0;
+        let mut frame = |events: Vec<egui::Event>| {
+            time += 0.1;
+            ctx.run(
+                egui::RawInput {
+                    // Both General and Drawing need vertical scrolling at this height.
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1024.0, 460.0),
+                    )),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| editor.preferences_dialog(ctx),
+            )
+        };
+        frame(vec![]);
+        let mut out = frame(vec![]);
+        let top = find_center(&out, "Interface").y;
+        for (heading, next, next_heading) in [
+            ("Interface", "Drawing", "Default mode"),
+            ("Default mode", "General", "Interface"),
+        ] {
+            let at = find_center(&out, heading);
+            frame(vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -12.0),
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]);
+            out = frame(vec![]);
+            assert!(
+                find_center(&out, heading).y < top,
+                "{heading} should scroll"
+            );
+            let tab = find_center(&out, next);
+            frame(vec![
+                egui::Event::PointerMoved(tab),
+                crate::tests::primary_button(tab, true),
+            ]);
+            out = frame(vec![crate::tests::primary_button(tab, false)]);
+            assert_eq!(
+                find_center(&out, next_heading).y,
+                top,
+                "{next} should start at the top"
+            );
+            out = frame(vec![]);
+            assert_eq!(
+                find_center(&out, next_heading).y,
+                top,
+                "{next} should stay at the top"
+            );
+        }
+    }
+
     /// v3 "nothing jumps": the dialog rect and the footer are the same for every category, in
     /// every density.
     #[test]
@@ -2867,22 +2954,6 @@ mod tests {
 
         let _ = step(&mut editor, vec![]);
         let out = step(&mut editor, vec![]);
-        let find_center = |output: &egui::FullOutput, label: &str| -> egui::Pos2 {
-            let b = output
-                .platform_output
-                .accesskit_update
-                .as_ref()
-                .unwrap()
-                .nodes
-                .iter()
-                .find_map(|(_, n)| {
-                    (n.label() == Some(label) && !n.is_disabled())
-                        .then(|| n.bounds())
-                        .flatten()
-                })
-                .unwrap_or_else(|| panic!("expected enabled control `{label}`"));
-            egui::pos2(((b.x0 + b.x1) * 0.5) as f32, ((b.y0 + b.y1) * 0.5) as f32)
-        };
 
         // 1. Every one of the 14 syntax colour swatches is enabled and exposed via AccessKit.
         for slot in SyntaxColorSlot::ALL {
