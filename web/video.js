@@ -1321,6 +1321,10 @@
       constructor(){super();connections.get(this).legacy=true;this.onStatus=null;}
       connect(command){
         const r=state(this,connections),remote=options.getRemoting?.();
+        if(typeof command==='string'&&/^wss?:/i.test(command)){
+          remote?.close(this);super.connect(command);return true;
+        }
+        if(r.ws)super.close();
         if(command===null){remote?.close(this);super.connect(null);return true;}
         if(typeof command==='string'&&/^(?:rtmp|rtmps|rtmpt|rtmpe|rtmpte|rtmfp):/i.test(command.trim())){
           remote?.close(this);
@@ -1335,9 +1339,9 @@
       }
       close(){state(this,connections);options.getRemoting?.()?.close(this);super.close();}
       call(method,responder=null,...args){state(this,connections);const remote=options.getRemoting?.();if(!remote)unsupported('AS2 HTTP remoting service unavailable');return remote.call(this,method,responder,args);}
-      get isConnected(){const r=state(this,connections);return options.getRemoting?.()?.isConnected(this,r.local)??r.local;}
-      get uri(){state(this,connections);return options.getRemoting?.()?.uri(this);}
-      get protocol(){const r=state(this,connections),uri=options.getRemoting?.()?.uri(this);if(typeof uri==='string'&&uri){try{return new URL(uri).protocol.replace(/:$/,'');}catch(_){}}return r.local?'':'';}
+      get isConnected(){const r=state(this,connections);if(r.ws)return r.connected;return options.getRemoting?.()?.isConnected(this,r.local)??r.local;}
+      get uri(){const r=state(this,connections);if(r.ws)return r.uriValue;return options.getRemoting?.()?.uri(this);}
+      get protocol(){const r=state(this,connections),uri=this.uri;if(typeof uri==='string'&&uri){try{return new URL(uri).protocol.replace(/:$/,'');}catch(_){}}return r.local?'':'';}
     }
     let onStreamCreated=null;
     class NetStream extends events.EventDispatcher{

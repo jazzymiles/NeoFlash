@@ -227,7 +227,8 @@ function attachRfc6455Upgrade(server, onConnection) {
 // Standards-compatible RFC 6455 WebSocket client over node:net / node:tls
 // so wss:// exposes socket.getPeerCertificate(true).raw to SecureSocket!
 class NodeRfc6455Client {
-  constructor(url) {
+  constructor(url, origin = null) {
+    this.origin = origin;
     this.url = String(url);
     this.readyState = 0;
     this.binaryType = 'arraybuffer';
@@ -296,6 +297,7 @@ class NodeRfc6455Client {
           `Host: ${host}:${port}\r\n` +
           'Upgrade: websocket\r\n' +
           'Connection: Upgrade\r\n' +
+          (this.origin ? `Origin: ${this.origin}\r\n` : '') +
           `Sec-WebSocket-Key: ${secKey}\r\n` +
           'Sec-WebSocket-Version: 13\r\n\r\n'
       );
@@ -1854,6 +1856,102 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
 // ============================================================================
 // 5. Real Headless Chrome End-to-End Browser Verification
 // ============================================================================
+async function startSharedObjectRelay(t, origins, store) {
+  execFileSync(findCargoBinary(), ['build','--quiet','--locked','-p','neoflash-sync'], {cwd:repoRoot});
+  const relay = spawn(path.join(repoRoot,'target/debug/neoflash-sync'), [
+    '--bind','127.0.0.1:0', ...origins.flatMap(origin=>['--origin',origin]), ...(store ? ['--store',store] : []),
+  ], {stdio:['ignore','pipe','inherit']});
+  const exited = new Promise(resolve=>relay.once('exit',resolve));
+  const stop = async () => { if (relay.exitCode === null && relay.signalCode === null) relay.kill(); await exited; };
+  t.after(stop);
+  let output = '';
+  relay.stdout.on('data', chunk=>{ output += chunk; });
+  await until(()=>output.includes('\n'),'relay listens');
+  const address = output.match(/^LISTENING (127\.0\.0\.1:\d+)/)[1];
+  return {url:'ws://' + address + '/live', stop};
+}
+
+async function openRoom(t, wasm, {url}, origin, legacy = false, persistent = false) {
+  class Socket extends NodeRfc6455Client { constructor(endpoint) { super(endpoint,origin); } }
+  const host = createArea8LiveHost(wasm,{WebSocket:Socket,url:origin+'/movie',soChannelName:crypto.randomUUID()});
+  t.after(()=>host.dispose());
+  const nc = legacy ? new host.video.LegacyNetConnection() : new host.video.NetConnection();
+  nc.connect(url);
+  await until(()=>nc.connected,'live NetConnection');
+  const so = (legacy ? host.storage.LegacySharedObject : host.storage.SharedObject).getRemote('stage',url,persistent);
+  const events = [];
+  if (legacy) so.onSync = list=>events.push(list);
+  else so.addEventListener('sync', e=>events.push(e.changeList));
+  so.connect(nc);
+  await until(()=>events.length > 0,'relay snapshot');
+  return {host, nc, so, events};
+}
+
+test('Remote SharedObject relay merges AS2/AS3 fields, snapshots late joins and persists through restart', async t => {
+  const wasm = await loadWasmRuntime();
+  const origins = ['https://author.example','https://audience.example'];
+  const store = fs.mkdtempSync(path.join(os.tmpdir(),'neoflash-rso-'));
+  t.after(()=>fs.rmSync(store,{recursive:true,force:true}));
+  const relay = await startSharedObjectRelay(t,origins,store);
+  const a = await openRoom(t,wasm,relay,origins[0],true,true);
+  assert.equal(a.nc.isConnected,true);
+  a.so.data.score = 7;
+  await until(()=>a.events.flat().some(e=>e.name==='score' && e.code==='success'),'server confirms AMF0 mutation');
+  const b = await openRoom(t,wasm,relay,origins[1],false,true);
+  assert.deepEqual(b.so.data,{score:7});
+  a.so.data.turn = 'writer-a';
+  b.so.setProperty('turn','writer-b');
+  await until(()=>[a,b].every(client=>client.events.flat().filter(e=>e.name==='turn').length===2),'both clients receive both overlapping writes');
+  assert.equal(a.so.data.turn,b.so.data.turn);
+  const winningTurn = b.so.data.turn;
+  assert.ok(['writer-a','writer-b'].includes(winningTurn));
+  a.so.data.left = ['circle',1];
+  b.so.fps = 45;
+  b.so.setProperty('right',{color:'blue'});
+  await until(()=>a.so.data.right?.color==='blue' && b.so.data.left?.[0]==='circle','concurrent disjoint updates merge');
+  b.so.data.right.color = 'green';
+  b.so.setDirty('right');
+  delete a.so.data.left;
+  await until(()=>a.so.data.right?.color==='green' && !Object.hasOwn(b.so.data,'left'),'nested dirty and delete across clients');
+  const calls = [];
+  a.so.marker = value=>calls.push(['a',value]);
+  b.so.client = {marker:value=>calls.push(['b',value])};
+  b.so.send('marker',{beat:4});
+  await until(()=>calls.length===2,'single callback on each peer');
+  assert.deepEqual(calls.sort(),[['a',{beat:4}],['b',{beat:4}]]);
+  const flushed = [];
+  b.so.addEventListener('netStatus',event=>flushed.push(event.info.code));
+  assert.equal(b.so.flush(),'pending');
+  await until(()=>flushed.includes('SharedObject.Flush.Success'),'persistent writes acknowledged by server');
+
+  const invalid = new NodeRfc6455Client(relay.url,origins[1]);
+  const replies = [];
+  invalid.addEventListener('message', event=>replies.push(JSON.parse(event.data)));
+  await until(()=>invalid.readyState===1,'independent participant opens socket');
+  const common = {type:'so',room:'stage',sub:1};
+  invalid.send(JSON.stringify({...common,op:'join',persistent:true}));
+  await until(()=>replies.some(x=>x.op==='snapshot'),'independent client receives snapshot');
+  invalid.send(JSON.stringify({...common,op:'patch',fields:{score:{encoding:1,bytes:'AQ=='}}}));
+  await until(()=>replies.some(x=>x.op==='error'),'server rejects unsupported value encoding');
+  invalid.close();
+  a.so.close();
+  b.so.setProperty('score',9);
+  await until(()=>b.events.flat().some(e=>e.name==='score' && e.code==='success'),'second client acknowledgement');
+  assert.equal(a.so.data.score,7);
+  a.nc.close();
+  b.so.close();
+  b.nc.close();
+  await relay.stop();
+  const restarted = await startSharedObjectRelay(t,origins,store);
+  const c = await openRoom(t,wasm,restarted,origins[0],true,true);
+  assert.deepEqual({...c.so.data},{score:9,right:{color:'green'},turn:winningTurn});
+  c.so.clear();
+  await until(()=>Object.keys(c.so.data).length===0,'authoritative clear');
+  assert.throws(()=>c.so.send('marker','done'),/connect/i);
+  c.so.close();
+  c.nc.close();
+});
+
 test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser WebSocket Socket/XMLSocket, Blob Web Worker + MessageChannel, Security.showSettings DOM, and AVURLLoader)', async t => {
   const chromeBin = findChromeBinary();
   if (!chromeBin) {
@@ -1916,6 +2014,12 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
 
+  const origin = `http://127.0.0.1:${port}`;
+  const secondOrigin = `http://localhost:${port}`;
+  const relay = await startSharedObjectRelay(t,[origin,secondOrigin,'https://author.example']);
+  const peer = await openRoom(t,await loadWasmRuntime(),relay,'https://author.example',true);
+  peer.so.data.score = 41;
+  await until(()=>peer.events.flat().some(e=>e.name==='score' && e.code==='success'),'seed remote room for published player');
   const project = {
     format_version: 5,
     name: 'Area 8 Chrome Verification',
@@ -1947,8 +2051,27 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     private var fromWorker:MessageChannel;
     private var avLoader:AVURLLoader;
     private var checks:Object = {};
+    private var connection:NetConnection;
+    private var room:SharedObject;
 
     public function Area8ChromeMain() {
+      connection = new NetConnection();
+      connection.addEventListener(NetStatusEvent.NET_STATUS,function(e:NetStatusEvent):void {
+        if (e.info.code != "NetConnection.Connect.Success") return;
+        room = SharedObject.getRemote("stage","${relay.url}",false);
+        room.addEventListener(SyncEvent.SYNC,function(e:SyncEvent):void {
+          if (!checks.replied && room.data.score == 41) {
+            checks.replied = true;
+            room.setProperty("reply",42);
+          }
+          if (!checks.roomOk && room.data.verified == 43) {
+            checks.roomOk = true;
+            maybeFinish();
+          }
+        });
+        room.connect(connection);
+      });
+      connection.connect("${relay.url}");
       Security.loadPolicyFile("http://127.0.0.1:${port}/crossdomain.xml");
       Security.showSettings(SecurityPanel.PRIVACY);
 
@@ -2024,7 +2147,7 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     }
 
     private function maybeFinish():void {
-      if (checks.socketOk && checks.xmlSocketOk && checks.workerOk && checks.avOk) {
+      if (checks.roomOk && checks.socketOk && checks.xmlSocketOk && checks.workerOk && checks.avOk) {
         trace("AREA8_CHROME_ALL_OK=1 mem=" + System.totalMemory);
       }
     }
@@ -2051,6 +2174,26 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
   const projFile = path.join(workDir, 'chrome-area8.nflash');
   fs.writeFileSync(projFile, JSON.stringify(project));
   execFileSync(exportBin, ['--runtime', runtimeDir, projFile, '--output', pubDir], { cwd: repoRoot, stdio: 'pipe' });
+
+  const legacyProject = structuredClone(project);
+  delete legacyProject.document_class;
+  delete legacyProject.sources;
+  delete legacyProject.symbols[0].class_name;
+  legacyProject.symbols[0].timeline.scripts = [{frame:0,script:{language:'action_script2',source:`
+    stop();
+    var nc:NetConnection = new NetConnection();
+    var room:SharedObject = SharedObject.getRemote("stage","${relay.url}",false);
+    nc.onStatus = function(info:Object):Void {
+      if (info.code == "NetConnection.Connect.Success") room.connect(nc);
+    };
+    room.onSync = function(changes:Array):Void {
+      if (room.data.reply == 42 && room.data.verified != 43) room.data.verified = 43;
+    };
+    nc.connect("${relay.url}");
+  `}}];
+  const legacyFile = path.join(workDir,'peer.nflash');
+  fs.writeFileSync(legacyFile,JSON.stringify(legacyProject));
+  execFileSync(exportBin,['--runtime',runtimeDir,legacyFile,'--output',path.join(pubDir,'as2')],{cwd:repoRoot,stdio:'pipe'});
 
   const userDataDir = path.join(workDir, 'chrome-profile');
   const chromeProc = spawn(
@@ -2128,6 +2271,12 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
       return res.result?.value;
     };
 
+    await until(()=>peer.so.data.reply===42,'published AS3 writes to the independent AS2 client');
+    await evalInPage(`(() => {
+      const player = document.createElement('iframe');
+      player.src = '${secondOrigin}/as2/index.html';
+      document.body.appendChild(player);
+    })()`);
     await evalInPage(`new Promise((resolve, reject) => {
       const deadline = Date.now() + 15000;
       const poll = () => {
@@ -2141,6 +2290,9 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
       poll();
     })`);
 
+    await until(()=>peer.so.data.verified===43,'published AS2 on another origin replies to the published AS3 movie');
+    peer.so.close();
+    peer.nc.close();
     const domCheck = await evalInPage(`(() => {
       const panel = document.getElementById('neoflash-security-settings-panel');
       const hasPanel = Boolean(panel && panel.getAttribute('data-panel') === 'privacy');

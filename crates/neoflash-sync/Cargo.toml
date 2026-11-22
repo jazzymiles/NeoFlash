@@ -1,0 +1,17 @@
+[package]
+name = "neoflash-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WebSocket relay for remote SharedObjects in NeoFlash publications"
+
+[dependencies]
+neoflash-core = { path = "../neoflash-core" }
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+tempfile = "3"
+futures-util = { version = "0.3", features = ["sink"] }
+tokio = { version = "1", features = ["macros", "net", "rt", "sync", "time"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }

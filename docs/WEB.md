@@ -100,7 +100,37 @@ These families use captured browser-backed adapters. Regex patterns currently us
 
 ## Local saved state
 
-Use SharedObject.getLocal for named application/game state, and call flush after meaningful changes. AS3 returns SharedObjectFlushStatus.FLUSHED; AS2 returns true. The saved-game example demonstrates both dialects and ByteArray AMF0/AMF3 object records. Reloading the same HTTP(S) publication or using Restart restores successfully saved data. Clear removes only that named record. Browser access/quota failures must be handled by project code; file/opaque origins cannot use this persistence profile. A best-effort pagehide flush is not a durability guarantee, and Restart discards unflushed changes. Remote SharedObjects and Flash .sol files are separate work.
+Use SharedObject.getLocal for named application/game state, and call flush after meaningful changes. AS3 returns SharedObjectFlushStatus.FLUSHED; AS2 returns true. The saved-game example demonstrates both dialects and ByteArray AMF0/AMF3 object records. Reloading the same HTTP(S) publication or using Restart restores successfully saved data. Clear removes only that named record. Browser access/quota failures must be handled by project code; file/opaque origins cannot use this persistence profile. A best-effort pagehide flush is not a durability guarantee, and Restart discards unflushed changes. Explicit AMF0/AMF3 .sol exchange is available through fromSolBytes, importSolBytes and exportSolBytes.
+
+### Share live state between published movies
+
+Run the optional Rust relay and serve the HTML5 publication from the allowed origin. This command listens on loopback port 8090. The storage directory enables persistent rooms.
+
+```sh
+cargo run --locked -p neoflash-sync -- --origin http://localhost:8000 --store ./target/shared-rooms
+```
+
+For an AS3 movie served from `http://localhost:8000`, subscribe after the connection opens. Each subscriber receives the current values in the first SyncEvent. Use `setProperty` for top-level changes and `setDirty` after editing a nested value.
+
+```actionscript
+var endpoint:String = "ws://localhost:8090/game";
+var connection:NetConnection = new NetConnection();
+var room:SharedObject = SharedObject.getRemote("scoreboard", endpoint, true);
+room.addEventListener(SyncEvent.SYNC, function(event:SyncEvent):void {
+    trace(room.data.score);
+});
+connection.addEventListener(NetStatusEvent.NET_STATUS, function(event:NetStatusEvent):void {
+    if (event.info.code == "NetConnection.Connect.Success") room.connect(connection);
+});
+connection.connect(endpoint);
+// In an input handler after the first sync: room.setProperty("score", 42);
+```
+
+AS2 uses `NetConnection.onStatus`, `SharedObject.onSync` and direct `room.data.score = 42` assignments. Both dialects support property deletion, named client callbacks through `send` and batched dirty properties. After the server confirms `clear()`, the room is empty and the caller leaves its subscription. A remote `flush()` returns `"pending"` and reports completion through `SharedObject.Flush.Success` or `SharedObject.Flush.Failed`. Reconnect and subscribe again after a connection closes.
+
+Applications share a room by endpoint path and object name. Concurrent writes to different properties merge, and the last update received by the server wins for a single property. Every client receives updates in server order. A temporary room expires when its last subscriber leaves. A persistent room restores its committed state on reconnect and across relay restarts when the same storage directory is used.
+
+For HTTPS publications, expose the relay through a TLS reverse proxy and use `wss://`. Repeat `--origin` for each trusted browser publication. Each permitted client can read and write every room it can reach. Private applications need authentication and access control at the server or proxy. The endpoint speaks the NeoFlash WebSocket protocol. Adobe Media Server / RTMP endpoints require a separate compatible gateway. Client-side offline copies of remote rooms and replay of offline edits are outside this profile. The relay accepts AMF0 and AMF3 fields and stores up to 1,024 properties and 256 KiB of encoded state per room. Wire values that require a custom `IExternalizable` reader are rejected. Objects share identity within a field's AMF graph.
 
 ## Mountable HTML5 modules
 

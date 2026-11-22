@@ -33,6 +33,204 @@
     },
   });
   const SharedObjectFlushStatus=constants('SharedObjectFlushStatus',{FLUSHED:'flushed',PENDING:'pending'});
+  // A socket owns its subscriptions. Each peer receives the relay's snapshot and
+  // revision-ordered patches even if two publications do not share an origin.
+  function createNetwork(amf, notify, status, invoke) {
+    const sockets = new Map(), peers = new WeakMap();
+    let serial = 0, resolveConnection = () => null;
+    const validName = name => typeof name === 'string' && name.length > 0 &&
+      name.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(name) && !['__proto__','constructor','prototype'].includes(name);
+    const isNetwork = rec => rec.usedSocket || /^wss?:/i.test(rec.remotePath || '');
+    function pack(value, encoding) {
+      const bytes = amf.encode(value, encoding);
+      if (bytes.length > 192 * 1024) throw new RangeError('Remote SharedObject value exceeds the relay field limit.');
+      return {encoding, bytes: amf.base64(bytes)};
+    }
+    function unpack(value) {
+      if (!value || ![0,3].includes(value.encoding) || typeof value.bytes !== 'string' || value.bytes.length > 256 * 1024)
+        throw new TypeError('Invalid SharedObject AMF field.');
+      return amf.decode(amf.unbase64(value.bytes), value.encoding, {complete:true}).value;
+    }
+    function write(s, op, details = {}) {
+      if (s.socket.readyState !== 1) throw new Error('Remote SharedObject connection is closed.');
+      if (s.socket.bufferedAmount > 1024 * 1024) throw new Error('Remote SharedObject send queue is full.');
+      const wire = JSON.stringify({type:'so', op, room:s.room, sub:s.sub, ...details});
+      if (new TextEncoder().encode(wire).length > 512 * 1024) throw new RangeError('Remote SharedObject message exceeds 512 KiB.');
+      s.socket.send(wire);
+    }
+    function stop(s, reason) {
+      if (s.socket.readyState === 1) { try { write(s,'leave'); } catch (_) {} }
+      clearTimeout(s.timer);
+      clearTimeout(s.joinTimer);
+      sockets.get(s.socket)?.delete(s.room);
+      if (!sockets.get(s.socket)?.size) sockets.delete(s.socket);
+      for (const [peer,rec] of s.peers) {
+        peers.delete(peer);
+        rec.network = null;
+        if (reason) {
+          if (s.flushing.includes(peer)) status(peer,'SharedObject.Flush.Failed',reason);
+          status(peer,'SharedObject.Connect.Failed',reason);
+        }
+      }
+      s.peers.clear();
+    }
+    function requirePeer(peer) {
+      const s = peers.get(peer);
+      if (!s) throw new Error('Connect the remote SharedObject to an open NetConnection first.');
+      return s;
+    }
+    function drain(s) {
+      clearTimeout(s.timer);
+      s.timer = null;
+      if (s.pending.size > 0) {
+        write(s,'patch',{fields:Object.fromEntries(s.pending)});
+        s.pending.clear();
+      }
+    }
+    function update(peer, rec, key, value, remove) {
+      const s = requirePeer(peer);
+      if (!validName(key)) throw new TypeError('Invalid remote SharedObject property name.');
+      const exists = Object.hasOwn(rec.data,key);
+      if (remove ? !exists : exists && Object.is(rec.data[key],value)) return;
+      const wire = remove ? null : pack(value,rec.encoding);
+      if (remove) delete rec.data[key];
+      else Object.defineProperty(rec.data,key,{value,writable:true,configurable:true,enumerable:true});
+      rec.epoch++;
+      queue(s,rec,key,wire);
+    }
+    function dirty(peer, rec, key) {
+      const s = requirePeer(peer);
+      if (!validName(key)) throw new TypeError('Invalid remote SharedObject property name.');
+      queue(s,rec,key,Object.hasOwn(rec.data,key) ? pack(rec.data[key],rec.encoding) : null);
+    }
+    function queue(s,rec,key,wire) {
+      s.pending.set(key,wire);
+      if (s.timer === null) s.timer = setTimeout(() => {
+        try { drain(s); } catch (e) { stop(s,String(e)); }
+      }, rec.fps > 0 ? Math.max(1, Math.round(1000 / rec.fps)) : 0);
+    }
+    function connect(peer, rec, nc, params) {
+      const connection = resolveConnection(nc);
+      if (!isNetwork(rec) && !/^wss?:/i.test(connection?.uriValue || '')) return false;
+      if (params != null) throw new Error('The SharedObject relay does not accept application connection parameters.');
+      if (!rec.remote) throw new Error('WebSocket synchronization requires SharedObject.getRemote.');
+      const socket = connection?.ws;
+      if (!connection?.connected || !socket || socket.readyState !== 1) throw new Error('Open a WebSocket NetConnection before joining a remote SharedObject.');
+      if (rec.remotePath && new URL(rec.remotePath).href !== new URL(connection.uriValue).href)
+        throw new Error('The SharedObject remotePath must match the NetConnection WebSocket endpoint.');
+      if (rec.secure && !/^wss:/i.test(connection.uriValue)) throw new Error('Secure remote SharedObjects require wss.');
+      if (typeof rec.persistence !== 'boolean') throw new Error('The WebSocket relay supports Boolean server persistence.');
+      const previous = peers.get(peer);
+      if (previous && previous.socket === socket) return true;
+      if (rec.network && rec.network.socket !== socket) throw new Error('Close this named SharedObject before switching connections.');
+      let rooms = sockets.get(socket);
+      if (!rooms) sockets.set(socket, rooms = new Map());
+      let s = rooms.get(rec.name);
+      if (!s) {
+        s = {socket,room:rec.name,sub:++serial,peers:new Map(),persistent:rec.persistence,pending:new Map(),flushing:[],clearing:[],timer:null,joinTimer:null,ready:false};
+        rooms.set(rec.name,s);
+        try { write(s,'join',{persistent:rec.persistence}); }
+        catch (e) { stop(s); throw e; }
+        s.joinTimer = setTimeout(() => stop(s,'The server did not acknowledge the NeoFlash SharedObject subscription.'),10000);
+      }
+      if (s.persistent !== rec.persistence) throw new Error('Room subscribers must use the same persistence setting.');
+      const first = s.peers.values().next().value;
+      rec.usedSocket = true;
+      rec.network = s;
+      s.peers.set(peer,rec);
+      peers.set(peer,s);
+      if (s.ready && first) {
+        if (first !== rec) {
+          for (const key of Object.keys(rec.data)) delete rec.data[key];
+          for (const key of Object.keys(first.data)) Object.defineProperty(rec.data,key,{value:first.data[key],writable:true,enumerable:true,configurable:true});
+        }
+        queueMicrotask(() => { if (peers.get(peer) === s) notify(peer,[{code:'clear'},...Object.keys(rec.data).map(name=>({code:'change',name}))]); });
+      }
+      return true;
+    }
+    function receive(socket, msg) {
+      const s = sockets.get(socket)?.get(msg.room);
+      if (!s || s.sub !== msg.sub) return;
+      try {
+        if (msg.op === 'error') { stop(s,String(msg.description)); return; }
+        if (msg.op === 'flushed') {
+          const peer = s.flushing.shift();
+          if (peer && s.peers.has(peer)) status(peer,'SharedObject.Flush.Success');
+          return;
+        }
+        if (msg.op === 'call') {
+          if (!validName(msg.method)) throw new Error('Invalid SharedObject callback.');
+          const args = unpack(msg.args);
+          if (!Array.isArray(args) || args.length > 256) throw new Error('Invalid SharedObject callback arguments.');
+          for (const [peer, rec] of s.peers) invoke(peer,rec,msg.method,args);
+          return;
+        }
+        if (!['snapshot','clear','patch'].includes(msg.op)) throw new Error('Unknown SharedObject relay operation.');
+        if (msg.op !== 'clear' && (!msg.fields || typeof msg.fields !== 'object' || Array.isArray(msg.fields))) throw new Error('Invalid remote SharedObject fields.');
+        const changes = Object.entries(msg.fields || {}).map(([key,wire]) => {
+          if (!validName(key)) throw new Error('Invalid remote SharedObject property.');
+          return [key,wire === null,wire === null ? undefined : unpack(wire)];
+        });
+        const delivered = new Map();
+        for (const rec of new Set(s.peers.values())) {
+          const list = [];
+          if (msg.op !== 'patch') {
+            list.push({code:'clear'});
+            for (const key of Object.keys(rec.data)) delete rec.data[key];
+          }
+          for (const [name,remove,value] of changes) {
+            const oldValue = rec.data[name];
+            if (remove) delete rec.data[name];
+            else Object.defineProperty(rec.data,name,{value,writable:true,configurable:true,enumerable:true});
+            list.push({code:msg.own ? 'success' : remove ? 'delete' : 'change',name,oldValue});
+          }
+          rec.epoch++;
+          delivered.set(rec,list);
+        }
+        if (msg.op === 'snapshot') { clearTimeout(s.joinTimer); s.ready = true; }
+        const cleared = msg.op === 'clear' && msg.own ? s.clearing.shift() : null;
+        // The clearing subscriber disconnects after the confirmed purge.
+        const recipients = [...s.peers];
+        if (cleared && peers.get(cleared) === s) close(cleared);
+        for (const [peer,rec] of recipients) if (peer === cleared || peers.get(peer) === s) notify(peer,delivered.get(rec));
+      } catch (error) { stop(s,String(error)); }
+    }
+    function close(peer) {
+      const s = peers.get(peer);
+      if (!s) return;
+      const rec = s.peers.get(peer);
+      drain(s);
+      peers.delete(peer);
+      s.peers.delete(peer);
+      if (![...s.peers.values()].includes(rec)) rec.network = null;
+      if (!s.peers.size) stop(s);
+    }
+    function disconnect(socket, reason) {
+      for (const s of [...(sockets.get(socket)?.values() || [])]) stop(s,reason);
+    }
+    return {
+      isNetwork, connect, receive, dirty, update, close, disconnect,
+      setResolver(fn) { resolveConnection = fn; },
+      flush(peer) {
+        const s = requirePeer(peer);
+        if(s.flushing.length>=64)throw new Error('Too many outstanding SharedObject.flush requests.');
+        drain(s); write(s,'flush'); s.flushing.push(peer);
+        return 'pending';
+      },
+      clear(peer) {
+        const s = requirePeer(peer);
+        if(s.clearing.includes(peer))return;
+        drain(s); write(s,'clear'); s.clearing.push(peer);
+      },
+      send(peer,rec,method,args) {
+        if (!validName(method) || /[./]/.test(method) || ['clear','close','connect','flush','send','setDirty','setProperty','setFps'].includes(method)) throw new Error('Invalid remote SharedObject callback name.');
+        const s = requirePeer(peer); drain(s); write(s,'call',{method,args:pack(args,rec.encoding)});
+      },
+      reset() { for (const s of [...sockets.values()].flatMap(rooms=>[...rooms.values()])) {
+        stop(s);
+      } },
+    };
+  }
   function create(options={}){
     const {amf}=options,events=options.events||global.NeoFlashEvents;
     if(!amf?.encode||!amf?.decode||!events?.EventDispatcher)throw new TypeError('SharedObject requires the shared AMF and event services.');
@@ -40,6 +238,31 @@
     const records=new Map(),remoteRecords=new Map(),states=new WeakMap(),legacyStates=new WeakMap(),token=Symbol('SharedObject');
     let generation=1,disposed=false,defaultEncoding=3;
     const hub=events.create({weakTargets:true,alive:value=>!disposed&&states.get(value)?.generation===generation});
+    const network=createNetwork(amf,
+      (peer,changes)=>{
+        try{
+          if(states.has(peer))hub.dispatch(peer,networkSync(changes));
+          else if(typeof peer.onSync==='function')peer.onSync(changes);
+        }catch(error){warn(error);}
+      },
+      (peer,code,description)=>{
+        const info={code,level:description?'error':'status',description:description||''};
+        try{
+          if(states.has(peer)&&peer.hasEventListener('netStatus'))hub.dispatch(peer,networkStatus(info));
+          else if(typeof peer.onStatus==='function')peer.onStatus(info);
+          else if(description)warn(new Error(description));
+        }catch(error){warn(error);}
+      },
+      (peer,rec,name,args)=>{
+        const client=rec.clients?.get(peer)||peer;
+        // Dispatch only application callbacks. Never expose inherited host methods to the wire.
+        for(let obj=client;obj&&obj!==Object.prototype&&obj!==Function.prototype&&obj!==LegacySharedObject.prototype&&obj!==SharedObject.prototype;obj=Object.getPrototypeOf(obj)){
+          if(client===peer&&['onStatus','onSync','addEventListener','removeEventListener','hasEventListener','willTrigger','dispatchEvent'].includes(name))return;
+          const d=Object.getOwnPropertyDescriptor(obj,name);
+          if(d){if(typeof d.value==='function'){try{Reflect.apply(d.value,client,args);}catch(e){warn(e);}}return;}
+        }
+      });
+    let networkSync = makeSyncEvent, networkStatus = info => Object.assign(new events.Event("netStatus"),{info});
     function open(){if(disposed)throw new Error('SharedObject service has been disposed.');}
     function state(value,legacy=false){open();const record=(legacy?legacyStates:states).get(value);if(!record||record.generation!==generation)throw new Error('This SharedObject belongs to a previous publication session.');return record;}
     function warn(error){try{if(options.onError)options.onError(error);else global.console?.warn?.(error);}catch(_){/* Best-effort legacy/pagehide diagnostics must not claim storage succeeded. */}}
@@ -122,7 +345,7 @@
     function handleRemoteSyncMessage(msg){
       if(disposed||!msg||typeof msg!=='object')return;
       const rec=records.get(msg.key)||remoteRecords.get(msg.key);
-      if(!rec)return;
+      if(!rec||network.isNetwork(rec))return;
       if(typeof msg.bytes==='string'&&msg.bytes.length>0){
         try{
           const payload=amf.unbase64(msg.bytes);
@@ -275,21 +498,39 @@
           let record=remoteRecords.get(key);
           if(!record){
             if(remoteRecords.size>=MAX_OBJECTS)throw new RangeError('At most 256 remote SharedObjects may be opened in a publication session.');
-            record={key,name,data:{},encoding:0,generation,epoch:0,busy:false,remote:true,persistence,fps:0,peers:new Set(),clients:new WeakMap()};
+            record={key,name,remotePath,secure,data:{},encoding:0,generation,epoch:0,busy:false,remote:true,persistence,fps:0,peers:new Set(),clients:new WeakMap()};
             remoteRecords.set(key,record);
           }
+          if(record.persistence!==persistence)throw new Error('Room subscribers must use the same persistence setting.');
           const instance=new LegacySharedObject(token,record);
           return instance;
         }catch(error){warn(error);return null;}
       }
-      get data(){return state(this,true).data;}
+      get data(){
+        const rec=state(this,true);
+        if(!rec.remote)return rec.data;
+        if(!rec.proxies)rec.proxies=new WeakMap();
+        if(!rec.proxies.has(this))rec.proxies.set(this,new Proxy(rec.data,{
+          set:(obj,key,value)=>{
+            if(rec.network)network.update(this,rec,key,value,false);
+            else Object.defineProperty(obj,key,{value,enumerable:true,writable:true,configurable:true});
+            return true;
+          },
+          deleteProperty:(obj,key)=>{
+            if(!rec.network)return Reflect.deleteProperty(obj,key);
+            network.update(this,rec,key,undefined,true);
+            return true;
+          },
+        }));
+        return rec.proxies.get(this);
+      }
       getSize(){return bytes(state(this,true)).length;}
       exportSolBytes(){return exportRecordSol(state(this,true));}
       importSolBytes(solBytes){importRecordSol(state(this,true),solBytes,true);return this;}
       flush(minDiskSpace=0){
         const record=state(this,true);
         try{
-          if(record.remote){if(!Number.isInteger(minDiskSpace)||minDiskSpace<0||minDiskSpace>MAX_BYTES)throw new RangeError('Invalid minDiskSpace.');bytes(record);broadcastSync(record,Object.keys(record.data).map(k=>({code:'change',name:k})));return true;}
+          if(record.remote){if(!Number.isInteger(minDiskSpace)||minDiskSpace<0||minDiskSpace>MAX_BYTES)throw new RangeError('Invalid minDiskSpace.');if(network.isNetwork(record))return network.flush(this);bytes(record);broadcastSync(record,Object.keys(record.data).map(k=>({code:'change',name:k})));return true;}
           flushRecord(record,minDiskSpace);return true;
         }catch(error){
           warn(error);
@@ -301,6 +542,7 @@
       }
       clear(){
         const record=state(this,true);
+        if(network.isNetwork(record)){network.clear(this);return;}
         if(record.remote){for(const key of Reflect.ownKeys(record.data))delete record.data[key];record.epoch++;broadcastSync(record,[{code:'clear'}]);return;}
         clearRecord(record,true);
       }
@@ -308,6 +550,7 @@
         const record=state(this,true);
         if(!record.remote)throw new TypeError('SharedObject.connect requires a remote SharedObject from SharedObject.getRemote.');
         if(!nc||typeof nc!=='object'||!('isConnected'in nc||'uri'in nc))return false;
+        try{if(network.connect(this,record,nc))return true;}catch(e){warn(e);return false;}
         record.peers.add(this);const born=generation;
         queueMicrotask(()=>{if(disposed||born!==generation||!record.peers.has(this))return;try{if(typeof this.onSync==='function')Reflect.apply(this.onSync,this,[[{code:'clear'}]]);}catch(error){warn(error);}});
         return true;
@@ -321,6 +564,7 @@
         const record=state(this,true);
         if(propertyName!==undefined&&typeof propertyName!=='string')throw new TypeError('SharedObject.setDirty propertyName requires a String.');
         record.epoch++;
+        if(network.isNetwork(record)){network.dirty(this,record,propertyName);return;}
         if(record.remote&&record.peers.has(this)&&typeof propertyName==='string'&&propertyName){
           const born=generation,targets=[...record.peers];
           broadcastSync(record,[{code:'change',name:propertyName}]);
@@ -329,6 +573,7 @@
       }
       send(handlerName,...args){
         const record=state(this,true);
+        if(network.isNetwork(record)){network.send(this,record,handlerName,args);return;}
         if(!record.remote||!record.peers.has(this))throw new Error('SharedObject.send requires a connected remote SharedObject.');
         if(typeof handlerName!=='string'||!handlerName||['__proto__','prototype','constructor'].includes(handlerName))throw new TypeError('SharedObject.send requires a valid handler name String.');
         const born=generation,targets=[...record.peers];
@@ -337,6 +582,7 @@
       }
       close(){
         const record=state(this,true);
+        if(network.isNetwork(record)){network.close(this);return;}
         if(record.remote){record.peers.delete(this);return;}
         this.flush();
       }
@@ -360,6 +606,7 @@
         record={key,name,remotePath,data:{},encoding:defaultEncoding,generation,epoch:0,busy:false,remote:true,persistence,secure,fps:0,peers:new Set(),dirty:new Set(),clients:new WeakMap()};
         remoteRecords.set(key,record);
       }
+      if(record.persistence!==persistence)throw new Error('Room subscribers must use the same persistence setting.');
       const instance=new SharedObject(token,record);
       record.clients.set(instance,instance);
       return instance;
@@ -451,9 +698,9 @@
         },
       },
     });
-    const _as3Hook=Object.freeze({createRemoteModern,remoteRecords,state:v=>state(v,false),bytes,amf,encoding,hub,events,warn,MAX_BYTES,isDisposed:()=>disposed,getGeneration:()=>generation,broadcastSync,handleRemoteSyncMessage,makeSyncEvent});
+    const _as3Hook=Object.freeze({network,setNetworkEvents(sync,status){networkSync=sync;networkStatus=status;},createRemoteModern,remoteRecords,state:v=>state(v,false),bytes,amf,encoding,hub,events,warn,MAX_BYTES,isDisposed:()=>disposed,getGeneration:()=>generation,broadcastSync,handleRemoteSyncMessage,makeSyncEvent});
     function flushAll(){open();const failures=[];for(const record of records.values()){try{flushRecord(record);}catch(error){failures.push(error);warn(error);}}return failures;}
-    function reset(){open();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;dynamicWriter=null;}
+    function reset(){open();network.reset();generation++;records.clear();remoteRecords.clear();hub.clear();defaultEncoding=3;dynamicWriter=null;}
     function dispose(){if(disposed)return;reset();try{syncChannel?.close?.();}catch(_){}syncChannel=null;disposed=true;}
     return Object.freeze({SharedObject,LegacySharedObject,ObjectEncoding,SharedObjectFlushStatus,flushAll,reset,dispose,_as3Hook});
   }

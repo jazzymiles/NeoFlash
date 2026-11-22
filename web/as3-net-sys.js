@@ -2671,6 +2671,7 @@
           r.bc = null;
         }
         if (r.ws) {
+          storageHost?._as3Hook?.network.disconnect(r.ws);
           r.wsClosingLocally = true;
           try { r.ws.close(); } catch (_) {}
           activeWebSockets.delete(r.ws);
@@ -2743,7 +2744,7 @@
           }
           return;
         }
-        if (msg.type === 'so_sync' && storageHost?._as3Hook?.handleRemoteSyncMessage) {
+        if (!msg.directWs && msg.type === 'so_sync' && storageHost?._as3Hook?.handleRemoteSyncMessage) {
           storageHost._as3Hook.handleRemoteSyncMessage(msg.payload);
           afterEvent();
           return;
@@ -2985,7 +2986,14 @@
             }
 
             const WsCtor = options.WebSocket || global.WebSocket;
-            if ((scheme === 'ws' || scheme === 'wss') && typeof WsCtor === 'function' && !/\.test$|\.invalid$/i.test(parsed.hostname)) {
+            if ((scheme === 'ws' || scheme === 'wss') && typeof WsCtor !== 'function') {
+              r.local = false;
+              r.connected = false;
+              r.uriValue = uri;
+              vh.later(r, () => vh.emit(r, 'NetConnection.Connect.Failed', 'error', {description:'WebSocket transport is unavailable.'}));
+              return;
+            }
+            if (scheme === 'ws' || scheme === 'wss') {
               r.uriValue = uri;
               r.protocolValue = scheme;
               r.usingTLSValue = scheme === 'wss';
@@ -3028,6 +3036,11 @@
                 if (!text) return;
                 try {
                   const parsedMsg = JSON.parse(text);
+                  if (parsedMsg?.type === 'so') {
+                    storageHost?._as3Hook?.network.receive(ws, parsedMsg);
+                    afterEvent();
+                    return;
+                  }
                   handleNcIncomingEnvelope(this, r, { ...parsedMsg, directWs: true }, reply => {
                     try { ws.send(JSON.stringify(reply)); } catch (_) {}
                   });
@@ -3044,6 +3057,7 @@
                 }
               });
               ws.addEventListener('close', () => {
+                storageHost?._as3Hook?.network.disconnect(ws, 'The SharedObject connection closed.');
                 activeWebSockets.delete(ws);
                 if (r.ws === ws) r.ws = null;
                 if (disposed || r.sequence !== seq || r.wsClosingLocally || !opened) return;
@@ -4336,6 +4350,8 @@
     if (storageHost?._as3Hook && storageHost.SharedObject) {
       const sh = storageHost._as3Hook;
       const SharedObject = storageHost.SharedObject;
+      sh.setNetworkEvents(makeSyncEvent,makeNetStatusEvent);
+      sh.network.setResolver(nc => videoHost?._as3Hook?.connections?.get(nc));
       const origFlush = SharedObject.prototype.flush;
       const origClear = SharedObject.prototype.clear;
       const origSetProperty = SharedObject.prototype.setProperty;
@@ -4459,24 +4475,12 @@
             if (!ncRec.connected && !ncRec.local) {
               throw new Error('Error #2139: SharedObject could not connect because the NetConnection is not connected.');
             }
+            if (sh.network.connect(this, rec, myConnection, params)) return;
             rec.connectParams = params;
             if (!rec.peers) rec.peers = new Set();
             rec.peers.add(this);
             if (!rec.connections) rec.connections = new Set();
             rec.connections.add(myConnection);
-            if (ncRec.ws && ncRec.ws.readyState === 1) {
-              try {
-                ncRec.ws.send(
-                  JSON.stringify({
-                    type: 'so_connect',
-                    key: rec.key,
-                    name: rec.name || '',
-                    params,
-                    senderNearID: ncRec.nearID,
-                  })
-                );
-              } catch (_) {}
-            }
             const born = sh.getGeneration();
             schedule(() => {
               if (sh.isDisposed() || sh.getGeneration() !== born || !rec.peers.has(this)) return;
@@ -4496,6 +4500,7 @@
               throw new TypeError('TypeError: Error #2007: SharedObject.setDirty propertyName must be non-null.');
             }
             const key = String(propertyName);
+            if (sh.network.isNetwork(rec)) return sh.network.dirty(this, rec, key);
             rec.epoch++;
             if (!rec.dirty) rec.dirty = new Set();
             rec.dirty.add(key);
@@ -4517,6 +4522,7 @@
             if (typeof propertyName !== 'string') {
               throw new TypeError('SharedObject.setProperty name requires a string.');
             }
+            if (sh.network.isNetwork(rec)) return sh.network.update(this, rec, propertyName, value, value == null);
             const oldValue = rec.data[propertyName];
             if (value === null || value === undefined) {
               delete rec.data[propertyName];
@@ -4541,6 +4547,7 @@
               throw new TypeError('SharedObject.send requires a valid handler name String.');
             }
             const [handlerName, ...rest] = args;
+            if (sh.network.isNetwork(rec)) return sh.network.send(this,rec,handlerName,rest);
             emitRemoteSoSyncPayload(rec, [], { name: handlerName, args: rest });
             const targets = rec.peers?.size ? [...rec.peers] : [this];
             const born = sh.getGeneration();
@@ -4570,6 +4577,7 @@
             if (!Number.isInteger(minDiskSpace) || minDiskSpace < 0 || minDiskSpace > sh.MAX_BYTES) {
               throw new RangeError('Invalid minDiskSpace.');
             }
+            if (sh.network.isNetwork(rec)) return sh.network.flush(this);
             sh.bytes(rec);
             emitRemoteSoSyncPayload(rec, Object.keys(rec.data).map(k => ({ code: 'change', name: k })));
             return 'flushed';
@@ -4581,6 +4589,7 @@
           value: function clear() {
             const rec = sh.state(this);
             if (!rec.remote) return Reflect.apply(origClear, this, []);
+            if (sh.network.isNetwork(rec)) return sh.network.clear(this);
             if (rec.fpsTimer) {
               untrackTimer(rec.fpsTimer);
               rec.fpsTimer = null;
@@ -4608,6 +4617,7 @@
           value: function close() {
             const rec = sh.state(this);
             if (!rec.remote) return Reflect.apply(origClose, this, []);
+            if (sh.network.isNetwork(rec)) return sh.network.close(this);
             rec.peers?.delete(this);
             if (rec.peers?.size === 0 && rec.fpsTimer) {
               untrackTimer(rec.fpsTimer);
@@ -8855,6 +8865,7 @@
       }
       activeTimers.clear();
       for (const ws of [...activeWebSockets]) {
+        storageHost?._as3Hook?.network.disconnect(ws);
         try { ws.close(); } catch (_) {}
       }
       activeWebSockets.clear();
