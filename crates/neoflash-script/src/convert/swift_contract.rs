@@ -24,12 +24,28 @@ pub struct SwiftProxyMethod {
 }
 
 pub(crate) const PORTABLE_TYPES_LIST: &str =
-    "`int`, `uint`, `Number`, `Boolean`, `String`, `Array`, `Object`";
+    "`int`, `uint`, `Number`, `Boolean`, `String`, `Array`, `Vector.<T>`, `Object`";
 
 /// Map a portable ActionScript data type annotation to its native Swift 6 equivalent.
 /// Returns `None` if `raw` is untyped (`*` / empty) or non-portable (`MovieClip`, `Sprite`, etc.).
 pub(crate) fn map_portable_as_type_to_swift(raw: &str) -> Option<(&'static str, &'static str)> {
-    match short_type_name(raw.trim()) {
+    let trimmed = raw.trim();
+    if let Some(elem) = trimmed
+        .strip_prefix("Vector.<")
+        .or_else(|| trimmed.strip_prefix("__AS3__.vec.Vector.<"))
+        .and_then(|s| s.strip_suffix('>'))
+    {
+        return match short_type_name(elem.trim()) {
+            "Number" => Some(("[Double]", "Vector.<Number>")),
+            "int" => Some(("[Int]", "Vector.<int>")),
+            "uint" => Some(("[UInt]", "Vector.<uint>")),
+            "Boolean" => Some(("[Bool]", "Vector.<Boolean>")),
+            "String" => Some(("[String]", "Vector.<String>")),
+            "*" | "Object" | "Array" => Some(("[NFValue]", "Array")),
+            _ => None,
+        };
+    }
+    match short_type_name(trimmed) {
         "int" => Some(("Int", "int")),
         "uint" => Some(("UInt", "uint")),
         "Number" => Some(("Double", "Number")),

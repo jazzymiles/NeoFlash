@@ -1,5 +1,5 @@
 //! Native Apple `CoreGraphics` + `SwiftUI` + `AppKit`/`UIKit` renderer & view generator
-//! (`Generated/NeoFlashKit/NFRenderer.swift`, `T-455`).
+//! (`Generated/NeoFlashKit/NFRenderer.swift`, `T-455` / `T-472`).
 
 #[must_use]
 pub(super) fn render_nf_renderer_swift() -> &'static str {
@@ -24,6 +24,7 @@ public final class NFResourceCache {
 
     private var images: [String: CGImage] = [:]
     private var didRegisterFonts: Bool = false
+    public var resourceDirectory: URL?
 
     private init() {}
 
@@ -37,6 +38,13 @@ public final class NFResourceCache {
                 }
             }
         }
+        if let dir = resourceDirectory,
+           let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        {
+            for url in items where ["ttf", "otf", "ttc"].contains(url.pathExtension.lowercased()) {
+                CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+            }
+        }
     }
 
     public func image(named resourceName: String, in bundle: Bundle = .main) -> CGImage? {
@@ -47,10 +55,20 @@ public final class NFResourceCache {
         let nsName = resourceName as NSString
         let stem = nsName.deletingPathExtension
         let ext = nsName.pathExtension
-        let resolvedURL: URL? = if !ext.isEmpty {
-            bundle.url(forResource: stem, withExtension: ext)
-        } else {
-            bundle.url(forResource: resourceName, withExtension: nil)
+
+        var resolvedURL: URL?
+        if let dir = resourceDirectory {
+            let direct = dir.appendingPathComponent(resourceName)
+            if FileManager.default.fileExists(atPath: direct.path) {
+                resolvedURL = direct
+            }
+        }
+        if resolvedURL == nil {
+            resolvedURL = if !ext.isEmpty {
+                bundle.url(forResource: stem, withExtension: ext)
+            } else {
+                bundle.url(forResource: resourceName, withExtension: nil)
+            }
         }
         guard let url = resolvedURL,
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
@@ -63,7 +81,7 @@ public final class NFResourceCache {
     }
 }
 
-// MARK: - CoreGraphics Vector & Display List Renderer
+// MARK: - CoreGraphics Vector, Mask, Filter & Blend Renderer
 
 @MainActor
 public enum NFRenderer {
@@ -98,24 +116,37 @@ public enum NFRenderer {
         while index < list.count {
             let child = list[index]
             if let maskLayerIdx = child.timelineMaskLayerIndex,
-               let maskObjects = movieClip?.activeMaskLayers[maskLayerIdx],
-               !maskObjects.isEmpty
+               let maskObjects = movieClip?.activeMaskLayers[maskLayerIdx]
             {
-                ctx.saveGState()
                 let clipPath = CGMutablePath()
                 var fillRule: CGPathFillRule = .winding
                 for maskObj in maskObjects where maskObj.visible {
-                    appendClipPaths(of: maskObj, into: clipPath, transform: maskObj.localCGAffineTransform(), preferredRule: &fillRule)
+                    appendClipPaths(
+                        of: maskObj,
+                        into: clipPath,
+                        transform: maskObj.localCGAffineTransform(),
+                        preferredRule: &fillRule
+                    )
                 }
-                if !clipPath.isEmpty {
+                if clipPath.isEmpty {
+                    // Empty active mask span clips out 100% of its masked layers on this frame
+                    while index < list.count && list[index].timelineMaskLayerIndex == maskLayerIdx {
+                        index += 1
+                    }
+                } else {
+                    ctx.saveGState()
                     ctx.addPath(clipPath)
-                    ctx.clip(using: fillRule)
+                    if fillRule == .evenOdd {
+                        ctx.clip(using: .evenOdd)
+                    } else {
+                        ctx.clip()
+                    }
+                    while index < list.count && list[index].timelineMaskLayerIndex == maskLayerIdx {
+                        renderDisplayObject(list[index], in: ctx, inheritedColorTransform: inheritedColorTransform)
+                        index += 1
+                    }
+                    ctx.restoreGState()
                 }
-                while index < list.count && list[index].timelineMaskLayerIndex == maskLayerIdx {
-                    renderDisplayObject(list[index], in: ctx, inheritedColorTransform: inheritedColorTransform)
-                    index += 1
-                }
-                ctx.restoreGState()
             } else {
                 renderDisplayObject(child, in: ctx, inheritedColorTransform: inheritedColorTransform)
                 index += 1
@@ -156,9 +187,14 @@ public enum NFRenderer {
                 maskToParent = maskObj.localCGAffineTransform()
             }
             appendClipPaths(of: maskObj, into: clipPath, transform: maskToParent, preferredRule: &rule)
-            if !clipPath.isEmpty {
-                ctx.addPath(clipPath)
-                ctx.clip(using: rule)
+            if clipPath.isEmpty {
+                return
+            }
+            ctx.addPath(clipPath)
+            if rule == .evenOdd {
+                ctx.clip(using: .evenOdd)
+            } else {
+                ctx.clip()
             }
         }
 
@@ -166,6 +202,7 @@ public enum NFRenderer {
         ctx.setBlendMode(cgBlendMode(for: object.blendMode))
 
         let needsFilterShadow = applyPrimaryShadowFilter(object.filters, in: ctx)
+        let blurRadii = extractBlurRadii(object.filters)
         let isContainer = (object as? NFSprite)?.children.isEmpty == false
         let needsTransparencyLayer = needsFilterShadow
             || object.blendMode == .layer
@@ -180,17 +217,177 @@ public enum NFRenderer {
             }
         }
 
+        if let (blurX, blurY) = blurRadii,
+           renderBlurredDisplayObject(object, blurX: blurX, blurY: blurY, in: ctx, colorTransform: effectiveCT)
+        {
+            return
+        }
+
+        drawDisplayObjectContent(object, in: ctx, colorTransform: effectiveCT)
+    }
+
+    private static func drawDisplayObjectContent(
+        _ object: NFDisplayObject,
+        in ctx: CGContext,
+        colorTransform: NFColorTransform
+    ) {
         if let shape = object as? NFShape {
-            renderGraphics(shape.graphics, in: ctx, colorTransform: effectiveCT)
+            renderGraphics(shape.graphics, in: ctx, colorTransform: colorTransform)
         } else if let textField = object as? NFTextField {
-            renderText(textField.spec, in: ctx, colorTransform: effectiveCT)
+            renderText(textField.spec, in: ctx, colorTransform: colorTransform)
         } else if let bitmap = object as? NFBitmap {
-            renderBitmap(bitmap.spec, in: ctx, colorTransform: effectiveCT)
+            renderBitmap(bitmap.spec, in: ctx, colorTransform: colorTransform)
         } else if let video = object as? NFVideo {
-            renderVideoPlaceholder(video.spec, in: ctx, colorTransform: effectiveCT)
+            renderVideoPlaceholder(video.spec, in: ctx, colorTransform: colorTransform)
         } else if let sprite = object as? NFSprite {
-            renderGraphics(sprite.graphics, in: ctx, colorTransform: effectiveCT)
-            renderChildren(of: sprite, in: ctx, inheritedColorTransform: effectiveCT)
+            renderGraphics(sprite.graphics, in: ctx, colorTransform: colorTransform)
+            renderChildren(of: sprite, in: ctx, inheritedColorTransform: colorTransform)
+        }
+    }
+
+    private static func renderBlurredDisplayObject(
+        _ object: NFDisplayObject,
+        blurX: Double,
+        blurY: Double,
+        in ctx: CGContext,
+        colorTransform: NFColorTransform
+    ) -> Bool {
+        let contentBounds = object.localContentBounds()
+        guard !contentBounds.isNull, contentBounds.width > 0.0, contentBounds.height > 0.0 else {
+            return false
+        }
+        let padX = ceil(min(64.0, max(1.0, blurX * 2.0)))
+        let padY = ceil(min(64.0, max(1.0, blurY * 2.0)))
+        let expanded = contentBounds.insetBy(dx: CGFloat(-padX), dy: CGFloat(-padY)).integral
+        let rawW = Int(expanded.width)
+        let rawH = Int(expanded.height)
+        guard rawW > 0, rawH > 0 else { return false }
+
+        // Clamp offscreen buffer dimensions to <= 1024px per axis for bounded CPU cost
+        let maxDim = 1024.0
+        let downscale = min(1.0, min(maxDim / Double(rawW), maxDim / Double(rawH)))
+        let bufW = max(1, Int((Double(rawW) * downscale).rounded(.up)))
+        let bufH = max(1, Int((Double(rawH) * downscale).rounded(.up)))
+        let bytesPerRow = bufW * 4
+
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let offCtx = CGContext(
+            data: nil,
+            width: bufW,
+            height: bufH,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ), let rawPtr = offCtx.data else {
+            return false
+        }
+
+        // Map Y-down local coordinates into offscreen buffer
+        offCtx.translateBy(x: 0, y: CGFloat(bufH))
+        offCtx.scaleBy(x: CGFloat(downscale), y: CGFloat(-downscale))
+        offCtx.translateBy(x: -expanded.origin.x, y: -expanded.origin.y)
+        drawDisplayObjectContent(object, in: offCtx, colorTransform: colorTransform)
+
+        let rx = max(0, min(64, Int(((blurX * downscale) * 0.5).rounded())))
+        let ry = max(0, min(64, Int(((blurY * downscale) * 0.5).rounded())))
+        if rx > 0 || ry > 0 {
+            let pixels = rawPtr.assumingMemoryBound(to: UInt8.self)
+            for _ in 0..<3 {
+                if rx > 0 {
+                    boxBlurHorizontalRGBA8(pixels, width: bufW, height: bufH, radius: rx)
+                }
+                if ry > 0 {
+                    boxBlurVerticalRGBA8(pixels, width: bufW, height: bufH, radius: ry)
+                }
+            }
+        }
+
+        guard let blurredImage = offCtx.makeImage() else {
+            return false
+        }
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.translateBy(x: expanded.origin.x, y: expanded.origin.y + expanded.height)
+        ctx.scaleBy(x: 1.0, y: -1.0)
+        ctx.draw(blurredImage, in: CGRect(origin: .zero, size: expanded.size))
+        return true
+    }
+
+    private static func boxBlurHorizontalRGBA8(
+        _ buf: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        radius: Int
+    ) {
+        guard width > 1 && radius > 0 else { return }
+        let kernel = radius * 2 + 1
+        var rowCopy = [UInt8](repeating: 0, count: width * 4)
+
+        for y in 0..<height {
+            let rowPtr = buf.advanced(by: y * width * 4)
+            rowCopy.withUnsafeMutableBufferPointer { dst in
+                guard let base = dst.baseAddress else { return }
+                base.update(from: rowPtr, count: width * 4)
+            }
+            for x in 0..<width {
+                var sumR = 0, sumG = 0, sumB = 0, sumA = 0
+                let lo = x - radius
+                let hi = x + radius
+                for sx in lo...hi {
+                    let cx = max(0, min(width - 1, sx)) * 4
+                    sumR += Int(rowCopy[cx])
+                    sumG += Int(rowCopy[cx + 1])
+                    sumB += Int(rowCopy[cx + 2])
+                    sumA += Int(rowCopy[cx + 3])
+                }
+                let outIdx = x * 4
+                rowPtr[outIdx] = UInt8(sumR / kernel)
+                rowPtr[outIdx + 1] = UInt8(sumG / kernel)
+                rowPtr[outIdx + 2] = UInt8(sumB / kernel)
+                rowPtr[outIdx + 3] = UInt8(sumA / kernel)
+            }
+        }
+    }
+
+    private static func boxBlurVerticalRGBA8(
+        _ buf: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        height: Int,
+        radius: Int
+    ) {
+        guard height > 1 && radius > 0 else { return }
+        let kernel = radius * 2 + 1
+        let strideBytes = width * 4
+        var colCopy = [UInt8](repeating: 0, count: height * 4)
+
+        for x in 0..<width {
+            let colOffset = x * 4
+            for y in 0..<height {
+                let src = y * strideBytes + colOffset
+                let dst = y * 4
+                colCopy[dst] = buf[src]
+                colCopy[dst + 1] = buf[src + 1]
+                colCopy[dst + 2] = buf[src + 2]
+                colCopy[dst + 3] = buf[src + 3]
+            }
+            for y in 0..<height {
+                var sumR = 0, sumG = 0, sumB = 0, sumA = 0
+                let lo = y - radius
+                let hi = y + radius
+                for sy in lo...hi {
+                    let cy = max(0, min(height - 1, sy)) * 4
+                    sumR += Int(colCopy[cy])
+                    sumG += Int(colCopy[cy + 1])
+                    sumB += Int(colCopy[cy + 2])
+                    sumA += Int(colCopy[cy + 3])
+                }
+                let out = y * strideBytes + colOffset
+                buf[out] = UInt8(sumR / kernel)
+                buf[out + 1] = UInt8(sumG / kernel)
+                buf[out + 2] = UInt8(sumB / kernel)
+                buf[out + 3] = UInt8(sumA / kernel)
+            }
         }
     }
 
@@ -443,7 +640,10 @@ public enum NFRenderer {
                 ctx.stroke(boxRect.insetBy(dx: 0.5, dy: 0.5))
             }
         }
-        guard !spec.text.isEmpty else { return }
+        let displayedText = spec.displayAsPassword
+            ? String(repeating: "•", count: spec.text.count)
+            : spec.text
+        guard !displayedText.isEmpty else { return }
         let transformedColor = colorTransform.apply(to: spec.color)
         guard transformedColor.isVisible else { return }
 
@@ -477,7 +677,7 @@ public enum NFRenderer {
         if spec.letterSpacing != 0.0 {
             attrs[.kern] = CGFloat(spec.letterSpacing)
         }
-        let attrString = NSAttributedString(string: spec.text, attributes: attrs)
+        let attrString = NSAttributedString(string: displayedText, attributes: attrs)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
         if spec.boxWidth != nil && spec.boxHeight != nil {
@@ -505,7 +705,7 @@ public enum NFRenderer {
         if spec.letterSpacing != 0.0 {
             attrs[.kern] = CGFloat(spec.letterSpacing)
         }
-        let attrString = NSAttributedString(string: spec.text, attributes: attrs)
+        let attrString = NSAttributedString(string: displayedText, attributes: attrs)
         UIGraphicsPushContext(ctx)
         if spec.boxWidth != nil && spec.boxHeight != nil {
             attrString.draw(in: boxRect)
@@ -586,6 +786,21 @@ public enum NFRenderer {
         return false
     }
 
+    private static func extractBlurRadii(_ filters: [NFFilterSpec]) -> (Double, Double)? {
+        var totalX = 0.0
+        var totalY = 0.0
+        for filter in filters {
+            if case .blur(let bx, let by) = filter {
+                totalX = max(totalX, bx)
+                totalY = max(totalY, by)
+            }
+        }
+        if totalX >= 0.5 || totalY >= 0.5 {
+            return (totalX, totalY)
+        }
+        return nil
+    }
+
     private static func cgBlendMode(for mode: NFBlendMode) -> CGBlendMode {
         switch mode {
         case .normal, .layer: return .normal
@@ -650,7 +865,11 @@ private final class NFDisplayLinkProxy: NSObject {
 #if os(macOS)
 @MainActor
 open class NeoFlashPlatformView: NSView {
-    public var stage: NFStage
+    public var stage: NFStage {
+        didSet {
+            stage.onRedrawRequested = { [weak self] in self?.requestRedraw() }
+        }
+    }
     public var drawsBackground: Bool
     public var passesThroughEmptyRegions: Bool
     internal var needsInitialDraw: Bool = true
@@ -670,6 +889,7 @@ open class NeoFlashPlatformView: NSView {
         super.init(frame: .zero)
         self.wantsLayer = true
         self.layer?.backgroundColor = NSColor.clear.cgColor
+        self.stage.onRedrawRequested = { [weak self] in self?.requestRedraw() }
     }
 
     @available(*, unavailable)
@@ -728,6 +948,7 @@ open class NeoFlashPlatformView: NSView {
     }
 
     open override func mouseDown(with event: NSEvent) {
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
         window?.makeFirstResponder(self)
         let pt = convert(event.locationInWindow, from: nil)
         stage.handlePointerDown(viewPoint: pt)
@@ -735,20 +956,29 @@ open class NeoFlashPlatformView: NSView {
     }
 
     open override func mouseDragged(with event: NSEvent) {
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
         let pt = convert(event.locationInWindow, from: nil)
         stage.handlePointerMove(viewPoint: pt, buttonDown: true)
         requestRedraw()
     }
 
     open override func mouseUp(with event: NSEvent) {
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
         let pt = convert(event.locationInWindow, from: nil)
         stage.handlePointerUp(viewPoint: pt)
         requestRedraw()
     }
 
     open override func mouseMoved(with event: NSEvent) {
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
         let pt = convert(event.locationInWindow, from: nil)
         stage.handlePointerMove(viewPoint: pt, buttonDown: false)
+        requestRedraw()
+    }
+
+    open override func mouseExited(with event: NSEvent) {
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
+        stage.handlePointerLeave()
         requestRedraw()
     }
 
@@ -840,13 +1070,19 @@ open class NeoFlashPlatformView: NSView {
 #elseif os(iOS)
 @MainActor
 open class NeoFlashPlatformView: UIView {
-    public var stage: NFStage
+    public var stage: NFStage {
+        didSet {
+            stage.onRedrawRequested = { [weak self] in self?.requestRedraw() }
+        }
+    }
     public var drawsBackground: Bool
     public var passesThroughEmptyRegions: Bool
     internal var needsInitialDraw: Bool = true
 
     private var displayLink: CADisplayLink?
     private var linkProxy: NFDisplayLinkProxy?
+    private var touchIds: [ObjectIdentifier: Int] = [:]
+    private var nextTouchId: Int = 1
 
     public init(
         stage: NFStage,
@@ -860,6 +1096,8 @@ open class NeoFlashPlatformView: UIView {
         self.isOpaque = false
         self.backgroundColor = .clear
         self.contentMode = .redraw
+        self.isMultipleTouchEnabled = true
+        self.stage.onRedrawRequested = { [weak self] in self?.requestRedraw() }
     }
 
     @available(*, unavailable)
@@ -905,26 +1143,53 @@ open class NeoFlashPlatformView: UIView {
     }
 
     open override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let pt = touches.first?.location(in: self) else { return }
-        stage.handlePointerDown(viewPoint: pt)
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
+        for touch in touches {
+            let key = ObjectIdentifier(touch)
+            let tid = touchIds[key] ?? {
+                let assigned = nextTouchId
+                nextTouchId += 1
+                touchIds[key] = assigned
+                return assigned
+            }()
+            let pt = touch.location(in: self)
+            let pressure = touch.maximumPossibleForce > 0 ? Double(touch.force / touch.maximumPossibleForce) : 1.0
+            stage.handleTouchBegin(touchId: tid, viewPoint: pt, pressure: pressure)
+        }
         requestRedraw()
     }
 
     open override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let pt = touches.first?.location(in: self) else { return }
-        stage.handlePointerMove(viewPoint: pt, buttonDown: true)
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
+        for touch in touches {
+            let key = ObjectIdentifier(touch)
+            let tid = touchIds[key] ?? 0
+            let pt = touch.location(in: self)
+            let pressure = touch.maximumPossibleForce > 0 ? Double(touch.force / touch.maximumPossibleForce) : 1.0
+            stage.handleTouchMove(touchId: tid, viewPoint: pt, pressure: pressure)
+        }
         requestRedraw()
     }
 
     open override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let pt = touches.first?.location(in: self) else { return }
-        stage.handlePointerUp(viewPoint: pt)
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
+        for touch in touches {
+            let key = ObjectIdentifier(touch)
+            let tid = touchIds.removeValue(forKey: key) ?? 0
+            let pt = touch.location(in: self)
+            stage.handleTouchEnd(touchId: tid, viewPoint: pt, cancelled: false)
+        }
         requestRedraw()
     }
 
     open override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let pt = touches.first?.location(in: self) else { return }
-        stage.handlePointerUp(viewPoint: pt)
+        stage.lastNativePointerUptime = ProcessInfo.processInfo.systemUptime
+        for touch in touches {
+            let key = ObjectIdentifier(touch)
+            let tid = touchIds.removeValue(forKey: key) ?? 0
+            let pt = touch.location(in: self)
+            stage.handleTouchEnd(touchId: tid, viewPoint: pt, cancelled: true)
+        }
         requestRedraw()
     }
 
@@ -962,7 +1227,7 @@ open class NeoFlashPlatformView: UIView {
 }
 #endif
 
-// MARK: - SwiftUI NeoFlashStageView
+// MARK: - SwiftUI NeoFlashStageView + Input TextField Overlay + Hover/Touch Gestures
 
 public struct NeoFlashStageView: View {
     private let scene: NFMovieClip?
@@ -971,6 +1236,7 @@ public struct NeoFlashStageView: View {
     private let align: NFStageAlign?
     private let drawsBackground: Bool
     private let passesThroughEmptyRegions: Bool
+    @State private var managedStage: NFStage
 
     public init(
         scene: NFMovieClip,
@@ -979,12 +1245,16 @@ public struct NeoFlashStageView: View {
         drawsBackground: Bool = false,
         passesThroughEmptyRegions: Bool = true
     ) {
+        let initial = NFStage(scene: scene)
+        if let scaleMode { initial.scaleMode = scaleMode }
+        if let align { initial.align = align }
         self.scene = scene
         self.explicitStage = nil
         self.scaleMode = scaleMode
         self.align = align
         self.drawsBackground = drawsBackground
         self.passesThroughEmptyRegions = passesThroughEmptyRegions
+        self._managedStage = State(initialValue: initial)
     }
 
     public init(
@@ -998,17 +1268,142 @@ public struct NeoFlashStageView: View {
         self.align = nil
         self.drawsBackground = drawsBackground
         self.passesThroughEmptyRegions = passesThroughEmptyRegions
+        self._managedStage = State(initialValue: stage)
+    }
+
+    private var activeStage: NFStage {
+        explicitStage ?? managedStage
     }
 
     public var body: some View {
-        NeoFlashStageRepresentable(
+        NeoFlashStageInteractiveHost(
+            stage: activeStage,
             scene: scene,
-            explicitStage: explicitStage,
             scaleMode: scaleMode,
             align: align,
             drawsBackground: drawsBackground,
             passesThroughEmptyRegions: passesThroughEmptyRegions
         )
+    }
+}
+
+private struct NeoFlashStageInteractiveHost: View {
+    let stage: NFStage
+    let scene: NFMovieClip?
+    let scaleMode: NFScaleMode?
+    let align: NFStageAlign?
+    let drawsBackground: Bool
+    let passesThroughEmptyRegions: Bool
+
+    @ObservedObject private var inputState: NFStageInputState
+    @FocusState private var isInputFieldFocused: Bool
+    @State private var isSwiftUIDragActive: Bool = false
+
+    init(
+        stage: NFStage,
+        scene: NFMovieClip?,
+        scaleMode: NFScaleMode?,
+        align: NFStageAlign?,
+        drawsBackground: Bool,
+        passesThroughEmptyRegions: Bool
+    ) {
+        self.stage = stage
+        self.scene = scene
+        self.scaleMode = scaleMode
+        self.align = align
+        self.drawsBackground = drawsBackground
+        self.passesThroughEmptyRegions = passesThroughEmptyRegions
+        self._inputState = ObservedObject(wrappedValue: stage.inputState)
+    }
+
+    private var inputTextBinding: Binding<String> {
+        Binding(
+            get: { inputState.text },
+            set: { updated in stage.commitInputTextEdit(updated) }
+        )
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            NeoFlashStageRepresentable(
+                scene: scene,
+                explicitStage: stage,
+                scaleMode: scaleMode,
+                align: align,
+                drawsBackground: drawsBackground,
+                passesThroughEmptyRegions: passesThroughEmptyRegions
+            )
+            .onContinuousHover { phase in
+                let now = ProcessInfo.processInfo.systemUptime
+                guard now - stage.lastNativePointerUptime > 0.04 else { return }
+                switch phase {
+                case .active(let pt):
+                    stage.handlePointerMove(viewPoint: pt, buttonDown: isSwiftUIDragActive)
+                    stage.onRedrawRequested?()
+                case .ended:
+                    stage.handlePointerLeave()
+                    stage.onRedrawRequested?()
+                }
+            }
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let now = ProcessInfo.processInfo.systemUptime
+                        guard now - stage.lastNativePointerUptime > 0.04 else { return }
+                        if !isSwiftUIDragActive {
+                            if passesThroughEmptyRegions && stage.hitTestViewPoint(value.startLocation) == nil {
+                                return
+                            }
+                            isSwiftUIDragActive = true
+                            #if os(iOS)
+                            stage.handleTouchBegin(touchId: 0, viewPoint: value.location)
+                            #else
+                            stage.handlePointerDown(viewPoint: value.location)
+                            #endif
+                        } else {
+                            #if os(iOS)
+                            stage.handleTouchMove(touchId: 0, viewPoint: value.location)
+                            #else
+                            stage.handlePointerMove(viewPoint: value.location, buttonDown: true)
+                            #endif
+                        }
+                        stage.onRedrawRequested?()
+                    }
+                    .onEnded { value in
+                        guard isSwiftUIDragActive else { return }
+                        isSwiftUIDragActive = false
+                        let now = ProcessInfo.processInfo.systemUptime
+                        guard now - stage.lastNativePointerUptime > 0.04 else { return }
+                        #if os(iOS)
+                        stage.handleTouchEnd(touchId: 0, viewPoint: value.location)
+                        #else
+                        stage.handlePointerUp(viewPoint: value.location)
+                        #endif
+                        stage.onRedrawRequested?()
+                    }
+            )
+
+            if let activeField = inputState.activeField,
+               activeField.isInput,
+               activeField.visible
+            {
+                let rect = inputState.frameInView
+                Group {
+                    if activeField.displayAsPassword {
+                        SecureField("", text: inputTextBinding)
+                    } else {
+                        TextField("", text: inputTextBinding)
+                    }
+                }
+                .textFieldStyle(.plain)
+                .focused($isInputFieldFocused)
+                .frame(width: max(24.0, rect.width), height: max(18.0, rect.height))
+                .position(x: rect.midX, y: rect.midY)
+                .onAppear {
+                    isInputFieldFocused = true
+                }
+            }
+        }
     }
 }
 
@@ -1046,7 +1441,8 @@ private struct NeoFlashStageRepresentable: NSViewRepresentable {
     func updateNSView(_ nsView: NeoFlashPlatformView, context: Context) {
         if let explicitStage, nsView.stage !== explicitStage {
             nsView.stage = explicitStage
-        } else if let scene {
+        }
+        if let scene {
             if !nsView.stage.children.contains(where: { $0 === scene }) {
                 nsView.stage.mountRootScene(scene)
             } else if let pendingHost = scene.host, nsView.stage.host !== pendingHost {
@@ -1103,7 +1499,8 @@ private struct NeoFlashStageRepresentable: UIViewRepresentable {
     func updateUIView(_ uiView: NeoFlashPlatformView, context: Context) {
         if let explicitStage, uiView.stage !== explicitStage {
             uiView.stage = explicitStage
-        } else if let scene {
+        }
+        if let scene {
             if !uiView.stage.children.contains(where: { $0 === scene }) {
                 uiView.stage.mountRootScene(scene)
             } else if let pendingHost = scene.host, uiView.stage.host !== pendingHost {

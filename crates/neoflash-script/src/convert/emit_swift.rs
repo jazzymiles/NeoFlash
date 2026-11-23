@@ -7,10 +7,11 @@
 use super::emit_as2::{classify_as3_event_type, is_stage_expr};
 use super::emit_as3::op_prec;
 use super::hir::{
-    AccessorKind, HirType, ParsedClass, ParsedScript, ProjectStageIndex, TypeEnv, fold_100_to_01,
-    is_atomic_expr, map_as2_direct_prop_to_modern, map_as2_key_constant,
-    map_as2_percent_prop_to_modern, map_as3_keyboard_constant, parse_class_unit,
-    parse_timeline_script, sanitize_swift_type_ident, short_type_name, stmts_use_key_is_down,
+    AccessorKind, HirType, ParsedClass, ParsedMethod, ParsedScript, ProjectStageIndex, TypeEnv,
+    decode_string_literal, fold_100_to_01, is_atomic_expr, map_as2_direct_prop_to_modern,
+    map_as2_key_constant, map_as2_percent_prop_to_modern, map_as3_keyboard_constant,
+    parse_class_unit, parse_timeline_script, sanitize_swift_type_ident, short_type_name,
+    stmts_use_key_is_down,
 };
 use super::swift_contract::{
     SwiftProxyMethod, SwiftProxyParam, inspect_swift_host_class, is_swift_host_class,
@@ -45,6 +46,23 @@ pub struct SwiftCompiledProject {
     pub symbols: Vec<SwiftCompiledSymbol>,
     pub source_classes_swift: String,
     pub issues: Vec<ConversionIssue>,
+}
+
+#[derive(Clone, Debug)]
+struct SwiftCallableSig {
+    params: Vec<HirType>,
+    return_ty: HirType,
+    can_throw: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct SwiftClassInfo {
+    swift_name: String,
+    ctor_params: Vec<HirType>,
+    instance_fields: BTreeMap<String, HirType>,
+    static_fields: BTreeMap<String, HirType>,
+    instance_methods: BTreeMap<String, SwiftCallableSig>,
+    static_methods: BTreeMap<String, SwiftCallableSig>,
 }
 
 /// Escape Swift 6 reserved keywords with backticks when used as identifiers/members.
@@ -101,6 +119,425 @@ pub(crate) fn escape_swift_ident(raw: &str) -> String {
     } else {
         raw.to_owned()
     }
+}
+
+fn swift_type_for_hir(ty: &HirType) -> String {
+    match ty {
+        HirType::Vector(elem) => match elem.as_ref() {
+            HirType::Float => "[Double]".into(),
+            HirType::Int => "[Int]".into(),
+            HirType::UInt => "[UInt]".into(),
+            HirType::Bool => "[Bool]".into(),
+            HirType::String => "[String]".into(),
+            HirType::Class(c) => format!("[{}]", swift_type_for_hir(&HirType::Class(c.clone()))),
+            _ => "[NFValue]".into(),
+        },
+        HirType::Class(name) => match short_type_name(name) {
+            "Event" | "MouseEvent" | "KeyboardEvent" | "TimerEvent" | "TouchEvent"
+            | "FocusEvent" => "NFEvent".into(),
+            "SoundChannel" => "NFSoundChannel".into(),
+            "SoundTransform" => "NFSoundTransform".into(),
+            "SoundMixer" => "NFSoundMixer".into(),
+            "Error" | "TypeError" | "RangeError" | "ArgumentError" | "ReferenceError"
+            | "SyntaxError" | "VerifyError" => "NFScriptError".into(),
+            "DropShadowFilter" | "GlowFilter" | "BlurFilter" | "BitmapFilter" => {
+                "NFFilterSpec".into()
+            }
+            _ => ty.to_swift_type(),
+        },
+        _ => ty.to_swift_type(),
+    }
+}
+
+fn swift_property_type_and_default(ty: &HirType) -> (String, &'static str) {
+    match ty {
+        HirType::Int => ("Int".into(), "0"),
+        HirType::UInt => ("UInt".into(), "0"),
+        HirType::Float => ("Double".into(), "0.0"),
+        HirType::Bool => ("Bool".into(), "false"),
+        HirType::String => ("String".into(), "\"\""),
+        HirType::Vector(_) => (swift_type_for_hir(ty), "[]"),
+        HirType::Array => ("NFValue".into(), "[]"),
+        HirType::Dictionary => ("NFValue".into(), "[:]"),
+        HirType::Object | HirType::Unknown | HirType::Function => ("NFValue".into(), ".undefined"),
+        other => (format!("{}?", swift_type_for_hir(other)), "nil"),
+    }
+}
+
+fn swift_nonoptional_default_expr(ty: &HirType) -> &'static str {
+    match ty {
+        HirType::Int | HirType::UInt => "0",
+        HirType::Float => "0.0",
+        HirType::Bool => "false",
+        HirType::String => "\"\"",
+        HirType::Vector(_) | HirType::Array => "[]",
+        HirType::Dictionary => "[:]",
+        _ => ".undefined",
+    }
+}
+
+fn stmts_can_throw_uncaught(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_can_throw_uncaught)
+}
+
+fn stmt_can_throw_uncaught(stmt: &Stmt) -> bool {
+    match stmt.unlocated() {
+        Stmt::Located(_, inner) | Stmt::Label(_, inner) | Stmt::IfFrameLoaded(_, inner) => {
+            stmt_can_throw_uncaught(inner)
+        }
+        Stmt::Throw(_) => true,
+        Stmt::Block(b) | Stmt::InitClip(_, b, _) => stmts_can_throw_uncaught(b),
+        Stmt::If(_, yes, no) => {
+            stmt_can_throw_uncaught(yes) || no.as_ref().is_some_and(|n| stmt_can_throw_uncaught(n))
+        }
+        Stmt::While(_, b) | Stmt::DoWhile(b, _) | Stmt::ForIn(_, _, _, b) => {
+            stmt_can_throw_uncaught(b)
+        }
+        Stmt::For(init, _, _, b) => stmt_can_throw_uncaught(init) || stmt_can_throw_uncaught(b),
+        Stmt::Switch(_, cases) => cases.iter().any(|c| stmts_can_throw_uncaught(&c.body)),
+        Stmt::Try(body, catches, fin) => {
+            let body_uncaught = catches.is_empty() && stmts_can_throw_uncaught(body);
+            let catch_uncaught = catches.iter().any(|c| stmts_can_throw_uncaught(&c.body));
+            let fin_uncaught = fin.as_ref().is_some_and(|f| stmts_can_throw_uncaught(f));
+            body_uncaught || catch_uncaught || fin_uncaught
+        }
+        _ => false,
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct LocalUsageInfo {
+    var_decl_counts: BTreeMap<String, usize>,
+    direct_mutated: BTreeSet<String>,
+    member_or_method_mutated: BTreeSet<String>,
+    read_names: BTreeSet<String>,
+}
+
+fn root_lvalue_ident(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Name(n) => Some(n.as_str()),
+        Expr::Member(b, _) | Expr::Index(b, _) => root_lvalue_ident(b),
+        _ => None,
+    }
+}
+
+fn is_swift_struct_mutating_method(method: &str) -> bool {
+    matches!(
+        method,
+        "push"
+            | "pop"
+            | "shift"
+            | "unshift"
+            | "reverse"
+            | "splice"
+            | "sort"
+            | "append"
+            | "removeAll"
+            | "offset"
+            | "inflate"
+            | "normalize"
+            | "identity"
+            | "translate"
+            | "scale"
+            | "rotate"
+            | "concat"
+    )
+}
+
+impl LocalUsageInfo {
+    fn analyze(stmts: &[Stmt]) -> Self {
+        let mut info = Self::default();
+        info.visit_stmts(stmts);
+        info
+    }
+
+    fn visit_stmts(&mut self, stmts: &[Stmt]) {
+        for s in stmts {
+            self.visit_stmt(s);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        match stmt.unlocated() {
+            Stmt::Located(_, inner) => self.visit_stmt(inner),
+            Stmt::Empty | Stmt::Break(_) | Stmt::Continue(_) | Stmt::DefaultXmlNamespace(_) => {}
+            Stmt::Block(b) | Stmt::InitClip(_, b, _) => self.visit_stmts(b),
+            Stmt::Var(vars) => {
+                for (name, _, val_opt) in vars {
+                    *self.var_decl_counts.entry(name.clone()).or_insert(0) += 1;
+                    if let Some(val) = val_opt {
+                        self.visit_expr(val);
+                    } else {
+                        self.direct_mutated.insert(name.clone());
+                    }
+                }
+            }
+            Stmt::Function(f) | Stmt::LegacyEvent(_, f) => self.visit_stmts(&f.body),
+            Stmt::Expr(e) | Stmt::Throw(e) => self.visit_expr(e),
+            Stmt::Return(e_opt, _) => {
+                if let Some(e) = e_opt {
+                    self.visit_expr(e);
+                }
+            }
+            Stmt::If(c, y, n) => {
+                self.visit_expr(c);
+                self.visit_stmt(y);
+                if let Some(no_s) = n {
+                    self.visit_stmt(no_s);
+                }
+            }
+            Stmt::While(c, b) | Stmt::DoWhile(b, c) => {
+                self.visit_expr(c);
+                self.visit_stmt(b);
+            }
+            Stmt::For(init, cond, upd, body) => {
+                self.visit_stmt(init);
+                if let Some(c) = cond {
+                    self.visit_expr(c);
+                }
+                if let Some(u) = upd {
+                    self.visit_expr(u);
+                }
+                self.visit_stmt(body);
+            }
+            Stmt::ForIn(init, coll, _, body) => {
+                match init.unlocated() {
+                    Stmt::Var(vars) => {
+                        for (name, _, val_opt) in vars {
+                            *self.var_decl_counts.entry(name.clone()).or_insert(0) += 1;
+                            if let Some(val) = val_opt {
+                                self.visit_expr(val);
+                            }
+                        }
+                    }
+                    Stmt::Expr(Expr::Name(n)) => {
+                        self.direct_mutated.insert(n.clone());
+                    }
+                    other => self.visit_stmt(other),
+                }
+                self.visit_expr(coll);
+                self.visit_stmt(body);
+            }
+            Stmt::Switch(disc, cases) => {
+                self.visit_expr(disc);
+                for c in cases {
+                    if let Some(t) = &c.test {
+                        self.visit_expr(t);
+                    }
+                    self.visit_stmts(&c.body);
+                }
+            }
+            Stmt::Try(b, catches, fin) => {
+                self.visit_stmts(b);
+                for c in catches {
+                    self.visit_stmts(&c.body);
+                }
+                if let Some(f) = fin {
+                    self.visit_stmts(f);
+                }
+            }
+            Stmt::Label(_, inner) | Stmt::IfFrameLoaded(_, inner) => self.visit_stmt(inner),
+            Stmt::With(t, b, _) | Stmt::TellTarget(t, b, _) => {
+                self.visit_expr(t);
+                self.visit_stmt(b);
+            }
+        }
+    }
+
+    fn visit_lvalue_mutation(&mut self, target: &Expr, is_compound_or_update: bool) {
+        match target {
+            Expr::Name(n) => {
+                self.direct_mutated.insert(n.clone());
+                if is_compound_or_update {
+                    self.read_names.insert(n.clone());
+                }
+            }
+            Expr::Member(b, _) => {
+                if let Some(root) = root_lvalue_ident(b) {
+                    self.member_or_method_mutated.insert(root.to_owned());
+                }
+                self.visit_expr(b);
+            }
+            Expr::Index(b, idx) => {
+                if let Some(root) = root_lvalue_ident(b) {
+                    self.member_or_method_mutated.insert(root.to_owned());
+                }
+                self.visit_expr(b);
+                self.visit_expr(idx);
+            }
+            other => self.visit_expr(other),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Name(n) => {
+                self.read_names.insert(n.clone());
+            }
+            Expr::Literal(_) | Expr::RegExpLiteral(_, _) | Expr::TypeValue(_, _) => {}
+            Expr::Member(b, _) | Expr::Unary(_, b) | Expr::TypeTest(_, b, _, _) => {
+                self.visit_expr(b);
+            }
+            Expr::Delete(t, _) => {
+                self.visit_lvalue_mutation(t, true);
+            }
+            Expr::Update(_, t, _) => {
+                self.visit_lvalue_mutation(t, true);
+            }
+            Expr::Assign(op, lhs, rhs) => {
+                self.visit_lvalue_mutation(lhs, op != "=");
+                self.visit_expr(rhs);
+            }
+            Expr::Index(b, i)
+            | Expr::Binary(_, b, i)
+            | Expr::InstanceOf(b, i)
+            | Expr::XmlFilter(b, i, _) => {
+                self.visit_expr(b);
+                self.visit_expr(i);
+            }
+            Expr::Conditional(c, y, n) => {
+                self.visit_expr(c);
+                self.visit_expr(y);
+                self.visit_expr(n);
+            }
+            Expr::Array(items) => {
+                for it in items.iter().flatten() {
+                    self.visit_expr(it);
+                }
+            }
+            Expr::Object(props) => {
+                for (_, v) in props {
+                    self.visit_expr(v);
+                }
+            }
+            Expr::Call(callee, args, _) => {
+                if let Expr::Member(base, method) = callee.as_ref()
+                    && is_swift_struct_mutating_method(method)
+                    && let Some(root) = root_lvalue_ident(base)
+                {
+                    self.member_or_method_mutated.insert(root.to_owned());
+                }
+                self.visit_expr(callee);
+                for a in args {
+                    self.visit_expr(a);
+                }
+            }
+            Expr::NewError(_, args, _)
+            | Expr::NewBuiltin(_, args, _)
+            | Expr::NewClass(_, args, _)
+            | Expr::NewValue(_, args, _)
+            | Expr::NewVector(_, args, _)
+            | Expr::XmlLiteral(_, args) => {
+                for a in args {
+                    self.visit_expr(a);
+                }
+            }
+            Expr::Function(f) => self.visit_stmts(&f.body),
+            Expr::XmlSelect {
+                base,
+                local,
+                namespace,
+                ..
+            } => {
+                self.visit_expr(base);
+                self.visit_expr(local);
+                if let Some(ns) = namespace {
+                    self.visit_expr(ns);
+                }
+            }
+            Expr::XmlWithAttr {
+                local, namespace, ..
+            } => {
+                self.visit_expr(local);
+                if let Some(ns) = namespace {
+                    self.visit_expr(ns);
+                }
+            }
+        }
+    }
+}
+
+fn build_swift_class_registry(
+    parsed_units: &[(usize, ParsedClass)],
+) -> BTreeMap<String, SwiftClassInfo> {
+    let mut reg = BTreeMap::new();
+    for (_, parsed) in parsed_units {
+        let mut info = SwiftClassInfo {
+            swift_name: sanitize_swift_type_ident(&parsed.short_name),
+            ..SwiftClassInfo::default()
+        };
+        for f in &parsed.fields {
+            let ty =
+                f.ty.as_deref()
+                    .map_or(HirType::Unknown, HirType::from_annotation);
+            if f.is_static {
+                info.static_fields.insert(f.name.clone(), ty);
+            } else {
+                info.instance_fields.insert(f.name.clone(), ty);
+            }
+        }
+        for m in &parsed.methods {
+            let raw_name = m.function.name.as_deref().unwrap_or(&parsed.short_name);
+            let is_ctor = raw_name == parsed.short_name && m.accessor.is_none() && !m.is_static;
+            let param_tys: Vec<HirType> = m
+                .function
+                .params
+                .iter()
+                .map(|(_, t)| {
+                    t.as_deref()
+                        .map_or(HirType::Unknown, HirType::from_annotation)
+                })
+                .collect();
+            if is_ctor {
+                info.ctor_params = param_tys;
+                continue;
+            }
+            if let Some(acc) = m.accessor {
+                let prop_ty = match acc {
+                    AccessorKind::Get => m
+                        .function
+                        .returns
+                        .as_deref()
+                        .map_or(HirType::Unknown, HirType::from_annotation),
+                    AccessorKind::Set => param_tys.first().cloned().unwrap_or(HirType::Unknown),
+                };
+                if m.is_static {
+                    info.static_fields
+                        .entry(raw_name.to_owned())
+                        .or_insert(prop_ty);
+                } else {
+                    info.instance_fields
+                        .entry(raw_name.to_owned())
+                        .or_insert(prop_ty);
+                }
+                continue;
+            }
+            let rty = m
+                .function
+                .returns
+                .as_deref()
+                .map_or(HirType::Void, HirType::from_annotation);
+            let can_throw = !parsed.is_interface
+                && !m.is_override
+                && raw_name != "onResize"
+                && stmts_can_throw_uncaught(&m.function.body);
+            let sig = SwiftCallableSig {
+                params: param_tys,
+                return_ty: rty,
+                can_throw,
+            };
+            if m.is_static {
+                info.static_methods.insert(raw_name.to_owned(), sig);
+            } else {
+                info.instance_methods.insert(raw_name.to_owned(), sig);
+            }
+        }
+        reg.insert(parsed.short_name.clone(), info.clone());
+        if parsed.qualified_name != parsed.short_name {
+            reg.insert(parsed.qualified_name.clone(), info);
+        }
+    }
+    reg
 }
 
 /// Compile all ActionScript source units, timeline frame scripts, and stage object scripts in
@@ -184,11 +621,18 @@ pub fn compile_project_scripts_to_swift(project: &Project) -> SwiftCompiledProje
         host_methods.push(m);
     }
 
+    let class_registry = build_swift_class_registry(&parsed_units);
+
     // 2. Emit non-`SwiftHost` project classes into `source_classes_swift`
     for (idx, parsed) in &parsed_units {
         let unit = &project.sources[*idx];
-        let (swift_cls, cls_issues) =
-            emit_swift_class(parsed, &unit.path, &stage, &host_method_map);
+        let (swift_cls, cls_issues) = emit_swift_class(
+            parsed,
+            &unit.path,
+            &stage,
+            &host_method_map,
+            &class_registry,
+        );
         issues.extend(cls_issues);
         if !swift_cls.trim().is_empty() {
             class_blocks.push(swift_cls);
@@ -221,6 +665,7 @@ pub fn compile_project_scripts_to_swift(project: &Project) -> SwiftCompiledProje
             &stage,
             &includes,
             &host_method_map,
+            &class_registry,
         );
         issues.extend(sym_issues);
         compiled_symbols.push(compiled_sym);
@@ -265,6 +710,7 @@ impl IncludeLookupExt for AuthoredPlayback {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_symbol_to_swift(
     _project: &Project,
     sym: &Symbol,
@@ -272,6 +718,7 @@ fn compile_symbol_to_swift(
     stage: &ProjectStageIndex,
     includes: &BTreeMap<String, ResourceUnit>,
     host_methods: &BTreeMap<String, SwiftProxyMethod>,
+    class_registry: &BTreeMap<String, SwiftClassInfo>,
 ) -> (SwiftCompiledSymbol, Vec<ConversionIssue>) {
     let mut issues = Vec::new();
     let mut prop_lines = Vec::new();
@@ -331,7 +778,7 @@ fn compile_symbol_to_swift(
                                     .map(HirType::from_annotation)
                                     .unwrap_or_else(|| {
                                         val_opt.as_ref().map_or(HirType::Unknown, |e| {
-                                            prelim_env.infer_expr(e, stage)
+                                            infer_prelim_expr(e, &prelim_env, stage, class_registry)
                                         })
                                     });
                                 let escaped = escape_swift_ident(vname);
@@ -373,13 +820,29 @@ fn compile_symbol_to_swift(
     }
 
     let helper_names: BTreeSet<String> = lifted_functions.keys().cloned().collect();
-    let mut helper_return_types: BTreeMap<String, HirType> = BTreeMap::new();
+    let mut helper_sigs: BTreeMap<String, SwiftCallableSig> = BTreeMap::new();
     for (fname, (f, _, _, _)) in &lifted_functions {
+        let param_tys: Vec<HirType> = f
+            .params
+            .iter()
+            .map(|(_, t)| {
+                t.as_deref()
+                    .map_or(HirType::Unknown, HirType::from_annotation)
+            })
+            .collect();
         let rty = f
             .returns
             .as_deref()
             .map_or(HirType::Void, HirType::from_annotation);
-        helper_return_types.insert(fname.clone(), rty);
+        let can_throw = fname != "onResize" && stmts_can_throw_uncaught(&f.body);
+        helper_sigs.insert(
+            fname.clone(),
+            SwiftCallableSig {
+                params: param_tys,
+                return_ty: rty,
+                can_throw,
+            },
+        );
     }
 
     // 3. Emit lifted helper functions (`@MainActor func relayout(...)`)
@@ -391,14 +854,19 @@ fn compile_symbol_to_swift(
             *lang == ScriptLanguage::ActionScript3,
             stage,
             host_methods,
+            class_registry,
             Some(sym.id.clone()),
             None,
         );
         emitter.set_instance_props(prop_types.clone());
         emitter.stage_child_props = stage_child_props.clone();
         emitter.instance_methods = helper_names.clone();
-        for (hn, hr) in &helper_return_types {
-            emitter.env.functions.insert(hn.clone(), hr.clone());
+        emitter.instance_method_sigs = helper_sigs.clone();
+        for (hn, sig) in &helper_sigs {
+            emitter
+                .env
+                .functions
+                .insert(hn.clone(), sig.return_ty.clone());
         }
         let code = emitter.emit_helper_method(fname, f);
         issues.extend(emitter.issues);
@@ -416,15 +884,20 @@ fn compile_symbol_to_swift(
             parsed.language == ScriptLanguage::ActionScript3,
             stage,
             host_methods,
+            class_registry,
             Some(sym.id.clone()),
             None,
         );
         emitter.set_instance_props(prop_types.clone());
         emitter.stage_child_props = stage_child_props.clone();
         emitter.instance_methods = helper_names.clone();
+        emitter.instance_method_sigs = helper_sigs.clone();
         emitter.top_level_is_symbol_frame = true;
-        for (hn, hr) in &helper_return_types {
-            emitter.env.functions.insert(hn.clone(), hr.clone());
+        for (hn, sig) in &helper_sigs {
+            emitter
+                .env
+                .functions
+                .insert(hn.clone(), sig.return_ty.clone());
         }
         emitter.precollect(&parsed.statements);
 
@@ -455,7 +928,7 @@ fn compile_symbol_to_swift(
             ));
         }
 
-        let rendered = emitter.emit_stmt_list(&parsed.statements);
+        let rendered = emitter.emit_function_body(&parsed.statements);
         if !rendered.trim().is_empty() {
             body_parts.push(rendered);
         }
@@ -472,8 +945,8 @@ fn compile_symbol_to_swift(
         frame_methods_swift.insert(*frame_idx, method_code);
     }
 
-    // 5. Emit stage instance `ObjectScript` handlers (including classic AS1/AS2 `on(release)` /
-    //    `onClipEvent(...)` blocks and unnamed Stage buttons bound by `elementId`)
+    // 5. Emit stage instance `ObjectScript` handlers (including classic AS1/AS2 `on(press)` /
+    //    `on(release)` / `onClipEvent(...)` blocks and unnamed Stage buttons bound by `elementId`)
     let mut instance_handlers_swift = Vec::new();
     for layer in &sym.timeline.layers {
         for kf in &layer.keyframes {
@@ -492,43 +965,58 @@ fn compile_symbol_to_swift(
                     }
                     let loc = format!("{}::{}::{:?}", sym.name, target_key, os.event);
                     if let Ok(parsed) = parse_object_script_for_swift(&os.script, includes) {
-                        let mut handler_blocks: Vec<(ObjectEvent, Vec<Stmt>)> = Vec::new();
+                        let mut handler_blocks: Vec<(
+                            ObjectEvent,
+                            Option<&'static str>,
+                            Vec<Stmt>,
+                        )> = Vec::new();
                         let mut direct_stmts: Vec<Stmt> = Vec::new();
 
                         for stmt in &parsed.statements {
                             if let Stmt::LegacyEvent(triggers, func) = stmt.unlocated() {
-                                let mapped_ev = map_legacy_triggers_to_object_event(triggers)
-                                    .unwrap_or(os.event);
-                                handler_blocks.push((mapped_ev, func.body.clone()));
+                                let mapped = map_legacy_triggers_for_swift(triggers, os.event);
+                                for (mapped_ev, tag) in mapped {
+                                    handler_blocks.push((mapped_ev, tag, func.body.clone()));
+                                }
                             } else {
                                 direct_stmts.push(stmt.clone());
                             }
                         }
                         if !direct_stmts.is_empty() {
-                            handler_blocks.push((os.event, direct_stmts));
+                            handler_blocks.push((os.event, None, direct_stmts));
                         }
 
-                        for (ev, body_stmts) in handler_blocks {
+                        for (ev, trigger_tag, body_stmts) in handler_blocks {
                             let mut emitter = SwiftEmitter::new(
                                 &loc,
                                 &parsed.expanded_source,
                                 parsed.language == ScriptLanguage::ActionScript3,
                                 stage,
                                 host_methods,
+                                class_registry,
                                 Some(sym.id.clone()),
                                 None,
                             );
                             emitter.set_instance_props(prop_types.clone());
                             emitter.stage_child_props = stage_child_props.clone();
                             emitter.instance_methods = helper_names.clone();
-                            for (hn, hr) in &helper_return_types {
-                                emitter.env.functions.insert(hn.clone(), hr.clone());
+                            emitter.instance_method_sigs = helper_sigs.clone();
+                            for (hn, sig) in &helper_sigs {
+                                emitter
+                                    .env
+                                    .functions
+                                    .insert(hn.clone(), sig.return_ty.clone());
                             }
                             emitter.indent = 0;
-                            let body = emitter.emit_stmt_list(&body_stmts);
+                            let body = emitter.emit_function_body(&body_stmts);
                             issues.extend(emitter.issues);
                             if !body.trim().is_empty() || el.scripts.len() == 1 {
-                                instance_handlers_swift.push((target_key.clone(), ev, body));
+                                let payload = if let Some(tag) = trigger_tag {
+                                    format!("// @nf-trigger: {tag}\n{body}")
+                                } else {
+                                    body
+                                };
+                                instance_handlers_swift.push((target_key.clone(), ev, payload));
                             }
                         }
                     }
@@ -550,17 +1038,43 @@ fn compile_symbol_to_swift(
     )
 }
 
-fn swift_property_type_and_default(ty: &HirType) -> (String, &'static str) {
-    match ty {
-        HirType::Int => ("Int".into(), "0"),
-        HirType::UInt => ("UInt".into(), "0"),
-        HirType::Float => ("Double".into(), "0.0"),
-        HirType::Bool => ("Bool".into(), "false"),
-        HirType::String => ("String".into(), "\"\""),
-        HirType::Array | HirType::Vector(_) => ("NFValue".into(), "[]"),
-        HirType::Dictionary => ("NFValue".into(), "[:]"),
-        HirType::Object | HirType::Unknown | HirType::Function => ("NFValue".into(), ".undefined"),
-        other => (format!("{}?", other.to_swift_type()), "nil"),
+fn infer_prelim_expr(
+    expr: &Expr,
+    env: &TypeEnv,
+    stage: &ProjectStageIndex,
+    class_registry: &BTreeMap<String, SwiftClassInfo>,
+) -> HirType {
+    match expr {
+        Expr::NewVector(elem, _, _) => HirType::Vector(Box::new(HirType::from_annotation(elem))),
+        Expr::NewClass(ty, _, _) | Expr::NewBuiltin(ty, _, _) | Expr::NewValue(ty, _, _) => {
+            HirType::from_annotation(ty)
+        }
+        Expr::NewError(ty, _, _) => HirType::Class(ty.clone()),
+        Expr::Call(callee, _, _) => {
+            if let Expr::Member(base, method) = callee.as_ref() {
+                if let Expr::Name(cls) = base.as_ref() {
+                    if cls == "Math" {
+                        return HirType::Float;
+                    }
+                    if let Some(cinfo) = class_registry.get(cls)
+                        && let Some(sig) = cinfo.static_methods.get(method)
+                    {
+                        return sig.return_ty.clone();
+                    }
+                }
+                let bty = infer_prelim_expr(base, env, stage, class_registry);
+                if let HirType::Class(cn) = bty
+                    && let Some(cinfo) = class_registry
+                        .get(cn.as_str())
+                        .or_else(|| class_registry.get(short_type_name(&cn)))
+                    && let Some(sig) = cinfo.instance_methods.get(method)
+                {
+                    return sig.return_ty.clone();
+                }
+            }
+            env.infer_expr(expr, stage)
+        }
+        _ => env.infer_expr(expr, stage),
     }
 }
 
@@ -570,18 +1084,25 @@ struct SwiftEmitter<'a> {
     source_is_as3: bool,
     stage: &'a ProjectStageIndex,
     host_methods: &'a BTreeMap<String, SwiftProxyMethod>,
+    class_registry: &'a BTreeMap<String, SwiftClassInfo>,
     env: TypeEnv,
     instance_props: BTreeMap<String, HirType>,
     stage_child_props: BTreeSet<String>,
     static_props: BTreeSet<String>,
     instance_methods: BTreeSet<String>,
+    instance_method_sigs: BTreeMap<String, SwiftCallableSig>,
     static_methods: BTreeSet<String>,
+    static_method_sigs: BTreeMap<String, SwiftCallableSig>,
     current_class_short: Option<String>,
     class_has_stage: bool,
     top_level_is_symbol_frame: bool,
     use_key_down_shim: bool,
     in_key_handler_event: Option<String>,
+    current_return_type: HirType,
+    in_try_depth: usize,
+    in_throwing_fn: bool,
     local_scopes: Vec<BTreeSet<String>>,
+    local_usage_stack: Vec<LocalUsageInfo>,
     key_down_handlers: BTreeMap<String, Expr>,
     key_up_handlers: BTreeMap<String, Expr>,
     resize_handlers: BTreeMap<String, Expr>,
@@ -592,12 +1113,14 @@ struct SwiftEmitter<'a> {
 }
 
 impl<'a> SwiftEmitter<'a> {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         location: &'a str,
         raw_source: &'a str,
         source_is_as3: bool,
         stage: &'a ProjectStageIndex,
         host_methods: &'a BTreeMap<String, SwiftProxyMethod>,
+        class_registry: &'a BTreeMap<String, SwiftClassInfo>,
         symbol_id: Option<String>,
         class_name: Option<String>,
     ) -> Self {
@@ -607,18 +1130,25 @@ impl<'a> SwiftEmitter<'a> {
             source_is_as3,
             stage,
             host_methods,
+            class_registry,
             env: TypeEnv::new(symbol_id, class_name),
             instance_props: BTreeMap::new(),
             stage_child_props: BTreeSet::new(),
             static_props: BTreeSet::new(),
             instance_methods: BTreeSet::new(),
+            instance_method_sigs: BTreeMap::new(),
             static_methods: BTreeSet::new(),
+            static_method_sigs: BTreeMap::new(),
             current_class_short: None,
             class_has_stage: true,
             top_level_is_symbol_frame: false,
             use_key_down_shim: false,
             in_key_handler_event: None,
+            current_return_type: HirType::Void,
+            in_try_depth: 0,
+            in_throwing_fn: false,
             local_scopes: vec![BTreeSet::new()],
+            local_usage_stack: Vec::new(),
             key_down_handlers: BTreeMap::new(),
             key_up_handlers: BTreeMap::new(),
             resize_handlers: BTreeMap::new(),
@@ -662,6 +1192,44 @@ impl<'a> SwiftEmitter<'a> {
         }
     }
 
+    fn lookup_class_info(&self, raw_cls: &str) -> Option<&SwiftClassInfo> {
+        self.class_registry
+            .get(raw_cls)
+            .or_else(|| self.class_registry.get(short_type_name(raw_cls)))
+    }
+
+    fn is_swift_reference_class(&self, ty: &HirType) -> bool {
+        match ty {
+            HirType::MovieClip | HirType::Sprite | HirType::Button | HirType::TextField => true,
+            HirType::Class(cn) => {
+                matches!(short_type_name(cn), "Sound" | "SoundChannel")
+                    || self.lookup_class_info(cn).is_some()
+            }
+            _ => false,
+        }
+    }
+
+    fn should_emit_local_as_var(&self, raw_name: &str, decl_ty: &HirType) -> (bool, bool) {
+        let Some(usage) = self.local_usage_stack.last() else {
+            return (true, true);
+        };
+        let redeclared = usage.var_decl_counts.get(raw_name).copied().unwrap_or(0) > 1;
+        let directly_mutated = usage.direct_mutated.contains(raw_name);
+        let struct_mutated = !self.is_swift_reference_class(decl_ty)
+            && usage.member_or_method_mutated.contains(raw_name);
+        let emit_var = redeclared || directly_mutated || struct_mutated;
+        let is_read = usage.read_names.contains(raw_name)
+            || usage.member_or_method_mutated.contains(raw_name);
+        (emit_var, is_read)
+    }
+
+    fn emit_function_body(&mut self, stmts: &[Stmt]) -> String {
+        self.local_usage_stack.push(LocalUsageInfo::analyze(stmts));
+        let out = self.emit_stmt_list(stmts);
+        self.local_usage_stack.pop();
+        out
+    }
+
     fn record_issue(
         &mut self,
         kind: ConversionIssueKind,
@@ -686,6 +1254,23 @@ impl<'a> SwiftEmitter<'a> {
         }
     }
 
+    fn proxy_swift_type_to_hir(swift_ty: &str) -> HirType {
+        match swift_ty.trim() {
+            "Int" => HirType::Int,
+            "UInt" => HirType::UInt,
+            "Double" => HirType::Float,
+            "Bool" => HirType::Bool,
+            "String" => HirType::String,
+            "[Double]" => HirType::Vector(Box::new(HirType::Float)),
+            "[Int]" => HirType::Vector(Box::new(HirType::Int)),
+            "[UInt]" => HirType::Vector(Box::new(HirType::UInt)),
+            "[Bool]" => HirType::Vector(Box::new(HirType::Bool)),
+            "[String]" => HirType::Vector(Box::new(HirType::String)),
+            "[NFValue]" => HirType::Array,
+            _ => HirType::Unknown,
+        }
+    }
+
     fn emit_host_proxy_call_inner(
         &mut self,
         method: &str,
@@ -702,15 +1287,7 @@ impl<'a> SwiftEmitter<'a> {
             if let Some(spec) = contract.as_ref().and_then(|c| c.params.get(idx)) {
                 let label = escape_swift_ident(&spec.name);
                 if let Some(arg) = payload_args.get(idx) {
-                    let expected = match spec.swift_type.as_str() {
-                        "Int" => HirType::Int,
-                        "UInt" => HirType::UInt,
-                        "Double" => HirType::Float,
-                        "Bool" => HirType::Bool,
-                        "String" => HirType::String,
-                        "[NFValue]" => HirType::Array,
-                        _ => HirType::Unknown,
-                    };
+                    let expected = Self::proxy_swift_type_to_hir(&spec.swift_type);
                     let coerced = if spec.swift_type == "[NFValue]" {
                         if let Expr::Array(items) = arg {
                             let parts: Vec<String> = items
@@ -744,22 +1321,175 @@ impl<'a> SwiftEmitter<'a> {
         (format!("{recv}.{m_esc}({})", call_args.join(", ")), ret_ty)
     }
 
+    fn is_nullable_prop(&self, prop_name: &str) -> bool {
+        if self.stage_child_props.contains(prop_name) {
+            return false;
+        }
+        let Some(ty) = self.instance_props.get(prop_name) else {
+            return false;
+        };
+        matches!(
+            ty,
+            HirType::TextField
+                | HirType::MovieClip
+                | HirType::Sprite
+                | HirType::Button
+                | HirType::Class(_)
+        )
+    }
+
+    fn expr_produces_optional(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Name(n) if !self.is_local(n) => self.is_nullable_prop(n) || n == "stage",
+            Expr::Member(b, p) if matches!(b.as_ref(), Expr::Name(n) if n == "this") => {
+                self.is_nullable_prop(p) || p == "stage"
+            }
+            Expr::Member(base, prop) => {
+                if is_stage_expr(base) {
+                    return !matches!(prop.as_str(), "stageWidth" | "stageHeight" | "stage3Ds");
+                }
+                if !self.source_is_as3 && matches!(base.as_ref(), Expr::Name(c) if c == "Stage") {
+                    return !matches!(prop.as_str(), "width" | "height" | "scaleMode" | "align");
+                }
+                self.expr_produces_optional(base)
+            }
+            Expr::Call(callee, args, _) => {
+                if match_host_proxy_call(callee, args).is_some() {
+                    return false;
+                }
+                if let Expr::Name(fn_name) = callee.as_ref()
+                    && !self.is_local(fn_name)
+                    && let Some(sig) = self.instance_method_sigs.get(fn_name)
+                    && sig.can_throw
+                    && self.in_try_depth == 0
+                    && !self.in_throwing_fn
+                {
+                    return true;
+                }
+                if let Expr::Member(base, method) = callee.as_ref() {
+                    if matches!(base.as_ref(), Expr::Name(n) if n == "this")
+                        && let Some(sig) = self.instance_method_sigs.get(method)
+                        && sig.can_throw
+                        && self.in_try_depth == 0
+                        && !self.in_throwing_fn
+                    {
+                        return true;
+                    }
+                    if let Expr::Name(cls) = base.as_ref()
+                        && let Some(cinfo) = self.lookup_class_info(cls)
+                        && let Some(sig) = cinfo.static_methods.get(method)
+                        && sig.can_throw
+                        && self.in_try_depth == 0
+                        && !self.in_throwing_fn
+                    {
+                        return true;
+                    }
+                    if let HirType::Class(cn) = self.infer(base)
+                        && let Some(cinfo) = self.lookup_class_info(&cn)
+                        && let Some(sig) = cinfo.instance_methods.get(method)
+                        && sig.can_throw
+                        && self.in_try_depth == 0
+                        && !self.in_throwing_fn
+                    {
+                        return true;
+                    }
+                    return self.expr_produces_optional(base);
+                }
+                false
+            }
+            Expr::TypeTest(op, _, _, _) if op == "as" => true,
+            _ => false,
+        }
+    }
+
     fn infer(&self, expr: &Expr) -> HirType {
         match expr {
+            Expr::NewVector(elem, _, _) => {
+                return HirType::Vector(Box::new(HirType::from_annotation(elem)));
+            }
+            Expr::NewError(ty, _, _) => return HirType::Class(ty.clone()),
+            Expr::NewClass(ty, _, _) | Expr::NewBuiltin(ty, _, _) | Expr::NewValue(ty, _, _) => {
+                if ty.starts_with("Vector.<") {
+                    return HirType::from_annotation(ty);
+                }
+            }
+            Expr::Index(base, _) => {
+                if let HirType::Vector(elem) = self.infer(base) {
+                    return (*elem).clone();
+                }
+            }
             Expr::Call(callee, args, _) => {
                 if let Some((method, _)) = match_host_proxy_call(callee, args)
                     && let Some(spec) = self.host_methods.get(&method)
                 {
-                    return match spec.return_swift_type.as_deref() {
-                        None => HirType::Void,
-                        Some("Bool") => HirType::Bool,
-                        Some("Int") => HirType::Int,
-                        Some("UInt") => HirType::UInt,
-                        Some("Double") => HirType::Float,
-                        Some("String") => HirType::String,
-                        Some("[NFValue]") => HirType::Array,
-                        _ => HirType::Unknown,
-                    };
+                    return spec
+                        .return_swift_type
+                        .as_deref()
+                        .map_or(HirType::Void, Self::proxy_swift_type_to_hir);
+                }
+                if let Expr::Name(fn_name) = callee.as_ref() {
+                    match fn_name.as_str() {
+                        "isNaN" | "isFinite" => return HirType::Bool,
+                        "parseInt" | "parseFloat" => return HirType::Float,
+                        _ => {}
+                    }
+                    if !self.is_local(fn_name)
+                        && let Some(sig) = self.instance_method_sigs.get(fn_name)
+                    {
+                        return sig.return_ty.clone();
+                    }
+                    if !self.is_local(fn_name)
+                        && let Some(sig) = self.static_method_sigs.get(fn_name)
+                    {
+                        return sig.return_ty.clone();
+                    }
+                }
+                if let Expr::Member(base, method) = callee.as_ref() {
+                    if matches!(base.as_ref(), Expr::Name(n) if n == "this")
+                        && let Some(sig) = self.instance_method_sigs.get(method)
+                    {
+                        return sig.return_ty.clone();
+                    }
+                    if let Expr::Name(cls) = base.as_ref() {
+                        if cls == "Math" {
+                            return HirType::Float;
+                        }
+                        if let Some(cinfo) = self.lookup_class_info(cls)
+                            && let Some(sig) = cinfo.static_methods.get(method)
+                        {
+                            return sig.return_ty.clone();
+                        }
+                    }
+                    let base_ty = self.infer(base);
+                    if base_ty == HirType::String {
+                        return match method.as_str() {
+                            "toLowerCase" | "toUpperCase" | "substr" | "substring" | "charAt" => {
+                                HirType::String
+                            }
+                            "indexOf" | "lastIndexOf" => HirType::Int,
+                            "charCodeAt" => HirType::Float,
+                            _ => HirType::Unknown,
+                        };
+                    }
+                    if let HirType::Vector(elem) = &base_ty {
+                        return match method.as_str() {
+                            "pop" | "shift" => (**elem).clone(),
+                            "push" | "unshift" | "indexOf" => HirType::Int,
+                            "join" => HirType::String,
+                            "slice" => base_ty,
+                            _ => HirType::Unknown,
+                        };
+                    }
+                    if let HirType::Class(cn) = &base_ty {
+                        if short_type_name(cn) == "Sound" && method == "play" {
+                            return HirType::Class("SoundChannel".into());
+                        }
+                        if let Some(cinfo) = self.lookup_class_info(cn)
+                            && let Some(sig) = cinfo.instance_methods.get(method)
+                        {
+                            return sig.return_ty.clone();
+                        }
+                    }
                 }
             }
             Expr::Name(n) => {
@@ -767,6 +1497,12 @@ impl<'a> SwiftEmitter<'a> {
                     return t.clone();
                 }
                 if let Some(t) = self.instance_props.get(n) {
+                    return t.clone();
+                }
+                if let Some(cls) = &self.current_class_short
+                    && let Some(cinfo) = self.lookup_class_info(cls)
+                    && let Some(t) = cinfo.static_fields.get(n)
+                {
                     return t.clone();
                 }
             }
@@ -777,6 +1513,69 @@ impl<'a> SwiftEmitter<'a> {
             }
             Expr::Member(b, p) if is_external_interface_base(b) && p == "available" => {
                 return HirType::Bool;
+            }
+            Expr::Member(base, prop) => {
+                if let Expr::Name(cls) = base.as_ref() {
+                    if cls == "Math" {
+                        return HirType::Float;
+                    }
+                    if matches!(
+                        cls.as_str(),
+                        "BlendMode" | "TextFieldType" | "StageScaleMode" | "StageAlign"
+                    ) {
+                        return HirType::String;
+                    }
+                    if classify_swift_event_type(expr).is_some() {
+                        return HirType::String;
+                    }
+                    if let Some(cinfo) = self.lookup_class_info(cls)
+                        && let Some(fty) = cinfo.static_fields.get(prop)
+                    {
+                        return fty.clone();
+                    }
+                }
+                let bty = self.infer(base);
+                if matches!(bty, HirType::Vector(_) | HirType::String) && prop == "length" {
+                    return HirType::Int;
+                }
+                if let HirType::Class(cn) = &bty {
+                    let short = short_type_name(cn);
+                    if matches!(
+                        short,
+                        "Error"
+                            | "TypeError"
+                            | "RangeError"
+                            | "ArgumentError"
+                            | "ReferenceError"
+                            | "SyntaxError"
+                    ) && matches!(prop.as_str(), "message" | "name")
+                    {
+                        return HirType::String;
+                    }
+                    if matches!(
+                        short,
+                        "Event" | "MouseEvent" | "TouchEvent" | "KeyboardEvent" | "FocusEvent"
+                    ) {
+                        match prop.as_str() {
+                            "stageX" | "stageY" | "localX" | "localY" | "pressure" => {
+                                return HirType::Float;
+                            }
+                            "touchPointID" => return HirType::Int,
+                            "buttonDown" | "isPrimaryTouchPoint" => return HirType::Bool,
+                            "type" => return HirType::String,
+                            _ => {}
+                        }
+                    }
+                    if let Some(cinfo) = self.lookup_class_info(cn)
+                        && let Some(fty) = cinfo.instance_fields.get(prop)
+                    {
+                        return fty.clone();
+                    }
+                }
+                if matches!(bty, HirType::TextField) && matches!(prop.as_str(), "text" | "htmlText")
+                {
+                    return HirType::String;
+                }
             }
             _ => {}
         }
@@ -818,33 +1617,42 @@ impl<'a> SwiftEmitter<'a> {
             self.in_key_handler_event = f.params.first().map(|(n, _)| n.clone());
         }
 
-        self.push_scope();
-        let params_sig = self.emit_swift_params(f, f.offset);
         let ret_hir = f
             .returns
             .as_deref()
             .map_or(HirType::Void, HirType::from_annotation);
+        let can_throw = raw_name != "onResize" && stmts_can_throw_uncaught(&f.body);
+        let saved_ret = std::mem::replace(&mut self.current_return_type, ret_hir.clone());
+        let saved_throw = std::mem::replace(&mut self.in_throwing_fn, can_throw);
+
+        self.push_scope();
+        let params_sig = self.emit_swift_params(f, f.offset);
+        let throws_kw = if can_throw { " throws" } else { "" };
         let (discardable, ret_clause) = if ret_hir == HirType::Void {
             ("", String::new())
         } else {
             (
                 "@discardableResult ",
-                format!(" -> {}", ret_hir.to_swift_type()),
+                format!(" -> {}", swift_type_for_hir(&ret_hir)),
             )
         };
 
         self.indent = 1;
-        let body = self.emit_stmt_list(&f.body);
+        let body = self.emit_function_body(&f.body);
         self.indent = 0;
         self.pop_scope();
         self.in_key_handler_event = saved_ke;
         self.top_level_is_symbol_frame = saved_top;
+        self.current_return_type = saved_ret;
+        self.in_throwing_fn = saved_throw;
 
         if body.trim().is_empty() {
-            format!("{discardable}@MainActor public func {fname}({params_sig}){ret_clause} {{}}")
+            format!(
+                "{discardable}@MainActor public func {fname}({params_sig}){throws_kw}{ret_clause} {{}}"
+            )
         } else {
             format!(
-                "{discardable}@MainActor public func {fname}({params_sig}){ret_clause} {{\n{body}\n}}"
+                "{discardable}@MainActor public func {fname}({params_sig}){throws_kw}{ret_clause} {{\n{body}\n}}"
             )
         }
     }
@@ -856,7 +1664,7 @@ impl<'a> SwiftEmitter<'a> {
             let hir_ty = pty
                 .as_deref()
                 .map_or(HirType::Unknown, HirType::from_annotation);
-            let swift_ty = hir_ty.to_swift_type();
+            let swift_ty = swift_type_for_hir(&hir_ty);
             self.mark_local(raw_p);
             self.env.define(raw_p.clone(), hir_ty.clone());
             if let Some(Some(def)) = f.defaults.get(i) {
@@ -869,7 +1677,8 @@ impl<'a> SwiftEmitter<'a> {
         if let Some(rest) = &f.rest {
             let rname = escape_swift_ident(rest);
             self.mark_local(rest);
-            self.env.define(rest.clone(), HirType::Array);
+            self.env
+                .define(rest.clone(), HirType::Vector(Box::new(HirType::Unknown)));
             out.push(format!("_ {rname}: NFValue..."));
         }
         out.join(", ")
@@ -929,7 +1738,7 @@ impl<'a> SwiftEmitter<'a> {
                                 out.push(clip_init);
                                 continue;
                             }
-                            let rhs = self.emit_coerced_expr(val, &target_ty, offset);
+                            let rhs = self.emit_coerced_property_init(val, &target_ty, offset);
                             out.push(format!("{pad}self.{escaped} = {rhs}"));
                         }
                         continue;
@@ -953,20 +1762,46 @@ impl<'a> SwiftEmitter<'a> {
                         .unwrap_or_else(|| {
                             val_opt.as_ref().map_or(HirType::Unknown, |e| self.infer(e))
                         });
-                    let swift_ty = decl_ty.to_swift_type();
                     let already = self.is_local(raw_name);
                     self.mark_local(raw_name);
                     self.env.define(raw_name.clone(), decl_ty.clone());
 
                     if let Some(val) = val_opt {
-                        let rhs = self.emit_coerced_expr(val, &decl_ty, offset);
+                        let is_nullable_class = matches!(
+                            decl_ty,
+                            HirType::TextField
+                                | HirType::MovieClip
+                                | HirType::Sprite
+                                | HirType::Button
+                                | HirType::Class(_)
+                        ) && (is_null_or_undef(val)
+                            || self.expr_produces_optional(val));
+                        let swift_ty = if is_nullable_class {
+                            format!("{}?", swift_type_for_hir(&decl_ty))
+                        } else {
+                            swift_type_for_hir(&decl_ty)
+                        };
+                        let rhs = if is_nullable_class {
+                            self.emit_expr_with_offset(val, offset)
+                        } else {
+                            self.emit_coerced_expr(val, &decl_ty, offset)
+                        };
                         if already {
                             out.push(format!("{pad}{vname} = {rhs}"));
                         } else {
-                            out.push(format!("{pad}var {vname}: {swift_ty} = {rhs}"));
+                            let (emit_var, is_read) =
+                                self.should_emit_local_as_var(raw_name, &decl_ty);
+                            if emit_var {
+                                out.push(format!("{pad}var {vname}: {swift_ty} = {rhs}"));
+                            } else {
+                                out.push(format!("{pad}let {vname}: {swift_ty} = {rhs}"));
+                                if !is_read {
+                                    out.push(format!("{pad}_ = {vname}"));
+                                }
+                            }
                         }
                     } else if !already {
-                        let (_, def_val) = swift_property_type_and_default(&decl_ty);
+                        let (swift_ty, def_val) = swift_property_type_and_default(&decl_ty);
                         out.push(format!("{pad}var {vname}: {swift_ty} = {def_val}"));
                     }
                 }
@@ -982,21 +1817,23 @@ impl<'a> SwiftEmitter<'a> {
                 self.mark_local(raw_name);
                 let saved_top = self.top_level_is_symbol_frame;
                 self.top_level_is_symbol_frame = false;
-                self.push_scope();
-                let params = self.emit_swift_params(f, offset);
                 let ret_hir = f
                     .returns
                     .as_deref()
                     .map_or(HirType::Void, HirType::from_annotation);
+                let saved_ret = std::mem::replace(&mut self.current_return_type, ret_hir.clone());
+                self.push_scope();
+                let params = self.emit_swift_params(f, offset);
                 let ret_str = if ret_hir == HirType::Void {
                     String::new()
                 } else {
-                    format!(" -> {}", ret_hir.to_swift_type())
+                    format!(" -> {}", swift_type_for_hir(&ret_hir))
                 };
                 self.indent += 1;
-                let body = self.emit_stmt_list(&f.body);
+                let body = self.emit_function_body(&f.body);
                 self.indent -= 1;
                 self.pop_scope();
+                self.current_return_type = saved_ret;
                 self.top_level_is_symbol_frame = saved_top;
                 format!("{pad}func {fname}({params}){ret_str} {{\n{body}\n{pad}}}")
             }
@@ -1033,7 +1870,7 @@ impl<'a> SwiftEmitter<'a> {
                 format!("{pad}repeat {b} while {c}")
             }
             Stmt::For(init, cond, update, body) => {
-                // Swift 6 removed C-style `for (init; cond; update)` -> lower deterministically to `do { init; while cond { body; update } }`!
+                // Swift 6 removed C-style `for (init; cond; update)` -> lower deterministically to `while`!
                 let saved_top = self.top_level_is_symbol_frame;
                 self.top_level_is_symbol_frame = false;
                 self.push_scope();
@@ -1077,58 +1914,154 @@ impl<'a> SwiftEmitter<'a> {
             Stmt::ForIn(init, coll, is_each, body) => {
                 let saved_top = self.top_level_is_symbol_frame;
                 self.top_level_is_symbol_frame = false;
-                self.push_scope();
-                let var_name = match init.unlocated() {
-                    Stmt::Var(vars) if !vars.is_empty() => {
-                        let n = &vars[0].0;
-                        self.mark_local(n);
-                        self.env.define(n.clone(), HirType::Unknown);
-                        escape_swift_ident(n)
-                    }
-                    Stmt::Expr(Expr::Name(n)) => escape_swift_ident(n),
-                    _ => "_item".into(),
+                let coll_ty = self.infer(coll);
+                let coll_raw = self.emit_expr_with_offset(coll, offset);
+                let coll_s = if self.expr_produces_optional(coll) {
+                    format!("({coll_raw} ?? [])")
+                } else {
+                    coll_raw
                 };
-                let coll_s = self.emit_expr_with_offset(coll, offset);
-                let b = self.emit_swift_branch(body);
+
+                self.push_scope();
+                let (raw_var_name, explicit_var_ty) = match init.unlocated() {
+                    Stmt::Var(vars) if !vars.is_empty() => (
+                        vars[0].0.clone(),
+                        vars[0].1.as_deref().map(HirType::from_annotation),
+                    ),
+                    Stmt::Expr(Expr::Name(n)) => (n.clone(), None),
+                    _ => ("_item".into(), None),
+                };
+                let var_name = escape_swift_ident(&raw_var_name);
+                self.mark_local(&raw_var_name);
+
+                let result = if *is_each {
+                    let iter_coll_s = if matches!(coll_ty, HirType::Vector(_)) {
+                        coll_s.clone()
+                    } else {
+                        format!("NFRuntime.values({coll_s})")
+                    };
+                    let yielded_ty = match &coll_ty {
+                        HirType::Vector(elem) => (**elem).clone(),
+                        _ => HirType::Unknown,
+                    };
+                    let target_var_ty = explicit_var_ty.unwrap_or_else(|| yielded_ty.clone());
+                    let needs_coercion_bind = Self::is_nfvalue_or_unknown(&yielded_ty)
+                        && !Self::is_nfvalue_or_unknown(&target_var_ty);
+                    self.env.define(raw_var_name.clone(), target_var_ty.clone());
+
+                    if needs_coercion_bind {
+                        let (emit_var, is_read) =
+                            self.should_emit_local_as_var(&raw_var_name, &target_var_ty);
+                        self.indent += 1;
+                        let in_pad = self.pad();
+                        let sw_ty = swift_type_for_hir(&target_var_ty);
+                        let conv = match &target_var_ty {
+                            HirType::Float => "Double(_nfIterItem)".to_owned(),
+                            HirType::Int => "Int(_nfIterItem)".to_owned(),
+                            HirType::UInt => "UInt(_nfIterItem)".to_owned(),
+                            HirType::Bool => "_nfIterItem.isTruthy".to_owned(),
+                            HirType::String => "String(_nfIterItem)".to_owned(),
+                            _ => "_nfIterItem".to_owned(),
+                        };
+                        let inner_body = match body.unlocated() {
+                            Stmt::Block(b) => self.emit_stmt_list(b),
+                            other => self.emit_stmt(other),
+                        };
+                        self.indent -= 1;
+                        if inner_body.trim().is_empty() || (!emit_var && !is_read) {
+                            let tail = if inner_body.trim().is_empty() {
+                                String::new()
+                            } else {
+                                format!("\n{inner_body}")
+                            };
+                            format!(
+                                "{pad}for _nfIterItem in {iter_coll_s} {{\n{in_pad}let {var_name}: {sw_ty} = {conv}\n{in_pad}_ = {var_name}{tail}\n{pad}}}"
+                            )
+                        } else {
+                            let kw = if emit_var { "var" } else { "let" };
+                            format!(
+                                "{pad}for _nfIterItem in {iter_coll_s} {{\n{in_pad}{kw} {var_name}: {sw_ty} = {conv}\n{inner_body}\n{pad}}}"
+                            )
+                        }
+                    } else {
+                        let b = self.emit_swift_branch(body);
+                        format!("{pad}for {var_name} in {iter_coll_s} {b}")
+                    }
+                } else {
+                    self.env.define(raw_var_name, HirType::String);
+                    let b = self.emit_swift_branch(body);
+                    format!("{pad}for {var_name} in NFRuntime.keys({coll_s}) {b}")
+                };
+
                 self.pop_scope();
                 self.top_level_is_symbol_frame = saved_top;
-                if *is_each {
-                    format!("{pad}for {var_name} in {coll_s} {b}")
-                } else {
-                    format!("{pad}for {var_name} in NFRuntime.keys({coll_s}) {b}")
-                }
+                result
             }
             Stmt::Switch(disc, cases) => {
-                let d = self.emit_expr_with_offset(disc, offset);
+                let disc_ty = self.infer(disc);
+                let d_raw = self.emit_expr_with_offset(disc, offset);
+                let d = if self.expr_produces_optional(disc) {
+                    format!("({d_raw} ?? {})", swift_nonoptional_default_expr(&disc_ty))
+                } else {
+                    d_raw
+                };
                 let mut lines = vec![format!("{pad}switch {d} {{")];
                 let mut has_default = false;
-                for Case { test, body } in cases {
+                let total_cases = cases.len();
+
+                for (case_idx, Case { test, body }) in cases.iter().enumerate() {
                     if let Some(t) = test {
-                        lines.push(format!(
-                            "{pad}case {}:",
-                            self.emit_expr_with_offset(t, offset)
-                        ));
+                        let pat = self.emit_coerced_expr(t, &disc_ty, offset);
+                        lines.push(format!("{pad}case {pat}:"));
                     } else {
                         has_default = true;
                         lines.push(format!("{pad}default:"));
                     }
+                    self.push_scope();
                     self.indent += 1;
                     let bpad = self.pad();
-                    let filtered: Vec<&Stmt> = body
-                        .iter()
-                        .filter(|s| !matches!(s.unlocated(), Stmt::Break(None)))
-                        .collect();
-                    if filtered.is_empty() {
-                        lines.push(format!("{bpad}break"));
+
+                    if body.is_empty() {
+                        // Empty `case A:` before another case in AS2/AS3 falls through!
+                        if case_idx + 1 < total_cases {
+                            lines.push(format!("{bpad}fallthrough"));
+                        } else {
+                            lines.push(format!("{bpad}break"));
+                        }
                     } else {
-                        for s in filtered {
+                        let ends_with_break = body
+                            .last()
+                            .is_some_and(|s| matches!(s.unlocated(), Stmt::Break(None)));
+                        let ends_with_control = body.last().is_some_and(|s| {
+                            matches!(
+                                s.unlocated(),
+                                Stmt::Break(_)
+                                    | Stmt::Continue(_)
+                                    | Stmt::Return(_, _)
+                                    | Stmt::Throw(_)
+                            )
+                        });
+                        let slice_len = if ends_with_break {
+                            body.len() - 1
+                        } else {
+                            body.len()
+                        };
+                        let mut emitted_any = false;
+                        for s in &body[..slice_len] {
                             let rs = self.emit_stmt(s);
                             if !rs.trim().is_empty() {
                                 lines.push(rs);
+                                emitted_any = true;
                             }
+                        }
+                        if !ends_with_control && case_idx + 1 < total_cases {
+                            lines.push(format!("{bpad}fallthrough"));
+                        } else if !emitted_any {
+                            lines.push(format!("{bpad}break"));
                         }
                     }
                     self.indent -= 1;
+                    self.pop_scope();
                 }
                 if !has_default {
                     lines.push(format!("{pad}default:\n{pad}    break"));
@@ -1145,14 +2078,20 @@ impl<'a> SwiftEmitter<'a> {
                 None => format!("{pad}continue"),
             },
             Stmt::Return(val, _) => match val {
+                Some(v) if self.current_return_type != HirType::Void => {
+                    let rty = self.current_return_type.clone();
+                    format!("{pad}return {}", self.emit_coerced_expr(v, &rty, offset))
+                }
                 Some(v) => format!("{pad}return {}", self.emit_expr_with_offset(v, offset)),
                 None => format!("{pad}return"),
             },
             Stmt::Throw(val) => {
-                format!(
-                    "{pad}NFRuntime.throwError({})",
-                    self.emit_expr_with_offset(val, offset)
-                )
+                let expr_sw = self.emit_expr_with_offset(val, offset);
+                if self.in_try_depth > 0 || self.in_throwing_fn {
+                    format!("{pad}try NFRuntime.throwScriptError({expr_sw})")
+                } else {
+                    format!("{pad}NFRuntime.throwError({expr_sw})")
+                }
             }
             Stmt::Try(body, catches, fin) => {
                 let saved_top = self.top_level_is_symbol_frame;
@@ -1166,26 +2105,54 @@ impl<'a> SwiftEmitter<'a> {
                     self.pop_scope();
                     out.push(format!("{pad}defer {{\n{fb}\n{pad}}}"));
                 }
-                self.push_scope();
-                self.indent += 1;
-                let b = self.emit_stmt_list(body);
-                self.indent -= 1;
-                self.pop_scope();
+
                 if let Some(CatchClause {
                     name, body: cbody, ..
                 }) = catches.first()
                 {
+                    self.in_try_depth += 1;
+                    self.push_scope();
+                    self.indent += 1;
+                    let try_pad = self.pad();
+                    let b = self.emit_stmt_list(body);
+                    self.indent -= 1;
+                    self.pop_scope();
+                    self.in_try_depth -= 1;
+
                     let cname = escape_swift_ident(name);
                     self.push_scope();
                     self.mark_local(name);
+                    self.env
+                        .define(name.clone(), HirType::Class("Error".into()));
                     self.indent += 1;
+                    let catch_pad = self.pad();
                     let cb = self.emit_stmt_list(cbody);
                     self.indent -= 1;
                     self.pop_scope();
+
+                    let do_inner = if b.trim().is_empty() {
+                        format!("{try_pad}try NFRuntime.checkTryScope()")
+                    } else {
+                        format!("{try_pad}try NFRuntime.checkTryScope()\n{b}")
+                    };
+                    let catch_bind = format!(
+                        "{catch_pad}let {cname} = (_nfCaught as? NFScriptError) ?? NFScriptError(String(describing: _nfCaught))\n\
+                         {catch_pad}_ = {cname}"
+                    );
+                    let catch_inner = if cb.trim().is_empty() {
+                        catch_bind
+                    } else {
+                        format!("{catch_bind}\n{cb}")
+                    };
                     out.push(format!(
-                        "{pad}do {{\n{b}\n{pad}}} catch let {cname} {{\n{cb}\n{pad}}}"
+                        "{pad}do {{\n{do_inner}\n{pad}}} catch let _nfCaught {{\n{catch_inner}\n{pad}}}"
                     ));
                 } else {
+                    self.push_scope();
+                    self.indent += 1;
+                    let b = self.emit_stmt_list(body);
+                    self.indent -= 1;
+                    self.pop_scope();
                     out.push(format!("{pad}do {{\n{b}\n{pad}}}"));
                 }
                 self.top_level_is_symbol_frame = saved_top;
@@ -1278,7 +2245,7 @@ impl<'a> SwiftEmitter<'a> {
             return Some(format!("{pad}{t} {assign_op} 1"));
         }
 
-        // 2. AS3 `if (stage != null)` or `stage.addEventListener(...)` / `addEventListener(...)`
+        // 2. AS3 `stage.addEventListener(...)` / `addEventListener(...)`
         if let Expr::Call(callee, args, call_off) = expr
             && let Some(listener_stmt) = self.try_emit_add_event_listener(callee, args, *call_off)
         {
@@ -1299,11 +2266,16 @@ impl<'a> SwiftEmitter<'a> {
                         "{pad}{tgt}.addEventListener(\"enterFrame\") {closure}"
                     ));
                 }
-                "onRelease" | "onPress" | "onRollOver" | "onRollOut" => {
+                "onRelease" | "onPress" | "onReleaseOutside" | "onRollOver" | "onRollOut"
+                | "onMouseDown" | "onMouseUp" | "onMouseMove" | "onChanged" => {
                     let ev = match cb_prop {
                         "onRelease" => "click",
-                        "onPress" => "mouseDown",
+                        "onPress" | "onMouseDown" => "mouseDown",
+                        "onMouseUp" => "mouseUp",
+                        "onMouseMove" => "mouseMove",
+                        "onReleaseOutside" => "releaseOutside",
                         "onRollOver" => "rollOver",
+                        "onChanged" => "change",
                         _ => "rollOut",
                     };
                     let tgt = self.emit_listener_receiver(&target_expr, offset);
@@ -1449,7 +2421,7 @@ impl<'a> SwiftEmitter<'a> {
             _ => return None,
         };
         let pad = self.pad();
-        let ev_str = if let Some(ev) = classify_as3_event_type(&args[0]) {
+        let ev_str = if let Some(ev) = classify_swift_event_type(&args[0]) {
             format!("\"{ev}\"")
         } else {
             self.emit_expr_with_offset(&args[0], offset)
@@ -1470,20 +2442,20 @@ impl<'a> SwiftEmitter<'a> {
         }
         if let Expr::Name(n) = expr
             && !self.is_local(n)
-            && let Some(ty) = self.instance_props.get(n)
+            && self.instance_props.contains_key(n)
         {
             let esc = escape_swift_ident(n);
-            if ty.is_nullable_object() && !self.stage_child_props.contains(n) {
+            if self.is_nullable_prop(n) {
                 return format!("self.{esc}?");
             }
             return format!("self.{esc}");
         }
         if let Expr::Member(b, p) = expr
             && matches!(b.as_ref(), Expr::Name(n) if n == "this")
-            && let Some(ty) = self.instance_props.get(p)
+            && self.instance_props.contains_key(p)
         {
             let esc = escape_swift_ident(p);
-            if ty.is_nullable_object() && !self.stage_child_props.contains(p) {
+            if self.is_nullable_prop(p) {
                 return format!("self.{esc}?");
             }
             return format!("self.{esc}");
@@ -1517,7 +2489,7 @@ impl<'a> SwiftEmitter<'a> {
                 .define(ev_param.clone(), HirType::Class("Event".into()));
             self.indent += 1;
             let in_pad = self.pad();
-            let body = self.emit_stmt_list(&f.body);
+            let body = self.emit_function_body(&f.body);
             self.indent -= 1;
             self.pop_scope();
             self.top_level_is_symbol_frame = saved_top;
@@ -1532,12 +2504,24 @@ impl<'a> SwiftEmitter<'a> {
                 )
             }
         } else {
+            let call_with_event = |emitter: &SwiftEmitter<'_>, fn_name: &str, prefix: &str| {
+                let arity = emitter
+                    .instance_method_sigs
+                    .get(fn_name)
+                    .map_or(1, |sig| sig.params.len());
+                let esc = escape_swift_ident(fn_name);
+                if arity == 0 {
+                    format!("{prefix}{esc}()")
+                } else {
+                    format!("{prefix}{esc}(event)")
+                }
+            };
             let target_call = match rhs {
                 Expr::Name(fn_name) if !self.is_local(fn_name) => {
-                    format!("self.{}(event)", escape_swift_ident(fn_name))
+                    call_with_event(self, fn_name, "self.")
                 }
                 Expr::Member(b, m) if matches!(b.as_ref(), Expr::Name(n) if n == "this") => {
-                    format!("self.{}(event)", escape_swift_ident(m))
+                    call_with_event(self, m, "self.")
                 }
                 other => format!("{}(event)", self.emit_expr_with_offset(other, offset)),
             };
@@ -1554,7 +2538,11 @@ impl<'a> SwiftEmitter<'a> {
         let ty = self.infer(cond);
         let s = self.emit_expr_with_offset(cond, offset);
         if ty == HirType::Bool {
-            s
+            if self.expr_produces_optional(cond) {
+                format!("({s} ?? false)")
+            } else {
+                s
+            }
         } else if matches!(ty, HirType::Object | HirType::Unknown) {
             // Preserve boolean comparisons directly when AST is already a relational/logical expression
             if matches!(
@@ -1570,27 +2558,41 @@ impl<'a> SwiftEmitter<'a> {
             } else {
                 format!("NFRuntime.isTruthy({s})")
             }
+        } else if matches!(
+            ty,
+            HirType::Int | HirType::UInt | HirType::Float | HirType::String
+        ) {
+            format!("NFRuntime.isTruthy({s})")
+        } else if ty.is_nullable_object() {
+            format!("({s} != nil)")
         } else {
             s
         }
     }
 
-    fn is_nfvalue_type(ty: &HirType) -> bool {
+    fn is_nfvalue_or_unknown(ty: &HirType) -> bool {
         matches!(
             ty,
             HirType::Object
                 | HirType::Unknown
                 | HirType::Array
-                | HirType::Vector(_)
                 | HirType::Dictionary
                 | HirType::Function
         )
     }
 
+    fn is_nfvalue_type(ty: &HirType) -> bool {
+        Self::is_nfvalue_or_unknown(ty)
+    }
+
     fn expr_produces_nfvalue(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::Array(_) | Expr::Object(_) | Expr::NewVector(_, _, _) => true,
-            Expr::Index(base, _) => Self::is_nfvalue_type(&self.infer(base)),
+            Expr::Array(_) | Expr::Object(_) => true,
+            Expr::NewVector(_, _, _) => false,
+            Expr::Index(base, _) => match self.infer(base) {
+                HirType::Vector(elem) => Self::is_nfvalue_or_unknown(&elem),
+                other => Self::is_nfvalue_type(&other),
+            },
             Expr::Member(base, prop) => {
                 if is_stage_expr(base) {
                     return false;
@@ -1609,13 +2611,22 @@ impl<'a> SwiftEmitter<'a> {
                             | "Keyboard"
                             | "Event"
                             | "MouseEvent"
+                            | "TouchEvent"
+                            | "FocusEvent"
                             | "KeyboardEvent"
+                            | "BlendMode"
+                            | "TextFieldType"
+                            | "StageScaleMode"
+                            | "StageAlign"
                             | "Stage"
                     )
                 {
                     return false;
                 }
-                Self::is_nfvalue_type(&self.infer(base))
+                if prop == "length" {
+                    return false;
+                }
+                self.expr_produces_nfvalue(base) || Self::is_nfvalue_type(&self.infer(expr))
             }
             Expr::Name(n) if !self.is_local(n) => {
                 if let Some(ty) = self.instance_props.get(n) {
@@ -1629,7 +2640,10 @@ impl<'a> SwiftEmitter<'a> {
 
     fn lvalue_expects_nfvalue(&self, lhs: &Expr) -> bool {
         match lhs {
-            Expr::Index(base, _) => Self::is_nfvalue_type(&self.infer(base)),
+            Expr::Index(base, _) => match self.infer(base) {
+                HirType::Vector(elem) => Self::is_nfvalue_or_unknown(&elem),
+                other => Self::is_nfvalue_type(&other),
+            },
             Expr::Member(base, prop) => {
                 if is_stage_expr(base) {
                     return false;
@@ -1645,7 +2659,7 @@ impl<'a> SwiftEmitter<'a> {
                 {
                     return false;
                 }
-                Self::is_nfvalue_type(&self.infer(base))
+                self.expr_produces_nfvalue(base) || Self::is_nfvalue_type(&self.infer(lhs))
             }
             Expr::Name(n) if !self.is_local(n) => {
                 if let Some(ty) = self.instance_props.get(n) {
@@ -1659,7 +2673,11 @@ impl<'a> SwiftEmitter<'a> {
 
     fn wrap_nfvalue(&mut self, expr: &Expr, offset: usize) -> String {
         if self.expr_produces_nfvalue(expr) {
-            return self.emit_expr_with_offset(expr, offset);
+            let s = self.emit_expr_with_offset(expr, offset);
+            if self.expr_produces_optional(expr) {
+                return format!("({s} ?? .undefined)");
+            }
+            return s;
         }
         if let Expr::Literal(lit) = expr {
             if lit == "null" || lit == "undefined" {
@@ -1667,20 +2685,84 @@ impl<'a> SwiftEmitter<'a> {
             }
             return lit.clone();
         }
-        let inner = self.emit_expr_with_offset(expr, offset);
-        if inner == "nil" || inner == ".undefined" || inner.starts_with("NFValue(") {
-            inner
-        } else {
-            format!("NFValue({inner})")
+        let inner_raw = self.emit_expr_with_offset(expr, offset);
+        if inner_raw == "nil" || inner_raw == ".undefined" || inner_raw.starts_with("NFValue(") {
+            return inner_raw;
         }
+        if self.expr_produces_optional(expr) {
+            let ty = self.infer(expr);
+            let def = swift_nonoptional_default_expr(&ty);
+            if matches!(
+                ty,
+                HirType::Int
+                    | HirType::UInt
+                    | HirType::Float
+                    | HirType::Bool
+                    | HirType::String
+                    | HirType::Vector(_)
+                    | HirType::Array
+            ) {
+                return format!("NFValue({inner_raw} ?? {def})");
+            }
+            if matches!(
+                ty,
+                HirType::MovieClip | HirType::Sprite | HirType::Button | HirType::TextField
+            ) {
+                return format!("NFValue({inner_raw})");
+            }
+        }
+        format!("NFValue({inner_raw})")
+    }
+
+    fn emit_coerced_property_init(
+        &mut self,
+        expr: &Expr,
+        prop_ty: &HirType,
+        offset: usize,
+    ) -> String {
+        if matches!(
+            prop_ty,
+            HirType::TextField
+                | HirType::MovieClip
+                | HirType::Sprite
+                | HirType::Button
+                | HirType::Class(_)
+        ) {
+            return self.emit_expr_with_offset(expr, offset);
+        }
+        self.emit_coerced_expr(expr, prop_ty, offset)
     }
 
     fn emit_coerced_expr(&mut self, expr: &Expr, expected: &HirType, offset: usize) -> String {
         if Self::is_nfvalue_type(expected) {
             return self.wrap_nfvalue(expr, offset);
         }
+        if let HirType::Vector(elem_ty) = expected {
+            if let Expr::Array(items) = expr {
+                let parts: Vec<String> = items
+                    .iter()
+                    .map(|it| {
+                        it.as_ref()
+                            .map(|e| self.emit_coerced_expr(e, elem_ty, offset))
+                            .unwrap_or_else(|| swift_nonoptional_default_expr(elem_ty).into())
+                    })
+                    .collect();
+                return format!("[{}]", parts.join(", "));
+            }
+            if is_null_or_undef(expr) {
+                return "[]".into();
+            }
+            let raw = self.emit_expr_with_offset(expr, offset);
+            if self.expr_produces_optional(expr) {
+                return format!("({raw} ?? [])");
+            }
+            return raw;
+        }
+
         let actual = self.infer(expr);
         let from_nfvalue = self.expr_produces_nfvalue(expr);
+        let is_opt = self.expr_produces_optional(expr);
+
         if *expected == HirType::Float {
             if let Expr::Literal(lit) = expr
                 && lit.parse::<i64>().is_ok()
@@ -1689,32 +2771,78 @@ impl<'a> SwiftEmitter<'a> {
             {
                 return format!("{lit}.0");
             }
+            if is_opt {
+                let raw = self.emit_expr_with_offset(expr, offset);
+                if actual == HirType::Float {
+                    return format!("({raw} ?? 0.0)");
+                }
+                let def = swift_nonoptional_default_expr(&actual);
+                return format!("Double({raw} ?? {def})");
+            }
             if actual.is_integer() || from_nfvalue {
                 return self.wrap_double(expr, offset);
             }
         }
-        if *expected == HirType::Int && (actual == HirType::Float || from_nfvalue) {
-            let inner = self.emit_expr_with_offset(expr, offset);
-            return format!("Int({inner})");
+        if *expected == HirType::Int {
+            if is_opt {
+                let raw = self.emit_expr_with_offset(expr, offset);
+                if actual == HirType::Int {
+                    return format!("({raw} ?? 0)");
+                }
+                let def = swift_nonoptional_default_expr(&actual);
+                return format!("Int({raw} ?? {def})");
+            }
+            if actual == HirType::Float || actual == HirType::UInt || from_nfvalue {
+                return self.wrap_int(expr, offset);
+            }
         }
-        if *expected == HirType::UInt
-            && (actual == HirType::Float || actual == HirType::Int || from_nfvalue)
-        {
+        if *expected == HirType::UInt {
             if let Expr::Literal(lit) = expr
                 && (lit.parse::<u64>().is_ok() || lit.starts_with("0x") || lit.starts_with("0X"))
             {
                 return lit.clone();
             }
-            let inner = self.emit_expr_with_offset(expr, offset);
-            return format!("UInt({inner})");
+            if is_opt {
+                let raw = self.emit_expr_with_offset(expr, offset);
+                if actual == HirType::UInt {
+                    return format!("({raw} ?? 0)");
+                }
+                let def = swift_nonoptional_default_expr(&actual);
+                return format!("UInt({raw} ?? {def})");
+            }
+            if actual == HirType::Float || actual == HirType::Int || from_nfvalue {
+                let inner = self.emit_expr_with_offset(expr, offset);
+                return format!("UInt({inner})");
+            }
         }
-        if *expected == HirType::String && from_nfvalue {
-            let inner = self.emit_expr_with_offset(expr, offset);
-            return format!("String({inner})");
+        if *expected == HirType::String {
+            if is_null_or_undef(expr) {
+                return "\"\"".into();
+            }
+            if is_opt {
+                let raw = self.emit_expr_with_offset(expr, offset);
+                if actual == HirType::String {
+                    return format!("({raw} ?? \"\")");
+                }
+                return format!("String(describing: {raw} ?? .undefined)");
+            }
+            if from_nfvalue {
+                let inner = self.emit_expr_with_offset(expr, offset);
+                return format!("String({inner})");
+            }
         }
-        if *expected == HirType::Bool && from_nfvalue {
-            let inner = self.emit_subexpr(expr, 18, offset);
-            return format!("{inner}.isTruthy");
+        if *expected == HirType::Bool {
+            if is_opt {
+                let raw = self.emit_expr_with_offset(expr, offset);
+                if actual == HirType::Bool {
+                    return format!("({raw} ?? false)");
+                }
+                return format!("NFRuntime.isTruthy({raw})");
+            }
+            if from_nfvalue {
+                let inner = self.emit_subexpr(expr, 18, offset);
+                return format!("{inner}.isTruthy");
+            }
         }
         self.emit_expr_with_offset(expr, offset)
     }
@@ -1724,7 +2852,19 @@ impl<'a> SwiftEmitter<'a> {
             && matches!(callee.as_ref(), Expr::Name(n) if n == "Number")
             && args.len() == 1
         {
-            return format!("Double({})", self.emit_expr_with_offset(&args[0], offset));
+            return format!(
+                "Double({})",
+                self.emit_coerced_expr(&args[0], &HirType::Float, offset)
+            );
+        }
+        if self.expr_produces_optional(expr) {
+            let actual = self.infer(expr);
+            let raw = self.emit_expr_with_offset(expr, offset);
+            if actual == HirType::Float {
+                return format!("({raw} ?? 0.0)");
+            }
+            let def = swift_nonoptional_default_expr(&actual);
+            return format!("Double({raw} ?? {def})");
         }
         let s = self.emit_expr_with_offset(expr, offset);
         if s.starts_with("Double(") && s.ends_with(')') {
@@ -1739,6 +2879,15 @@ impl<'a> SwiftEmitter<'a> {
             && (lit.parse::<i64>().is_ok() || lit.starts_with("0x") || lit.starts_with("0X"))
         {
             return lit.clone();
+        }
+        if self.expr_produces_optional(expr) {
+            let actual = self.infer(expr);
+            let raw = self.emit_expr_with_offset(expr, offset);
+            if actual == HirType::Int {
+                return format!("({raw} ?? 0)");
+            }
+            let def = swift_nonoptional_default_expr(&actual);
+            return format!("Int({raw} ?? {def})");
         }
         let s = self.emit_expr_with_offset(expr, offset);
         if s.starts_with("Int(") && s.ends_with(')') {
@@ -1760,12 +2909,23 @@ impl<'a> SwiftEmitter<'a> {
             Expr::RegExpLiteral(pat, flags) => {
                 format!("NFRegExp(pattern: {:?}, flags: {:?})", pat, flags)
             }
-            Expr::TypeValue(name, _) => HirType::from_annotation(name).to_swift_type(),
+            Expr::TypeValue(name, _) => swift_type_for_hir(&HirType::from_annotation(name)),
             Expr::Name(name) => self.emit_swift_ident(name),
             Expr::Member(base, prop) => self.emit_swift_member(base, prop, offset),
             Expr::Index(base, idx) => {
-                let b = self.emit_subexpr(base, 18, offset);
-                let i = self.emit_expr_with_offset(idx, offset);
+                let base_ty = self.infer(base);
+                let b_raw = self.emit_subexpr(base, 18, offset);
+                let b =
+                    if self.expr_produces_optional(base) && matches!(base_ty, HirType::Vector(_)) {
+                        format!("({b_raw} ?? [])")
+                    } else {
+                        b_raw
+                    };
+                let i = if matches!(base_ty, HirType::Vector(_)) {
+                    self.wrap_int(idx, offset)
+                } else {
+                    self.emit_expr_with_offset(idx, offset)
+                };
                 format!("{b}[{i}]")
             }
             Expr::Array(items) => {
@@ -1800,6 +2960,14 @@ impl<'a> SwiftEmitter<'a> {
                         self.emit_expr_with_offset(inner, offset)
                     ),
                     "void" => "()".into(),
+                    "!" => {
+                        let inner_ty = self.infer(inner);
+                        if inner_ty == HirType::Bool || Self::is_nfvalue_type(&inner_ty) {
+                            format!("!{}", self.emit_subexpr(inner, 16, offset))
+                        } else {
+                            format!("(!{})", self.emit_bool_cond(inner, offset))
+                        }
+                    }
                     _ => format!("{sw_op}{}", self.emit_subexpr(inner, 16, offset)),
                 }
             }
@@ -1851,7 +3019,21 @@ impl<'a> SwiftEmitter<'a> {
                     self.infer(lhs)
                 };
                 let l = self.emit_lvalue_swift(lhs, offset);
-                let r = self.emit_coerced_expr(rhs, &l_ty, offset);
+                let r = if op == "="
+                    && matches!(
+                        l_ty,
+                        HirType::TextField
+                            | HirType::MovieClip
+                            | HirType::Sprite
+                            | HirType::Button
+                            | HirType::Class(_)
+                    )
+                    && matches!(lhs.as_ref(), Expr::Name(n) if self.is_nullable_prop(n))
+                {
+                    self.emit_expr_with_offset(rhs, offset)
+                } else {
+                    self.emit_coerced_expr(rhs, &l_ty, offset)
+                };
                 format!("{l} {op} {r}")
             }
             Expr::Call(callee, args, call_off) => self.emit_swift_call(callee, args, *call_off),
@@ -1859,22 +3041,8 @@ impl<'a> SwiftEmitter<'a> {
             | Expr::NewBuiltin(ty, args, call_off)
             | Expr::NewClass(ty, args, call_off)
             | Expr::NewValue(ty, args, call_off) => self.emit_swift_new(ty, args, *call_off),
-            Expr::NewVector(_, args, call_off) => {
-                if args.len() == 1
-                    && let Expr::Array(items) = &args[0]
-                {
-                    let parts: Vec<String> = items
-                        .iter()
-                        .map(|it| {
-                            it.as_ref()
-                                .map(|e| self.emit_expr_with_offset(e, *call_off))
-                                .unwrap_or_else(|| ".undefined".into())
-                        })
-                        .collect();
-                    format!("[{}]", parts.join(", "))
-                } else {
-                    "[]".into()
-                }
+            Expr::NewVector(elem_raw, args, call_off) => {
+                self.emit_swift_new_vector(elem_raw, args, *call_off)
             }
             Expr::InstanceOf(lhs, rhs) => {
                 let l = self.emit_expr_with_offset(lhs, offset);
@@ -1883,7 +3051,7 @@ impl<'a> SwiftEmitter<'a> {
             }
             Expr::TypeTest(op, inner, ty_name, tt_off) => {
                 let inner_sw = self.emit_expr_with_offset(inner, *tt_off);
-                let sw_ty = HirType::from_annotation(ty_name).to_swift_type();
+                let sw_ty = swift_type_for_hir(&HirType::from_annotation(ty_name));
                 if op == "as" {
                     format!("({inner_sw} as? {sw_ty})")
                 } else {
@@ -1903,7 +3071,7 @@ impl<'a> SwiftEmitter<'a> {
                     })
                     .collect();
                 self.indent += 1;
-                let body = self.emit_stmt_list(&f.body);
+                let body = self.emit_function_body(&f.body);
                 self.indent -= 1;
                 self.pop_scope();
                 self.top_level_is_symbol_frame = saved_top;
@@ -1976,15 +3144,43 @@ impl<'a> SwiftEmitter<'a> {
         }
     }
 
+    fn emit_swift_new_vector(&mut self, elem_raw: &str, args: &[Expr], offset: usize) -> String {
+        let elem_hir = HirType::from_annotation(elem_raw);
+        if args.len() == 1
+            && let Expr::Array(items) = &args[0]
+        {
+            let parts: Vec<String> = items
+                .iter()
+                .map(|it| {
+                    it.as_ref()
+                        .map(|e| self.emit_coerced_expr(e, &elem_hir, offset))
+                        .unwrap_or_else(|| swift_nonoptional_default_expr(&elem_hir).into())
+                })
+                .collect();
+            return format!("[{}]", parts.join(", "));
+        }
+        if let Some(len_arg) = args.first()
+            && !matches!(len_arg, Expr::Literal(s) if s == "0")
+        {
+            let len_sw = self.wrap_int(len_arg, offset);
+            let def_el = swift_nonoptional_default_expr(&elem_hir);
+            return format!("Array(repeating: {def_el}, count: Swift.max(0, {len_sw}))");
+        }
+        "[]".into()
+    }
+
     fn emit_swift_binary(&mut self, op: &str, lhs: &Expr, rhs: &Expr, offset: usize) -> String {
-        // Special pattern: `(expr) | 0` integer truncation -> `Int(Double(a) / Double(b))` or `Int(expr)`!
+        // Special pattern: `(expr) | 0` integer truncation -> `Int(expr)`!
         if op == "|" && matches!(rhs, Expr::Literal(s) if s == "0") {
-            let inner = self.emit_expr_with_offset(lhs, offset);
-            return format!("Int({inner})");
+            return self.wrap_int(lhs, offset);
         }
         if op == ">>>" && matches!(rhs, Expr::Literal(s) if s == "0") {
-            let inner = self.emit_expr_with_offset(lhs, offset);
-            return format!("UInt({inner})");
+            let inner = self.emit_coerced_expr(lhs, &HirType::UInt, offset);
+            return if inner.starts_with("UInt(") {
+                inner
+            } else {
+                format!("UInt({inner})")
+            };
         }
 
         // Division `a / b` ALWAYS promotes to floating-point `Double(a) / Double(b)` in ActionScript!
@@ -2005,18 +3201,35 @@ impl<'a> SwiftEmitter<'a> {
         let lt = self.infer(lhs);
         let rt = self.infer(rhs);
 
+        if matches!(op, "&&" | "||" | "and" | "or") {
+            let sw_op = if op == "and" {
+                "&&"
+            } else if op == "or" {
+                "||"
+            } else {
+                op
+            };
+            let lb = self.emit_bool_cond(lhs, offset);
+            let rb = self.emit_bool_cond(rhs, offset);
+            return format!("{lb} {sw_op} {rb}");
+        }
+
         // String concatenation `+` when either operand is String
         if (op == "+" || op == "add") && (lt == HirType::String || rt == HirType::String) {
-            let ls = if lt == HirType::String {
+            let ls = if lt == HirType::String && !self.expr_produces_optional(lhs) {
                 self.emit_subexpr(lhs, 12, offset)
+            } else if lt == HirType::String {
+                format!("({} ?? \"\")", self.emit_expr_with_offset(lhs, offset))
             } else {
                 format!(
                     "String(describing: {})",
                     self.emit_expr_with_offset(lhs, offset)
                 )
             };
-            let rs = if rt == HirType::String {
+            let rs = if rt == HirType::String && !self.expr_produces_optional(rhs) {
                 self.emit_subexpr(rhs, 12, offset)
+            } else if rt == HirType::String {
+                format!("({} ?? \"\")", self.emit_expr_with_offset(rhs, offset))
             } else {
                 format!(
                     "String(describing: {})",
@@ -2024,71 +3237,6 @@ impl<'a> SwiftEmitter<'a> {
                 )
             };
             return format!("{ls} + {rs}");
-        }
-
-        // Mixed `Int`/`UInt` + `Double` arithmetic or comparison promotes integer via `Double(...)`!
-        if matches!(
-            op,
-            "+" | "-" | "*" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!=="
-        ) && !is_null_or_undef(lhs)
-            && !is_null_or_undef(rhs)
-        {
-            let mixed_float = (lt == HirType::Float && rt.is_integer())
-                || (rt == HirType::Float && lt.is_integer());
-            if op == "%" && (lt == HirType::Float || rt == HirType::Float) {
-                let ld = if lt == HirType::Float {
-                    self.emit_subexpr(lhs, 18, offset)
-                } else {
-                    self.wrap_double(lhs, offset)
-                };
-                let rd = if rt == HirType::Float {
-                    self.emit_expr_with_offset(rhs, offset)
-                } else {
-                    self.wrap_double(rhs, offset)
-                };
-                return format!("{ld}.truncatingRemainder(dividingBy: {rd})");
-            }
-            if mixed_float {
-                let cmp_op = match op {
-                    "===" => "==",
-                    "!==" => "!=",
-                    other => other,
-                };
-                let prec = op_prec(cmp_op);
-                let l = if lt.is_integer() {
-                    self.wrap_double(lhs, offset)
-                } else {
-                    self.emit_subexpr(lhs, prec, offset)
-                };
-                let r = if rt.is_integer() {
-                    self.wrap_double(rhs, offset)
-                } else {
-                    self.emit_subexpr(rhs, prec, offset)
-                };
-                return format!("{l} {cmp_op} {r}");
-            }
-            let mixed_int_uint =
-                (lt == HirType::UInt && rt == HirType::Int && !is_nonneg_int_literal(rhs))
-                    || (lt == HirType::Int && rt == HirType::UInt && !is_nonneg_int_literal(lhs));
-            if mixed_int_uint {
-                let cmp_op = match op {
-                    "===" => "==",
-                    "!==" => "!=",
-                    other => other,
-                };
-                let prec = op_prec(cmp_op);
-                let l = if lt == HirType::UInt {
-                    self.wrap_int(lhs, offset)
-                } else {
-                    self.emit_subexpr(lhs, prec, offset)
-                };
-                let r = if rt == HirType::UInt {
-                    self.wrap_int(rhs, offset)
-                } else {
-                    self.emit_subexpr(rhs, prec, offset)
-                };
-                return format!("{l} {cmp_op} {r}");
-            }
         }
 
         // Null checks (`x != null` / `x == undefined`) -> `x != nil` / `x == nil`
@@ -2105,6 +3253,71 @@ impl<'a> SwiftEmitter<'a> {
             }
         }
 
+        // Mixed `Int`/`UInt` + `Double` arithmetic or comparison promotes integer via `Double(...)`!
+        if matches!(
+            op,
+            "+" | "-" | "*" | "%" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!=="
+        ) && !is_null_or_undef(lhs)
+            && !is_null_or_undef(rhs)
+        {
+            let mixed_float = (lt == HirType::Float && rt.is_integer())
+                || (rt == HirType::Float && lt.is_integer());
+            if op == "%" && (lt == HirType::Float || rt == HirType::Float) {
+                let ld = if lt == HirType::Float && !self.expr_produces_optional(lhs) {
+                    self.emit_subexpr(lhs, 18, offset)
+                } else {
+                    self.wrap_double(lhs, offset)
+                };
+                let rd = if rt == HirType::Float && !self.expr_produces_optional(rhs) {
+                    self.emit_expr_with_offset(rhs, offset)
+                } else {
+                    self.wrap_double(rhs, offset)
+                };
+                return format!("{ld}.truncatingRemainder(dividingBy: {rd})");
+            }
+            if mixed_float {
+                let cmp_op = match op {
+                    "===" => "==",
+                    "!==" => "!=",
+                    other => other,
+                };
+                let prec = op_prec(cmp_op);
+                let l = if lt.is_integer() || self.expr_produces_optional(lhs) {
+                    self.wrap_double(lhs, offset)
+                } else {
+                    self.emit_subexpr(lhs, prec, offset)
+                };
+                let r = if rt.is_integer() || self.expr_produces_optional(rhs) {
+                    self.wrap_double(rhs, offset)
+                } else {
+                    self.emit_subexpr(rhs, prec, offset)
+                };
+                return format!("{l} {cmp_op} {r}");
+            }
+            let mixed_int_uint =
+                (lt == HirType::UInt && rt == HirType::Int && !is_nonneg_int_literal(rhs))
+                    || (lt == HirType::Int && rt == HirType::UInt && !is_nonneg_int_literal(lhs));
+            if mixed_int_uint {
+                let cmp_op = match op {
+                    "===" => "==",
+                    "!==" => "!=",
+                    other => other,
+                };
+                let prec = op_prec(cmp_op);
+                let l = if lt == HirType::UInt || self.expr_produces_optional(lhs) {
+                    self.wrap_int(lhs, offset)
+                } else {
+                    self.emit_subexpr(lhs, prec, offset)
+                };
+                let r = if rt == HirType::UInt || self.expr_produces_optional(rhs) {
+                    self.wrap_int(rhs, offset)
+                } else {
+                    self.emit_subexpr(rhs, prec, offset)
+                };
+                return format!("{l} {cmp_op} {r}");
+            }
+        }
+
         let sw_op = match op {
             "and" => "&&",
             "or" => "||",
@@ -2113,8 +3326,24 @@ impl<'a> SwiftEmitter<'a> {
             other => other,
         };
         let prec = op_prec(sw_op);
-        let l = self.emit_subexpr(lhs, prec, offset);
-        let r = self.emit_subexpr(rhs, prec, offset);
+        let l = if self.expr_produces_optional(lhs) {
+            format!(
+                "({} ?? {})",
+                self.emit_expr_with_offset(lhs, offset),
+                swift_nonoptional_default_expr(&lt)
+            )
+        } else {
+            self.emit_subexpr(lhs, prec, offset)
+        };
+        let r = if self.expr_produces_optional(rhs) {
+            format!(
+                "({} ?? {})",
+                self.emit_expr_with_offset(rhs, offset),
+                swift_nonoptional_default_expr(&rt)
+            )
+        } else {
+            self.emit_subexpr(rhs, prec, offset)
+        };
         format!("{l} {sw_op} {r}")
     }
 
@@ -2155,6 +3384,7 @@ impl<'a> SwiftEmitter<'a> {
             name,
             "stage"
                 | "parent"
+                | "root"
                 | "graphics"
                 | "x"
                 | "y"
@@ -2165,10 +3395,16 @@ impl<'a> SwiftEmitter<'a> {
                 | "rotation"
                 | "width"
                 | "height"
+                | "mouseX"
+                | "mouseY"
                 | "currentFrame"
                 | "totalFrames"
         ) {
             return format!("self.{name}");
+        }
+
+        if let Some(cinfo) = self.lookup_class_info(name) {
+            return cinfo.swift_name.clone();
         }
 
         escape_swift_ident(name)
@@ -2203,6 +3439,8 @@ impl<'a> SwiftEmitter<'a> {
                     | "width"
                     | "height"
                     | "name"
+                    | "blendMode"
+                    | "filters"
             ) {
                 return format!("self.{name}");
             }
@@ -2218,6 +3456,11 @@ impl<'a> SwiftEmitter<'a> {
                 && cls == "Stage"
             {
                 return format!("self.stage?.{}", escape_swift_ident(prop));
+            }
+            if let Expr::Name(cls) = base.as_ref()
+                && cls == "SoundMixer"
+            {
+                return format!("NFSoundMixer.{}", escape_swift_ident(prop));
             }
             let b = self.emit_optional_chain_base(base, offset);
             let mapped = if !self.source_is_as3 {
@@ -2239,41 +3482,29 @@ impl<'a> SwiftEmitter<'a> {
         }
         if let Expr::Name(n) = base
             && !self.is_local(n)
-            && let Some(ty) = self.instance_props.get(n)
+            && self.instance_props.contains_key(n)
         {
             let esc = escape_swift_ident(n);
-            if matches!(
-                ty,
-                HirType::TextField
-                    | HirType::MovieClip
-                    | HirType::Sprite
-                    | HirType::Button
-                    | HirType::Class(_)
-            ) && !self.stage_child_props.contains(n)
-            {
+            if self.is_nullable_prop(n) {
                 return format!("self.{esc}?");
             }
             return format!("self.{esc}");
         }
         if let Expr::Member(b, p) = base
             && matches!(b.as_ref(), Expr::Name(n) if n == "this")
-            && let Some(ty) = self.instance_props.get(p)
+            && self.instance_props.contains_key(p)
         {
             let esc = escape_swift_ident(p);
-            if matches!(
-                ty,
-                HirType::TextField
-                    | HirType::MovieClip
-                    | HirType::Sprite
-                    | HirType::Button
-                    | HirType::Class(_)
-            ) && !self.stage_child_props.contains(p)
-            {
+            if self.is_nullable_prop(p) {
                 return format!("self.{esc}?");
             }
             return format!("self.{esc}");
         }
-        self.emit_subexpr(base, 18, offset)
+        let s = self.emit_subexpr(base, 18, offset);
+        if matches!(base, Expr::TypeTest(op, _, _, _) if op == "as") {
+            return format!("{s}?");
+        }
+        s
     }
 
     fn match_as2_percent_lvalue_swift(
@@ -2312,7 +3543,9 @@ impl<'a> SwiftEmitter<'a> {
             return "true".into();
         }
 
-        if let Expr::Name(cls) = base {
+        if let Expr::Name(cls) = base
+            && !self.is_local(cls)
+        {
             if cls == "Key"
                 && let Some((_, code)) = map_as2_key_constant(prop)
             {
@@ -2323,7 +3556,7 @@ impl<'a> SwiftEmitter<'a> {
             {
                 return format!("UInt({code})");
             }
-            if let Some(ev) = classify_as3_event_type(&Expr::Member(
+            if let Some(ev) = classify_swift_event_type(&Expr::Member(
                 Box::new(Expr::Name(cls.clone())),
                 prop.to_owned(),
             )) {
@@ -2351,6 +3584,35 @@ impl<'a> SwiftEmitter<'a> {
                     _ => format!("\"{prop}\""),
                 };
             }
+            if cls == "BlendMode" {
+                let bm = match prop {
+                    "NORMAL" => "normal",
+                    "LAYER" => "layer",
+                    "MULTIPLY" => "multiply",
+                    "SCREEN" => "screen",
+                    "LIGHTEN" => "lighten",
+                    "DARKEN" => "darken",
+                    "DIFFERENCE" => "difference",
+                    "ADD" => "add",
+                    "SUBTRACT" => "subtract",
+                    "INVERT" => "invert",
+                    "ALPHA" => "alpha",
+                    "ERASE" => "erase",
+                    "OVERLAY" => "overlay",
+                    "HARDLIGHT" => "hardlight",
+                    _ => "normal",
+                };
+                return format!("\"{bm}\"");
+            }
+            if cls == "TextFieldType" {
+                return match prop {
+                    "INPUT" => "\"input\"".into(),
+                    _ => "\"dynamic\"".into(),
+                };
+            }
+            if cls == "SoundMixer" {
+                return format!("NFSoundMixer.{}", escape_swift_ident(prop));
+            }
             if !self.source_is_as3 && cls == "Stage" {
                 return match prop {
                     "width" => "(self.stage?.stageWidth ?? 0.0)".into(),
@@ -2360,8 +3622,21 @@ impl<'a> SwiftEmitter<'a> {
                     _ => format!("self.stage?.{}", escape_swift_ident(prop)),
                 };
             }
-            if cls == "Math" && prop == "PI" {
-                return "Double.pi".into();
+            if cls == "Math" {
+                match prop {
+                    "PI" => return "Double.pi".into(),
+                    "E" => return "Foundation.M_E".into(),
+                    "LN2" => return "Foundation.M_LN2".into(),
+                    "LN10" => return "Foundation.M_LN10".into(),
+                    "LOG2E" => return "Foundation.M_LOG2E".into(),
+                    "LOG10E" => return "Foundation.M_LOG10E".into(),
+                    "SQRT1_2" => return "Foundation.M_SQRT1_2".into(),
+                    "SQRT2" => return "2.0.squareRoot()".into(),
+                    _ => {}
+                }
+            }
+            if let Some(cinfo) = self.lookup_class_info(cls) {
+                return format!("{}.{}", cinfo.swift_name, escape_swift_ident(prop));
             }
         }
 
@@ -2383,6 +3658,9 @@ impl<'a> SwiftEmitter<'a> {
         let b = self.emit_optional_chain_base(base, offset);
         if !self.source_is_as3 {
             if let Some(modern) = map_as2_percent_prop_to_modern(prop) {
+                if self.expr_produces_optional(base) {
+                    return format!("((({b}.{modern}) ?? 0.0) * 100.0)");
+                }
                 return format!("(({b}.{modern}) * 100.0)");
             }
             if let Some(modern) = map_as2_direct_prop_to_modern(prop) {
@@ -2390,6 +3668,36 @@ impl<'a> SwiftEmitter<'a> {
             }
         }
         format!("{b}.{}", escape_swift_ident(prop))
+    }
+
+    fn emit_typed_call_args(
+        &mut self,
+        args: &[Expr],
+        expected_params: &[HirType],
+        offset: usize,
+    ) -> String {
+        args.iter()
+            .enumerate()
+            .map(|(idx, arg)| {
+                if let Some(pty) = expected_params.get(idx) {
+                    self.emit_coerced_expr(arg, pty, offset)
+                } else {
+                    self.emit_expr_with_offset(arg, offset)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn wrap_throwing_call(&self, call_sw: String, can_throw: bool) -> String {
+        if !can_throw {
+            return call_sw;
+        }
+        if self.in_try_depth > 0 || self.in_throwing_fn {
+            format!("try {call_sw}")
+        } else {
+            format!("(try? {call_sw})")
+        }
     }
 
     fn emit_swift_call(&mut self, callee: &Expr, args: &[Expr], offset: usize) -> String {
@@ -2433,16 +3741,14 @@ impl<'a> SwiftEmitter<'a> {
             );
         }
 
-        // 2. Type casts (`int(expr)`, `uint(expr)`, `Number(expr)`, `String(expr)`, `Boolean(expr)`) and `eval`
+        // 2. Type casts, math/number builtins, `stopAllSounds`, and own methods
         if let Expr::Name(fn_name) = callee {
             match fn_name.as_str() {
                 "int" if args.len() == 1 => {
-                    let inner = self.emit_expr_with_offset(&args[0], offset);
-                    return format!("Int({inner})");
+                    return self.wrap_int(&args[0], offset);
                 }
                 "uint" if args.len() == 1 => {
-                    let inner = self.emit_expr_with_offset(&args[0], offset);
-                    return format!("UInt({inner})");
+                    return self.emit_coerced_expr(&args[0], &HirType::UInt, offset);
                 }
                 "Number" if args.len() == 1 => {
                     return self.wrap_double(&args[0], offset);
@@ -2455,6 +3761,32 @@ impl<'a> SwiftEmitter<'a> {
                 }
                 "Boolean" if args.len() == 1 => {
                     return self.emit_bool_cond(&args[0], offset);
+                }
+                "isNaN" if args.len() == 1 => {
+                    let d = self.wrap_double(&args[0], offset);
+                    return format!("({d}).isNaN");
+                }
+                "isFinite" if args.len() == 1 => {
+                    let d = self.wrap_double(&args[0], offset);
+                    return format!("({d}).isFinite");
+                }
+                "parseInt" if !args.is_empty() => {
+                    let s = self.emit_expr_with_offset(&args[0], offset);
+                    if let Some(rx) = args.get(1) {
+                        let r = self.wrap_int(rx, offset);
+                        return format!("NFRuntime.parseInt({s}, {r})");
+                    }
+                    return format!("NFRuntime.parseInt({s})");
+                }
+                "parseFloat" if args.len() == 1 => {
+                    let s = self.emit_expr_with_offset(&args[0], offset);
+                    return format!("NFRuntime.parseFloat({s})");
+                }
+                "stopAllSounds" if args.is_empty() && !self.is_local(fn_name) => {
+                    if self.class_has_stage {
+                        return "self.stopAllSounds()".into();
+                    }
+                    return "NFRuntime.stopAllSounds()".into();
                 }
                 "trace" => {
                     return format!("NFRuntime.trace({})", self.emit_args(args, offset));
@@ -2477,38 +3809,73 @@ impl<'a> SwiftEmitter<'a> {
                     return format!("self.{fn_name}({})", self.emit_args(args, offset));
                 }
                 other if !self.is_local(other) && self.instance_methods.contains(other) => {
-                    return format!(
-                        "self.{}({})",
-                        escape_swift_ident(other),
+                    let sig_opt = self.instance_method_sigs.get(other).cloned();
+                    let call_args = if let Some(sig) = &sig_opt {
+                        self.emit_typed_call_args(args, &sig.params, offset)
+                    } else {
                         self.emit_args(args, offset)
-                    );
+                    };
+                    let raw_call = format!("self.{}({call_args})", escape_swift_ident(other));
+                    return self.wrap_throwing_call(raw_call, sig_opt.is_some_and(|s| s.can_throw));
+                }
+                other if !self.is_local(other) && self.static_methods.contains(other) => {
+                    let cls = self
+                        .current_class_short
+                        .clone()
+                        .unwrap_or_else(|| "Self".into());
+                    let sig_opt = self.static_method_sigs.get(other).cloned();
+                    let call_args = if let Some(sig) = &sig_opt {
+                        self.emit_typed_call_args(args, &sig.params, offset)
+                    } else {
+                        self.emit_args(args, offset)
+                    };
+                    let raw_call = format!("{cls}.{}({call_args})", escape_swift_ident(other));
+                    return self.wrap_throwing_call(raw_call, sig_opt.is_some_and(|s| s.can_throw));
                 }
                 _ => {}
             }
         }
 
-        // 3. `Math.*`, `Key.*`, AS2 drawing API
+        // 3. `Math.*`, `SoundMixer.*`, `Key.*`, `Vector.<T>.push`, custom `.as` class methods, AS2 drawing API
         if let Expr::Member(base, method) = callee {
-            if let Expr::Name(cls) = base.as_ref() {
+            if matches!(base.as_ref(), Expr::Name(n) if n == "this")
+                && let Some(sig) = self.instance_method_sigs.get(method).cloned()
+            {
+                let call_args = self.emit_typed_call_args(args, &sig.params, offset);
+                let raw_call = format!("self.{}({call_args})", escape_swift_ident(method));
+                return self.wrap_throwing_call(raw_call, sig.can_throw);
+            }
+            if let Expr::Name(cls) = base.as_ref()
+                && !self.is_local(cls)
+            {
                 if cls == "Math" {
                     match method.as_str() {
-                        "floor" | "ceil" | "round" | "sin" | "cos" | "tan" | "sqrt" | "exp"
-                        | "log"
+                        "floor" | "ceil" | "round" | "sin" | "cos" | "tan" | "asin" | "acos"
+                        | "atan" | "sqrt" | "exp" | "log"
                             if args.len() == 1 =>
                         {
                             let a = self.wrap_double(&args[0], offset);
                             return format!("Foundation.{method}({a})");
                         }
                         "abs" if args.len() == 1 => {
-                            return format!(
-                                "abs({})",
-                                self.emit_expr_with_offset(&args[0], offset)
-                            );
-                        }
-                        "min" | "max" if args.len() == 2 => {
+                            if self.infer(&args[0]) == HirType::Int
+                                && !self.expr_produces_optional(&args[0])
+                            {
+                                return format!(
+                                    "abs({})",
+                                    self.emit_expr_with_offset(&args[0], offset)
+                                );
+                            }
                             let a = self.wrap_double(&args[0], offset);
-                            let b = self.wrap_double(&args[1], offset);
-                            return format!("{method}({a}, {b})");
+                            return format!("Foundation.fabs({a})");
+                        }
+                        "min" | "max" if args.len() >= 2 => {
+                            let mut acc = self.wrap_double(&args[0], offset);
+                            for extra in &args[1..] {
+                                let b = self.wrap_double(extra, offset);
+                                acc = format!("{method}({acc}, {b})");
+                            }
+                            return acc;
                         }
                         "pow" if args.len() == 2 => {
                             let a = self.wrap_double(&args[0], offset);
@@ -2525,6 +3892,9 @@ impl<'a> SwiftEmitter<'a> {
                         }
                         _ => {}
                     }
+                }
+                if cls == "SoundMixer" && method == "stopAll" {
+                    return "NFSoundMixer.stopAll()".into();
                 }
                 if !self.source_is_as3 && cls == "Key" {
                     match method.as_str() {
@@ -2544,6 +3914,68 @@ impl<'a> SwiftEmitter<'a> {
                         _ => {}
                     }
                 }
+                if let Some(cinfo) = self.lookup_class_info(cls).cloned()
+                    && let Some(sig) = cinfo.static_methods.get(method).cloned()
+                {
+                    let call_args = self.emit_typed_call_args(args, &sig.params, offset);
+                    let raw_call = format!(
+                        "{}.{}({call_args})",
+                        cinfo.swift_name,
+                        escape_swift_ident(method)
+                    );
+                    return self.wrap_throwing_call(raw_call, sig.can_throw);
+                }
+            }
+
+            let base_ty = self.infer(base);
+            if let HirType::Vector(elem_ty) = &base_ty {
+                if matches!(method.as_str(), "push" | "unshift") {
+                    let c = self.emit_subexpr(callee, 18, offset);
+                    let coerced_args = args
+                        .iter()
+                        .map(|arg| self.emit_coerced_expr(arg, elem_ty, offset))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return format!("{c}({coerced_args})");
+                }
+                if method == "indexOf" && !args.is_empty() {
+                    let c = self.emit_subexpr(callee, 18, offset);
+                    let first = self.emit_coerced_expr(&args[0], elem_ty, offset);
+                    if let Some(from_arg) = args.get(1) {
+                        let from_sw = self.wrap_int(from_arg, offset);
+                        return format!("{c}({first}, {from_sw})");
+                    }
+                    return format!("{c}({first})");
+                }
+            }
+
+            if Self::is_nfvalue_type(&base_ty)
+                && matches!(method.as_str(), "push" | "unshift" | "indexOf")
+            {
+                let c = self.emit_subexpr(callee, 18, offset);
+                let coerced_args = args
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, arg)| {
+                        if method == "indexOf" && idx == 1 {
+                            self.wrap_int(arg, offset)
+                        } else {
+                            self.wrap_nfvalue(arg, offset)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return format!("{c}({coerced_args})");
+            }
+
+            if let HirType::Class(cn) = &base_ty
+                && let Some(cinfo) = self.lookup_class_info(cn).cloned()
+                && let Some(sig) = cinfo.instance_methods.get(method).cloned()
+            {
+                let b = self.emit_optional_chain_base(base, offset);
+                let call_args = self.emit_typed_call_args(args, &sig.params, offset);
+                let raw_call = format!("{b}.{}({call_args})", escape_swift_ident(method));
+                return self.wrap_throwing_call(raw_call, sig.can_throw);
             }
 
             if matches!(base.as_ref(), Expr::Member(_, g) if g == "graphics")
@@ -2618,7 +4050,15 @@ impl<'a> SwiftEmitter<'a> {
     }
 
     fn emit_swift_new(&mut self, ty: &str, args: &[Expr], offset: usize) -> String {
-        let short = short_type_name(ty);
+        let trimmed = ty.trim();
+        if let Some(elem) = trimmed
+            .strip_prefix("Vector.<")
+            .or_else(|| trimmed.strip_prefix("__AS3__.vec.Vector.<"))
+            .and_then(|s| s.strip_suffix('>'))
+        {
+            return self.emit_swift_new_vector(elem, args, offset);
+        }
+        let short = short_type_name(trimmed);
         match short {
             "ByteArray" => {
                 self.record_issue(
@@ -2636,10 +4076,106 @@ impl<'a> SwiftEmitter<'a> {
                 );
                 format!("/* FIXME [NeoFlash Swift]: new {short}() */ NFValue.null")
             }
-            "Array" => "[]".into(),
+            "Array" => {
+                if args.len() > 1 {
+                    let parts: Vec<String> =
+                        args.iter().map(|a| self.wrap_nfvalue(a, offset)).collect();
+                    format!("[{}]", parts.join(", "))
+                } else {
+                    "[]".into()
+                }
+            }
             "Object" | "Dictionary" => "[:]".into(),
+            "Error" | "TypeError" | "RangeError" | "ArgumentError" | "ReferenceError"
+            | "SyntaxError" => {
+                let msg = args
+                    .first()
+                    .map(|a| self.emit_coerced_expr(a, &HirType::String, offset))
+                    .unwrap_or_else(|| "\"\"".into());
+                let code = args
+                    .get(1)
+                    .map(|a| self.wrap_int(a, offset))
+                    .unwrap_or_else(|| "0".into());
+                format!("NFScriptError({msg}, {code})")
+            }
+            "SoundTransform" => {
+                let vol = args
+                    .first()
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "1.0".into());
+                let pan = args
+                    .get(1)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "0.0".into());
+                format!("NFSoundTransform({vol}, {pan})")
+            }
+            "DropShadowFilter" => {
+                let dist = args
+                    .first()
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "4.0".into());
+                let angle = args
+                    .get(1)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "45.0".into());
+                let color = args
+                    .get(2)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::UInt, offset))
+                    .unwrap_or_else(|| "0".into());
+                let alpha = args
+                    .get(3)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "1.0".into());
+                let bx = args
+                    .get(4)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "4.0".into());
+                let by = args
+                    .get(5)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "4.0".into());
+                format!(
+                    "NFFilterSpec.makeDropShadow({dist}, {angle}, UInt32(truncatingIfNeeded: {color}), {alpha}, {bx}, {by})"
+                )
+            }
+            "GlowFilter" => {
+                let color = args
+                    .first()
+                    .map(|a| self.emit_coerced_expr(a, &HirType::UInt, offset))
+                    .unwrap_or_else(|| "0xFF0000".into());
+                let alpha = args
+                    .get(1)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "1.0".into());
+                let bx = args
+                    .get(2)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "6.0".into());
+                let by = args
+                    .get(3)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "6.0".into());
+                format!(
+                    "NFFilterSpec.makeGlow(UInt32(truncatingIfNeeded: {color}), {alpha}, {bx}, {by})"
+                )
+            }
+            "BlurFilter" => {
+                let bx = args
+                    .first()
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "4.0".into());
+                let by = args
+                    .get(1)
+                    .map(|a| self.emit_coerced_expr(a, &HirType::Float, offset))
+                    .unwrap_or_else(|| "4.0".into());
+                format!("NFFilterSpec.makeBlur({bx}, {by})")
+            }
             _ => {
-                let sw_ty = HirType::from_annotation(ty).to_swift_type();
+                if let Some(cinfo) = self.lookup_class_info(trimmed).cloned() {
+                    let call_args = self.emit_typed_call_args(args, &cinfo.ctor_params, offset);
+                    return format!("{}({call_args})", cinfo.swift_name);
+                }
+                let sw_ty = swift_type_for_hir(&HirType::from_annotation(trimmed));
                 format!("{sw_ty}({})", self.emit_args(args, offset))
             }
         }
@@ -2675,6 +4211,7 @@ fn emit_swift_class(
     location: &str,
     stage: &ProjectStageIndex,
     host_methods: &BTreeMap<String, SwiftProxyMethod>,
+    class_registry: &BTreeMap<String, SwiftClassInfo>,
 ) -> (String, Vec<ConversionIssue>) {
     let cls_name = sanitize_swift_type_ident(&parsed.short_name);
     let mut emitter = SwiftEmitter::new(
@@ -2683,11 +4220,12 @@ fn emit_swift_class(
         parsed.language == ScriptLanguage::ActionScript3,
         stage,
         host_methods,
+        class_registry,
         None,
         Some(parsed.qualified_name.clone()),
     );
     emitter.current_class_short = Some(cls_name.clone());
-    emitter.class_has_stage = parsed.base_class.as_deref().is_some_and(|base| {
+    let extends_display_object = parsed.base_class.as_deref().is_some_and(|base| {
         matches!(
             HirType::from_annotation(base),
             HirType::MovieClip | HirType::Sprite | HirType::Button | HirType::TextField
@@ -2696,6 +4234,7 @@ fn emit_swift_class(
             "DisplayObject" | "InteractiveObject" | "DisplayObjectContainer" | "Shape"
         )
     });
+    emitter.class_has_stage = extends_display_object;
 
     let mut cls_props = BTreeMap::new();
     for f in &parsed.fields {
@@ -2708,24 +4247,67 @@ fn emit_swift_class(
             cls_props.insert(f.name.clone(), ty);
         }
     }
-    emitter.set_instance_props(cls_props);
     for m in &parsed.methods {
-        if let Some(mn) = &m.function.name
-            && mn != &parsed.short_name
-        {
-            let rty = m
-                .function
-                .returns
-                .as_deref()
-                .map_or(HirType::Void, HirType::from_annotation);
+        let Some(mn) = &m.function.name else {
+            continue;
+        };
+        if mn == &parsed.short_name && m.accessor.is_none() && !m.is_static {
+            continue;
+        }
+        if let Some(acc) = m.accessor {
+            let prop_ty = match acc {
+                AccessorKind::Get => m
+                    .function
+                    .returns
+                    .as_deref()
+                    .map_or(HirType::Unknown, HirType::from_annotation),
+                AccessorKind::Set => m
+                    .function
+                    .params
+                    .first()
+                    .and_then(|(_, t)| t.as_deref())
+                    .map_or(HirType::Unknown, HirType::from_annotation),
+            };
             if m.is_static {
-                emitter.static_methods.insert(mn.clone());
+                emitter.static_props.insert(mn.clone());
             } else {
-                emitter.instance_methods.insert(mn.clone());
-                emitter.env.functions.insert(mn.clone(), rty);
+                cls_props.entry(mn.clone()).or_insert(prop_ty);
             }
+            continue;
+        }
+        let param_tys: Vec<HirType> = m
+            .function
+            .params
+            .iter()
+            .map(|(_, t)| {
+                t.as_deref()
+                    .map_or(HirType::Unknown, HirType::from_annotation)
+            })
+            .collect();
+        let rty = m
+            .function
+            .returns
+            .as_deref()
+            .map_or(HirType::Void, HirType::from_annotation);
+        let can_throw = !parsed.is_interface
+            && !m.is_override
+            && mn != "onResize"
+            && stmts_can_throw_uncaught(&m.function.body);
+        let sig = SwiftCallableSig {
+            params: param_tys,
+            return_ty: rty.clone(),
+            can_throw,
+        };
+        if m.is_static {
+            emitter.static_methods.insert(mn.clone());
+            emitter.static_method_sigs.insert(mn.clone(), sig);
+        } else {
+            emitter.instance_methods.insert(mn.clone());
+            emitter.instance_method_sigs.insert(mn.clone(), sig);
+            emitter.env.functions.insert(mn.clone(), rty);
         }
     }
+    emitter.set_instance_props(cls_props);
 
     if parsed.is_interface {
         let mut reqs = Vec::new();
@@ -2742,7 +4324,7 @@ fn emit_swift_class(
             let ret = if rty == HirType::Void {
                 String::new()
             } else {
-                format!(" -> {}", rty.to_swift_type())
+                format!(" -> {}", swift_type_for_hir(&rty))
             };
             reqs.push(format!("    func {fname}({params}){ret}"));
         }
@@ -2762,14 +4344,47 @@ fn emit_swift_class(
         let stat = if f.is_static { "static " } else { "" };
         let kw = if f.is_const { "let" } else { "var" };
         if let Some(val) = &f.value {
-            let sw_ty = ty.to_swift_type();
-            let vc = emitter.emit_coerced_expr(val, &ty, f.offset);
-            members.push(format!("    public {stat}{kw} {fname}: {sw_ty} = {vc}"));
+            if matches!(
+                ty,
+                HirType::TextField
+                    | HirType::MovieClip
+                    | HirType::Sprite
+                    | HirType::Button
+                    | HirType::Class(_)
+            ) && is_null_or_undef(val)
+            {
+                let sw_ty = format!("{}?", swift_type_for_hir(&ty));
+                members.push(format!("    public {stat}{kw} {fname}: {sw_ty} = nil"));
+            } else {
+                let sw_ty = swift_type_for_hir(&ty);
+                let vc = emitter.emit_coerced_expr(val, &ty, f.offset);
+                members.push(format!("    public {stat}{kw} {fname}: {sw_ty} = {vc}"));
+            }
         } else {
             let (sw_ty, def_val) = swift_property_type_and_default(&ty);
             members.push(format!("    public {stat}var {fname}: {sw_ty} = {def_val}"));
         }
     }
+
+    // Group getter/setter pairs by `(is_static, name)` so Swift emits one unified computed `var`!
+    type AccessorPair<'m> = (Option<&'m ParsedMethod>, Option<&'m ParsedMethod>);
+    let mut accessor_pairs: BTreeMap<(bool, String), AccessorPair<'_>> = BTreeMap::new();
+    for m in &parsed.methods {
+        if let Some(acc) = m.accessor {
+            let raw_name = m.function.name.as_deref().unwrap_or("prop").to_owned();
+            let entry = accessor_pairs.entry((m.is_static, raw_name)).or_default();
+            match acc {
+                AccessorKind::Get => entry.0 = Some(m),
+                AccessorKind::Set => entry.1 = Some(m),
+            }
+        }
+    }
+    let mut emitted_accessors: BTreeSet<(bool, String)> = BTreeSet::new();
+    let mut has_explicit_ctor = false;
+    let has_nonempty_base = parsed
+        .base_class
+        .as_deref()
+        .is_some_and(|b| short_type_name(b) != "Object");
 
     for m in &parsed.methods {
         let raw_name = m.function.name.as_deref().unwrap_or(&parsed.short_name);
@@ -2786,77 +4401,144 @@ fn emit_swift_class(
             ""
         };
 
-        emitter.push_scope();
-        let params = emitter.emit_swift_params(&m.function, m.function.offset);
-        emitter.indent = 2;
-        let body = emitter.emit_stmt_list(&m.function.body);
-        emitter.indent = 0;
-        emitter.pop_scope();
-
-        if is_ctor {
-            let mut ctor_lines = Vec::new();
-            if !body.trim().is_empty() {
-                ctor_lines.push(body);
+        if let Some(_acc) = m.accessor {
+            let key = (m.is_static, raw_name.to_owned());
+            if !emitted_accessors.insert(key.clone()) {
+                continue;
             }
-            if parsed.base_class.is_some()
-                && !m.function.body.iter().any(|s| {
-                    matches!(
-                        s.unlocated(),
-                        Stmt::Expr(Expr::Call(c, _, _)) if matches!(c.as_ref(), Expr::Name(n) if n == "super")
-                    )
+            let (getter_opt, setter_opt) = accessor_pairs.get(&key).copied().unwrap_or_default();
+            let prop_hir = getter_opt
+                .and_then(|g| g.function.returns.as_deref())
+                .or_else(|| {
+                    setter_opt
+                        .and_then(|s| s.function.params.first().and_then(|(_, t)| t.as_deref()))
                 })
-            {
-                ctor_lines.push("        super.init()".into());
+                .map_or(HirType::Unknown, HirType::from_annotation);
+            let prop_sw_ty = swift_type_for_hir(&prop_hir);
+            let mut clauses = Vec::new();
+            if let Some(g) = getter_opt {
+                emitter.current_return_type = prop_hir.clone();
+                emitter.push_scope();
+                emitter.indent = 3;
+                let gbody = emitter.emit_function_body(&g.function.body);
+                emitter.indent = 0;
+                emitter.pop_scope();
+                emitter.current_return_type = HirType::Void;
+                clauses.push(format!("        get {{\n{gbody}\n        }}"));
+            } else {
+                let def = swift_nonoptional_default_expr(&prop_hir);
+                clauses.push(format!("        get {{ {def} }}"));
             }
-            members.push(format!(
-                "    public init({params}) {{\n{}\n    }}",
-                ctor_lines.join("\n")
-            ));
-        } else if let Some(acc) = m.accessor {
-            let prop_ty = match acc {
-                AccessorKind::Get => m
-                    .function
-                    .returns
-                    .as_deref()
-                    .map_or(HirType::Unknown, HirType::from_annotation)
-                    .to_swift_type(),
-                AccessorKind::Set => m
+            if let Some(s) = setter_opt {
+                let sparam = s
                     .function
                     .params
                     .first()
-                    .and_then(|(_, t)| t.as_deref())
-                    .map_or(HirType::Unknown, HirType::from_annotation)
-                    .to_swift_type(),
-            };
-            match acc {
-                AccessorKind::Get => {
-                    members.push(format!(
-                        "    public {stat}{ovr}var {fname}: {prop_ty} {{\n        get {{\n{body}\n        }}\n    }}"
-                    ));
-                }
-                AccessorKind::Set => {
-                    members.push(format!(
-                        "    public {stat}func set_{fname}({params}) {{\n{body}\n    }}"
-                    ));
-                }
+                    .map(|(n, _)| escape_swift_ident(n))
+                    .unwrap_or_else(|| "newValue".into());
+                let raw_sparam = s
+                    .function
+                    .params
+                    .first()
+                    .map(|(n, _)| n.clone())
+                    .unwrap_or_else(|| "newValue".into());
+                emitter.push_scope();
+                emitter.mark_local(&raw_sparam);
+                emitter.env.define(raw_sparam, prop_hir.clone());
+                emitter.indent = 3;
+                let sbody = emitter.emit_function_body(&s.function.body);
+                emitter.indent = 0;
+                emitter.pop_scope();
+                clauses.push(format!("        set({sparam}) {{\n{sbody}\n        }}"));
             }
+            members.push(format!(
+                "    public {stat}{ovr}var {fname}: {prop_sw_ty} {{\n{}\n    }}",
+                clauses.join("\n")
+            ));
+            continue;
+        }
+
+        if is_ctor {
+            has_explicit_ctor = true;
+            emitter.current_return_type = HirType::Void;
+            emitter.push_scope();
+            let params = emitter.emit_swift_params(&m.function, m.function.offset);
+            emitter.indent = 2;
+            let body = emitter.emit_function_body(&m.function.body);
+            emitter.indent = 0;
+            emitter.pop_scope();
+
+            let has_explicit_super = m.function.body.iter().any(|s| {
+                matches!(
+                    s.unlocated(),
+                    Stmt::Expr(Expr::Call(c, _, _)) if matches!(c.as_ref(), Expr::Name(n) if n == "super")
+                )
+            });
+            let mut ctor_lines = Vec::new();
+            if has_nonempty_base && !has_explicit_super {
+                ctor_lines.push("        super.init()".into());
+            }
+            if !body.trim().is_empty() {
+                ctor_lines.push(body);
+            }
+            let init_ovr = if has_nonempty_base && params.is_empty() && !extends_display_object {
+                "override "
+            } else {
+                ""
+            };
+            members.push(format!(
+                "    public {init_ovr}init({params}) {{\n{}\n    }}",
+                ctor_lines.join("\n")
+            ));
         } else {
             let rty = m
                 .function
                 .returns
                 .as_deref()
                 .map_or(HirType::Void, HirType::from_annotation);
+            let can_throw = !m.is_override
+                && raw_name != "onResize"
+                && stmts_can_throw_uncaught(&m.function.body);
+            emitter.current_return_type = rty.clone();
+            emitter.in_throwing_fn = can_throw;
+            emitter.push_scope();
+            let params = emitter.emit_swift_params(&m.function, m.function.offset);
+            emitter.indent = 2;
+            let body = emitter.emit_function_body(&m.function.body);
+            emitter.indent = 0;
+            emitter.pop_scope();
+            emitter.current_return_type = HirType::Void;
+            emitter.in_throwing_fn = false;
+
+            let throws_kw = if can_throw { " throws" } else { "" };
             let (discardable, ret) = if rty == HirType::Void {
                 ("", String::new())
             } else {
                 (
                     "    @discardableResult\n",
-                    format!(" -> {}", rty.to_swift_type()),
+                    format!(" -> {}", swift_type_for_hir(&rty)),
                 )
             };
             members.push(format!(
-                "{discardable}    public {stat}{ovr}func {fname}({params}){ret} {{\n{body}\n    }}"
+                "{discardable}    public {stat}{ovr}func {fname}({params}){throws_kw}{ret} {{\n{body}\n    }}"
             ));
+        }
+    }
+
+    if !has_explicit_ctor {
+        if extends_display_object {
+            members.insert(
+                0,
+                "    public override init(name: String = \"\") {\n        super.init(name: name)\n    }"
+                    .into(),
+            );
+        } else if has_nonempty_base {
+            members.insert(
+                0,
+                "    public override init() {\n        super.init()\n    }".into(),
+            );
+        } else {
+            members.insert(0, "    public init() {}".into());
         }
     }
 
@@ -2864,7 +4546,7 @@ fn emit_swift_class(
     if let Some(base) = &parsed.base_class
         && short_type_name(base) != "Object"
     {
-        supers.push(HirType::from_annotation(base).to_swift_type());
+        supers.push(swift_type_for_hir(&HirType::from_annotation(base)));
     }
     for iface in &parsed.interfaces {
         supers.push(sanitize_swift_type_ident(short_type_name(iface)));
@@ -2880,6 +4562,34 @@ fn emit_swift_class(
         members.join("\n\n")
     );
     (code, emitter.issues)
+}
+
+fn classify_swift_event_type(ev_arg: &Expr) -> Option<String> {
+    if let Some(s) = decode_string_literal(ev_arg) {
+        return Some(s);
+    }
+    if let Expr::Member(base, prop) = ev_arg
+        && let Expr::Name(cls) = base.as_ref()
+    {
+        match (cls.as_str(), prop.as_str()) {
+            ("MouseEvent", "MOUSE_MOVE") => return Some("mouseMove".into()),
+            ("MouseEvent", "MOUSE_OVER") => return Some("mouseOver".into()),
+            ("MouseEvent", "MOUSE_OUT") => return Some("mouseOut".into()),
+            ("MouseEvent", "RELEASE_OUTSIDE") => return Some("releaseOutside".into()),
+            ("TouchEvent", "TOUCH_TAP") => return Some("touchTap".into()),
+            ("TouchEvent", "TOUCH_BEGIN") => return Some("touchBegin".into()),
+            ("TouchEvent", "TOUCH_MOVE") => return Some("touchMove".into()),
+            ("TouchEvent", "TOUCH_END") => return Some("touchEnd".into()),
+            ("Event", "CHANGE") => return Some("change".into()),
+            ("Event", "ADDED_TO_STAGE") => return Some("addedToStage".into()),
+            ("Event", "REMOVED_FROM_STAGE") => return Some("removedFromStage".into()),
+            ("Event" | "SoundEvent", "SOUND_COMPLETE") => return Some("soundComplete".into()),
+            ("FocusEvent", "FOCUS_IN") => return Some("focusIn".into()),
+            ("FocusEvent", "FOCUS_OUT") => return Some("focusOut".into()),
+            _ => {}
+        }
+    }
+    classify_as3_event_type(ev_arg)
 }
 
 fn match_clip_factory(callee: &Expr, method_name: &str) -> Option<Expr> {
@@ -2906,7 +4616,19 @@ fn extract_as2_callback_target(lhs: &Expr) -> Option<(Expr, &str)> {
         Expr::Name(prop)
             if matches!(
                 prop.as_str(),
-                "onEnterFrame" | "onKeyDown" | "onKeyUp" | "onResize" | "onRelease" | "onPress"
+                "onEnterFrame"
+                    | "onKeyDown"
+                    | "onKeyUp"
+                    | "onResize"
+                    | "onRelease"
+                    | "onPress"
+                    | "onReleaseOutside"
+                    | "onRollOver"
+                    | "onRollOut"
+                    | "onMouseDown"
+                    | "onMouseUp"
+                    | "onMouseMove"
+                    | "onChanged"
             ) =>
         {
             Some((Expr::Name("this".into()), prop.as_str()))
@@ -2916,7 +4638,7 @@ fn extract_as2_callback_target(lhs: &Expr) -> Option<(Expr, &str)> {
 }
 
 fn is_null_or_undef(expr: &Expr) -> bool {
-    matches!(expr, Expr::Literal(s) if s == "null")
+    matches!(expr, Expr::Literal(s) if s == "null" || s == "undefined")
         || matches!(expr, Expr::Name(s) if s == "undefined" || s == "null")
 }
 
@@ -2946,18 +4668,33 @@ fn parse_object_script_for_swift(
     }
 }
 
-fn map_legacy_triggers_to_object_event(triggers: &[LegacyTrigger]) -> Option<ObjectEvent> {
+fn map_legacy_triggers_for_swift(
+    triggers: &[LegacyTrigger],
+    fallback: ObjectEvent,
+) -> Vec<(ObjectEvent, Option<&'static str>)> {
+    let mut out = Vec::new();
     for trig in triggers {
-        match trig.event.to_ascii_lowercase().as_str() {
-            "load" | "initialize" => return Some(ObjectEvent::Load),
-            "enterframe" => return Some(ObjectEvent::EnterFrame),
-            "release" | "press" | "releaseoutside" | "mousedown" | "mouseup" => {
-                return Some(ObjectEvent::Click);
-            }
-            _ => {}
+        let entry = match trig.event.to_ascii_lowercase().as_str() {
+            "load" | "initialize" => (ObjectEvent::Load, None),
+            "enterframe" => (ObjectEvent::EnterFrame, None),
+            "press" => (ObjectEvent::Click, Some("press")),
+            "release" => (ObjectEvent::Click, Some("release")),
+            "releaseoutside" | "dragout" => (ObjectEvent::Click, Some("releaseOutside")),
+            "rollover" | "dragover" => (ObjectEvent::Click, Some("rollOver")),
+            "rollout" => (ObjectEvent::Click, Some("rollOut")),
+            "mousedown" => (ObjectEvent::Click, Some("clipMouseDown")),
+            "mouseup" => (ObjectEvent::Click, Some("clipMouseUp")),
+            "mousemove" => (ObjectEvent::Click, Some("clipMouseMove")),
+            _ => continue,
+        };
+        if !out.contains(&entry) {
+            out.push(entry);
         }
     }
-    None
+    if out.is_empty() {
+        out.push((fallback, None));
+    }
+    out
 }
 
 fn unquote_string_literal(raw: &str) -> Option<String> {
@@ -3057,7 +4794,7 @@ fn swift_default_for_proxy_type(swift_ty: &str) -> &'static str {
         "Int" | "UInt" => "0",
         "Double" => "0.0",
         "String" => "\"\"",
-        "[NFValue]" => "[]",
+        "[Double]" | "[Int]" | "[UInt]" | "[Bool]" | "[String]" | "[NFValue]" => "[]",
         "[String: NFValue]" => "[:]",
         _ => ".undefined",
     }
@@ -3123,7 +4860,17 @@ fn infer_portable_proxy_arg_type(
     if matches!(arg, Expr::Object(_)) {
         return ("[String: NFValue]", "Object");
     }
-    if matches!(arg, Expr::Array(_) | Expr::NewVector(_, _, _)) {
+    if let Expr::NewVector(elem, _, _) = arg {
+        return match short_type_name(elem.trim()) {
+            "Number" => ("[Double]", "Vector.<Number>"),
+            "int" => ("[Int]", "Vector.<int>"),
+            "uint" => ("[UInt]", "Vector.<uint>"),
+            "Boolean" => ("[Bool]", "Vector.<Boolean>"),
+            "String" => ("[String]", "Vector.<String>"),
+            _ => ("[NFValue]", "Array"),
+        };
+    }
+    if matches!(arg, Expr::Array(_)) {
         return ("[NFValue]", "Array");
     }
     match env.infer_expr(arg, stage) {
@@ -3132,7 +4879,15 @@ fn infer_portable_proxy_arg_type(
         HirType::Float => ("Double", "Number"),
         HirType::Bool => ("Bool", "Boolean"),
         HirType::String => ("String", "String"),
-        HirType::Array | HirType::Vector(_) => ("[NFValue]", "Array"),
+        HirType::Vector(elem) => match elem.as_ref() {
+            HirType::Float => ("[Double]", "Vector.<Number>"),
+            HirType::Int => ("[Int]", "Vector.<int>"),
+            HirType::UInt => ("[UInt]", "Vector.<uint>"),
+            HirType::Bool => ("[Bool]", "Vector.<Boolean>"),
+            HirType::String => ("[String]", "Vector.<String>"),
+            _ => ("[NFValue]", "Array"),
+        },
+        HirType::Array => ("[NFValue]", "Array"),
         _ => ("NFValue", "*"),
     }
 }
@@ -3399,7 +5154,15 @@ impl<'a> ProxyCallScanner<'a> {
                         HirType::UInt => Some("UInt"),
                         HirType::Float => Some("Double"),
                         HirType::String => Some("String"),
-                        HirType::Array | HirType::Vector(_) => Some("[NFValue]"),
+                        HirType::Vector(elem) => match elem.as_ref() {
+                            HirType::Float => Some("[Double]"),
+                            HirType::Int => Some("[Int]"),
+                            HirType::UInt => Some("[UInt]"),
+                            HirType::Bool => Some("[Bool]"),
+                            HirType::String => Some("[String]"),
+                            _ => Some("[NFValue]"),
+                        },
+                        HirType::Array => Some("[NFValue]"),
                         _ => Some("NFValue"),
                     }
                 } else {

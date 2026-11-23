@@ -1,4 +1,5 @@
-//! Swift 6 `@MainActor` `AVFoundation` audio manager generator (`Generated/NeoFlashKit/NFAudio.swift`, `T-455`).
+//! Swift 6 `@MainActor` polyphonic `AVAudioEngine` audio controller generator
+//! (`Generated/NeoFlashKit/NFAudio.swift`, `T-455` / `T-472`).
 
 #[must_use]
 pub(super) fn render_nf_audio_swift() -> &'static str {
@@ -11,6 +12,38 @@ public enum NFSoundSync: String, Sendable, Equatable {
     case start
     case stop
     case stream
+}
+
+public struct NFSoundTransform: Sendable, Equatable {
+    public var volume: Double
+    public var pan: Double
+    public var leftToLeft: Double
+    public var leftToRight: Double
+    public var rightToLeft: Double
+    public var rightToRight: Double
+
+    public init(_ volume: Double = 1.0, _ pan: Double = 0.0) {
+        let clampedVol = volume.isFinite ? max(0.0, volume) : 1.0
+        let clampedPan = pan.isFinite ? max(-1.0, min(1.0, pan)) : 0.0
+        self.volume = clampedVol
+        self.pan = clampedPan
+        self.leftToLeft = clampedPan <= 0.0 ? 1.0 : 1.0 - clampedPan
+        self.leftToRight = 0.0
+        self.rightToLeft = 0.0
+        self.rightToRight = clampedPan >= 0.0 ? 1.0 : 1.0 + clampedPan
+    }
+
+    public init(volume: Double, pan: Double = 0.0) {
+        self.init(volume, pan)
+    }
+
+    public static let identity = NFSoundTransform(1.0, 0.0)
+
+    public func combined(with master: NFSoundTransform) -> (volume: Float, pan: Float) {
+        let effVol = max(0.0, min(4.0, volume * master.volume))
+        let effPan = max(-1.0, min(1.0, pan + master.pan))
+        return (Float(effVol), Float(effPan))
+    }
 }
 
 public struct NFSoundCommand: Sendable, Equatable {
@@ -42,209 +75,733 @@ public struct NFSoundCommand: Sendable, Equatable {
         self.volume = max(0.0, min(1.0, volume))
         self.pan = max(-1.0, min(1.0, pan))
     }
+
+    public var soundTransform: NFSoundTransform {
+        NFSoundTransform(Double(volume), Double(pan))
+    }
+}
+
+@MainActor
+public final class NFSoundChannel {
+    public let id: UUID
+    public let resourceName: String
+    internal weak var manager: NFAudioManager?
+    internal var stoppedManually: Bool = false
+
+    public var soundTransform: NFSoundTransform {
+        didSet {
+            manager?.applyTransform(forChannelId: id, transform: soundTransform)
+        }
+    }
+
+    private var listeners: [String: [(UUID, (NFEvent) -> Void)]] = [:]
+
+    internal init(
+        id: UUID = UUID(),
+        resourceName: String,
+        soundTransform: NFSoundTransform,
+        manager: NFAudioManager
+    ) {
+        self.id = id
+        self.resourceName = resourceName
+        self.soundTransform = soundTransform
+        self.manager = manager
+    }
+
+    public var isPlaying: Bool {
+        guard !stoppedManually, let manager else { return false }
+        return manager.isChannelPlaying(id)
+    }
+
+    /// Current playback head in milliseconds (Flash `SoundChannel.position`).
+    public var position: Double {
+        guard let manager else { return 0.0 }
+        return manager.channelPositionMilliseconds(id)
+    }
+
+    public var leftPeak: Double {
+        guard isPlaying else { return 0.0 }
+        let panFactor = soundTransform.pan <= 0.0 ? 1.0 : max(0.0, 1.0 - soundTransform.pan)
+        return min(1.0, soundTransform.volume * panFactor)
+    }
+
+    public var rightPeak: Double {
+        guard isPlaying else { return 0.0 }
+        let panFactor = soundTransform.pan >= 0.0 ? 1.0 : max(0.0, 1.0 + soundTransform.pan)
+        return min(1.0, soundTransform.volume * panFactor)
+    }
+
+    /// Effective post-master gain & stereo pan mixed onto the `AVAudioPlayerNode`.
+    public var effectiveMix: (volume: Float, pan: Float) {
+        guard let manager else {
+            return (Float(soundTransform.volume), Float(soundTransform.pan))
+        }
+        if manager.isMuted {
+            return (0.0, Float(soundTransform.pan))
+        }
+        return soundTransform.combined(with: manager.soundTransform)
+    }
+
+    public func stop() {
+        guard !stoppedManually else { return }
+        stoppedManually = true
+        manager?.stopChannel(id)
+    }
+
+    @discardableResult
+    public func addEventListener(_ type: String, _ handler: @escaping (NFEvent) -> Void) -> UUID {
+        let token = UUID()
+        listeners[type, default: []].append((token, handler))
+        return token
+    }
+
+    public func removeEventListener(_ type: String, id: UUID) {
+        listeners[type]?.removeAll(where: { $0.0 == id })
+    }
+
+    internal func notifyComplete() {
+        let evt = NFEvent(type: "soundComplete")
+        if let list = listeners["soundComplete"] {
+            for (_, cb) in list {
+                cb(evt)
+            }
+        }
+    }
+}
+
+@MainActor
+open class NFSound {
+    public var resourceName: String
+    public weak var audioManager: NFAudioManager?
+    private var as2Transform: NFSoundTransform = .identity
+    private weak var lastChannel: NFSoundChannel?
+
+    public init(_ targetOrResource: Any? = nil, resourceName: String = "") {
+        if !resourceName.isEmpty {
+            self.resourceName = resourceName
+        } else if let s = targetOrResource as? String {
+            self.resourceName = s
+        } else if let v = targetOrResource as? NFValue, case .string(let s) = v {
+            self.resourceName = s
+        } else {
+            self.resourceName = ""
+        }
+        if let dobj = targetOrResource as? NFDisplayObject {
+            self.audioManager = dobj.stage?.audioManager
+        }
+    }
+
+    private var resolvedManager: NFAudioManager {
+        audioManager ?? NFAudioManager.shared
+    }
+
+    public var length: Double {
+        resolvedManager.durationMilliseconds(for: resourceName)
+    }
+
+    public func attachSound(_ linkageOrResource: String) {
+        self.resourceName = linkageOrResource
+    }
+
+    @discardableResult
+    public func play(
+        _ startTimeMs: Double = 0.0,
+        _ loops: Int = 1,
+        _ sndTransform: NFSoundTransform? = nil
+    ) -> NFSoundChannel? {
+        let ch = resolvedManager.playSound(
+            resourceName,
+            startTimeMs: startTimeMs,
+            loops: max(1, loops),
+            soundTransform: sndTransform ?? as2Transform
+        )
+        lastChannel = ch
+        return ch
+    }
+
+    @discardableResult
+    public func play(
+        startTime: Double,
+        loops: Int = 1,
+        sndTransform: NFSoundTransform? = nil
+    ) -> NFSoundChannel? {
+        play(startTime, loops, sndTransform)
+    }
+
+    public func start(_ secondOffset: Double = 0.0, _ loops: Int = 1) {
+        _ = play(max(0.0, secondOffset) * 1000.0, max(1, loops), as2Transform)
+    }
+
+    public func stop(_ linkageOrResource: String? = nil) {
+        if let specific = linkageOrResource, !specific.isEmpty {
+            resolvedManager.stopSound(specific)
+        } else if let ch = lastChannel {
+            ch.stop()
+        } else if !resourceName.isEmpty {
+            resolvedManager.stopSound(resourceName)
+        }
+    }
+
+    public func setVolume(_ volumePercent: Double) {
+        as2Transform.volume = max(0.0, volumePercent / 100.0)
+        lastChannel?.soundTransform = as2Transform
+    }
+
+    public func getVolume() -> Double {
+        as2Transform.volume * 100.0
+    }
+
+    public func setPan(_ panPercent: Double) {
+        as2Transform.pan = max(-1.0, min(1.0, panPercent / 100.0))
+        lastChannel?.soundTransform = as2Transform
+    }
+
+    public func getPan() -> Double {
+        as2Transform.pan * 100.0
+    }
+}
+
+@MainActor
+public enum NFSoundMixer {
+    public static var soundTransform: NFSoundTransform {
+        get { NFAudioManager.shared.soundTransform }
+        set { NFAudioManager.shared.soundTransform = newValue }
+    }
+
+    public static func stopAll() {
+        NFAudioManager.shared.stopAllSounds()
+    }
 }
 
 @MainActor
 public final class NFAudioManager {
     public static let shared = NFAudioManager()
 
+    public let engine = AVAudioEngine()
+
     public var isMuted: Bool = false {
         didSet {
-            applyMuteState()
+            refreshAllVoiceTransforms()
         }
     }
 
-    private var activePlayers: [String: [AVAudioPlayer]] = [:]
-    private var streamPlayers: [String: AVAudioPlayer] = [:]
-    private var baseVolumes: [ObjectIdentifier: Float] = [:]
-    private var bundleOverride: Bundle?
-
-    public init(bundle: Bundle? = nil) {
-        self.bundleOverride = bundle
+    public var soundTransform: NFSoundTransform = .identity {
+        didSet {
+            refreshAllVoiceTransforms()
+        }
     }
 
-    public func execute(_ command: NFSoundCommand) {
+    public var resourceDirectory: URL?
+    public var soundLinkageMap: [String: String] = [:]
+
+    private struct ActiveVoice {
+        let id: UUID
+        let resourceKey: String
+        let channel: NFSoundChannel
+        let playerNode: AVAudioPlayerNode?
+        let fullBuffer: AVAudioPCMBuffer
+        var startedUptime: TimeInterval
+        var startOffsetSeconds: Double
+        let clipDurationSeconds: Double
+        let loops: Int
+        let loopForever: Bool
+        let isStream: Bool
+        let outPointSeconds: Double?
+        var lastKnownPositionSeconds: Double
+    }
+
+    private var voicesById: [UUID: ActiveVoice] = [:]
+    private var voiceOrder: [UUID] = []
+    private var cachedBuffers: [URL: AVAudioPCMBuffer] = [:]
+    private var bundleOverride: Bundle?
+    private var engineAvailable: Bool?
+
+    public init(bundle: Bundle? = nil, resourceDirectory: URL? = nil) {
+        self.bundleOverride = bundle
+        self.resourceDirectory = resourceDirectory
+    }
+
+    public var activeChannelCount: Int {
+        pruneFinished()
+        return voicesById.count
+    }
+
+    public func activeChannels(for resourceName: String? = nil) -> [NFSoundChannel] {
+        pruneFinished()
+        let canonical = resourceName.map(canonicalResourceKey)
+        return voiceOrder.compactMap { id in
+            guard let voice = voicesById[id] else { return nil }
+            if let canonical, voice.resourceKey != canonical && voice.channel.resourceName != resourceName {
+                return nil
+            }
+            return voice.channel
+        }
+    }
+
+    @discardableResult
+    public func execute(_ command: NFSoundCommand) -> NFSoundChannel? {
         pruneFinished()
         switch command.sync {
         case .stop:
             stopSound(command.resourceName)
+            return nil
         case .start:
             if isPlaying(command.resourceName) {
-                return
+                return activeChannels(for: command.resourceName).first
             }
-            startEventPlayer(command)
+            return spawnVoice(
+                resourceName: command.resourceName,
+                inPoint: command.inPoint,
+                outPoint: command.outPoint,
+                loops: command.loops,
+                loopForever: command.loopForever,
+                isStream: false,
+                soundTransform: command.soundTransform
+            )
         case .event:
-            startEventPlayer(command)
+            return spawnVoice(
+                resourceName: command.resourceName,
+                inPoint: command.inPoint,
+                outPoint: command.outPoint,
+                loops: command.loops,
+                loopForever: command.loopForever,
+                isStream: false,
+                soundTransform: command.soundTransform
+            )
         case .stream:
-            startOrContinueStream(command)
+            let key = canonicalResourceKey(command.resourceName)
+            if let existingId = voiceOrder.first(where: { voicesById[$0]?.resourceKey == key && voicesById[$0]?.isStream == true }),
+               let existing = voicesById[existingId]
+            {
+                return existing.channel
+            }
+            return spawnVoice(
+                resourceName: command.resourceName,
+                inPoint: command.inPoint,
+                outPoint: command.outPoint,
+                loops: command.loops,
+                loopForever: command.loopForever,
+                isStream: true,
+                soundTransform: command.soundTransform
+            )
         }
     }
 
+    @discardableResult
+    public func playSound(
+        _ resourceName: String,
+        startTimeMs: Double = 0.0,
+        loops: Int = 1,
+        loopForever: Bool = false,
+        inPoint: Double? = nil,
+        outPoint: Double? = nil,
+        soundTransform: NFSoundTransform = .identity
+    ) -> NFSoundChannel? {
+        pruneFinished()
+        let effectiveIn = inPoint ?? (startTimeMs > 0.0 ? startTimeMs / 1000.0 : nil)
+        return spawnVoice(
+            resourceName: resourceName,
+            inPoint: effectiveIn,
+            outPoint: outPoint,
+            loops: max(1, loops),
+            loopForever: loopForever,
+            isStream: false,
+            soundTransform: soundTransform
+        )
+    }
+
     public func stopSound(_ resourceName: String) {
-        if let players = activePlayers.removeValue(forKey: resourceName) {
-            for player in players {
-                player.stop()
-                baseVolumes.removeValue(forKey: ObjectIdentifier(player))
-            }
+        let key = canonicalResourceKey(resourceName)
+        let matching = voiceOrder.filter { id in
+            guard let v = voicesById[id] else { return false }
+            return v.resourceKey == key || v.channel.resourceName == resourceName
         }
-        if let stream = streamPlayers.removeValue(forKey: resourceName) {
-            stream.stop()
-            baseVolumes.removeValue(forKey: ObjectIdentifier(stream))
+        for id in matching {
+            stopChannel(id)
         }
     }
 
     public func stopAllSounds() {
-        for (_, players) in activePlayers {
-            for player in players {
-                player.stop()
+        let ids = voiceOrder
+        for id in ids {
+            if let voice = voicesById.removeValue(forKey: id) {
+                voice.channel.stoppedManually = true
+                teardownNode(voice.playerNode)
             }
         }
-        for (_, stream) in streamPlayers {
-            stream.stop()
+        voiceOrder.removeAll()
+        if engine.isRunning {
+            engine.mainMixerNode.outputVolume = isMuted ? 0.0 : Float(max(0.0, min(4.0, soundTransform.volume)))
         }
-        activePlayers.removeAll()
-        streamPlayers.removeAll()
-        baseVolumes.removeAll()
     }
 
     public func isPlaying(_ resourceName: String) -> Bool {
-        pruneFinished()
-        if let list = activePlayers[resourceName], list.contains(where: { $0.isPlaying }) {
-            return true
-        }
-        if let stream = streamPlayers[resourceName], stream.isPlaying {
-            return true
-        }
-        return false
+        activeInstanceCount(resourceName) > 0
     }
 
     public func activeInstanceCount(_ resourceName: String) -> Int {
         pruneFinished()
-        let eventCount = activePlayers[resourceName]?.filter(\.isPlaying).count ?? 0
-        let streamCount = (streamPlayers[resourceName]?.isPlaying == true) ? 1 : 0
-        return eventCount + streamCount
+        let key = canonicalResourceKey(resourceName)
+        return voiceOrder.reduce(0) { acc, id in
+            guard let v = voicesById[id] else { return acc }
+            return (v.resourceKey == key || v.channel.resourceName == resourceName) ? acc + 1 : acc
+        }
     }
 
     /// Queries the live playback clock (in seconds) of an active Flash `Stream` sound.
     public func streamTimeSeconds(for resourceName: String) -> Double? {
-        guard let player = streamPlayers[resourceName], player.isPlaying else {
+        pruneFinished()
+        let key = canonicalResourceKey(resourceName)
+        guard let id = voiceOrder.first(where: { voicesById[$0]?.resourceKey == key && voicesById[$0]?.isStream == true }),
+              let voice = voicesById[id]
+        else {
             return nil
         }
-        if let outPoint = outPointSeconds[resourceName], player.currentTime >= outPoint {
-            player.stop()
-            streamPlayers.removeValue(forKey: resourceName)
-            outPointSeconds.removeValue(forKey: resourceName)
+        let pos = currentVoicePositionSeconds(voice)
+        if let outPt = voice.outPointSeconds, pos >= outPt {
+            stopChannel(id)
             return nil
         }
-        return player.currentTime
+        return pos
     }
 
-    /// Synchronizes an active `Stream` player when scrubbing or seeking the timeline.
+    /// Synchronizes an active `Stream` voice when scrubbing or seeking the timeline.
     public func syncStream(
         resourceName: String,
         expectedTimeSeconds: Double,
         tolerance: Double = 0.08
     ) {
-        guard let player = streamPlayers[resourceName] else {
+        pruneFinished()
+        let key = canonicalResourceKey(resourceName)
+        guard let id = voiceOrder.first(where: { voicesById[$0]?.resourceKey == key && voicesById[$0]?.isStream == true }),
+              var voice = voicesById[id]
+        else {
             return
         }
-        let target = max(0.0, min(player.duration, expectedTimeSeconds))
-        if abs(player.currentTime - target) > tolerance {
-            player.currentTime = target
+        let sr = max(1.0, voice.fullBuffer.format.sampleRate)
+        let fullDur = Double(voice.fullBuffer.frameLength) / sr
+        let target = max(0.0, min(fullDur, expectedTimeSeconds))
+        let current = currentVoicePositionSeconds(voice)
+        guard abs(current - target) > tolerance else { return }
+
+        voice.startOffsetSeconds = target
+        voice.startedUptime = ProcessInfo.processInfo.systemUptime
+        voice.lastKnownPositionSeconds = target
+        if let node = voice.playerNode, engine.isRunning {
+            node.stop()
+            if let sliced = sliceBuffer(voice.fullBuffer, inPoint: target, outPoint: voice.outPointSeconds) {
+                node.scheduleBuffer(sliced, at: nil, options: voice.loopForever ? .loops : [])
+                node.play()
+            }
         }
+        voicesById[id] = voice
     }
 
-    private var outPointSeconds: [String: Double] = [:]
+    public func durationMilliseconds(for resourceName: String) -> Double {
+        guard let url = resolveResourceURL(resourceName),
+              let buf = loadPCMBuffer(from: url)
+        else {
+            return 0.0
+        }
+        let sr = max(1.0, buf.format.sampleRate)
+        return (Double(buf.frameLength) / sr) * 1000.0
+    }
+
+    internal func isChannelPlaying(_ id: UUID) -> Bool {
+        pruneFinished()
+        return voicesById[id] != nil
+    }
+
+    internal func channelPositionMilliseconds(_ id: UUID) -> Double {
+        pruneFinished()
+        guard let voice = voicesById[id] else { return 0.0 }
+        return currentVoicePositionSeconds(voice) * 1000.0
+    }
+
+    internal func applyTransform(forChannelId id: UUID, transform: NFSoundTransform) {
+        guard let voice = voicesById[id] else { return }
+        applyMixToNode(voice.playerNode, channelTransform: transform)
+    }
+
+    internal func stopChannel(_ id: UUID) {
+        guard let voice = voicesById.removeValue(forKey: id) else { return }
+        voiceOrder.removeAll(where: { $0 == id })
+        voice.channel.stoppedManually = true
+        teardownNode(voice.playerNode)
+    }
+
+    private func canonicalResourceKey(_ raw: String) -> String {
+        if let mapped = soundLinkageMap[raw] {
+            return mapped
+        }
+        return raw
+    }
 
     private func resolveResourceURL(_ resourceName: String) -> URL? {
-        let bundle = bundleOverride ?? Bundle.main
-        let nsName = resourceName as NSString
+        let lookup = canonicalResourceKey(resourceName).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !lookup.isEmpty else { return nil }
+
+        let nsName = lookup as NSString
         let stem = nsName.deletingPathExtension
         let ext = nsName.pathExtension
+        let candidateExts = ext.isEmpty ? ["wav", "m4a", "mp3", "caf", "aac"] : [ext]
+
+        // 1. Explicit directory override (used by CLI test harnesses or custom asset folders)
+        if let dir = resourceDirectory {
+            let direct = dir.appendingPathComponent(lookup)
+            if FileManager.default.fileExists(atPath: direct.path) {
+                return direct
+            }
+            for candExt in candidateExts {
+                let cand = dir.appendingPathComponent("\(stem).\(candExt)")
+                if FileManager.default.fileExists(atPath: cand.path) {
+                    return cand
+                }
+            }
+        }
+
+        // 2. App / Override Bundle lookup
+        let bundle = bundleOverride ?? Bundle.main
         if !ext.isEmpty, let url = bundle.url(forResource: stem, withExtension: ext) {
             return url
         }
-        return bundle.url(forResource: resourceName, withExtension: nil)
+        if let url = bundle.url(forResource: lookup, withExtension: nil) {
+            return url
+        }
+        for candExt in candidateExts {
+            if let url = bundle.url(forResource: stem, withExtension: candExt) {
+                return url
+            }
+        }
+        return nil
     }
 
-    private func makePlayer(for command: NFSoundCommand) -> AVAudioPlayer? {
-        guard let url = resolveResourceURL(command.resourceName) else {
+    private func loadPCMBuffer(from url: URL) -> AVAudioPCMBuffer? {
+        if let cached = cachedBuffers[url] {
+            return cached
+        }
+        guard let file = try? AVAudioFile(forReading: url) else {
             return nil
         }
-        guard let player = try? AVAudioPlayer(contentsOf: url) else {
+        let format = file.processingFormat
+        let frameCount = AVAudioFrameCount(max(1, min(Int64(AVAudioFrameCount.max), file.length)))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount) else {
             return nil
         }
-        player.numberOfLoops = command.loopForever ? -1 : max(0, command.loops - 1)
-        player.pan = command.pan
-        baseVolumes[ObjectIdentifier(player)] = command.volume
-        player.volume = isMuted ? 0.0 : command.volume
-        if let start = command.inPoint, start > 0.0, start < player.duration {
-            player.currentTime = start
-        }
-        if let end = command.outPoint, end > 0.0 {
-            outPointSeconds[command.resourceName] = end
-        }
-        player.prepareToPlay()
-        return player
-    }
-
-    private func startEventPlayer(_ command: NFSoundCommand) {
-        guard let player = makePlayer(for: command) else {
-            return
-        }
-        if player.play() {
-            activePlayers[command.resourceName, default: []].append(player)
+        do {
+            try file.read(into: buffer)
+            guard buffer.frameLength > 0 else { return nil }
+            cachedBuffers[url] = buffer
+            return buffer
+        } catch {
+            return nil
         }
     }
 
-    private func startOrContinueStream(_ command: NFSoundCommand) {
-        if let existing = streamPlayers[command.resourceName], existing.isPlaying {
-            return
+    private func sliceBuffer(
+        _ source: AVAudioPCMBuffer,
+        inPoint: Double?,
+        outPoint: Double?
+    ) -> AVAudioPCMBuffer? {
+        let sr = max(1.0, source.format.sampleRate)
+        let totalFrames = Int(source.frameLength)
+        guard totalFrames > 0 else { return nil }
+
+        let startFrame = max(0, min(totalFrames - 1, Int(((inPoint ?? 0.0) * sr).rounded(.towardZero))))
+        let endFrame: Int
+        if let outPt = outPoint, outPt > 0.0 {
+            endFrame = max(startFrame + 1, min(totalFrames, Int((outPt * sr).rounded(.up))))
+        } else {
+            endFrame = totalFrames
         }
-        guard let player = makePlayer(for: command) else {
-            return
+        if startFrame == 0 && endFrame == totalFrames {
+            return source
         }
-        if player.play() {
-            streamPlayers[command.resourceName] = player
+
+        let sliceLen = AVAudioFrameCount(max(1, endFrame - startFrame))
+        guard let sub = AVAudioPCMBuffer(pcmFormat: source.format, frameCapacity: sliceLen) else {
+            return source
+        }
+        sub.frameLength = sliceLen
+        let channels = Int(source.format.channelCount)
+        if let srcFloats = source.floatChannelData, let dstFloats = sub.floatChannelData {
+            for ch in 0..<channels {
+                dstFloats[ch].update(from: srcFloats[ch].advanced(by: startFrame), count: Int(sliceLen))
+            }
+            return sub
+        }
+        if let srcInt16 = source.int16ChannelData, let dstInt16 = sub.int16ChannelData {
+            for ch in 0..<channels {
+                dstInt16[ch].update(from: srcInt16[ch].advanced(by: startFrame), count: Int(sliceLen))
+            }
+            return sub
+        }
+        return source
+    }
+
+    private func ensureEngineRunning() -> Bool {
+        if engine.isRunning {
+            return true
+        }
+        if let known = engineAvailable, !known {
+            return false
+        }
+        let outFormat = engine.outputNode.outputFormat(forBus: 0)
+        guard outFormat.channelCount > 0 && outFormat.sampleRate > 0 else {
+            engineAvailable = false
+            return false
+        }
+        do {
+            _ = engine.mainMixerNode
+            try engine.start()
+            engine.mainMixerNode.outputVolume = isMuted ? 0.0 : Float(max(0.0, min(4.0, soundTransform.volume)))
+            engineAvailable = true
+            return true
+        } catch {
+            engineAvailable = false
+            return false
+        }
+    }
+
+    private func spawnVoice(
+        resourceName: String,
+        inPoint: Double?,
+        outPoint: Double?,
+        loops: Int,
+        loopForever: Bool,
+        isStream: Bool,
+        soundTransform: NFSoundTransform
+    ) -> NFSoundChannel? {
+        guard let url = resolveResourceURL(resourceName),
+              let fullBuffer = loadPCMBuffer(from: url),
+              let playBuffer = sliceBuffer(fullBuffer, inPoint: inPoint, outPoint: outPoint)
+        else {
+            return nil
+        }
+
+        let sr = max(1.0, playBuffer.format.sampleRate)
+        // Minimum virtual floor of 0.025s so ultra-short test PCM clips stay observable within the active frame tick
+        let rawClipDuration = max(0.025, Double(playBuffer.frameLength) / sr)
+        let startOffset = max(0.0, inPoint ?? 0.0)
+        let id = UUID()
+        let key = canonicalResourceKey(resourceName)
+        let channel = NFSoundChannel(
+            id: id,
+            resourceName: resourceName,
+            soundTransform: soundTransform,
+            manager: self
+        )
+
+        var attachedNode: AVAudioPlayerNode?
+        if ensureEngineRunning() {
+            let node = AVAudioPlayerNode()
+            engine.attach(node)
+            engine.connect(node, to: engine.mainMixerNode, format: playBuffer.format)
+            applyMixToNode(node, channelTransform: soundTransform)
+            if loopForever {
+                node.scheduleBuffer(playBuffer, at: nil, options: .loops)
+            } else {
+                let boundedLoops = max(1, min(64, loops))
+                for _ in 0..<boundedLoops {
+                    node.scheduleBuffer(playBuffer, at: nil, options: [])
+                }
+            }
+            node.play()
+            attachedNode = node
+        }
+
+        let voice = ActiveVoice(
+            id: id,
+            resourceKey: key,
+            channel: channel,
+            playerNode: attachedNode,
+            fullBuffer: fullBuffer,
+            startedUptime: ProcessInfo.processInfo.systemUptime,
+            startOffsetSeconds: startOffset,
+            clipDurationSeconds: rawClipDuration,
+            loops: max(1, loops),
+            loopForever: loopForever,
+            isStream: isStream,
+            outPointSeconds: outPoint,
+            lastKnownPositionSeconds: startOffset
+        )
+        voicesById[id] = voice
+        voiceOrder.append(id)
+        return channel
+    }
+
+    private func currentVoicePositionSeconds(_ voice: ActiveVoice) -> Double {
+        let elapsed = max(0.0, ProcessInfo.processInfo.systemUptime - voice.startedUptime)
+        if voice.clipDurationSeconds <= 1e-6 {
+            return voice.startOffsetSeconds
+        }
+        if voice.loopForever || voice.loops > 1 {
+            let cycleOffset = elapsed.truncatingRemainder(dividingBy: voice.clipDurationSeconds)
+            return voice.startOffsetSeconds + cycleOffset
+        }
+        return voice.startOffsetSeconds + min(voice.clipDurationSeconds, elapsed)
+    }
+
+    private func applyMixToNode(_ node: AVAudioPlayerNode?, channelTransform: NFSoundTransform) {
+        if engine.isRunning {
+            engine.mainMixerNode.outputVolume = isMuted ? 0.0 : Float(max(0.0, min(4.0, soundTransform.volume)))
+        }
+        guard let node else { return }
+        if isMuted {
+            node.volume = 0.0
+            node.pan = Float(channelTransform.pan)
+        } else {
+            let (vol, pan) = channelTransform.combined(with: soundTransform)
+            node.volume = vol
+            node.pan = pan
+        }
+    }
+
+    private func refreshAllVoiceTransforms() {
+        if engine.isRunning {
+            engine.mainMixerNode.outputVolume = isMuted ? 0.0 : Float(max(0.0, min(4.0, soundTransform.volume)))
+        }
+        for (_, voice) in voicesById {
+            applyMixToNode(voice.playerNode, channelTransform: voice.channel.soundTransform)
+        }
+    }
+
+    private func teardownNode(_ node: AVAudioPlayerNode?) {
+        guard let node else { return }
+        node.stop()
+        if node.engine != nil {
+            engine.disconnectNodeOutput(node)
+            engine.detach(node)
         }
     }
 
     private func pruneFinished() {
-        for (key, list) in activePlayers {
-            let alive = list.filter { player in
-                if !player.isPlaying {
-                    baseVolumes.removeValue(forKey: ObjectIdentifier(player))
-                    return false
-                }
-                if let outPoint = outPointSeconds[key], player.currentTime >= outPoint {
-                    player.stop()
-                    baseVolumes.removeValue(forKey: ObjectIdentifier(player))
-                    return false
-                }
-                return true
-            }
-            if alive.isEmpty {
-                activePlayers.removeValue(forKey: key)
-            } else {
-                activePlayers[key] = alive
-            }
-        }
-        for (key, player) in streamPlayers where !player.isPlaying {
-            baseVolumes.removeValue(forKey: ObjectIdentifier(player))
-            streamPlayers.removeValue(forKey: key)
-        }
-    }
+        let now = ProcessInfo.processInfo.systemUptime
+        var completedChannels: [NFSoundChannel] = []
+        var aliveOrder: [UUID] = []
 
-    private func applyMuteState() {
-        for (_, list) in activePlayers {
-            for player in list {
-                let vol = baseVolumes[ObjectIdentifier(player)] ?? 1.0
-                player.volume = isMuted ? 0.0 : vol
+        for id in voiceOrder {
+            guard let voice = voicesById[id] else { continue }
+            let elapsed = max(0.0, now - voice.startedUptime)
+            let totalAllowed = voice.loopForever ? Double.infinity : voice.clipDurationSeconds * Double(max(1, voice.loops))
+            let reachedOutPoint: Bool = if let outPt = voice.outPointSeconds {
+                (voice.startOffsetSeconds + elapsed) >= outPt && !voice.loopForever && voice.loops == 1
+            } else {
+                false
+            }
+
+            if elapsed >= totalAllowed || reachedOutPoint {
+                voicesById.removeValue(forKey: id)
+                teardownNode(voice.playerNode)
+                completedChannels.append(voice.channel)
+            } else {
+                aliveOrder.append(id)
             }
         }
-        for (_, player) in streamPlayers {
-            let vol = baseVolumes[ObjectIdentifier(player)] ?? 1.0
-            player.volume = isMuted ? 0.0 : vol
+        voiceOrder = aliveOrder
+
+        for ch in completedChannels {
+            ch.notifyComplete()
         }
     }
 }

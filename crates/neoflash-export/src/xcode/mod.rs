@@ -14,6 +14,7 @@ mod runtime_swift;
 mod scene_codegen;
 #[cfg(test)]
 mod tests;
+mod value_swift;
 
 pub use preflight::{XcodePreflightItem, XcodePreflightSeverity, preflight_xcode_project};
 

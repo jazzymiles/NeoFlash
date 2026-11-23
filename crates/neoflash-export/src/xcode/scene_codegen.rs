@@ -7,11 +7,12 @@ use super::{
 use neoflash_core::{
     BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FilterSpec, FrameSound,
     GradientKind, GradientPaint, GradientSpread, InstancePlayback, Layer, LayerRole, ObjectEvent,
-    PathCommand, Project, SceneRange, SoundSync, Symbol, SymbolKind, TextAlign, Timeline,
-    affine_multiply, camera_layer_matrix, expand_variable_width_stroke, flatten_scenes_cow,
-    layer_effective_blend_mode, layer_effectively_synced, layer_effectively_visible, motion_span,
-    oval_path_commands, placement_start, rectangle_path_commands, resolve_video_source,
-    sample_layer_in_at_fps, sample_timeline_camera, transform_matrix,
+    PathCommand, Project, SceneRange, SoundSync, Symbol, SymbolKind, TextAlign, TextFieldType,
+    Timeline, affine_multiply, camera_layer_matrix, expand_variable_width_stroke,
+    flatten_scenes_cow, layer_effective_blend_mode, layer_effectively_synced,
+    layer_effectively_visible, motion_span, oval_path_commands, placement_start,
+    rectangle_path_commands, resolve_video_source, sample_layer_in_at_fps, sample_timeline_camera,
+    transform_matrix,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -73,6 +74,11 @@ pub(super) fn generate_scenes_and_contract(
     // Assign collision-free Swift class names to every exported symbol.
     let mut used_class_names: BTreeSet<String> = BTreeSet::from([
         "NFValue".into(),
+        "NFScriptError".into(),
+        "NFError".into(),
+        "NFPoint".into(),
+        "NFRectangle".into(),
+        "NFMatrix".into(),
         "NFDisplayObject".into(),
         "NFSprite".into(),
         "NFMovieClip".into(),
@@ -83,14 +89,36 @@ pub(super) fn generate_scenes_and_contract(
         "NFVideo".into(),
         "NFGraphics".into(),
         "NFStage".into(),
+        "NFStageInputState".into(),
+        "NFTouchEvent".into(),
         "NFRenderer".into(),
         "NFAudioManager".into(),
+        "NFSound".into(),
+        "NFSoundChannel".into(),
+        "NFSoundTransform".into(),
+        "NFSoundMixer".into(),
         "NeoFlashStageView".into(),
         "SwiftHostProtocol".into(),
         "AppSwiftHost".into(),
         "ContentView".into(),
         "NFGeneratedSymbolRegistry".into(),
     ]);
+    if let Some(bundle) = scripts {
+        for line in bundle.source_classes_swift.lines() {
+            let trimmed = line.trim_start();
+            for prefix in ["public class ", "public final class ", "public protocol "] {
+                if let Some(rest) = trimmed.strip_prefix(prefix) {
+                    let ident: String = rest
+                        .chars()
+                        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                        .collect();
+                    if !ident.is_empty() {
+                        used_class_names.insert(ident);
+                    }
+                }
+            }
+        }
+    }
 
     let mut class_name_by_symbol_id: BTreeMap<String, String> = BTreeMap::new();
     let mut needs_main_scene_typealias: Option<String> = None;
@@ -238,6 +266,12 @@ struct EncodedText {
     border_color: Color,
     background: bool,
     background_color: Color,
+    kind_lit: &'static str,
+    selectable: bool,
+    display_as_password: bool,
+    max_chars: u32,
+    restrict: Option<String>,
+    html: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -740,6 +774,16 @@ where
             None => continue,
         };
 
+        let mut combined_filters = el.filters;
+        if let Some(k) = active_key
+            && !k.filters.is_empty()
+        {
+            combined_filters.extend(k.filters.iter().cloned());
+        }
+        if !layer.properties.filters.is_empty() {
+            combined_filters.extend(layer.properties.filters.iter().cloned());
+        }
+
         out.push(EncodedPlacement {
             element_id: el.id,
             name: el.name,
@@ -754,7 +798,7 @@ where
             color_transform: ct,
             visible: el.visible,
             blend_mode: el.blend_mode,
-            filters: el.filters,
+            filters: combined_filters,
             payload,
         });
     }
@@ -953,6 +997,12 @@ where
                     border_color: [0, 0, 0, 255],
                     background: false,
                     background_color: [255, 255, 255, 255],
+                    kind_lit: ".staticText",
+                    selectable: false,
+                    display_as_password: false,
+                    max_chars: 0,
+                    restrict: None,
+                    html: false,
                 },
             );
             Some(EncodedPayload::Text(idx))
@@ -974,6 +1024,21 @@ where
             let field_opts = format.field_options();
             let border = field_opts.as_ref().is_some_and(|o| o.border);
             let background = field_opts.as_ref().is_some_and(|o| o.background);
+            let border_color = field_opts
+                .as_ref()
+                .map_or([0, 0, 0, 255], |o| rgb_alpha_to_color(o.border_color, 1.0));
+            let background_color = field_opts.as_ref().map_or([255, 255, 255, 255], |o| {
+                rgb_alpha_to_color(o.background_color, 1.0)
+            });
+            let kind_lit = match field_opts.as_ref().map(|o| o.field_type) {
+                Some(TextFieldType::Input) => ".input",
+                _ => ".dynamic",
+            };
+            let selectable = field_opts.as_ref().is_none_or(|o| o.selectable);
+            let display_as_password = field_opts.as_ref().is_some_and(|o| o.display_as_password);
+            let max_chars = field_opts.as_ref().map_or(0, |o| o.max_chars);
+            let restrict = field_opts.as_ref().and_then(|o| o.restrict.clone());
+            let html = field_opts.as_ref().is_some_and(|o| o.html);
             let idx = intern_text(
                 text_catalog,
                 EncodedText {
@@ -991,9 +1056,15 @@ where
                     word_wrap: *word_wrap,
                     multiline: *multiline,
                     border,
-                    border_color: [0, 0, 0, 255],
+                    border_color,
                     background,
-                    background_color: [255, 255, 255, 255],
+                    background_color,
+                    kind_lit,
+                    selectable,
+                    display_as_password,
+                    max_chars,
+                    restrict,
+                    html,
                 },
             );
             Some(EncodedPayload::Text(idx))
@@ -1076,6 +1147,9 @@ fn collect_named_instance_bindings(
         "visible",
         "width",
         "height",
+        "mouseX",
+        "mouseY",
+        "_name",
         "_x",
         "_y",
         "_xscale",
@@ -1085,7 +1159,14 @@ fn collect_named_instance_bindings(
         "_visible",
         "_width",
         "_height",
+        "_xmouse",
+        "_ymouse",
+        "_parent",
+        "_root",
+        "_currentframe",
+        "_totalframes",
         "isScriptControlled",
+        "isPlaybackScriptControlled",
         "colorTransform",
         "blendMode",
         "filters",
@@ -1111,6 +1192,9 @@ fn collect_named_instance_bindings(
         "currentLabel",
         "enabled",
         "buttonState",
+        "inputState",
+        "stageMouseX",
+        "stageMouseY",
         "self",
         "super",
     ]);
@@ -1430,9 +1514,13 @@ fn emit_text_spec_literal(out: &mut String, txt: &EncodedText) {
         Some((w, h)) => (fmt_f64(w), fmt_f64(h)),
         None => ("nil".to_owned(), "nil".to_owned()),
     };
+    let restrict_lit = txt
+        .restrict
+        .as_deref()
+        .map_or_else(|| "nil".to_owned(), swift_str);
     let _ = writeln!(
         out,
-        "            NFTextSpec(text: {}, fontFamily: {}, fontSize: {}, color: {}, bold: {}, italic: {}, underline: {}, align: {align_lit}, leading: {}, letterSpacing: {}, boxWidth: {bw}, boxHeight: {bh}, wordWrap: {}, multiline: {}, border: {}, borderColor: {}, background: {}, backgroundColor: {}),",
+        "            NFTextSpec(text: {}, fontFamily: {}, fontSize: {}, color: {}, bold: {}, italic: {}, underline: {}, align: {align_lit}, leading: {}, letterSpacing: {}, boxWidth: {bw}, boxHeight: {bh}, wordWrap: {}, multiline: {}, border: {}, borderColor: {}, background: {}, backgroundColor: {}, kind: {}, selectable: {}, displayAsPassword: {}, maxChars: {}, restrict: {restrict_lit}, html: {}),",
         swift_str(&txt.text),
         swift_str(&txt.font_family),
         fmt_f64(txt.font_size),
@@ -1447,7 +1535,12 @@ fn emit_text_spec_literal(out: &mut String, txt: &EncodedText) {
         txt.border,
         format_color(txt.border_color),
         txt.background,
-        format_color(txt.background_color)
+        format_color(txt.background_color),
+        txt.kind_lit,
+        txt.selectable,
+        txt.display_as_password,
+        txt.max_chars,
+        txt.html
     );
 }
 
@@ -1569,9 +1662,20 @@ fn emit_symbol_script_methods(out: &mut String, bundle: &XcodeSymbolScriptBundle
     }
 
     if !bundle.instance_handlers_swift.is_empty() {
-        let mut handler_entries: Vec<(String, ObjectEvent, String)> = Vec::new();
-        for (idx, (target_key, event, code)) in bundle.instance_handlers_swift.iter().enumerate() {
-            if code.trim().is_empty() {
+        let mut handler_entries: Vec<(String, ObjectEvent, Option<String>, String)> = Vec::new();
+        for (idx, (target_key, event, raw_code)) in
+            bundle.instance_handlers_swift.iter().enumerate()
+        {
+            let (trigger_tag, code) = if let Some(rest) = raw_code.strip_prefix("// @nf-trigger:") {
+                if let Some((tag_line, body_rest)) = rest.split_once('\n') {
+                    (Some(tag_line.trim().to_owned()), body_rest)
+                } else {
+                    (Some(rest.trim().to_owned()), "")
+                }
+            } else {
+                (None, raw_code.as_str())
+            };
+            if code.trim().is_empty() && trigger_tag.is_none() {
                 continue;
             }
             let _ = writeln!(out);
@@ -1589,7 +1693,7 @@ fn emit_symbol_script_methods(out: &mut String, bundle: &XcodeSymbolScriptBundle
                 let _ = writeln!(out, "    }}");
                 gen_name
             };
-            handler_entries.push((target_key.clone(), *event, fn_name));
+            handler_entries.push((target_key.clone(), *event, trigger_tag, fn_name));
         }
 
         if !handler_entries.is_empty() {
@@ -1598,21 +1702,73 @@ fn emit_symbol_script_methods(out: &mut String, bundle: &XcodeSymbolScriptBundle
                 out,
                 "    public override func attachInstanceHandlers(elementId: String, name: String, target: NFDisplayObject) {{"
             );
-            for (target_key, event, fn_name) in handler_entries {
+            for (target_key, event, trigger_tag, fn_name) in handler_entries {
                 let key_lit = swift_str(&target_key);
-                let arr_prop = match event {
-                    ObjectEvent::Load => "loadCallbacks",
-                    ObjectEvent::Click => "clickCallbacks",
-                    ObjectEvent::EnterFrame => "enterFrameCallbacks",
-                };
                 let _ = writeln!(
                     out,
                     "        if elementId == {key_lit} || name == {key_lit} {{"
                 );
-                let _ = writeln!(
-                    out,
-                    "            target.{arr_prop}.append({{ [weak self] in self?.{fn_name}() }})"
-                );
+                match trigger_tag.as_deref() {
+                    Some("press") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.pressCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                        );
+                    }
+                    Some("release") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.clickCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                        );
+                    }
+                    Some("releaseOutside") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.releaseOutsideCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                        );
+                    }
+                    Some("rollOver") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.rollOverCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                        );
+                    }
+                    Some("rollOut") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.rollOutCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                        );
+                    }
+                    Some("clipMouseDown") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.addEventListener(NFMouseEvent.mouseDown) {{ [weak self] _ in self?.{fn_name}() }}"
+                        );
+                    }
+                    Some("clipMouseUp") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.addEventListener(NFMouseEvent.mouseUp) {{ [weak self] _ in self?.{fn_name}() }}"
+                        );
+                    }
+                    Some("clipMouseMove") => {
+                        let _ = writeln!(
+                            out,
+                            "            target.addEventListener(NFMouseEvent.mouseMove) {{ [weak self] _ in self?.{fn_name}() }}"
+                        );
+                    }
+                    _ => {
+                        let arr_prop = match event {
+                            ObjectEvent::Load => "loadCallbacks",
+                            ObjectEvent::Click => "clickCallbacks",
+                            ObjectEvent::EnterFrame => "enterFrameCallbacks",
+                        };
+                        let _ = writeln!(
+                            out,
+                            "            target.{arr_prop}.append({{ [weak self] in self?.{fn_name}() }})"
+                        );
+                    }
+                }
                 let _ = writeln!(out, "        }}");
             }
             let _ = writeln!(out, "    }}");
@@ -1752,6 +1908,55 @@ fn format_filters(filters: &[FilterSpec]) -> String {
             FilterSpec::Blur { blur_x, blur_y, .. } => {
                 items.push(format!(
                     ".blur(blurX: {}, blurY: {})",
+                    fmt_f64(*blur_x),
+                    fmt_f64(*blur_y)
+                ));
+            }
+            FilterSpec::Bevel {
+                distance,
+                angle,
+                shadow_color,
+                shadow_alpha,
+                blur_x,
+                blur_y,
+                ..
+            } => {
+                let c = rgb_alpha_to_color(*shadow_color, *shadow_alpha);
+                items.push(format!(
+                    ".dropShadow(distance: {}, angleDegrees: {}, color: {}, blurX: {}, blurY: {})",
+                    fmt_f64(*distance),
+                    fmt_f64(*angle),
+                    format_color(c),
+                    fmt_f64(*blur_x),
+                    fmt_f64(*blur_y)
+                ));
+            }
+            FilterSpec::GradientGlow {
+                distance,
+                angle,
+                colors,
+                alphas,
+                blur_x,
+                blur_y,
+                ..
+            }
+            | FilterSpec::GradientBevel {
+                distance,
+                angle,
+                colors,
+                alphas,
+                blur_x,
+                blur_y,
+                ..
+            } => {
+                let col = colors.last().copied().unwrap_or(0x000000);
+                let alp = alphas.last().copied().unwrap_or(1.0);
+                let c = rgb_alpha_to_color(col, alp);
+                items.push(format!(
+                    ".dropShadow(distance: {}, angleDegrees: {}, color: {}, blurX: {}, blurY: {})",
+                    fmt_f64(*distance),
+                    fmt_f64(*angle),
+                    format_color(c),
                     fmt_f64(*blur_x),
                     fmt_f64(*blur_y)
                 ));
