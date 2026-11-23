@@ -859,7 +859,7 @@ pub struct SwfBytecodePlayer {
     avm1_functions: HashMap<String, Avm1Function>,
     avm1_registered_classes: HashMap<String, usize>,
     avm1_objects: Vec<Avm1Object>,
-    avm1_registers: [Avm1Value; 256],
+    avm1_registers: Vec<Avm1Value>,
     avm1_constant_pool: Vec<String>,
     avm1_target: String,
     avm1_detached_target: Option<(String, LiveSlot)>,
@@ -1171,7 +1171,7 @@ impl SwfBytecodePlayer {
             avm1_functions: HashMap::new(),
             avm1_registered_classes: HashMap::new(),
             avm1_objects: Vec::new(),
-            avm1_registers: std::array::from_fn(|_| Avm1Value::Undefined),
+            avm1_registers: vec![Avm1Value::Undefined; 256],
             avm1_constant_pool: Vec::new(),
             avm1_target: String::new(),
             avm1_detached_target: None,
@@ -1269,7 +1269,7 @@ impl SwfBytecodePlayer {
         self.avm1_functions.clear();
         self.avm1_registered_classes.clear();
         self.avm1_objects.clear();
-        self.avm1_registers = std::array::from_fn(|_| Avm1Value::Undefined);
+        self.avm1_registers = vec![Avm1Value::Undefined; 256];
         self.avm1_constant_pool.clear();
         self.avm1_target.clear();
         self.avm1_detached_target = None;

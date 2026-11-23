@@ -20,7 +20,10 @@ pub use swift_contract::{SwiftProxyMethod, SwiftProxyParam};
 use crate::actionscript::ast::Stmt;
 use emit_as2::{emit_as2_class, emit_as2_timeline_script};
 use emit_as3::{SynthesizedLinkage, emit_as3_class, emit_as3_timeline_script};
-use emit_js::{emit_js_class, emit_js_timeline_script, to_js_module_path};
+use emit_js::{
+    display_base_shim_block, emit_js_class, emit_js_timeline_script, relative_module_specifier,
+    to_js_module_path,
+};
 use hir::{
     LiftedObjectHandler, LiftedTriggerKind, ParsedClass, ProjectStageIndex, parse_class_unit,
     parse_timeline_script, short_type_name,
@@ -786,18 +789,13 @@ fn convert_to_as2(
         }
     }
 
-    // 3. If `project.document_class` was set in AS3, bootstrap an instance on root Frame 0 in AS2!
+    // 3. If `project.document_class` was set in AS3, attach it directly onto root in AS2 and bind `_documentApp`!
     if let Some(doc_cls) = old_doc_class
         && !doc_cls.trim().is_empty()
         && let Some(root_sym) = out.symbols.iter_mut().find(|s| s.id == root_id)
     {
-        let short = short_type_name(&doc_cls);
-        let import_prefix = if doc_cls.contains('.') {
-            format!("import {doc_cls};\n")
-        } else {
-            String::new()
-        };
-        let bootstrap = format!("{import_prefix}var _documentApp:{short} = new {short}();\n");
+        root_sym.class_name = Some(doc_cls.clone());
+        let bootstrap = "var _documentApp:Object = this;\n".to_owned();
         if let Some(f0) = root_sym
             .timeline
             .scripts
@@ -841,7 +839,38 @@ fn convert_to_js(
         lifted_per_symbol.push(lifted);
     }
 
+    // Ensure linked AS3 symbols without `linkage_id` get a `linkage_id` before building stage index
+    for sym in &mut out.symbols {
+        if sym.id != out.root
+            && let Some(cls) = &sym.class_name
+            && !cls.trim().is_empty()
+            && sym
+                .linkage_id
+                .as_deref()
+                .is_none_or(|l| l.trim().is_empty())
+        {
+            sym.linkage_id = Some(short_type_name(cls).to_owned());
+        }
+    }
+
     let stage = ProjectStageIndex::build(out);
+
+    let mut class_to_linkage: BTreeMap<String, String> = BTreeMap::new();
+    for sym in &out.symbols {
+        if sym.id != out.root
+            && let Some(cls) = &sym.class_name
+            && !cls.trim().is_empty()
+            && let Some(link) = &sym.linkage_id
+            && !link.trim().is_empty()
+        {
+            class_to_linkage.insert(short_type_name(cls).to_owned(), link.clone());
+        }
+    }
+
+    let old_doc_class = out.document_class.take();
+    for sym in &mut out.symbols {
+        sym.class_name = None;
+    }
 
     // Pre-parse class units to build `module_paths_by_short` for ES module `import { X } from "./..."`
     let mut parsed_classes: Vec<(usize, ParsedClass)> = Vec::new();
@@ -882,6 +911,7 @@ fn convert_to_js(
             &unit.path,
             &stage,
             &module_paths_by_short,
+            &class_to_linkage,
         );
         report.issues.extend(emitted.issues);
         for syn in emitted.synthesized_linkages {
@@ -967,16 +997,6 @@ fn convert_to_js(
         }
     }
 
-    // Normalize `document_class` and `sym.class_name` to short exported JS class names!
-    if let Some(doc_cls) = &mut out.document_class {
-        *doc_cls = short_type_name(doc_cls).to_owned();
-    }
-    for sym in &mut out.symbols {
-        if let Some(cls) = &mut sym.class_name {
-            *cls = short_type_name(cls).to_owned();
-        }
-    }
-
     // Synthesize exported JS linkage stub modules for any `attachMovie` symbols without a class module!
     let existing_js_shorts: BTreeSet<String> = parsed_classes
         .into_iter()
@@ -985,23 +1005,14 @@ fn convert_to_js(
 
     for syn in all_synthesized.values() {
         let short = short_type_name(&syn.class_name).to_owned();
-        for sym in &mut out.symbols {
-            if sym.linkage_id.as_deref() == Some(syn.linkage_id.as_str())
-                && sym
-                    .class_name
-                    .as_deref()
-                    .is_none_or(|c| c.trim().is_empty())
-            {
-                sym.class_name = Some(short.clone());
-            }
-        }
         if !existing_js_shorts.contains(&short) {
             let mod_path = module_paths_by_short
                 .get(&short)
                 .cloned()
                 .unwrap_or_else(|| format!("{short}.js"));
+            let base_shim = display_base_shim_block("MovieClip", Some(&syn.linkage_id));
             let stub_src = format!(
-                "const MovieClip = globalThis.MovieClip || class MovieClip {{\n    constructor() {{ this.name = \"\"; this.x = 0; this.y = 0; this.scaleX = 1; this.scaleY = 1; this.alpha = 1; this.rotation = 0; this.visible = true; this.children = []; }}\n    addChild(c) {{ this.children.push(c); return c; }}\n}};\n\nexport class {short} extends MovieClip {{\n    constructor() {{\n        super();\n    }}\n}}\n"
+                "{base_shim}\n\nexport class {short} extends MovieClip {{\n    constructor() {{\n        super();\n    }}\n}}\n"
             );
             out.sources.push(SourceUnit {
                 id: new_id("source"),
@@ -1009,6 +1020,74 @@ fn convert_to_js(
                 language: ScriptLanguage::JavaScript,
                 source: stub_src,
             });
+        }
+    }
+
+    // Bootstrap `document_class` on root Frame 0 when converting AS3 -> JS so `new Main()` binds directly to root `this`!
+    let root_id = out.root.clone();
+    if let Some(doc_cls) = old_doc_class
+        && !doc_cls.trim().is_empty()
+        && let Some(root_sym) = out.symbols.iter_mut().find(|s| s.id == root_id)
+    {
+        let short = short_type_name(&doc_cls);
+        let target_mod_path = module_paths_by_short
+            .get(short)
+            .cloned()
+            .unwrap_or_else(|| format!("{}.js", doc_cls.replace('.', "/")));
+        let spec = relative_module_specifier("", &target_mod_path);
+        let import_line = format!("import {{ {short} }} from \"{spec}\";");
+        let bootstrap_body = format!(
+            "globalThis.__nfTrace = typeof trace === \"function\" ? trace : null;\nglobalThis.__nfPendingDisplayTarget = this;\nconst _documentApp = new {short}();"
+        );
+        if let Some(f0) = root_sym
+            .timeline
+            .scripts
+            .iter_mut()
+            .find(|fs| fs.frame == 0)
+        {
+            let existing = f0.script.source.trim();
+            if existing.is_empty() {
+                f0.script.source = format!("{import_line}\n\n{bootstrap_body}\n");
+            } else {
+                let mut existing_imports = Vec::new();
+                let mut rest_lines = Vec::new();
+                for line in existing.lines() {
+                    if rest_lines.is_empty() && line.trim_start().starts_with("import ") {
+                        existing_imports.push(line.to_owned());
+                    } else {
+                        rest_lines.push(line.to_owned());
+                    }
+                }
+                if !existing_imports.iter().any(|l| l == &import_line) {
+                    existing_imports.insert(0, import_line);
+                }
+                let rest = rest_lines.join("\n");
+                let rest_trimmed = rest.trim_start();
+                if rest_trimmed.is_empty() {
+                    f0.script.source =
+                        format!("{}\n\n{bootstrap_body}\n", existing_imports.join("\n"));
+                } else {
+                    f0.script.source = format!(
+                        "{}\n\n{bootstrap_body}\n{rest_trimmed}\n",
+                        existing_imports.join("\n")
+                    );
+                }
+            }
+            f0.script.language = ScriptLanguage::JavaScript;
+        } else {
+            let layer = root_sym.timeline.layers.first().map(|l| l.id.clone());
+            root_sym.timeline.scripts.insert(
+                0,
+                FrameScript {
+                    layer,
+                    frame: 0,
+                    script: Script {
+                        language: ScriptLanguage::JavaScript,
+                        source: format!("{import_line}\n\n{bootstrap_body}\n"),
+                    },
+                },
+            );
+            report.converted_frame_scripts += 1;
         }
     }
 

@@ -108,10 +108,14 @@ impl HirType {
                     | "InteractiveObject"
                     | "Shape"
                     | "Sprite"
+                    | "Bitmap"
                     | "MovieClip" => "MovieClip".into(),
                     "SimpleButton" | "Button" => "Button".into(),
                     "Event" | "MouseEvent" | "KeyboardEvent" | "TimerEvent" | "Stage"
-                    | "Dictionary" | "ByteArray" | "Stage3D" | "Context3D" => "Object".into(),
+                    | "Dictionary" | "ByteArray" | "Stage3D" | "Context3D" | "Video" | "Loader"
+                    | "SoundChannel" | "SoundTransform" | "URLRequest" | "URLLoader" | "RegExp" => {
+                        "Object".into()
+                    }
                     _ => name.clone(),
                 }
             }
@@ -589,6 +593,20 @@ pub(crate) fn build_permissive_context(source: &str, _lang: ScriptLanguage) -> C
         "LoadVars",
         "Color",
         "Selection",
+        "StyleSheet",
+        "TextFieldType",
+        "TextFieldAutoSize",
+        "GradientType",
+        "XMLDocument",
+        "Video",
+        "NetConnection",
+        "NetStream",
+        "GlowFilter",
+        "DropShadowFilter",
+        "BlurFilter",
+        "BevelFilter",
+        "ColorMatrixFilter",
+        "MovieClipLoader",
         "SwiftHost",
     ] {
         ctx.types.insert(builtin.into(), builtin.into());
@@ -1406,6 +1424,7 @@ impl TypeEnv {
                     (Expr::Name(n), "isDown") if n == "Key" => HirType::Bool,
                     (Expr::Name(n), _) if n == "Math" => HirType::Float,
                     (_, "createEmptyMovieClip") => HirType::Sprite,
+                    (_, "createTextField") => HirType::TextField,
                     _ => HirType::Unknown,
                 },
                 _ => HirType::Unknown,
@@ -1958,6 +1977,169 @@ fn rewrite_lifted_clip_scope_expr(expr: &Expr, inst: &str) -> Expr {
         Expr::Delete(e, off) => {
             Expr::Delete(Box::new(rewrite_lifted_clip_scope_expr(e, inst)), *off)
         }
+        other => other.clone(),
+    }
+}
+
+/// Rewrite `this` inside an AS2 callback (`mc.onPress = function() { this.startDrag(...); }`)
+/// so `this` binds to `receiver` when lowered to an AS3 nested function or JS arrow function.
+pub(crate) fn rewrite_this_receiver_stmts(stmts: &[Stmt], receiver: &Expr) -> Vec<Stmt> {
+    if matches!(receiver, Expr::Name(n) if n == "this") {
+        return stmts.to_vec();
+    }
+    stmts
+        .iter()
+        .map(|s| rewrite_this_receiver_stmt(s, receiver))
+        .collect()
+}
+
+fn rewrite_this_receiver_stmt(stmt: &Stmt, recv: &Expr) -> Stmt {
+    match stmt {
+        Stmt::Located(off, inner) => {
+            Stmt::Located(*off, Box::new(rewrite_this_receiver_stmt(inner, recv)))
+        }
+        Stmt::Empty | Stmt::Break(_) | Stmt::Continue(_) | Stmt::Function(_) => stmt.clone(),
+        Stmt::Expr(e) => Stmt::Expr(rewrite_this_receiver_expr(e, recv)),
+        Stmt::DefaultXmlNamespace(e) => {
+            Stmt::DefaultXmlNamespace(rewrite_this_receiver_expr(e, recv))
+        }
+        Stmt::Var(vars) => Stmt::Var(
+            vars.iter()
+                .map(|(n, ty, val)| {
+                    (
+                        n.clone(),
+                        ty.clone(),
+                        val.as_ref().map(|e| rewrite_this_receiver_expr(e, recv)),
+                    )
+                })
+                .collect(),
+        ),
+        Stmt::Block(body) => Stmt::Block(rewrite_this_receiver_stmts(body, recv)),
+        Stmt::If(c, y, n) => Stmt::If(
+            rewrite_this_receiver_expr(c, recv),
+            Box::new(rewrite_this_receiver_stmt(y, recv)),
+            n.as_ref()
+                .map(|alt| Box::new(rewrite_this_receiver_stmt(alt, recv))),
+        ),
+        Stmt::While(c, b) => Stmt::While(
+            rewrite_this_receiver_expr(c, recv),
+            Box::new(rewrite_this_receiver_stmt(b, recv)),
+        ),
+        Stmt::DoWhile(b, c) => Stmt::DoWhile(
+            Box::new(rewrite_this_receiver_stmt(b, recv)),
+            rewrite_this_receiver_expr(c, recv),
+        ),
+        Stmt::For(i, c, u, b) => Stmt::For(
+            Box::new(rewrite_this_receiver_stmt(i, recv)),
+            c.as_ref().map(|e| rewrite_this_receiver_expr(e, recv)),
+            u.as_ref().map(|e| rewrite_this_receiver_expr(e, recv)),
+            Box::new(rewrite_this_receiver_stmt(b, recv)),
+        ),
+        Stmt::ForIn(i, coll, each, b) => Stmt::ForIn(
+            Box::new(rewrite_this_receiver_stmt(i, recv)),
+            rewrite_this_receiver_expr(coll, recv),
+            *each,
+            Box::new(rewrite_this_receiver_stmt(b, recv)),
+        ),
+        Stmt::Switch(d, cases) => Stmt::Switch(
+            rewrite_this_receiver_expr(d, recv),
+            cases
+                .iter()
+                .map(|cs| Case {
+                    test: cs
+                        .test
+                        .as_ref()
+                        .map(|e| rewrite_this_receiver_expr(e, recv)),
+                    body: rewrite_this_receiver_stmts(&cs.body, recv),
+                })
+                .collect(),
+        ),
+        Stmt::Label(l, b) => Stmt::Label(l.clone(), Box::new(rewrite_this_receiver_stmt(b, recv))),
+        Stmt::Throw(e) => Stmt::Throw(rewrite_this_receiver_expr(e, recv)),
+        Stmt::Try(b, catches, fin) => Stmt::Try(
+            rewrite_this_receiver_stmts(b, recv),
+            catches
+                .iter()
+                .map(|cl| CatchClause {
+                    body: rewrite_this_receiver_stmts(&cl.body, recv),
+                    ..cl.clone()
+                })
+                .collect(),
+            fin.as_ref().map(|f| rewrite_this_receiver_stmts(f, recv)),
+        ),
+        Stmt::Return(v, off) => Stmt::Return(
+            v.as_ref().map(|e| rewrite_this_receiver_expr(e, recv)),
+            *off,
+        ),
+        other => other.clone(),
+    }
+}
+
+fn rewrite_this_receiver_expr(expr: &Expr, recv: &Expr) -> Expr {
+    match expr {
+        Expr::Name(n) if n == "this" => recv.clone(),
+        Expr::Function(_) => expr.clone(),
+        Expr::Member(b, p) => {
+            Expr::Member(Box::new(rewrite_this_receiver_expr(b, recv)), p.clone())
+        }
+        Expr::Index(b, i) => Expr::Index(
+            Box::new(rewrite_this_receiver_expr(b, recv)),
+            Box::new(rewrite_this_receiver_expr(i, recv)),
+        ),
+        Expr::Call(c, args, off) => Expr::Call(
+            Box::new(rewrite_this_receiver_expr(c, recv)),
+            args.iter()
+                .map(|a| rewrite_this_receiver_expr(a, recv))
+                .collect(),
+            *off,
+        ),
+        Expr::Unary(op, inner) => Expr::Unary(
+            op.clone(),
+            Box::new(rewrite_this_receiver_expr(inner, recv)),
+        ),
+        Expr::Binary(op, l, r) => Expr::Binary(
+            op.clone(),
+            Box::new(rewrite_this_receiver_expr(l, recv)),
+            Box::new(rewrite_this_receiver_expr(r, recv)),
+        ),
+        Expr::Assign(op, l, r) => Expr::Assign(
+            op.clone(),
+            Box::new(rewrite_this_receiver_expr(l, recv)),
+            Box::new(rewrite_this_receiver_expr(r, recv)),
+        ),
+        Expr::Update(op, inner, pre) => Expr::Update(
+            op.clone(),
+            Box::new(rewrite_this_receiver_expr(inner, recv)),
+            *pre,
+        ),
+        Expr::Conditional(c, y, n) => Expr::Conditional(
+            Box::new(rewrite_this_receiver_expr(c, recv)),
+            Box::new(rewrite_this_receiver_expr(y, recv)),
+            Box::new(rewrite_this_receiver_expr(n, recv)),
+        ),
+        Expr::Array(items) => Expr::Array(
+            items
+                .iter()
+                .map(|it| it.as_ref().map(|e| rewrite_this_receiver_expr(e, recv)))
+                .collect(),
+        ),
+        Expr::Object(props) => Expr::Object(
+            props
+                .iter()
+                .map(|(k, v)| (k.clone(), rewrite_this_receiver_expr(v, recv)))
+                .collect(),
+        ),
+        Expr::InstanceOf(a, b) => Expr::InstanceOf(
+            Box::new(rewrite_this_receiver_expr(a, recv)),
+            Box::new(rewrite_this_receiver_expr(b, recv)),
+        ),
+        Expr::TypeTest(op, e, ty, off) => Expr::TypeTest(
+            op.clone(),
+            Box::new(rewrite_this_receiver_expr(e, recv)),
+            ty.clone(),
+            *off,
+        ),
+        Expr::Delete(e, off) => Expr::Delete(Box::new(rewrite_this_receiver_expr(e, recv)), *off),
         other => other.clone(),
     }
 }

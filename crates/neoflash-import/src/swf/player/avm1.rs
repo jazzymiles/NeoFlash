@@ -285,7 +285,9 @@ impl SwfBytecodePlayer {
                 }
                 0x18 => {
                     // ActionToInteger
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined).to_i32();
+                    let raw = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let n = self.avm1_coerce_to_number(&raw, locals, steps, depth);
+                    let v = ecma_f64_to_i32(n);
                     self.push_avm_stack(stack, Avm1Value::Number(f64::from(v)));
                 }
                 0x1C => {
@@ -1793,9 +1795,13 @@ impl SwfBytecodePlayer {
         {
             if args.len() == 1
                 && let Some(Avm1Value::Number(n)) = args.first()
+                && n.is_finite()
+                && n.fract() == 0.0
+                && *n >= 0.0
             {
                 let len = (*n as usize).min(4096);
                 obj.array_elements = Some(vec![Avm1Value::Undefined; len]);
+                obj.deleted_indices = (0..len).collect();
             } else {
                 obj.array_elements = Some(args);
             }
@@ -2186,19 +2192,36 @@ pub(super) fn parse_ecma_decimal_strict(t: &str) -> f64 {
     t.parse::<f64>().unwrap_or(f64::NAN)
 }
 
+pub(super) fn parse_hex_digits_to_f64(hex: &str) -> f64 {
+    if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return f64::NAN;
+    }
+    if let Ok(v) = u64::from_str_radix(hex, 16) {
+        return v as f64;
+    }
+    let mut acc = 0.0_f64;
+    for ch in hex.chars() {
+        let Some(d) = ch.to_digit(16) else {
+            return f64::NAN;
+        };
+        acc = acc * 16.0 + f64::from(d);
+    }
+    acc
+}
+
 pub(super) fn avm1_string_to_number(s: &str, swf_version: u8) -> f64 {
-    let t = s.trim();
+    let t = s.trim_start();
     if t.is_empty() {
         return if swf_version <= 4 { 0.0 } else { f64::NAN };
     }
     if let Some(hex) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        return u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| v as f64);
+        return parse_hex_digits_to_f64(hex);
     }
     if let Some(hex) = t.strip_prefix("-0x").or_else(|| t.strip_prefix("-0X")) {
-        return u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| -(v as f64));
+        return -parse_hex_digits_to_f64(hex);
     }
     if let Some(hex) = t.strip_prefix("+0x").or_else(|| t.strip_prefix("+0X")) {
-        return u64::from_str_radix(hex, 16).map_or(f64::NAN, |v| v as f64);
+        return parse_hex_digits_to_f64(hex);
     }
     parse_ecma_decimal_strict(t)
 }

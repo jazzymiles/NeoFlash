@@ -2,10 +2,10 @@
 
 use super::hir::{
     AccessorKind, HirType, LiftedObjectHandler, LiftedTriggerKind, MemberAccess, ParsedClass,
-    ParsedScript, ProjectStageIndex, TypeEnv, decode_string_literal, fold_100_to_01,
-    is_atomic_expr, key_press_spec_to_code, map_as2_direct_prop_to_modern, map_as2_key_constant,
-    map_as2_percent_prop_to_modern, sanitize_as_class_ident, short_type_name,
-    stmts_use_key_is_down,
+    ParsedScript, ProjectStageIndex, TypeEnv, decode_string_literal, extract_numeric_literal,
+    fold_100_to_01, format_clean_number, is_atomic_expr, key_press_spec_to_code,
+    map_as2_direct_prop_to_modern, map_as2_key_constant, map_as2_percent_prop_to_modern,
+    rewrite_this_receiver_stmts, sanitize_as_class_ident, short_type_name, stmts_use_key_is_down,
 };
 use super::{ConversionIssue, ConversionIssueKind};
 use crate::actionscript::ast::{Case, CatchClause, Expr, Function, PropertyKey, Stmt};
@@ -46,6 +46,8 @@ struct As3Emitter<'a> {
     /// Set of listener targets that have an explicit `Key.addListener(t)` or `Stage.addListener(t)` in the same block
     explicit_key_listeners: BTreeSet<String>,
     explicit_stage_listeners: BTreeSet<String>,
+    mouse_handlers: BTreeMap<(String, String), String>,
+    sound_volumes: BTreeMap<String, String>,
 }
 
 impl<'a> As3Emitter<'a> {
@@ -74,6 +76,8 @@ impl<'a> As3Emitter<'a> {
             resize_handlers: BTreeMap::new(),
             explicit_key_listeners: BTreeSet::new(),
             explicit_stage_listeners: BTreeSet::new(),
+            mouse_handlers: BTreeMap::new(),
+            sound_volumes: BTreeMap::new(),
         }
     }
 
@@ -178,6 +182,39 @@ impl<'a> As3Emitter<'a> {
                 self.imports.insert("flash.display.BitmapData".into());
                 "BitmapData".into()
             }
+            "Bitmap" | "flash.display.Bitmap" => {
+                self.imports.insert("flash.display.Bitmap".into());
+                "Bitmap".into()
+            }
+            "TextField.StyleSheet" | "StyleSheet" | "flash.text.StyleSheet" => {
+                self.imports.insert("flash.text.StyleSheet".into());
+                "StyleSheet".into()
+            }
+            "XML" | "flash.xml.XMLDocument" | "XMLDocument" => {
+                self.imports.insert("flash.xml.XMLDocument".into());
+                "XMLDocument".into()
+            }
+            "XMLNode" | "flash.xml.XMLNode" => {
+                self.imports.insert("flash.xml.XMLNode".into());
+                "XMLNode".into()
+            }
+            "Video" | "flash.media.Video" => {
+                self.imports.insert("flash.media.Video".into());
+                "Video".into()
+            }
+            "NetConnection" | "flash.net.NetConnection" => {
+                self.imports.insert("flash.net.NetConnection".into());
+                "NetConnection".into()
+            }
+            "NetStream" | "flash.net.NetStream" => {
+                self.imports.insert("flash.net.NetStream".into());
+                "NetStream".into()
+            }
+            "GlowFilter" | "DropShadowFilter" | "BlurFilter" | "BevelFilter"
+            | "ColorMatrixFilter" => {
+                self.imports.insert(format!("flash.filters.{trimmed}"));
+                trimmed.into()
+            }
             "LoadVars" | "Color" | "MovieClipLoader" => "Object".into(),
             other => {
                 if let Some(qname) = self.stage.project_classes.get(other)
@@ -196,6 +233,10 @@ impl<'a> As3Emitter<'a> {
     fn preserve_compatible_imports(&mut self, raw_imports: &[String]) {
         for imp in raw_imports {
             if imp.starts_with("mx.") {
+                continue;
+            }
+            if imp == "TextField.StyleSheet" {
+                self.imports.insert("flash.text.StyleSheet".into());
                 continue;
             }
             self.imports.insert(imp.clone());
@@ -420,6 +461,59 @@ impl<'a> As3Emitter<'a> {
                                 self.emit_init_object_assignments(name, init_obj, &mut out_lines);
                             }
                             out_lines.push(self.emit_add_child_on(&parent_expr, name));
+                            continue;
+                        }
+                        // 3b. Check `var tf = parent.createTextField(name, depth, x, y, w, h)`
+                        if let Some(parent_expr) = match_clip_factory(callee, "createTextField")
+                            && !args.is_empty()
+                        {
+                            self.imports.insert("flash.text.TextField".into());
+                            let name_code = self.emit_expr(&args[0]);
+                            if args.len() >= 2 {
+                                self.record_issue(
+                                    ConversionIssueKind::Approximated,
+                                    *call_off,
+                                    "Converted createTextField to new TextField() + addChild(), ignoring legacy sparse depth.",
+                                );
+                            }
+                            let first_decl = self.mark_declared(name);
+                            self.env.define(name.clone(), HirType::TextField);
+                            if first_decl {
+                                out_lines
+                                    .push(format!("{pad}var {name}:TextField = new TextField();"));
+                            } else {
+                                out_lines.push(format!("{pad}{name} = new TextField();"));
+                            }
+                            out_lines.push(format!("{pad}{name}.name = {name_code};"));
+                            for (arg_idx, prop) in
+                                [(2usize, "x"), (3, "y"), (4, "width"), (5, "height")]
+                            {
+                                if let Some(arg_expr) = args.get(arg_idx) {
+                                    let val_code = self.emit_expr(arg_expr);
+                                    out_lines.push(format!("{pad}{name}.{prop} = {val_code};"));
+                                }
+                            }
+                            out_lines.push(self.emit_add_child_on(&parent_expr, name));
+                            continue;
+                        }
+                        // 3c. AS2 `var cssOk:Boolean = sheet.parseCSS(css)` -> `sheet.parseCSS(css); var cssOk:Boolean = (sheet.styleNames.length > 0);`
+                        if let Expr::Member(base, method) = callee.as_ref()
+                            && method == "parseCSS"
+                            && args.len() == 1
+                        {
+                            let recv = self.emit_expr(base);
+                            let arg0 = self.emit_expr(&args[0]);
+                            let first_decl = self.mark_declared(name);
+                            self.env.define(name.clone(), HirType::Bool);
+                            out_lines.push(format!("{pad}{recv}.parseCSS({arg0});"));
+                            if first_decl {
+                                out_lines.push(format!(
+                                    "{pad}var {name}:Boolean = ({recv}.styleNames.length > 0);"
+                                ));
+                            } else {
+                                out_lines
+                                    .push(format!("{pad}{name} = ({recv}.styleNames.length > 0);"));
+                            }
                             continue;
                         }
                     }
@@ -773,6 +867,33 @@ impl<'a> As3Emitter<'a> {
                     lines.push(self.emit_add_child_on(&parent_expr, &target_code));
                     return lines.join("\n");
                 }
+                if let Some(parent_expr) = match_clip_factory(callee, "createTextField")
+                    && !args.is_empty()
+                {
+                    self.imports.insert("flash.text.TextField".into());
+                    let target_code = self.emit_expr(lhs);
+                    let name_code = self.emit_expr(&args[0]);
+                    let mut lines = vec![
+                        format!("{pad}{target_code} = new TextField();"),
+                        format!("{pad}{target_code}.name = {name_code};"),
+                    ];
+                    for (arg_idx, prop) in [(2usize, "x"), (3, "y"), (4, "width"), (5, "height")] {
+                        if let Some(arg_expr) = args.get(arg_idx) {
+                            let val_code = self.emit_expr(arg_expr);
+                            lines.push(format!("{pad}{target_code}.{prop} = {val_code};"));
+                        }
+                    }
+                    lines.push(self.emit_add_child_on(&parent_expr, &target_code));
+                    return lines.join("\n");
+                }
+            }
+
+            // AS2 `tf.html = true` -> omit in AS3 (`TextField` renders HTML directly via `htmlText`)
+            if let Expr::Member(base, prop) = lhs.as_ref()
+                && prop == "html"
+                && self.env.infer_expr(base, self.stage) == HirType::TextField
+            {
+                return format!("{pad}/* AS3 TextField enables HTML via htmlText */");
             }
 
             // Stage.scaleMode / Stage.align writes: guard with `if (stage != null)`
@@ -800,7 +921,7 @@ impl<'a> As3Emitter<'a> {
                             return format!("{pad}/* cleared onEnterFrame */");
                         }
                         let fn_name = self.next_helper("onEnterFrame");
-                        let body = self.emit_callback_body(rhs, "Event");
+                        let body = self.emit_callback_body_for_owner(&owner_expr, rhs, "Event");
                         return format!(
                             "{pad}function {fn_name}(event:Event):void {{\n{body}\n{pad}}}\n{pad}{recv}addEventListener(Event.ENTER_FRAME, {fn_name});"
                         );
@@ -834,8 +955,26 @@ impl<'a> As3Emitter<'a> {
                         } else {
                             format!("{}.", self.emit_expr(&owner_expr))
                         };
+                        let owner_key =
+                            listener_target_key(&owner_expr).unwrap_or_else(|| "this".into());
+                        if let Expr::Member(rhs_base, rhs_prop) = rhs.as_ref()
+                            && let Some(rhs_key) = listener_target_key(rhs_base)
+                            && let Some(existing_fn) = self
+                                .mouse_handlers
+                                .get(&(rhs_key, rhs_prop.clone()))
+                                .cloned()
+                        {
+                            self.mouse_handlers
+                                .insert((owner_key, cb_prop.to_owned()), existing_fn.clone());
+                            return format!(
+                                "{pad}{recv}addEventListener({ev_const}, {existing_fn});"
+                            );
+                        }
                         let fn_name = self.next_helper(cb_prop);
-                        let body = self.emit_callback_body(rhs, "MouseEvent");
+                        self.mouse_handlers
+                            .insert((owner_key, cb_prop.to_owned()), fn_name.clone());
+                        let body =
+                            self.emit_callback_body_for_owner(&owner_expr, rhs, "MouseEvent");
                         return format!(
                             "{pad}function {fn_name}(event:MouseEvent):void {{\n{body}\n{pad}}}\n{pad}{recv}addEventListener({ev_const}, {fn_name});"
                         );
@@ -845,9 +984,55 @@ impl<'a> As3Emitter<'a> {
             }
         }
 
-        // 2. `Key.addListener(target)` & `Stage.addListener(target)` & `mc.removeMovieClip()`
-        if let Expr::Call(callee, args, _) = expr {
+        // 2. `Key.addListener(target)`, `Stage.addListener(target)`, `mc.removeMovieClip()`, `tf.setNewTextFormat(fmt)`, `snd.setVolume(v)`, `mc.loadMovie(url)`
+        if let Expr::Call(callee, args, call_off) = expr {
             if let Expr::Member(base, method) = callee.as_ref() {
+                if method == "setNewTextFormat" && args.len() == 1 {
+                    let recv = self.emit_expr(base);
+                    let fmt = self.emit_expr(&args[0]);
+                    return format!("{pad}{recv}.defaultTextFormat = {fmt};");
+                }
+                if method == "setVolume"
+                    && args.len() == 1
+                    && let Expr::Name(sname) = base.as_ref()
+                {
+                    let vol_var = self
+                        .sound_volumes
+                        .get(sname)
+                        .cloned()
+                        .unwrap_or_else(|| format!("__vol_{sname}"));
+                    let first = !self.sound_volumes.contains_key(sname);
+                    self.sound_volumes.insert(sname.clone(), vol_var.clone());
+                    let _ = self.mark_declared(&vol_var);
+                    let scaled = fold_100_to_01(&args[0], false).unwrap_or_else(|| {
+                        let ac = self.emit_expr(&args[0]);
+                        format!("({ac}) / 100")
+                    });
+                    return if first {
+                        format!("{pad}var {vol_var}:Number = {scaled};")
+                    } else {
+                        format!("{pad}{vol_var} = {scaled};")
+                    };
+                }
+                if method == "loadMovie" && !args.is_empty() {
+                    self.imports.insert("flash.display.Loader".into());
+                    self.imports.insert("flash.net.URLRequest".into());
+                    self.record_issue(
+                        ConversionIssueKind::Approximated,
+                        *call_off,
+                        "Converted MovieClip.loadMovie(...) to flash.display.Loader + URLRequest.",
+                    );
+                    let loader_var = self.next_helper("loader");
+                    let _ = self.mark_declared(&loader_var);
+                    let recv = self.emit_expr(base);
+                    let url = self.emit_expr(&args[0]);
+                    return [
+                        format!("{pad}var {loader_var}:Loader = new Loader();"),
+                        format!("{pad}{recv}.addChild({loader_var});"),
+                        format!("{pad}{loader_var}.load(new URLRequest({url}));"),
+                    ]
+                    .join("\n");
+                }
                 if matches!(base.as_ref(), Expr::Name(n) if n == "Key")
                     && method == "addListener"
                     && let Some(first) = args.first()
@@ -907,12 +1092,18 @@ impl<'a> As3Emitter<'a> {
         format!("{pad}{code};")
     }
 
-    fn emit_callback_body(&mut self, rhs: &Expr, ev_type: &str) -> String {
+    fn emit_callback_body_for_owner(
+        &mut self,
+        owner_expr: &Expr,
+        rhs: &Expr,
+        ev_type: &str,
+    ) -> String {
         self.push_fn_scope();
         self.env.define("event", HirType::Class(ev_type.to_owned()));
         self.indent += 1;
         let out = if let Expr::Function(f) = rhs {
-            self.emit_stmt_list(&f.body)
+            let rewritten = rewrite_this_receiver_stmts(&f.body, owner_expr);
+            self.emit_stmt_list(&rewritten)
         } else {
             let pad = self.pad();
             let callee = self.emit_expr(rhs);
@@ -1317,6 +1508,10 @@ impl<'a> As3Emitter<'a> {
             | Expr::NewValue(ty, args, _)
             | Expr::NewError(ty, args, _) => {
                 let mapped = self.map_type_annotation(ty, false);
+                // AS2 `new Sound(targetClip)` -> AS3 `new Sound()` when arg is not a URLRequest
+                if mapped == "Sound" && args.len() == 1 && !is_url_request_expr(&args[0]) {
+                    return "new Sound()".into();
+                }
                 let ac = self.emit_args(args);
                 format!("new {mapped}({ac})")
             }
@@ -1386,10 +1581,103 @@ impl<'a> As3Emitter<'a> {
                     "(function():Sprite {{ var _s:Sprite = new Sprite(); _s.name = {name_code}; {recv}.addChild(_s); return _s; }})()"
                 );
             }
+
+            // 4. AS2 `attachBitmap`, `getDepth`, `hitTest`, `startDrag(lock, l, t, r, b)`, `attachVideo`, `loadSound`, `getVolume`, `Sound.start`
+            if method == "attachBitmap" && !args.is_empty() {
+                self.imports.insert("flash.display.Bitmap".into());
+                let recv = self.emit_expr(base);
+                let bmd = self.emit_expr(&args[0]);
+                let snap = args
+                    .get(2)
+                    .map(|a| self.emit_expr(a))
+                    .unwrap_or_else(|| "\"auto\"".into());
+                let smooth = args
+                    .get(3)
+                    .map(|a| self.emit_expr(a))
+                    .unwrap_or_else(|| "false".into());
+                return format!("{recv}.addChild(new Bitmap({bmd}, {snap}, {smooth}))");
+            }
+            if method == "getDepth" && args.is_empty() {
+                let recv = self.emit_expr(base);
+                return format!(
+                    "({recv}.parent != null ? {recv}.parent.getChildIndex({recv}) : 0)"
+                );
+            }
+            if method == "hitTest" {
+                let recv = self.emit_expr(base);
+                if args.len() == 1 {
+                    let target = self.emit_expr(&args[0]);
+                    return format!("{recv}.hitTestObject({target})");
+                }
+                if args.len() == 2 || args.len() == 3 {
+                    let ac = self.emit_args(args);
+                    return format!("{recv}.hitTestPoint({ac})");
+                }
+            }
+            if method == "startDrag" && args.len() == 5 {
+                let recv = self.emit_expr(base);
+                let drag_args = self.emit_as2_5arg_start_drag(args);
+                return format!("{recv}.startDrag({drag_args})");
+            }
+            if method == "attachVideo" && args.len() == 1 {
+                let recv = self.emit_expr(base);
+                let ns = self.emit_expr(&args[0]);
+                return format!("{recv}.attachNetStream({ns})");
+            }
+            if method == "loadSound" && !args.is_empty() {
+                self.imports.insert("flash.net.URLRequest".into());
+                let recv = self.emit_expr(base);
+                let url = self.emit_expr(&args[0]);
+                return format!("{recv}.load(new URLRequest({url}))");
+            }
+            if method == "getVolume" && args.is_empty() {
+                if let Expr::Name(sname) = base.as_ref()
+                    && let Some(vol_var) = self.sound_volumes.get(sname)
+                {
+                    return format!("Math.round({vol_var} * 100)");
+                }
+                return "100".into();
+            }
+            if method == "start"
+                && (matches!(
+                    self.env.infer_expr(base, self.stage),
+                    HirType::Class(ref c) if short_type_name(c) == "Sound"
+                ) || matches!(base.as_ref(), Expr::Name(sn) if self.sound_volumes.contains_key(sn)))
+            {
+                let recv = self.emit_expr(base);
+                let start_ms = match args.first() {
+                    Some(sec_expr) => {
+                        if let Some(sec) = extract_numeric_literal(sec_expr) {
+                            format_clean_number(sec * 1000.0, false)
+                        } else {
+                            let sc = self.emit_expr(sec_expr);
+                            format!("({sc}) * 1000")
+                        }
+                    }
+                    None => "0".into(),
+                };
+                let loops = args
+                    .get(1)
+                    .map(|l| self.emit_expr(l))
+                    .unwrap_or_else(|| "0".into());
+                if let Expr::Name(sname) = base.as_ref()
+                    && let Some(vol_var) = self.sound_volumes.get(sname).cloned()
+                {
+                    self.imports.insert("flash.media.SoundTransform".into());
+                    return format!(
+                        "{recv}.play({start_ms}, {loops}, new SoundTransform({vol_var}))"
+                    );
+                }
+                return format!("{recv}.play({start_ms}, {loops})");
+            }
         }
 
-        // Bare Drawing API calls on timeline (`clear()`, `beginFill(...)`, etc.)
+        // Bare Drawing API & `startDrag` calls on timeline (`clear()`, `beginFill(...)`, `startDrag(...)`)
         if let Expr::Name(fn_name) = callee {
+            if fn_name == "startDrag" && args.len() == 5 {
+                let drag_args = self.emit_as2_5arg_start_drag(args);
+                return format!("this.startDrag({drag_args})");
+            }
             if is_as2_drawing_method(fn_name) {
                 let converted_args = self.emit_drawing_args_to_as3(fn_name, args);
                 return format!("this.graphics.{fn_name}({converted_args})");
@@ -1419,6 +1707,34 @@ impl<'a> As3Emitter<'a> {
         format!("{c}({a})")
     }
 
+    fn emit_as2_5arg_start_drag(&mut self, args: &[Expr]) -> String {
+        self.imports.insert("flash.geom.Rectangle".into());
+        let lock = self.emit_expr(&args[0]);
+        let left = self.emit_expr(&args[1]);
+        let top = self.emit_expr(&args[2]);
+        let width = match (
+            extract_numeric_literal(&args[1]),
+            extract_numeric_literal(&args[3]),
+        ) {
+            (Some(l), Some(r)) => format_clean_number(r - l, false),
+            _ => {
+                let right = self.emit_expr(&args[3]);
+                format!("({right}) - ({left})")
+            }
+        };
+        let height = match (
+            extract_numeric_literal(&args[2]),
+            extract_numeric_literal(&args[4]),
+        ) {
+            (Some(t), Some(b)) => format_clean_number(b - t, false),
+            _ => {
+                let bottom = self.emit_expr(&args[4]);
+                format!("({bottom}) - ({top})")
+            }
+        };
+        format!("{lock}, new Rectangle({left}, {top}, {width}, {height})")
+    }
+
     fn emit_drawing_args_to_as3(&mut self, method: &str, args: &[Expr]) -> String {
         let alpha_idx = match method {
             "beginFill" => Some(1usize),
@@ -1428,7 +1744,22 @@ impl<'a> As3Emitter<'a> {
         args.iter()
             .enumerate()
             .map(|(idx, arg)| {
-                if Some(idx) == alpha_idx {
+                if method == "beginGradientFill" && idx == 2 {
+                    if let Expr::Array(items) = arg {
+                        let scaled: Vec<String> = items
+                            .iter()
+                            .map(|opt| match opt {
+                                Some(el) => fold_100_to_01(el, false).unwrap_or_else(|| {
+                                    let ec = self.emit_expr(el);
+                                    format!("({ec}) / 100")
+                                }),
+                                None => String::new(),
+                            })
+                            .collect();
+                        return format!("[{}]", scaled.join(", "));
+                    }
+                    self.emit_expr(arg)
+                } else if Some(idx) == alpha_idx {
                     if let Some(folded) = fold_100_to_01(arg, false) {
                         folded
                     } else {
@@ -1894,7 +2225,23 @@ fn extract_callback_target(lhs: &Expr) -> Option<(Expr, &str)> {
 fn is_as2_drawing_method(name: &str) -> bool {
     matches!(
         name,
-        "clear" | "beginFill" | "lineStyle" | "moveTo" | "lineTo" | "curveTo" | "endFill"
+        "clear"
+            | "beginFill"
+            | "beginGradientFill"
+            | "beginBitmapFill"
+            | "lineStyle"
+            | "moveTo"
+            | "lineTo"
+            | "curveTo"
+            | "endFill"
+    )
+}
+
+fn is_url_request_expr(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::NewBuiltin(ty, _, _) | Expr::NewClass(ty, _, _) | Expr::NewValue(ty, _, _)
+            if short_type_name(ty) == "URLRequest"
     )
 }
 

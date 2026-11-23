@@ -610,331 +610,6 @@ impl SwfBytecodePlayer {
             let insn_start = r.pos;
             let Some(op) = r.u8() else { break };
             match op {
-                0x02 => {} // nop
-                0x03 => {
-                    // throw
-                    let thrown = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.avm2_thrown = Some(thrown);
-                }
-                0x04 => {
-                    // getsuper
-                    let Some(mn_idx) = r.u30() else { break };
-                    let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
-                    let receiver = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let val = self.get_avm2_super_property(
-                        abc_idx, method_idx, &receiver, &prop_name, steps, depth,
-                    );
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0x05 => {
-                    // setsuper
-                    let Some(mn_idx) = r.u30() else { break };
-                    let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
-                    let receiver = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.set_avm2_super_property(
-                        abc_idx, method_idx, &receiver, &prop_name, val, steps, depth,
-                    );
-                }
-                0x06 => {
-                    // dxns
-                    let Some(idx) = r.u30() else { break };
-                    let uri = self.abc_tags[abc_idx].abc.string(idx).to_owned();
-                    self.e4x_arena.borrow_mut().default_ns = uri;
-                }
-                0x07 => {
-                    // dxnslate
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let uri = avm2_convert_string(&v, &self.avm1_objects);
-                    self.e4x_arena.borrow_mut().default_ns = uri;
-                }
-                0x08 => {
-                    // kill
-                    let Some(reg) = r.u30() else { break };
-                    if reg < locals.len() {
-                        locals[reg] = Avm1Value::Undefined;
-                    }
-                }
-                0x09 => {} // label
-                0x0C..=0x0F => {
-                    // ifnlt (0x0C), ifnle (0x0D), ifngt (0x0E), ifnge (0x0F)
-                    let Some(rel) = r.s24() else { break };
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let cond = match op {
-                        0x0C => avm2_less_than(&a, &b) != Some(true),
-                        0x0D => avm2_less_than(&b, &a) != Some(false),
-                        0x0E => avm2_less_than(&b, &a) != Some(true),
-                        _ => avm2_less_than(&a, &b) != Some(false),
-                    };
-                    if cond {
-                        let target = (r.pos as isize) + (rel as isize);
-                        if target >= 0 && (target as usize) <= code.len() {
-                            r.pos = target as usize;
-                        }
-                    }
-                }
-                0x10 => {
-                    // jump
-                    let Some(rel) = r.s24() else { break };
-                    let target = (r.pos as isize) + (rel as isize);
-                    if target >= 0 && (target as usize) <= code.len() {
-                        r.pos = target as usize;
-                    } else {
-                        break;
-                    }
-                }
-                0x11 => {
-                    // iftrue
-                    let Some(rel) = r.s24() else { break };
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
-                    if v {
-                        let target = (r.pos as isize) + (rel as isize);
-                        if target >= 0 && (target as usize) <= code.len() {
-                            r.pos = target as usize;
-                        }
-                    }
-                }
-                0x12 => {
-                    // iffalse
-                    let Some(rel) = r.s24() else { break };
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
-                    if !v {
-                        let target = (r.pos as isize) + (rel as isize);
-                        if target >= 0 && (target as usize) <= code.len() {
-                            r.pos = target as usize;
-                        }
-                    }
-                }
-                0x13..=0x1A => {
-                    // ifeq (0x13), ifne (0x14), iflt (0x15), ifle (0x16), ifgt (0x17), ifge (0x18), ifstricteq (0x19), ifstrictne (0x1A)
-                    let Some(rel) = r.s24() else { break };
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let cond = match op {
-                        0x13 => self.avm2_equals(&a, &b),
-                        0x14 => !self.avm2_equals(&a, &b),
-                        0x15 => avm2_less_than(&a, &b) == Some(true),
-                        0x16 => avm2_less_than(&b, &a) == Some(false),
-                        0x17 => avm2_less_than(&b, &a) == Some(true),
-                        0x18 => avm2_less_than(&a, &b) == Some(false),
-                        0x19 => self.avm2_strict_equals(&a, &b),
-                        _ => !self.avm2_strict_equals(&a, &b),
-                    };
-                    if cond {
-                        let target = (r.pos as isize) + (rel as isize);
-                        if target >= 0 && (target as usize) <= code.len() {
-                            r.pos = target as usize;
-                        }
-                    }
-                }
-                0x1B => {
-                    // lookupswitch (offsets relative to `insn_start`)
-                    let Some(default_off) = r.s24() else { break };
-                    let Some(max_idx) = r.u30() else { break };
-                    let mut case_offs = Vec::with_capacity(max_idx.saturating_add(1).min(4096));
-                    let mut ok = true;
-                    for _ in 0..=max_idx.min(4096) {
-                        if let Some(off) = r.s24() {
-                            case_offs.push(off);
-                        } else {
-                            ok = false;
-                            break;
-                        }
-                    }
-                    if !ok {
-                        break;
-                    }
-                    let idx = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let rel = if idx >= 0 && (idx as usize) < case_offs.len() {
-                        case_offs[idx as usize]
-                    } else {
-                        default_off
-                    };
-                    let target = (insn_start as isize) + (rel as isize);
-                    if target >= 0 && (target as usize) <= code.len() {
-                        r.pos = target as usize;
-                    } else {
-                        break;
-                    }
-                }
-                0x1C | 0x30 => {
-                    // pushwith / pushscope
-                    let sc = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    if scope_stack.len() < 64 {
-                        scope_stack.push(sc);
-                    }
-                }
-                0x1D => {
-                    // popscope
-                    let _ = scope_stack.pop();
-                }
-                0x1E => {
-                    // nextname
-                    let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let k_idx = ecma_f64_to_i32(avm2_to_number(&idx_val))
-                        .saturating_sub(1)
-                        .max(0) as usize;
-                    let val = self.avm2_nextname_at(&obj, k_idx);
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0x1F => {
-                    // hasnext
-                    let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let len = self.avm2_enumerable_len(&obj);
-                    let cur_idx = ecma_f64_to_i32(avm2_to_number(&idx_val)).max(0) as usize;
-                    let next = if cur_idx < len {
-                        (cur_idx + 1) as f64
-                    } else {
-                        0.0
-                    };
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(next));
-                }
-                0x20 => self.push_avm_stack(&mut stack, Avm1Value::Null),
-                0x21 => self.push_avm_stack(&mut stack, Avm1Value::Undefined),
-                0x23 => {
-                    // nextvalue
-                    let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let k_idx = ecma_f64_to_i32(avm2_to_number(&idx_val))
-                        .saturating_sub(1)
-                        .max(0) as usize;
-                    let val = self.avm2_nextvalue_at(&obj, k_idx, steps, depth);
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0x24 => {
-                    // pushbyte
-                    let Some(b) = r.i8() else { break };
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(b)));
-                }
-                0x25 => {
-                    // pushshort (signed s30 / i16)
-                    let Some(v) = r.s32() else { break };
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(v as i16)));
-                }
-                0x26 => self.push_avm_stack(&mut stack, Avm1Value::Bool(true)),
-                0x27 => self.push_avm_stack(&mut stack, Avm1Value::Bool(false)),
-                0x28 => self.push_avm_stack(&mut stack, Avm1Value::Number(f64::NAN)),
-                0x29 => {
-                    let _ = stack.pop();
-                }
-                0x2A => {
-                    let top = stack.last().cloned().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(&mut stack, top);
-                }
-                0x2B => {
-                    let len = stack.len();
-                    if len >= 2 {
-                        stack.swap(len - 1, len - 2);
-                    }
-                }
-                0x2C => {
-                    // pushstring
-                    let Some(idx) = r.u30() else { break };
-                    let s = self.abc_tags[abc_idx].abc.string(idx).to_owned();
-                    self.push_avm_stack(&mut stack, Avm1Value::String(s));
-                }
-                0x2D => {
-                    // pushint
-                    let Some(idx) = r.u30() else { break };
-                    let v = self.abc_tags[abc_idx]
-                        .abc
-                        .ints
-                        .get(idx)
-                        .copied()
-                        .unwrap_or(0);
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(v)));
-                }
-                0x2E => {
-                    // pushuint
-                    let Some(idx) = r.u30() else { break };
-                    let v = self.abc_tags[abc_idx]
-                        .abc
-                        .uints
-                        .get(idx)
-                        .copied()
-                        .unwrap_or(0);
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(v)));
-                }
-                0x2F => {
-                    // pushdouble
-                    let Some(idx) = r.u30() else { break };
-                    let v = self.abc_tags[abc_idx]
-                        .abc
-                        .doubles
-                        .get(idx)
-                        .copied()
-                        .unwrap_or(f64::NAN);
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(v));
-                }
-                0x31 => {
-                    // pushnamespace
-                    let Some(idx) = r.u30() else { break };
-                    let uri = self.abc_tags[abc_idx].abc.namespace(idx).name.clone();
-                    let pfx = if uri.is_empty() {
-                        Avm1Value::String(String::new())
-                    } else {
-                        Avm1Value::Undefined
-                    };
-                    let mut props = HashMap::new();
-                    props.insert("prefix".to_owned(), pfx);
-                    props.insert("uri".to_owned(), Avm1Value::String(uri.clone()));
-                    props.insert("qname_formatted".to_owned(), Avm1Value::String(uri));
-                    props.insert(
-                        "__avm2_short_class__".to_owned(),
-                        Avm1Value::String("Namespace".to_owned()),
-                    );
-                    let oid = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object {
-                        props,
-                        ..Default::default()
-                    });
-                    self.push_avm_stack(&mut stack, Avm1Value::Object(oid));
-                }
-                0x32 => {
-                    // hasnext2
-                    let Some(obj_reg) = r.u30() else { break };
-                    let Some(idx_reg) = r.u30() else { break };
-                    let obj = locals.get(obj_reg).cloned().unwrap_or(Avm1Value::Undefined);
-                    let cur_idx = locals
-                        .get(idx_reg)
-                        .map_or(0, |v| ecma_f64_to_i32(avm2_to_number(v)).max(0) as usize);
-                    let len = self.avm2_enumerable_len(&obj);
-                    if cur_idx < len {
-                        if let Some(slot) = locals.get_mut(idx_reg) {
-                            *slot = Avm1Value::Number((cur_idx + 1) as f64);
-                        }
-                        self.push_avm_stack(&mut stack, Avm1Value::Bool(true));
-                    } else {
-                        if let Some(slot) = locals.get_mut(obj_reg) {
-                            *slot = Avm1Value::Null;
-                        }
-                        if let Some(slot) = locals.get_mut(idx_reg) {
-                            *slot = Avm1Value::Number(0.0);
-                        }
-                        self.push_avm_stack(&mut stack, Avm1Value::Bool(false));
-                    }
-                }
-                0x40 => {
-                    // newfunction
-                    let Some(midx) = r.u30() else { break };
-                    let mut captured = outer_scopes.clone();
-                    captured.extend(scope_stack.iter().cloned());
-                    let cid = self.avm2_closures.len();
-                    self.avm2_closures.push(Avm2Closure {
-                        abc_idx,
-                        method_idx: midx,
-                        outer_scopes: captured,
-                    });
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::String(format!("__avm2_closure:{cid}:{abc_idx}:{midx}")),
-                    );
-                }
                 0x41 => {
                     // call
                     let Some(argc) = r.u30() else { break };
@@ -1146,942 +821,25 @@ impl SwfBytecodePlayer {
                         Avm1Value::MovieClip(format!("__avm2_vec_type:{}", elem_ty.encode_token())),
                     );
                 }
-                0x55 => {
-                    // newobject
-                    let Some(count) = r.u30() else { break };
-                    let mut props = HashMap::new();
-                    for _ in 0..count {
-                        let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                        let key = stack
-                            .pop()
-                            .unwrap_or(Avm1Value::Undefined)
-                            .to_trace_string(9, &self.avm1_objects);
-                        props.insert(key, val);
-                    }
-                    let obj_id = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object {
-                        props,
-                        ..Default::default()
-                    });
-                    self.push_avm_stack(&mut stack, Avm1Value::Object(obj_id));
-                }
-                0x56 => {
-                    // newarray
-                    let Some(count) = r.u30() else { break };
-                    let mut elems = Vec::with_capacity(count.min(1024));
-                    for _ in 0..count {
-                        elems.push(stack.pop().unwrap_or(Avm1Value::Undefined));
-                    }
-                    elems.reverse();
-                    let obj_id = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object {
-                        array_elements: Some(elems),
-                        ..Default::default()
-                    });
-                    self.push_avm_stack(&mut stack, Avm1Value::Object(obj_id));
-                }
-                0x57 => {
-                    // newactivation
-                    let mut act_props = HashMap::new();
-                    if let Some(loaded) = self.abc_tags.get(abc_idx)
-                        && let Some(body) = loaded.abc.bodies_by_method.get(&method_idx)
-                    {
-                        for tr in &body.traits {
-                            if let AbcTraitData::Slot {
-                                type_name,
-                                vindex,
-                                vkind,
-                                ..
-                            } = tr.data
-                            {
-                                let (_, sname) = loaded.abc.split_qname(tr.name);
-                                if sname.is_empty() {
-                                    continue;
-                                }
-                                let init_val = if vindex != 0 || vkind != 0 {
-                                    abc_const_to_avm_value(&loaded.abc, vindex, vkind)
-                                } else {
-                                    let (_, ty) = loaded.abc.split_qname(type_name);
-                                    match ty.as_str() {
-                                        "int" | "uint" => Avm1Value::Number(0.0),
-                                        "Number" => Avm1Value::Number(f64::NAN),
-                                        "Boolean" => Avm1Value::Bool(false),
-                                        "*" | "" => Avm1Value::Undefined,
-                                        _ => Avm1Value::Null,
-                                    }
-                                };
-                                act_props.insert(sname, init_val);
-                            }
-                        }
-                    }
-                    let obj_id = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object {
-                        props: act_props,
-                        avm2_activation_method: Some((abc_idx, method_idx)),
-                        ..Default::default()
-                    });
-                    self.push_avm_stack(&mut stack, Avm1Value::Object(obj_id));
-                }
-                0x58 => {
-                    // newclass — capture the active outer + local scope chain for cinit & class methods
-                    let Some(class_idx) = r.u30() else { break };
-                    let _base = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let mut captured_scopes = outer_scopes.clone();
-                    captured_scopes.extend(scope_stack.iter().cloned());
-                    let scope_obj_id = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object {
-                        array_elements: Some(captured_scopes),
-                        ..Default::default()
-                    });
-                    self.avm2_globals.insert(
-                        format!("__avm2_cscope:{abc_idx}:{class_idx}"),
-                        Avm1Value::Object(scope_obj_id),
-                    );
-                    let cls_tok =
-                        Avm1Value::MovieClip(format!("__avm2_class:{abc_idx}:{class_idx}"));
-                    self.push_avm_stack(&mut stack, cls_tok.clone());
-                    let non_iface_cinit = self.abc_tags.get(abc_idx).and_then(|l| {
-                        let inst = l.abc.instances.get(class_idx)?;
-                        if (inst.flags & 0x04) != 0 {
-                            return None;
-                        }
-                        l.abc.classes.get(class_idx).map(|c| c.cinit)
-                    });
-                    if let Some(cinit) = non_iface_cinit
-                        && self.avm2_cinit_ran.insert((abc_idx, class_idx))
-                    {
-                        let cinit_scopes =
-                            self.avm2_captured_class_scopes(abc_idx, class_idx, false);
-                        let _ = self.run_avm2_method_with_outer_scopes(
-                            abc_idx,
-                            cinit,
-                            cls_tok,
-                            cinit_scopes,
-                            Vec::new(),
-                            steps,
-                            depth + 1,
-                        );
-                    }
-                }
-                0x59 => {
-                    // getdescendants
-                    let Some(mn_idx) = r.u30() else { break };
-                    let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let res = self.get_avm2_descendants(&obj, &prop_name);
-                    if self.avm2_thrown.is_none() {
-                        self.push_avm_stack(&mut stack, res);
-                    }
-                }
-                0x5A => {
-                    // newcatch
-                    let Some(exc_idx) = r.u30() else { break };
-                    let mut init_props = HashMap::new();
-                    let catch_var = exceptions.get(exc_idx).map(|exc| {
-                        let vname = if exc.var_name == 0 {
-                            String::new()
-                        } else {
-                            let (_, vn) = self.abc_tags[abc_idx].abc.split_qname(exc.var_name);
-                            if vn == "*" { String::new() } else { vn }
-                        };
-                        let slot_key = if vname.is_empty() {
-                            "__slot_1".to_owned()
-                        } else {
-                            vname.clone()
-                        };
-                        init_props.insert(slot_key, Avm1Value::Undefined);
-                        (vname, abc_idx, exc.exc_type)
-                    });
-                    let obj_id = self.avm1_objects.len();
-                    self.avm1_objects.push(Avm1Object {
-                        props: init_props,
-                        avm2_catch_var: catch_var,
-                        ..Default::default()
-                    });
-                    self.push_avm_stack(&mut stack, Avm1Value::Object(obj_id));
-                }
-                0x5B | 0x5C => {
-                    // findpropglobalstrict / findpropglobal
-                    let Some(mn_idx) = r.u30() else { break };
-                    let name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
-                    self.push_avm_stack(&mut stack, Avm1Value::MovieClip(name));
-                }
-                0x5D | 0x5E => {
-                    // findpropstrict / findproperty
-                    let Some(mn_idx) = r.u30() else { break };
-                    let name = self.pop_avm2_multiname(abc_idx, mn_idx, &mut stack);
-                    let mut resolved = None;
-                    for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
-                        if self.avm2_scope_owns_prop(sc, &name) {
-                            resolved = Some(sc.clone());
-                            break;
-                        }
-                    }
-                    if resolved.is_none() && self.avm2_scope_owns_prop(&this_val, &name) {
-                        resolved = Some(this_val.clone());
-                    }
-                    if resolved.is_none()
-                        && let Avm1Value::Object(oid) = &this_val
-                        && let Some((ca, cc)) =
-                            self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
-                    {
-                        let cls_tok = format!("__avm2_class:{ca}:{cc}");
-                        if self.avm2_class_token_has_static_prop(&cls_tok, &name) {
-                            resolved = Some(Avm1Value::MovieClip(cls_tok));
-                        }
-                    }
-                    if resolved.is_none()
-                        && op == 0x5E
-                        && let Some(Avm1Value::Object(oid)) = scope_stack.first()
-                        && self
-                            .avm1_objects
-                            .get(*oid)
-                            .is_some_and(|o| o.avm2_class.is_some())
-                    {
-                        resolved = Some(Avm1Value::Object(*oid));
-                    }
-                    self.push_avm_stack(&mut stack, resolved.unwrap_or(Avm1Value::MovieClip(name)));
-                }
-                0x60 => {
-                    // getlex
-                    let Some(mn_idx) = r.u30() else { break };
-                    let (pkg, name) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
-                    let mut val_opt = None;
-                    for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
-                        if self.avm2_scope_owns_prop(sc, &name) {
-                            val_opt = Some(self.get_avm2_property_eval(sc, &name, steps, depth));
-                            break;
-                        }
-                    }
-                    if val_opt.is_none() && self.avm2_scope_owns_prop(&this_val, &name) {
-                        val_opt = Some(self.get_avm2_property_eval(&this_val, &name, steps, depth));
-                    }
-                    if val_opt.is_none()
-                        && let Avm1Value::Object(oid) = &this_val
-                        && let Some((ca, cc)) =
-                            self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
-                    {
-                        let cls_tok = format!("__avm2_class:{ca}:{cc}");
-                        if self.avm2_class_token_has_static_prop(&cls_tok, &name) {
-                            val_opt = Some(self.get_avm2_property_eval(
-                                &Avm1Value::MovieClip(cls_tok),
-                                &name,
-                                steps,
-                                depth,
-                            ));
-                        }
-                    }
-                    let val = if let Some(v) = val_opt {
-                        v
-                    } else if let Some(vec_elem) =
-                        self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
-                    {
-                        Avm1Value::MovieClip(format!("__avm2_vec_type:{}", vec_elem.encode_token()))
-                    } else if let Some((c_abc, c_idx)) = self.find_avm2_class(abc_idx, &pkg, &name)
-                    {
-                        Avm1Value::MovieClip(format!("__avm2_class:{c_abc}:{c_idx}"))
-                    } else if name == "Vector" && (pkg.is_empty() || pkg == "__AS3__.vec") {
-                        Avm1Value::MovieClip("__avm2_type:Vector".to_owned())
-                    } else if matches!(
-                        name.as_str(),
-                        "Object"
-                            | "Class"
-                            | "Array"
-                            | "String"
-                            | "Number"
-                            | "int"
-                            | "uint"
-                            | "Boolean"
-                            | "Function"
-                            | "Dictionary"
-                            | "XML"
-                            | "XMLList"
-                            | "QName"
-                            | "Namespace"
-                            | "ApplicationDomain"
-                            | "MovieClip"
-                            | "Sprite"
-                            | "Shape"
-                            | "SimpleButton"
-                            | "Stage"
-                            | "TextField"
-                            | "Bitmap"
-                            | "DisplayObject"
-                            | "DisplayObjectContainer"
-                            | "InteractiveObject"
-                            | "EventDispatcher"
-                            | "Event"
-                            | "MouseEvent"
-                            | "KeyboardEvent"
-                            | "Error"
-                            | "TypeError"
-                            | "RangeError"
-                            | "ReferenceError"
-                            | "ArgumentError"
-                            | "VerifyError"
-                            | "SyntaxError"
-                            | "URIError"
-                            | "EvalError"
-                            | "SecurityError"
-                    ) {
-                        Avm1Value::MovieClip(format!("__avm2_type:{name}"))
-                    } else if name == "NaN" {
-                        Avm1Value::Number(f64::NAN)
-                    } else if name == "Infinity" {
-                        Avm1Value::Number(f64::INFINITY)
-                    } else if pkg.is_empty() && name == "undefined" {
-                        Avm1Value::Undefined
-                    } else {
-                        self.get_avm2_property_eval(
-                            &Avm1Value::MovieClip("_root".into()),
-                            &name,
-                            steps,
-                            depth,
-                        )
-                    };
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0x61 | 0x68 => {
-                    // setproperty / initproperty
-                    let Some(mn_idx) = r.u30() else { break };
-                    let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, &mut stack);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.set_avm2_property_by_key(&obj, mn_key, val, abc_idx, steps, depth);
-                }
-                0x62 => {
-                    // getlocal
-                    let Some(reg) = r.u30() else { break };
-                    let val = locals.get(reg).cloned().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0x63 => {
-                    // setlocal
-                    let Some(reg) = r.u30() else { break };
-                    let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    if reg < locals.len() {
-                        locals[reg] = val;
-                    }
-                }
-                0x64 => {
-                    // getglobalscope
-                    let gs = outer_scopes
-                        .first()
-                        .or_else(|| scope_stack.first())
-                        .cloned()
-                        .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
-                    self.push_avm_stack(&mut stack, gs);
-                }
-                0x65 => {
-                    // getscopeobject
-                    let Some(idx) = r.u8() else { break };
-                    let sc = scope_stack
-                        .get(usize::from(idx))
-                        .cloned()
-                        .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
-                    self.push_avm_stack(&mut stack, sc);
-                }
-                0x66 => {
-                    // getproperty
-                    let Some(mn_idx) = r.u30() else { break };
-                    let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, &mut stack);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let val = self.get_avm2_property_by_key(&obj, mn_key, abc_idx, steps, depth);
-                    if self.avm2_thrown.is_none() {
-                        self.push_avm_stack(&mut stack, val);
-                    }
-                }
-                0x67 => {
-                    // getouterscope
-                    let Some(idx) = r.u30() else { break };
-                    let sc = outer_scopes
-                        .get(idx)
-                        .cloned()
-                        .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
-                    self.push_avm_stack(&mut stack, sc);
-                }
-                0x6A => {
-                    // deleteproperty
-                    let Some(mn_idx) = r.u30() else { break };
-                    let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, &mut stack);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let deleted = self.delete_avm2_property_by_key(&obj, mn_key);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(deleted));
-                }
-                0x6C => {
-                    // getslot
-                    let Some(slot_idx) = r.u30() else { break };
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let (key, _) = self
-                        .resolve_avm2_activation_or_slot_key(&obj, slot_idx, abc_idx, method_idx);
-                    let val = self.get_avm2_property_eval(&obj, &key, steps, depth);
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0x6D => {
-                    // setslot
-                    let Some(slot_idx) = r.u30() else { break };
-                    let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let (key, coerce_ty) = self
-                        .resolve_avm2_activation_or_slot_key(&obj, slot_idx, abc_idx, method_idx);
-                    let coerced = if let Some((t_abc, t_mn)) = coerce_ty
-                        && t_mn != 0
-                    {
-                        self.avm2_coerce_multiname(t_abc, t_mn, val, steps, depth)
-                    } else {
-                        val
-                    };
-                    if self.avm2_thrown.is_none() {
-                        self.set_avm2_property_eval(&obj, &key, coerced, steps, depth);
-                    }
-                }
-                0x6E => {
-                    // getglobalslot
-                    let Some(slot_idx) = r.u30() else { break };
-                    let key = format!("__gslot_{slot_idx}");
-                    let val = self
-                        .avm2_globals
-                        .get(&key)
-                        .cloned()
-                        .unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0x6F => {
-                    // setglobalslot
-                    let Some(slot_idx) = r.u30() else { break };
-                    let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let key = format!("__gslot_{slot_idx}");
-                    self.avm2_globals.insert(key, val);
-                }
-                0x70 => {
-                    // convert_s: null -> "null", undefined -> "undefined"
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
-                    if self.avm2_thrown.is_none() {
-                        self.push_avm_stack(&mut stack, Avm1Value::String(s));
-                    }
-                }
-                0x71 => {
-                    // esc_xelem
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
-                    if self.avm2_thrown.is_none() {
-                        self.push_avm_stack(&mut stack, Avm1Value::String(esc_xml_elem(&s)));
-                    }
-                }
-                0x72 => {
-                    // esc_xattr
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
-                    if self.avm2_thrown.is_none() {
-                        self.push_avm_stack(&mut stack, Avm1Value::String(esc_xml_attr(&s)));
-                    }
-                }
-                0x73 | 0x83 => {
-                    // convert_i / coerce_i
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let i = ecma_f64_to_i32(avm2_to_number(&v));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(i)));
-                }
-                0x74 | 0x88 => {
-                    // convert_u / coerce_u
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let u = ecma_f64_to_u32(avm2_to_number(&v));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(u)));
-                }
-                0x75 | 0x84 => {
-                    // convert_d / coerce_d
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(avm2_to_number(&v)));
-                }
-                0x76 | 0x81 => {
-                    // convert_b / coerce_b
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(b));
-                }
-                0x77 => {
-                    // convert_o
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    match v {
-                        Avm1Value::Null => {
-                            self.throw_avm2_builtin_error(
-                                "TypeError",
-                                1009,
-                                "Cannot access a property or method of a null object reference.",
-                            );
-                        }
-                        Avm1Value::Undefined => {
-                            self.throw_avm2_builtin_error(
-                                "TypeError",
-                                1010,
-                                "A term is undefined and has no properties.",
-                            );
-                        }
-                        other => self.push_avm_stack(&mut stack, other),
-                    }
-                }
-                0x78 => {
-                    // checkfilter
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let is_xml = matches!(
-                        &v,
-                        Avm1Value::Object(oid)
-                            if self
-                                .avm1_objects
-                                .get(*oid)
-                                .is_some_and(|o| o.avm2_xml.is_some())
-                    );
-                    if is_xml {
-                        self.push_avm_stack(&mut stack, v);
-                    } else {
-                        let ty_name = self.avm2_runtime_class_label(&v);
-                        self.throw_avm2_builtin_error(
-                            "TypeError",
-                            1123,
-                            &format!("Filter operator not supported on type {ty_name}."),
-                        );
-                    }
-                }
-                0x80 => {
-                    // coerce(multiname)
-                    let Some(mn_idx) = r.u30() else { break };
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let out = self.avm2_coerce_multiname(abc_idx, mn_idx, v, steps, depth);
-                    if self.avm2_thrown.is_none() {
-                        self.push_avm_stack(&mut stack, out);
-                    }
-                }
-                0x82 => {
-                    // coerce_a (any `*`: preserve exact value including undefined/null)
-                }
-                0x85 => {
-                    // coerce_s: null/undefined -> null; otherwise convert to String
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let out = match v {
-                        Avm1Value::Undefined | Avm1Value::Null => Avm1Value::Null,
-                        other => {
-                            let s = self.avm2_coerce_to_string_eval(&other, abc_idx, steps, depth);
-                            Avm1Value::String(s)
-                        }
-                    };
-                    if self.avm2_thrown.is_none() {
-                        self.push_avm_stack(&mut stack, out);
-                    }
-                }
-                0x86 => {
-                    // astype(multiname)
-                    let Some(mn_idx) = r.u30() else { break };
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let is_match = if let Some(vec_elem) =
-                        self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
-                    {
-                        matches!(
-                            &v,
-                            Avm1Value::Object(oid)
-                                if self
-                                    .avm1_objects
-                                    .get(*oid)
-                                    .and_then(|o| o.avm2_vector.as_ref())
-                                    .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
-                        )
-                    } else {
-                        let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
-                        self.avm2_is_type_name(abc_idx, &v, &pkg, &tname)
-                    };
-                    let out = if is_match { v } else { Avm1Value::Null };
-                    self.push_avm_stack(&mut stack, out);
-                }
-                0x87 => {
-                    // astypelate
-                    let type_val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let out = if self.avm2_is_type_value(abc_idx, &v, &type_val) {
-                        v
-                    } else {
-                        Avm1Value::Null
-                    };
-                    self.push_avm_stack(&mut stack, out);
-                }
-                0x89 => {
-                    // coerce_o: undefined -> null, else preserve
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let out = if matches!(v, Avm1Value::Undefined) {
-                        Avm1Value::Null
-                    } else {
-                        v
-                    };
-                    self.push_avm_stack(&mut stack, out);
-                }
-                0x90 => {
-                    // negate
-                    let n = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(-n));
-                }
-                0xC4 => {
-                    // negate_i
-                    let n = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(n.wrapping_neg())));
-                }
-                0x91 => {
-                    // increment
-                    let n = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(n + 1.0));
-                }
-                0xC0 => {
-                    // increment_i
-                    let n = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(n.wrapping_add(1))),
-                    );
-                }
-                0x92 => {
-                    // inclocal
-                    let Some(reg) = r.u30() else { break };
-                    if let Some(slot) = locals.get_mut(reg) {
-                        *slot = Avm1Value::Number(avm2_to_number(slot) + 1.0);
-                    }
-                }
-                0xC2 => {
-                    // inclocal_i
-                    let Some(reg) = r.u30() else { break };
-                    if let Some(slot) = locals.get_mut(reg) {
-                        let next = ecma_f64_to_i32(avm2_to_number(slot)).wrapping_add(1);
-                        *slot = Avm1Value::Number(f64::from(next));
-                    }
-                }
-                0x93 => {
-                    // decrement
-                    let n = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(n - 1.0));
-                }
-                0xC1 => {
-                    // decrement_i
-                    let n = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(n.wrapping_sub(1))),
-                    );
-                }
-                0x94 => {
-                    // declocal
-                    let Some(reg) = r.u30() else { break };
-                    if let Some(slot) = locals.get_mut(reg) {
-                        *slot = Avm1Value::Number(avm2_to_number(slot) - 1.0);
-                    }
-                }
-                0xC3 => {
-                    // declocal_i
-                    let Some(reg) = r.u30() else { break };
-                    if let Some(slot) = locals.get_mut(reg) {
-                        let next = ecma_f64_to_i32(avm2_to_number(slot)).wrapping_sub(1);
-                        *slot = Avm1Value::Number(f64::from(next));
-                    }
-                }
-                0x95 => {
-                    // typeof
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let ty = self.avm2_typeof(&v);
-                    self.push_avm_stack(&mut stack, Avm1Value::String(ty.to_owned()));
-                }
-                0x96 => {
-                    // not
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(!b));
-                }
-                0x97 => {
-                    // bitnot
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let i = ecma_f64_to_i32(avm2_to_number(&v));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(!i)));
-                }
-                0xA0 => {
-                    // add (including E4X XML + XML -> XMLList concatenation)
-                    let raw_b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let raw_a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    if let (Avm1Value::Object(oa), Avm1Value::Object(ob)) = (&raw_a, &raw_b)
-                        && let (Some((mut ia, _)), Some((ib, _))) =
-                            (self.xml_items_of_oid(*oa), self.xml_items_of_oid(*ob))
-                    {
-                        ia.extend(ib);
-                        let list = self.alloc_avm2_xml_list(ia, None, None);
-                        self.push_avm_stack(&mut stack, list);
-                    } else {
-                        let a = self.avm2_add_operand(raw_a, abc_idx, steps, depth);
-                        let b = if self.avm2_thrown.is_none() {
-                            self.avm2_add_operand(raw_b, abc_idx, steps, depth)
-                        } else {
-                            Avm1Value::Undefined
-                        };
-                        if self.avm2_thrown.is_none() {
-                            if matches!(a, Avm1Value::String(_))
-                                || matches!(b, Avm1Value::String(_))
-                            {
-                                let sa = avm2_convert_string(&a, &self.avm1_objects);
-                                let sb = avm2_convert_string(&b, &self.avm1_objects);
-                                self.push_avm_stack(
-                                    &mut stack,
-                                    Avm1Value::String(format!("{sa}{sb}")),
-                                );
-                            } else {
-                                self.push_avm_stack(
-                                    &mut stack,
-                                    Avm1Value::Number(avm2_to_number(&a) + avm2_to_number(&b)),
-                                );
-                            }
-                        }
-                    }
-                }
-                0xA1 => {
-                    // subtract
-                    let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(a - b));
-                }
-                0xA2 => {
-                    // multiply
-                    let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(a * b));
-                }
-                0xA3 => {
-                    // divide
-                    let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(a / b));
-                }
-                0xA4 => {
-                    // modulo
-                    let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(a % b));
-                }
-                0xA5 => {
-                    let b = ecma_f64_to_u32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(a.wrapping_shl(b))),
-                    );
-                }
-                0xA6 => {
-                    let b = ecma_f64_to_u32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(a.wrapping_shr(b))),
-                    );
-                }
-                0xA7 => {
-                    let b = ecma_f64_to_u32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_u32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(a.wrapping_shr(b))),
-                    );
-                }
-                0xA8 => {
-                    let b = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(a & b)));
-                }
-                0xA9 => {
-                    let b = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(a | b)));
-                }
-                0xAA => {
-                    let b = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(&mut stack, Avm1Value::Number(f64::from(a ^ b)));
-                }
-                0xAB => {
-                    // equals (ECMA-357 / AS3 abstract equality)
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let eq = self.avm2_equals(&a, &b);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(eq));
-                }
-                0xAC => {
-                    // strictequals (AS3 strict equality)
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let eq = self.avm2_strict_equals(&a, &b);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(eq));
-                }
-                0xAD => {
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Bool(avm2_less_than(&a, &b) == Some(true)),
-                    );
-                }
-                0xAE => {
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Bool(avm2_less_than(&b, &a) == Some(false)),
-                    );
-                }
-                0xAF => {
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Bool(avm2_less_than(&b, &a) == Some(true)),
-                    );
-                }
-                0xB0 => {
-                    let b = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let a = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Bool(avm2_less_than(&a, &b) == Some(false)),
-                    );
-                }
-                0xB1 => {
-                    // instanceof
-                    let type_val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let res = self.avm2_instanceof_value(abc_idx, &v, &type_val);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(res));
-                }
-                0xB2 => {
-                    // istype(multiname)
-                    let Some(mn_idx) = r.u30() else { break };
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let is_t = if let Some(vec_elem) =
-                        self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
-                    {
-                        matches!(
-                            &v,
-                            Avm1Value::Object(oid)
-                                if self
-                                    .avm1_objects
-                                    .get(*oid)
-                                    .and_then(|o| o.avm2_vector.as_ref())
-                                    .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
-                        )
-                    } else {
-                        let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
-                        self.avm2_is_type_name(abc_idx, &v, &pkg, &tname)
-                    };
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(is_t));
-                }
-                0xB3 => {
-                    // istypelate
-                    let type_val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let v = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let is_t = self.avm2_is_type_value(abc_idx, &v, &type_val);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(is_t));
-                }
-                0xB4 => {
-                    // in
-                    let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let raw_key = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    let has = self.avm2_in_operator(&raw_key, &obj);
-                    self.push_avm_stack(&mut stack, Avm1Value::Bool(has));
-                }
-                0xC5 => {
-                    // add_i
-                    let b = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(a.wrapping_add(b))),
-                    );
-                }
-                0xC6 => {
-                    // subtract_i
-                    let b = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(a.wrapping_sub(b))),
-                    );
-                }
-                0xC7 => {
-                    // multiply_i
-                    let b = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    let a = ecma_f64_to_i32(avm2_to_number(
-                        &stack.pop().unwrap_or(Avm1Value::Undefined),
-                    ));
-                    self.push_avm_stack(
-                        &mut stack,
-                        Avm1Value::Number(f64::from(a.wrapping_mul(b))),
-                    );
-                }
-                0xD0..=0xD3 => {
-                    let idx = usize::from(op - 0xD0);
-                    let val = locals.get(idx).cloned().unwrap_or(Avm1Value::Undefined);
-                    self.push_avm_stack(&mut stack, val);
-                }
-                0xD4..=0xD7 => {
-                    let idx = usize::from(op - 0xD4);
-                    let val = stack.pop().unwrap_or(Avm1Value::Undefined);
-                    if idx < locals.len() {
-                        locals[idx] = val;
-                    }
-                }
-                0xEF => {
-                    // debug
-                    let _ = r.u8();
-                    let _ = r.u30();
-                    let _ = r.u8();
-                    let _ = r.u30();
-                }
-                0xF0 | 0xF1 => {
-                    // debugline / debugfile
-                    let _ = r.u30();
-                }
                 _ => {
-                    let tag_code = self.abc_tags.get(abc_idx).map_or(82, |l| l.tag_code);
-                    self.record_unsupported_diagnostic(format!(
-                        "Unsupported AVM2 ABC opcode 0x{op:02X} in #tag={tag_code}:abc#{abc_idx} method#{method_idx} offset=0x{insn_start:x}"
-                    ));
-                    break;
+                    if !self.exec_avm2_noncall_opcode(
+                        op,
+                        abc_idx,
+                        method_idx,
+                        insn_start,
+                        code.as_slice(),
+                        &this_val,
+                        &outer_scopes,
+                        &exceptions,
+                        &mut r,
+                        &mut stack,
+                        &mut scope_stack,
+                        &mut locals,
+                        steps,
+                        depth,
+                    ) {
+                        break;
+                    }
                 }
             }
             if let Some(thrown) = self.avm2_thrown.take() {
@@ -2107,6 +865,1303 @@ impl SwfBytecodePlayer {
             ));
         }
         Avm1Value::Undefined
+    }
+
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn exec_avm2_noncall_opcode(
+        &mut self,
+        op: u8,
+        abc_idx: usize,
+        method_idx: usize,
+        insn_start: usize,
+        code: &[u8],
+        this_val: &Avm1Value,
+        outer_scopes: &[Avm1Value],
+        exceptions: &[super::super::avm2::AbcException],
+        r: &mut AbcReader<'_>,
+        stack: &mut Vec<Avm1Value>,
+        scope_stack: &mut Vec<Avm1Value>,
+        locals: &mut [Avm1Value],
+        steps: &mut usize,
+        depth: usize,
+    ) -> bool {
+        let this_val = this_val.clone();
+        match op {
+            0x02 => {} // nop
+            0x03 => {
+                // throw
+                let thrown = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.avm2_thrown = Some(thrown);
+            }
+            0x04 => {
+                // getsuper
+                let Some(mn_idx) = r.u30() else { return false };
+                let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, stack);
+                let receiver = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let val = self.get_avm2_super_property(
+                    abc_idx, method_idx, &receiver, &prop_name, steps, depth,
+                );
+                self.push_avm_stack(stack, val);
+            }
+            0x05 => {
+                // setsuper
+                let Some(mn_idx) = r.u30() else { return false };
+                let val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, stack);
+                let receiver = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.set_avm2_super_property(
+                    abc_idx, method_idx, &receiver, &prop_name, val, steps, depth,
+                );
+            }
+            0x06 => {
+                // dxns
+                let Some(idx) = r.u30() else { return false };
+                let uri = self.abc_tags[abc_idx].abc.string(idx).to_owned();
+                self.e4x_arena.borrow_mut().default_ns = uri;
+            }
+            0x07 => {
+                // dxnslate
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let uri = avm2_convert_string(&v, &self.avm1_objects);
+                self.e4x_arena.borrow_mut().default_ns = uri;
+            }
+            0x08 => {
+                // kill
+                let Some(reg) = r.u30() else { return false };
+                if reg < locals.len() {
+                    locals[reg] = Avm1Value::Undefined;
+                }
+            }
+            0x09 => {} // label
+            0x0C..=0x0F => {
+                // ifnlt (0x0C), ifnle (0x0D), ifngt (0x0E), ifnge (0x0F)
+                let Some(rel) = r.s24() else { return false };
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let cond = match op {
+                    0x0C => avm2_less_than(&a, &b) != Some(true),
+                    0x0D => avm2_less_than(&b, &a) != Some(false),
+                    0x0E => avm2_less_than(&b, &a) != Some(true),
+                    _ => avm2_less_than(&a, &b) != Some(false),
+                };
+                if cond {
+                    let target = (r.pos as isize) + (rel as isize);
+                    if target >= 0 && (target as usize) <= code.len() {
+                        r.pos = target as usize;
+                    }
+                }
+            }
+            0x10 => {
+                // jump
+                let Some(rel) = r.s24() else { return false };
+                let target = (r.pos as isize) + (rel as isize);
+                if target >= 0 && (target as usize) <= code.len() {
+                    r.pos = target as usize;
+                } else {
+                    return false;
+                }
+            }
+            0x11 => {
+                // iftrue
+                let Some(rel) = r.s24() else { return false };
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
+                if v {
+                    let target = (r.pos as isize) + (rel as isize);
+                    if target >= 0 && (target as usize) <= code.len() {
+                        r.pos = target as usize;
+                    }
+                }
+            }
+            0x12 => {
+                // iffalse
+                let Some(rel) = r.s24() else { return false };
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
+                if !v {
+                    let target = (r.pos as isize) + (rel as isize);
+                    if target >= 0 && (target as usize) <= code.len() {
+                        r.pos = target as usize;
+                    }
+                }
+            }
+            0x13..=0x1A => {
+                // ifeq (0x13), ifne (0x14), iflt (0x15), ifle (0x16), ifgt (0x17), ifge (0x18), ifstricteq (0x19), ifstrictne (0x1A)
+                let Some(rel) = r.s24() else { return false };
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let cond = match op {
+                    0x13 => self.avm2_equals(&a, &b),
+                    0x14 => !self.avm2_equals(&a, &b),
+                    0x15 => avm2_less_than(&a, &b) == Some(true),
+                    0x16 => avm2_less_than(&b, &a) == Some(false),
+                    0x17 => avm2_less_than(&b, &a) == Some(true),
+                    0x18 => avm2_less_than(&a, &b) == Some(false),
+                    0x19 => self.avm2_strict_equals(&a, &b),
+                    _ => !self.avm2_strict_equals(&a, &b),
+                };
+                if cond {
+                    let target = (r.pos as isize) + (rel as isize);
+                    if target >= 0 && (target as usize) <= code.len() {
+                        r.pos = target as usize;
+                    }
+                }
+            }
+            0x1B => {
+                // lookupswitch (offsets relative to `insn_start`)
+                let Some(default_off) = r.s24() else {
+                    return false;
+                };
+                let Some(max_idx) = r.u30() else { return false };
+                let mut case_offs = Vec::with_capacity(max_idx.saturating_add(1).min(4096));
+                let mut ok = true;
+                for _ in 0..=max_idx.min(4096) {
+                    if let Some(off) = r.s24() {
+                        case_offs.push(off);
+                    } else {
+                        ok = false;
+                        break;
+                    }
+                }
+                if !ok {
+                    return false;
+                }
+                let idx =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let rel = if idx >= 0 && (idx as usize) < case_offs.len() {
+                    case_offs[idx as usize]
+                } else {
+                    default_off
+                };
+                let target = (insn_start as isize) + (rel as isize);
+                if target >= 0 && (target as usize) <= code.len() {
+                    r.pos = target as usize;
+                } else {
+                    return false;
+                }
+            }
+            0x1C | 0x30 => {
+                // pushwith / pushscope
+                let sc = stack.pop().unwrap_or(Avm1Value::Undefined);
+                if scope_stack.len() < 64 {
+                    scope_stack.push(sc);
+                }
+            }
+            0x1D => {
+                // popscope
+                let _ = scope_stack.pop();
+            }
+            0x1E => {
+                // nextname
+                let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let k_idx = ecma_f64_to_i32(avm2_to_number(&idx_val))
+                    .saturating_sub(1)
+                    .max(0) as usize;
+                let val = self.avm2_nextname_at(&obj, k_idx);
+                self.push_avm_stack(stack, val);
+            }
+            0x1F => {
+                // hasnext
+                let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let len = self.avm2_enumerable_len(&obj);
+                let cur_idx = ecma_f64_to_i32(avm2_to_number(&idx_val)).max(0) as usize;
+                let next = if cur_idx < len {
+                    (cur_idx + 1) as f64
+                } else {
+                    0.0
+                };
+                self.push_avm_stack(stack, Avm1Value::Number(next));
+            }
+            0x20 => self.push_avm_stack(stack, Avm1Value::Null),
+            0x21 => self.push_avm_stack(stack, Avm1Value::Undefined),
+            0x23 => {
+                // nextvalue
+                let idx_val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let k_idx = ecma_f64_to_i32(avm2_to_number(&idx_val))
+                    .saturating_sub(1)
+                    .max(0) as usize;
+                let val = self.avm2_nextvalue_at(&obj, k_idx, steps, depth);
+                self.push_avm_stack(stack, val);
+            }
+            0x24 => {
+                // pushbyte
+                let Some(b) = r.i8() else { return false };
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(b)));
+            }
+            0x25 => {
+                // pushshort (signed s30 / i16)
+                let Some(v) = r.s32() else { return false };
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(v as i16)));
+            }
+            0x26 => self.push_avm_stack(stack, Avm1Value::Bool(true)),
+            0x27 => self.push_avm_stack(stack, Avm1Value::Bool(false)),
+            0x28 => self.push_avm_stack(stack, Avm1Value::Number(f64::NAN)),
+            0x29 => {
+                let _ = stack.pop();
+            }
+            0x2A => {
+                let top = stack.last().cloned().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(stack, top);
+            }
+            0x2B => {
+                let len = stack.len();
+                if len >= 2 {
+                    stack.swap(len - 1, len - 2);
+                }
+            }
+            0x2C => {
+                // pushstring
+                let Some(idx) = r.u30() else { return false };
+                let s = self.abc_tags[abc_idx].abc.string(idx).to_owned();
+                self.push_avm_stack(stack, Avm1Value::String(s));
+            }
+            0x2D => {
+                // pushint
+                let Some(idx) = r.u30() else { return false };
+                let v = self.abc_tags[abc_idx]
+                    .abc
+                    .ints
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(0);
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(v)));
+            }
+            0x2E => {
+                // pushuint
+                let Some(idx) = r.u30() else { return false };
+                let v = self.abc_tags[abc_idx]
+                    .abc
+                    .uints
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(0);
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(v)));
+            }
+            0x2F => {
+                // pushdouble
+                let Some(idx) = r.u30() else { return false };
+                let v = self.abc_tags[abc_idx]
+                    .abc
+                    .doubles
+                    .get(idx)
+                    .copied()
+                    .unwrap_or(f64::NAN);
+                self.push_avm_stack(stack, Avm1Value::Number(v));
+            }
+            0x31 => {
+                // pushnamespace
+                let Some(idx) = r.u30() else { return false };
+                let uri = self.abc_tags[abc_idx].abc.namespace(idx).name.clone();
+                let pfx = if uri.is_empty() {
+                    Avm1Value::String(String::new())
+                } else {
+                    Avm1Value::Undefined
+                };
+                let mut props = HashMap::new();
+                props.insert("prefix".to_owned(), pfx);
+                props.insert("uri".to_owned(), Avm1Value::String(uri.clone()));
+                props.insert("qname_formatted".to_owned(), Avm1Value::String(uri));
+                props.insert(
+                    "__avm2_short_class__".to_owned(),
+                    Avm1Value::String("Namespace".to_owned()),
+                );
+                let oid = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    props,
+                    ..Default::default()
+                });
+                self.push_avm_stack(stack, Avm1Value::Object(oid));
+            }
+            0x32 => {
+                // hasnext2
+                let Some(obj_reg) = r.u30() else { return false };
+                let Some(idx_reg) = r.u30() else { return false };
+                let obj = locals.get(obj_reg).cloned().unwrap_or(Avm1Value::Undefined);
+                let cur_idx = locals
+                    .get(idx_reg)
+                    .map_or(0, |v| ecma_f64_to_i32(avm2_to_number(v)).max(0) as usize);
+                let len = self.avm2_enumerable_len(&obj);
+                if cur_idx < len {
+                    if let Some(slot) = locals.get_mut(idx_reg) {
+                        *slot = Avm1Value::Number((cur_idx + 1) as f64);
+                    }
+                    self.push_avm_stack(stack, Avm1Value::Bool(true));
+                } else {
+                    if let Some(slot) = locals.get_mut(obj_reg) {
+                        *slot = Avm1Value::Null;
+                    }
+                    if let Some(slot) = locals.get_mut(idx_reg) {
+                        *slot = Avm1Value::Number(0.0);
+                    }
+                    self.push_avm_stack(stack, Avm1Value::Bool(false));
+                }
+            }
+            0x40 => {
+                // newfunction
+                let Some(midx) = r.u30() else { return false };
+                let mut captured = outer_scopes.to_vec();
+                captured.extend(scope_stack.iter().cloned());
+                let cid = self.avm2_closures.len();
+                self.avm2_closures.push(Avm2Closure {
+                    abc_idx,
+                    method_idx: midx,
+                    outer_scopes: captured,
+                });
+                self.push_avm_stack(
+                    stack,
+                    Avm1Value::String(format!("__avm2_closure:{cid}:{abc_idx}:{midx}")),
+                );
+            }
+            0x55 => {
+                // newobject
+                let Some(count) = r.u30() else { return false };
+                let mut props = HashMap::new();
+                for _ in 0..count {
+                    let val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                    let key = stack
+                        .pop()
+                        .unwrap_or(Avm1Value::Undefined)
+                        .to_trace_string(9, &self.avm1_objects);
+                    props.insert(key, val);
+                }
+                let obj_id = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    props,
+                    ..Default::default()
+                });
+                self.push_avm_stack(stack, Avm1Value::Object(obj_id));
+            }
+            0x56 => {
+                // newarray
+                let Some(count) = r.u30() else { return false };
+                let mut elems = Vec::with_capacity(count.min(1024));
+                for _ in 0..count {
+                    elems.push(stack.pop().unwrap_or(Avm1Value::Undefined));
+                }
+                elems.reverse();
+                let obj_id = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    array_elements: Some(elems),
+                    ..Default::default()
+                });
+                self.push_avm_stack(stack, Avm1Value::Object(obj_id));
+            }
+            0x57 => {
+                // newactivation
+                let mut act_props = HashMap::new();
+                if let Some(loaded) = self.abc_tags.get(abc_idx)
+                    && let Some(body) = loaded.abc.bodies_by_method.get(&method_idx)
+                {
+                    for tr in &body.traits {
+                        if let AbcTraitData::Slot {
+                            type_name,
+                            vindex,
+                            vkind,
+                            ..
+                        } = tr.data
+                        {
+                            let (_, sname) = loaded.abc.split_qname(tr.name);
+                            if sname.is_empty() {
+                                continue;
+                            }
+                            let init_val = if vindex != 0 || vkind != 0 {
+                                abc_const_to_avm_value(&loaded.abc, vindex, vkind)
+                            } else {
+                                let (_, ty) = loaded.abc.split_qname(type_name);
+                                match ty.as_str() {
+                                    "int" | "uint" => Avm1Value::Number(0.0),
+                                    "Number" => Avm1Value::Number(f64::NAN),
+                                    "Boolean" => Avm1Value::Bool(false),
+                                    "*" | "" => Avm1Value::Undefined,
+                                    _ => Avm1Value::Null,
+                                }
+                            };
+                            act_props.insert(sname, init_val);
+                        }
+                    }
+                }
+                let obj_id = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    props: act_props,
+                    avm2_activation_method: Some((abc_idx, method_idx)),
+                    ..Default::default()
+                });
+                self.push_avm_stack(stack, Avm1Value::Object(obj_id));
+            }
+            0x58 => {
+                // newclass — capture the active outer + local scope chain for cinit & class methods
+                let Some(class_idx) = r.u30() else {
+                    return false;
+                };
+                let _base = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let mut captured_scopes = outer_scopes.to_vec();
+                captured_scopes.extend(scope_stack.iter().cloned());
+                let scope_obj_id = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    array_elements: Some(captured_scopes),
+                    ..Default::default()
+                });
+                self.avm2_globals.insert(
+                    format!("__avm2_cscope:{abc_idx}:{class_idx}"),
+                    Avm1Value::Object(scope_obj_id),
+                );
+                let cls_tok = Avm1Value::MovieClip(format!("__avm2_class:{abc_idx}:{class_idx}"));
+                self.push_avm_stack(stack, cls_tok.clone());
+                let non_iface_cinit = self.abc_tags.get(abc_idx).and_then(|l| {
+                    let inst = l.abc.instances.get(class_idx)?;
+                    if (inst.flags & 0x04) != 0 {
+                        return None;
+                    }
+                    l.abc.classes.get(class_idx).map(|c| c.cinit)
+                });
+                if let Some(cinit) = non_iface_cinit
+                    && self.avm2_cinit_ran.insert((abc_idx, class_idx))
+                {
+                    let cinit_scopes = self.avm2_captured_class_scopes(abc_idx, class_idx, false);
+                    let _ = self.run_avm2_method_with_outer_scopes(
+                        abc_idx,
+                        cinit,
+                        cls_tok,
+                        cinit_scopes,
+                        Vec::new(),
+                        steps,
+                        depth + 1,
+                    );
+                }
+            }
+            0x59 => {
+                // getdescendants
+                let Some(mn_idx) = r.u30() else { return false };
+                let prop_name = self.pop_avm2_multiname(abc_idx, mn_idx, stack);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let res = self.get_avm2_descendants(&obj, &prop_name);
+                if self.avm2_thrown.is_none() {
+                    self.push_avm_stack(stack, res);
+                }
+            }
+            0x5A => {
+                // newcatch
+                let Some(exc_idx) = r.u30() else { return false };
+                let mut init_props = HashMap::new();
+                let catch_var = exceptions.get(exc_idx).map(|exc| {
+                    let vname = if exc.var_name == 0 {
+                        String::new()
+                    } else {
+                        let (_, vn) = self.abc_tags[abc_idx].abc.split_qname(exc.var_name);
+                        if vn == "*" { String::new() } else { vn }
+                    };
+                    let slot_key = if vname.is_empty() {
+                        "__slot_1".to_owned()
+                    } else {
+                        vname.clone()
+                    };
+                    init_props.insert(slot_key, Avm1Value::Undefined);
+                    (vname, abc_idx, exc.exc_type)
+                });
+                let obj_id = self.avm1_objects.len();
+                self.avm1_objects.push(Avm1Object {
+                    props: init_props,
+                    avm2_catch_var: catch_var,
+                    ..Default::default()
+                });
+                self.push_avm_stack(stack, Avm1Value::Object(obj_id));
+            }
+            0x5B | 0x5C => {
+                // findpropglobalstrict / findpropglobal
+                let Some(mn_idx) = r.u30() else { return false };
+                let name = self.pop_avm2_multiname(abc_idx, mn_idx, stack);
+                self.push_avm_stack(stack, Avm1Value::MovieClip(name));
+            }
+            0x5D | 0x5E => {
+                // findpropstrict / findproperty
+                let Some(mn_idx) = r.u30() else { return false };
+                let name = self.pop_avm2_multiname(abc_idx, mn_idx, stack);
+                let mut resolved = None;
+                for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
+                    if self.avm2_scope_owns_prop(sc, &name) {
+                        resolved = Some(sc.clone());
+                        break;
+                    }
+                }
+                if resolved.is_none() && self.avm2_scope_owns_prop(&this_val, &name) {
+                    resolved = Some(this_val.clone());
+                }
+                if resolved.is_none()
+                    && let Avm1Value::Object(oid) = &this_val
+                    && let Some((ca, cc)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+                {
+                    let cls_tok = format!("__avm2_class:{ca}:{cc}");
+                    if self.avm2_class_token_has_static_prop(&cls_tok, &name) {
+                        resolved = Some(Avm1Value::MovieClip(cls_tok));
+                    }
+                }
+                if resolved.is_none()
+                    && op == 0x5E
+                    && let Some(Avm1Value::Object(oid)) = scope_stack.first()
+                    && self
+                        .avm1_objects
+                        .get(*oid)
+                        .is_some_and(|o| o.avm2_class.is_some())
+                {
+                    resolved = Some(Avm1Value::Object(*oid));
+                }
+                self.push_avm_stack(stack, resolved.unwrap_or(Avm1Value::MovieClip(name)));
+            }
+            0x5F => {
+                // finddef(multiname)
+                let Some(mn_idx) = r.u30() else { return false };
+                let (pkg, name) = self.pop_avm2_qname(abc_idx, mn_idx, stack);
+                let mut found = self.avm2_globals.contains_key(&name)
+                    || self.find_avm2_class(abc_idx, &pkg, &name).is_some()
+                    || self
+                        .resolve_avm2_definition_by_name(
+                            abc_idx,
+                            &if pkg.is_empty() {
+                                name.clone()
+                            } else {
+                                format!("{pkg}.{name}")
+                            },
+                        )
+                        .is_some();
+                if !found {
+                    for loaded in &self.abc_tags {
+                        for (_, sc_traits) in &loaded.abc.scripts {
+                            for tr in sc_traits {
+                                let (spkg, sname) = loaded.abc.split_qname(tr.name);
+                                if sname == name && (pkg.is_empty() || spkg == pkg) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if found {
+                                break;
+                            }
+                        }
+                        if found {
+                            break;
+                        }
+                    }
+                }
+                if found {
+                    let mut props = HashMap::new();
+                    props.insert(
+                        "__avm2_short_class__".to_owned(),
+                        Avm1Value::String("global".to_owned()),
+                    );
+                    props.insert("__avm2_global_scope__".to_owned(), Avm1Value::Bool(true));
+                    let oid = self.avm1_objects.len();
+                    self.avm1_objects.push(Avm1Object {
+                        props,
+                        ..Default::default()
+                    });
+                    self.push_avm_stack(stack, Avm1Value::Object(oid));
+                } else {
+                    self.throw_avm2_builtin_error(
+                        "ReferenceError",
+                        1065,
+                        &format!("Variable {name} is not defined."),
+                    );
+                }
+            }
+            0x60 => {
+                // getlex
+                let Some(mn_idx) = r.u30() else { return false };
+                let (pkg, name) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
+                let mut val_opt = None;
+                for sc in scope_stack.iter().rev().chain(outer_scopes.iter().rev()) {
+                    if self.avm2_scope_owns_prop(sc, &name) {
+                        val_opt = Some(self.get_avm2_property_eval(sc, &name, steps, depth));
+                        break;
+                    }
+                }
+                if val_opt.is_none() && self.avm2_scope_owns_prop(&this_val, &name) {
+                    val_opt = Some(self.get_avm2_property_eval(&this_val, &name, steps, depth));
+                }
+                if val_opt.is_none()
+                    && let Avm1Value::Object(oid) = &this_val
+                    && let Some((ca, cc)) = self.avm1_objects.get(*oid).and_then(|o| o.avm2_class)
+                {
+                    let cls_tok = format!("__avm2_class:{ca}:{cc}");
+                    if self.avm2_class_token_has_static_prop(&cls_tok, &name) {
+                        val_opt = Some(self.get_avm2_property_eval(
+                            &Avm1Value::MovieClip(cls_tok),
+                            &name,
+                            steps,
+                            depth,
+                        ));
+                    }
+                }
+                let val = if let Some(v) = val_opt {
+                    v
+                } else if let Some(vec_elem) =
+                    self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
+                {
+                    Avm1Value::MovieClip(format!("__avm2_vec_type:{}", vec_elem.encode_token()))
+                } else if let Some((c_abc, c_idx)) = self.find_avm2_class(abc_idx, &pkg, &name) {
+                    Avm1Value::MovieClip(format!("__avm2_class:{c_abc}:{c_idx}"))
+                } else if name == "Vector" && (pkg.is_empty() || pkg == "__AS3__.vec") {
+                    Avm1Value::MovieClip("__avm2_type:Vector".to_owned())
+                } else if matches!(
+                    name.as_str(),
+                    "Object"
+                        | "Class"
+                        | "Array"
+                        | "String"
+                        | "Number"
+                        | "int"
+                        | "uint"
+                        | "Boolean"
+                        | "Function"
+                        | "Dictionary"
+                        | "XML"
+                        | "XMLList"
+                        | "QName"
+                        | "Namespace"
+                        | "ApplicationDomain"
+                        | "getTimer"
+                        | "MovieClip"
+                        | "Sprite"
+                        | "Shape"
+                        | "SimpleButton"
+                        | "Stage"
+                        | "TextField"
+                        | "Bitmap"
+                        | "DisplayObject"
+                        | "DisplayObjectContainer"
+                        | "InteractiveObject"
+                        | "EventDispatcher"
+                        | "Event"
+                        | "MouseEvent"
+                        | "KeyboardEvent"
+                        | "Error"
+                        | "TypeError"
+                        | "RangeError"
+                        | "ReferenceError"
+                        | "ArgumentError"
+                        | "VerifyError"
+                        | "SyntaxError"
+                        | "URIError"
+                        | "EvalError"
+                        | "SecurityError"
+                ) {
+                    Avm1Value::MovieClip(format!("__avm2_type:{name}"))
+                } else if name == "NaN" {
+                    Avm1Value::Number(f64::NAN)
+                } else if name == "Infinity" {
+                    Avm1Value::Number(f64::INFINITY)
+                } else if pkg.is_empty() && name == "undefined" {
+                    Avm1Value::Undefined
+                } else {
+                    self.get_avm2_property_eval(
+                        &Avm1Value::MovieClip("_root".into()),
+                        &name,
+                        steps,
+                        depth,
+                    )
+                };
+                self.push_avm_stack(stack, val);
+            }
+            0x61 | 0x68 => {
+                // setproperty / initproperty
+                let Some(mn_idx) = r.u30() else { return false };
+                let val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, stack);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.set_avm2_property_by_key(&obj, mn_key, val, abc_idx, steps, depth);
+            }
+            0x62 => {
+                // getlocal
+                let Some(reg) = r.u30() else { return false };
+                let val = locals.get(reg).cloned().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(stack, val);
+            }
+            0x63 => {
+                // setlocal
+                let Some(reg) = r.u30() else { return false };
+                let val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                if reg < locals.len() {
+                    locals[reg] = val;
+                }
+            }
+            0x64 => {
+                // getglobalscope
+                let gs = outer_scopes
+                    .first()
+                    .or_else(|| scope_stack.first())
+                    .cloned()
+                    .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
+                self.push_avm_stack(stack, gs);
+            }
+            0x65 => {
+                // getscopeobject
+                let Some(idx) = r.u8() else { return false };
+                let sc = scope_stack
+                    .get(usize::from(idx))
+                    .cloned()
+                    .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
+                self.push_avm_stack(stack, sc);
+            }
+            0x66 => {
+                // getproperty
+                let Some(mn_idx) = r.u30() else { return false };
+                let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, stack);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let val = self.get_avm2_property_by_key(&obj, mn_key, abc_idx, steps, depth);
+                if self.avm2_thrown.is_none() {
+                    self.push_avm_stack(stack, val);
+                }
+            }
+            0x67 => {
+                // getouterscope
+                let Some(idx) = r.u30() else { return false };
+                let sc = outer_scopes
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| Avm1Value::MovieClip("_root".into()));
+                self.push_avm_stack(stack, sc);
+            }
+            0x6A => {
+                // deleteproperty
+                let Some(mn_idx) = r.u30() else { return false };
+                let mn_key = self.pop_avm2_multiname_key(abc_idx, mn_idx, stack);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let deleted = self.delete_avm2_property_by_key(&obj, mn_key);
+                self.push_avm_stack(stack, Avm1Value::Bool(deleted));
+            }
+            0x6C => {
+                // getslot
+                let Some(slot_idx) = r.u30() else {
+                    return false;
+                };
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let (key, _) =
+                    self.resolve_avm2_activation_or_slot_key(&obj, slot_idx, abc_idx, method_idx);
+                let val = self.get_avm2_property_eval(&obj, &key, steps, depth);
+                self.push_avm_stack(stack, val);
+            }
+            0x6D => {
+                // setslot
+                let Some(slot_idx) = r.u30() else {
+                    return false;
+                };
+                let val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let (key, coerce_ty) =
+                    self.resolve_avm2_activation_or_slot_key(&obj, slot_idx, abc_idx, method_idx);
+                let coerced = if let Some((t_abc, t_mn)) = coerce_ty
+                    && t_mn != 0
+                {
+                    self.avm2_coerce_multiname(t_abc, t_mn, val, steps, depth)
+                } else {
+                    val
+                };
+                if self.avm2_thrown.is_none() {
+                    self.set_avm2_property_eval(&obj, &key, coerced, steps, depth);
+                }
+            }
+            0x6E => {
+                // getglobalslot
+                let Some(slot_idx) = r.u30() else {
+                    return false;
+                };
+                let key = format!("__gslot_{slot_idx}");
+                let val = self
+                    .avm2_globals
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(stack, val);
+            }
+            0x6F => {
+                // setglobalslot
+                let Some(slot_idx) = r.u30() else {
+                    return false;
+                };
+                let val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let key = format!("__gslot_{slot_idx}");
+                self.avm2_globals.insert(key, val);
+            }
+            0x70 => {
+                // convert_s: null -> "null", undefined -> "undefined"
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
+                if self.avm2_thrown.is_none() {
+                    self.push_avm_stack(stack, Avm1Value::String(s));
+                }
+            }
+            0x71 => {
+                // esc_xelem
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
+                if self.avm2_thrown.is_none() {
+                    self.push_avm_stack(stack, Avm1Value::String(esc_xml_elem(&s)));
+                }
+            }
+            0x72 => {
+                // esc_xattr
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let s = self.avm2_coerce_to_string_eval(&v, abc_idx, steps, depth);
+                if self.avm2_thrown.is_none() {
+                    self.push_avm_stack(stack, Avm1Value::String(esc_xml_attr(&s)));
+                }
+            }
+            0x73 | 0x83 => {
+                // convert_i / coerce_i
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let i = ecma_f64_to_i32(avm2_to_number(&v));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(i)));
+            }
+            0x74 | 0x88 => {
+                // convert_u / coerce_u
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let u = ecma_f64_to_u32(avm2_to_number(&v));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(u)));
+            }
+            0x75 | 0x84 => {
+                // convert_d / coerce_d
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(stack, Avm1Value::Number(avm2_to_number(&v)));
+            }
+            0x76 | 0x81 => {
+                // convert_b / coerce_b
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
+                self.push_avm_stack(stack, Avm1Value::Bool(b));
+            }
+            0x77 => {
+                // convert_o
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                match v {
+                    Avm1Value::Null => {
+                        self.throw_avm2_builtin_error(
+                            "TypeError",
+                            1009,
+                            "Cannot access a property or method of a null object reference.",
+                        );
+                    }
+                    Avm1Value::Undefined => {
+                        self.throw_avm2_builtin_error(
+                            "TypeError",
+                            1010,
+                            "A term is undefined and has no properties.",
+                        );
+                    }
+                    other => self.push_avm_stack(stack, other),
+                }
+            }
+            0x78 => {
+                // checkfilter
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let is_xml = matches!(
+                    &v,
+                    Avm1Value::Object(oid)
+                        if self
+                            .avm1_objects
+                            .get(*oid)
+                            .is_some_and(|o| o.avm2_xml.is_some())
+                );
+                if is_xml {
+                    self.push_avm_stack(stack, v);
+                } else {
+                    let ty_name = self.avm2_runtime_class_label(&v);
+                    self.throw_avm2_builtin_error(
+                        "TypeError",
+                        1123,
+                        &format!("Filter operator not supported on type {ty_name}."),
+                    );
+                }
+            }
+            0x80 => {
+                // coerce(multiname)
+                let Some(mn_idx) = r.u30() else { return false };
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let out = self.avm2_coerce_multiname(abc_idx, mn_idx, v, steps, depth);
+                if self.avm2_thrown.is_none() {
+                    self.push_avm_stack(stack, out);
+                }
+            }
+            0x82 => {
+                // coerce_a (any `*`: preserve exact value including undefined/null)
+            }
+            0x85 => {
+                // coerce_s: null/undefined -> null; otherwise convert to String
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let out = match v {
+                    Avm1Value::Undefined | Avm1Value::Null => Avm1Value::Null,
+                    other => {
+                        let s = self.avm2_coerce_to_string_eval(&other, abc_idx, steps, depth);
+                        Avm1Value::String(s)
+                    }
+                };
+                if self.avm2_thrown.is_none() {
+                    self.push_avm_stack(stack, out);
+                }
+            }
+            0x86 => {
+                // astype(multiname)
+                let Some(mn_idx) = r.u30() else { return false };
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let is_match = if let Some(vec_elem) =
+                    self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
+                {
+                    matches!(
+                        &v,
+                        Avm1Value::Object(oid)
+                            if self
+                                .avm1_objects
+                                .get(*oid)
+                                .and_then(|o| o.avm2_vector.as_ref())
+                                .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
+                    )
+                } else {
+                    let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
+                    self.avm2_is_type_name(abc_idx, &v, &pkg, &tname)
+                };
+                let out = if is_match { v } else { Avm1Value::Null };
+                self.push_avm_stack(stack, out);
+            }
+            0x87 => {
+                // astypelate
+                let type_val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let out = if self.avm2_is_type_value(abc_idx, &v, &type_val) {
+                    v
+                } else {
+                    Avm1Value::Null
+                };
+                self.push_avm_stack(stack, out);
+            }
+            0x89 => {
+                // coerce_o: undefined -> null, else preserve
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let out = if matches!(v, Avm1Value::Undefined) {
+                    Avm1Value::Null
+                } else {
+                    v
+                };
+                self.push_avm_stack(stack, out);
+            }
+            0xA0 => {
+                // add (including E4X XML + XML -> XMLList concatenation)
+                let raw_b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let raw_a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                if let (Avm1Value::Object(oa), Avm1Value::Object(ob)) = (&raw_a, &raw_b)
+                    && let (Some((mut ia, _)), Some((ib, _))) =
+                        (self.xml_items_of_oid(*oa), self.xml_items_of_oid(*ob))
+                {
+                    ia.extend(ib);
+                    let list = self.alloc_avm2_xml_list(ia, None, None);
+                    self.push_avm_stack(stack, list);
+                } else {
+                    let a = self.avm2_add_operand(raw_a, abc_idx, steps, depth);
+                    let b = if self.avm2_thrown.is_none() {
+                        self.avm2_add_operand(raw_b, abc_idx, steps, depth)
+                    } else {
+                        Avm1Value::Undefined
+                    };
+                    if self.avm2_thrown.is_none() {
+                        if matches!(a, Avm1Value::String(_)) || matches!(b, Avm1Value::String(_)) {
+                            let sa = avm2_convert_string(&a, &self.avm1_objects);
+                            let sb = avm2_convert_string(&b, &self.avm1_objects);
+                            self.push_avm_stack(stack, Avm1Value::String(format!("{sa}{sb}")));
+                        } else {
+                            self.push_avm_stack(
+                                stack,
+                                Avm1Value::Number(avm2_to_number(&a) + avm2_to_number(&b)),
+                            );
+                        }
+                    }
+                }
+            }
+            0xA1..=0xF1 | 0x90..=0x97 => {
+                if !self
+                    .exec_avm2_leaf_opcode(op, abc_idx, method_idx, insn_start, r, stack, locals)
+                {
+                    return false;
+                }
+            }
+            _ => {
+                let tag_code = self.abc_tags.get(abc_idx).map_or(82, |l| l.tag_code);
+                self.record_unsupported_diagnostic(format!(
+                        "Unsupported AVM2 ABC opcode 0x{op:02X} in #tag={tag_code}:abc#{abc_idx} method#{method_idx} offset=0x{insn_start:x}"
+                    ));
+                return false;
+            }
+        }
+        true
+    }
+
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn exec_avm2_leaf_opcode(
+        &mut self,
+        op: u8,
+        abc_idx: usize,
+        method_idx: usize,
+        insn_start: usize,
+        r: &mut AbcReader<'_>,
+        stack: &mut Vec<Avm1Value>,
+        locals: &mut [Avm1Value],
+    ) -> bool {
+        match op {
+            0x90 => {
+                let n = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                self.push_avm_stack(stack, Avm1Value::Number(-n));
+            }
+            0xC4 => {
+                let n =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(n.wrapping_neg())));
+            }
+            0x91 => {
+                let n = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                self.push_avm_stack(stack, Avm1Value::Number(n + 1.0));
+            }
+            0xC0 => {
+                let n =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(n.wrapping_add(1))));
+            }
+            0x92 => {
+                let Some(reg) = r.u30() else { return false };
+                if let Some(slot) = locals.get_mut(reg) {
+                    *slot = Avm1Value::Number(avm2_to_number(slot) + 1.0);
+                }
+            }
+            0xC2 => {
+                let Some(reg) = r.u30() else { return false };
+                if let Some(slot) = locals.get_mut(reg) {
+                    let next = ecma_f64_to_i32(avm2_to_number(slot)).wrapping_add(1);
+                    *slot = Avm1Value::Number(f64::from(next));
+                }
+            }
+            0x93 => {
+                let n = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                self.push_avm_stack(stack, Avm1Value::Number(n - 1.0));
+            }
+            0xC1 => {
+                let n =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(n.wrapping_sub(1))));
+            }
+            0x94 => {
+                let Some(reg) = r.u30() else { return false };
+                if let Some(slot) = locals.get_mut(reg) {
+                    *slot = Avm1Value::Number(avm2_to_number(slot) - 1.0);
+                }
+            }
+            0xC3 => {
+                let Some(reg) = r.u30() else { return false };
+                if let Some(slot) = locals.get_mut(reg) {
+                    let next = ecma_f64_to_i32(avm2_to_number(slot)).wrapping_sub(1);
+                    *slot = Avm1Value::Number(f64::from(next));
+                }
+            }
+            0x95 => {
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let ty = self.avm2_typeof(&v);
+                self.push_avm_stack(stack, Avm1Value::String(ty.to_owned()));
+            }
+            0x96 => {
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined).to_bool(9);
+                self.push_avm_stack(stack, Avm1Value::Bool(!b));
+            }
+            0x97 => {
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let i = ecma_f64_to_i32(avm2_to_number(&v));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(!i)));
+            }
+            0xA1 => {
+                let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                self.push_avm_stack(stack, Avm1Value::Number(a - b));
+            }
+            0xA2 => {
+                let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                self.push_avm_stack(stack, Avm1Value::Number(a * b));
+            }
+            0xA3 => {
+                let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                self.push_avm_stack(stack, Avm1Value::Number(a / b));
+            }
+            0xA4 => {
+                let b = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                let a = avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined));
+                self.push_avm_stack(stack, Avm1Value::Number(a % b));
+            }
+            0xA5 => {
+                let b =
+                    ecma_f64_to_u32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a.wrapping_shl(b))));
+            }
+            0xA6 => {
+                let b =
+                    ecma_f64_to_u32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a.wrapping_shr(b))));
+            }
+            0xA7 => {
+                let b =
+                    ecma_f64_to_u32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_u32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a.wrapping_shr(b))));
+            }
+            0xA8 => {
+                let b =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a & b)));
+            }
+            0xA9 => {
+                let b =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a | b)));
+            }
+            0xAA => {
+                let b =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a ^ b)));
+            }
+            0xAB => {
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let eq = self.avm2_equals(&a, &b);
+                self.push_avm_stack(stack, Avm1Value::Bool(eq));
+            }
+            0xAC => {
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let eq = self.avm2_strict_equals(&a, &b);
+                self.push_avm_stack(stack, Avm1Value::Bool(eq));
+            }
+            0xAD => {
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(stack, Avm1Value::Bool(avm2_less_than(&a, &b) == Some(true)));
+            }
+            0xAE => {
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(
+                    stack,
+                    Avm1Value::Bool(avm2_less_than(&b, &a) == Some(false)),
+                );
+            }
+            0xAF => {
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(stack, Avm1Value::Bool(avm2_less_than(&b, &a) == Some(true)));
+            }
+            0xB0 => {
+                let b = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let a = stack.pop().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(
+                    stack,
+                    Avm1Value::Bool(avm2_less_than(&a, &b) == Some(false)),
+                );
+            }
+            0xB1 => {
+                let type_val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let res = self.avm2_instanceof_value(abc_idx, &v, &type_val);
+                self.push_avm_stack(stack, Avm1Value::Bool(res));
+            }
+            0xB2 => {
+                let Some(mn_idx) = r.u30() else { return false };
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let is_t = if let Some(vec_elem) =
+                    self.resolve_avm2_vector_elem_type_from_multiname(abc_idx, mn_idx)
+                {
+                    matches!(
+                        &v,
+                        Avm1Value::Object(oid)
+                            if self
+                                .avm1_objects
+                                .get(*oid)
+                                .and_then(|o| o.avm2_vector.as_ref())
+                                .is_some_and(|vd| vd.elem_type.matches_target(&vec_elem))
+                    )
+                } else {
+                    let (pkg, tname) = self.abc_tags[abc_idx].abc.split_qname(mn_idx);
+                    self.avm2_is_type_name(abc_idx, &v, &pkg, &tname)
+                };
+                self.push_avm_stack(stack, Avm1Value::Bool(is_t));
+            }
+            0xB3 => {
+                let type_val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let v = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let is_t = self.avm2_is_type_value(abc_idx, &v, &type_val);
+                self.push_avm_stack(stack, Avm1Value::Bool(is_t));
+            }
+            0xB4 => {
+                let obj = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let raw_key = stack.pop().unwrap_or(Avm1Value::Undefined);
+                let has = self.avm2_in_operator(&raw_key, &obj);
+                self.push_avm_stack(stack, Avm1Value::Bool(has));
+            }
+            0xC5 => {
+                let b =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a.wrapping_add(b))));
+            }
+            0xC6 => {
+                let b =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a.wrapping_sub(b))));
+            }
+            0xC7 => {
+                let b =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                let a =
+                    ecma_f64_to_i32(avm2_to_number(&stack.pop().unwrap_or(Avm1Value::Undefined)));
+                self.push_avm_stack(stack, Avm1Value::Number(f64::from(a.wrapping_mul(b))));
+            }
+            0xD0..=0xD3 => {
+                let idx = usize::from(op - 0xD0);
+                let val = locals.get(idx).cloned().unwrap_or(Avm1Value::Undefined);
+                self.push_avm_stack(stack, val);
+            }
+            0xD4..=0xD7 => {
+                let idx = usize::from(op - 0xD4);
+                let val = stack.pop().unwrap_or(Avm1Value::Undefined);
+                if idx < locals.len() {
+                    locals[idx] = val;
+                }
+            }
+            0xEF => {
+                let _ = r.u8();
+                let _ = r.u30();
+                let _ = r.u8();
+                let _ = r.u30();
+            }
+            0xF0 | 0xF1 => {
+                let _ = r.u30();
+            }
+            _ => {
+                let tag_code = self.abc_tags.get(abc_idx).map_or(82, |l| l.tag_code);
+                self.record_unsupported_diagnostic(format!(
+                    "Unsupported AVM2 ABC opcode 0x{op:02X} in #tag={tag_code}:abc#{abc_idx} method#{method_idx} offset=0x{insn_start:x}"
+                ));
+                return false;
+            }
+        }
+        true
     }
 
     pub(super) fn pop_avm2_multiname_key(

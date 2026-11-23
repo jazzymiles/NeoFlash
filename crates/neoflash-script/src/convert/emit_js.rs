@@ -45,6 +45,8 @@ struct JsEmitter<'a> {
     env: TypeEnv,
     class_ctx: Option<JsClassContext>,
     imported_classes: BTreeSet<String>,
+    used_flash_builtins: BTreeMap<String, &'static str>,
+    used_trace: bool,
     needs_sprite_shim: bool,
     use_key_down_shim: bool,
     in_key_handler_event: Option<String>,
@@ -57,6 +59,8 @@ struct JsEmitter<'a> {
     key_down_handlers: BTreeMap<String, String>,
     key_up_handlers: BTreeMap<String, String>,
     resize_handlers: BTreeMap<String, String>,
+    mouse_handlers: BTreeMap<(String, String), String>,
+    sound_volume_vars: BTreeMap<String, String>,
     explicit_key_listeners: BTreeSet<String>,
     explicit_stage_listeners: BTreeSet<String>,
     helper_counter: usize,
@@ -85,6 +89,8 @@ impl<'a> JsEmitter<'a> {
             env: TypeEnv::new(symbol_id, class_name),
             class_ctx: None,
             imported_classes: BTreeSet::new(),
+            used_flash_builtins: BTreeMap::new(),
+            used_trace: false,
             needs_sprite_shim: false,
             use_key_down_shim: false,
             in_key_handler_event: None,
@@ -95,6 +101,8 @@ impl<'a> JsEmitter<'a> {
             key_down_handlers: BTreeMap::new(),
             key_up_handlers: BTreeMap::new(),
             resize_handlers: BTreeMap::new(),
+            mouse_handlers: BTreeMap::new(),
+            sound_volume_vars: BTreeMap::new(),
             explicit_key_listeners: BTreeSet::new(),
             explicit_stage_listeners: BTreeSet::new(),
             helper_counter: 0,
@@ -191,7 +199,28 @@ impl<'a> JsEmitter<'a> {
             }
         } else if short == "Sprite" {
             self.needs_sprite_shim = true;
+        } else if let Some(qname) = flash_builtin_qname(short) {
+            self.used_flash_builtins.insert(short.to_owned(), qname);
         }
+    }
+
+    fn format_flash_builtin_bindings(&self, skip_name: Option<&str>) -> Vec<String> {
+        let mut out = Vec::new();
+        for (short, qname) in &self.used_flash_builtins {
+            if skip_name == Some(short.as_str()) {
+                continue;
+            }
+            if short == "ByteArray" {
+                out.push(format!(
+                    "const ByteArray = (typeof __nfProgram === \"object\" && __nfProgram && typeof __nfProgram.type === \"function\" ? __nfProgram.type(\"{qname}\") : null) || globalThis.ByteArray || Uint8Array;"
+                ));
+            } else {
+                out.push(format!(
+                    "const {short} = (typeof __nfProgram === \"object\" && __nfProgram && typeof __nfProgram.type === \"function\" ? __nfProgram.type(\"{qname}\") : null) || globalThis.{short};"
+                ));
+            }
+        }
+        out
     }
 
     fn key_down_shim_block(&self) -> String {
@@ -207,7 +236,7 @@ impl<'a> JsEmitter<'a> {
     }
 
     fn sprite_shim_block() -> &'static str {
-        "const Sprite = globalThis.Sprite || class Sprite {\n\
+        "const Sprite = (typeof __nfProgram === \"object\" && __nfProgram && typeof __nfProgram.type === \"function\" ? __nfProgram.type(\"flash.display.Sprite\") : null) || globalThis.Sprite || class Sprite {\n\
          \x20   constructor() {\n\
          \x20       this.name = \"\";\n\
          \x20       this.x = 0;\n\
@@ -217,11 +246,14 @@ impl<'a> JsEmitter<'a> {
          \x20       this.alpha = 1;\n\
          \x20       this.rotation = 0;\n\
          \x20       this.visible = true;\n\
+         \x20       this.filters = [];\n\
          \x20       this.children = [];\n\
          \x20       this.graphics = {\n\
          \x20           clear() {},\n\
          \x20           lineStyle() {},\n\
          \x20           beginFill() {},\n\
+         \x20           beginGradientFill() {},\n\
+         \x20           beginBitmapFill() {},\n\
          \x20           moveTo() {},\n\
          \x20           lineTo() {},\n\
          \x20           curveTo() {},\n\
@@ -374,11 +406,26 @@ impl<'a> JsEmitter<'a> {
                     self.mark_declared(raw_name);
 
                     if let Some(val) = val_opt {
+                        let is_as2_sound = !self.source_is_as3
+                            && matches!(
+                                val,
+                                Expr::NewBuiltin(t, _, _)
+                                | Expr::NewClass(t, _, _)
+                                | Expr::NewValue(t, _, _)
+                                if short_type_name(t) == "Sound"
+                            );
                         let rhs = self.emit_expr_with_offset(val, offset);
                         if already {
                             lines.push(format!("{pad}{vname} = {rhs};"));
                         } else {
                             lines.push(format!("{pad}let {vname} = {rhs};"));
+                        }
+                        if is_as2_sound {
+                            let vol_var = self.next_helper(&format!("{raw_name}_vol"));
+                            self.mark_declared(&vol_var);
+                            self.sound_volume_vars
+                                .insert(raw_name.clone(), vol_var.clone());
+                            lines.push(format!("{pad}let {vol_var} = 1.0;"));
                         }
                     } else if !already {
                         lines.push(format!("{pad}let {vname};"));
@@ -783,12 +830,40 @@ impl<'a> JsEmitter<'a> {
             ));
         }
 
+        if let Some(parent_expr) = match_clip_factory(callee, "createTextField")
+            && !args.is_empty()
+        {
+            self.note_class_reference("TextField");
+            self.mark_declared(raw_var_name);
+            self.env.define(raw_var_name.to_owned(), HirType::TextField);
+            let parent_js = self.emit_expr_with_offset(&parent_expr, offset);
+            let name_js = self.emit_expr_with_offset(&args[0], offset);
+            let mut lines = vec![
+                format!("{pad}{decl_kw}{js_var_name} = new TextField();"),
+                format!("{pad}{js_var_name}.name = {name_js};"),
+            ];
+            for (arg_idx, prop) in [(2usize, "x"), (3, "y"), (4, "width"), (5, "height")] {
+                if let Some(arg_expr) = args.get(arg_idx) {
+                    let val_js = self.emit_expr_with_offset(arg_expr, offset);
+                    lines.push(format!("{pad}{js_var_name}.{prop} = {val_js};"));
+                }
+            }
+            lines.push(format!("{pad}{parent_js}.addChild({js_var_name});"));
+            return Some(lines.join("\n"));
+        }
+
         if let Some(parent_expr) = match_clip_factory(callee, "attachMovie")
             && args.len() >= 2
         {
             let parent_js = self.emit_expr_with_offset(&parent_expr, offset);
             let name_js = self.emit_expr_with_offset(&args[1], offset);
-            let ctor_name = if let Some(linkage_id) = decode_string_literal(&args[0]) {
+            let depth_js = args
+                .get(2)
+                .map(|d| self.emit_expr_with_offset(d, offset))
+                .unwrap_or_else(|| "0".into());
+            let (ctor_name, literal_linkage) = if let Some(linkage_id) =
+                decode_string_literal(&args[0])
+            {
                 let cls_name = if let Some(info) = self.stage.linkages.get(&linkage_id) {
                     let short = short_type_name(&info.class_name).to_owned();
                     self.synthesized_linkages.insert(
@@ -816,7 +891,7 @@ impl<'a> JsEmitter<'a> {
                 self.mark_declared(raw_var_name);
                 self.env
                     .define(raw_var_name.to_owned(), HirType::Class(cls_name.clone()));
-                cls_name
+                (cls_name, Some(linkage_id))
             } else {
                 self.needs_sprite_shim = true;
                 self.mark_declared(raw_var_name);
@@ -826,17 +901,27 @@ impl<'a> JsEmitter<'a> {
                     offset,
                     "Dynamic non-literal attachMovie linkage ID lowered to Sprite; instantiate concrete exported class.",
                 );
-                "Sprite".into()
+                ("Sprite".into(), None)
             };
 
-            let mut lines = vec![
-                format!("{pad}{decl_kw}{js_var_name} = new {ctor_name}();"),
-                format!("{pad}{js_var_name}.name = {name_js};"),
-            ];
-            if let Some(init_arg) = args.get(3) {
-                lines.extend(self.emit_init_object_expansion(js_var_name, init_arg, offset));
+            let mut lines = Vec::new();
+            if let Some(link_id) = literal_linkage {
+                let link_json =
+                    serde_json::to_string(&link_id).unwrap_or_else(|_| format!("\"{link_id}\""));
+                lines.push(format!(
+                    "{pad}{decl_kw}{js_var_name} = typeof __nfAs2Method === \"function\" ? __nfAs2Method({parent_js}, \"attachMovie\")({link_json}, {name_js}, {depth_js}) : (() => {{ const _c = new {ctor_name}(); _c.name = {name_js}; {parent_js}.addChild(_c); return _c; }})();"
+                ));
+                if let Some(init_arg) = args.get(3) {
+                    lines.extend(self.emit_init_object_expansion(js_var_name, init_arg, offset));
+                }
+            } else {
+                lines.push(format!("{pad}{decl_kw}{js_var_name} = new {ctor_name}();"));
+                lines.push(format!("{pad}{js_var_name}.name = {name_js};"));
+                if let Some(init_arg) = args.get(3) {
+                    lines.extend(self.emit_init_object_expansion(js_var_name, init_arg, offset));
+                }
+                lines.push(format!("{pad}{parent_js}.addChild({js_var_name});"));
             }
-            lines.push(format!("{pad}{parent_js}.addChild({js_var_name});"));
             return Some(lines.join("\n"));
         }
 
@@ -875,6 +960,27 @@ impl<'a> JsEmitter<'a> {
     fn try_emit_special_expr_stmt(&mut self, expr: &Expr, offset: usize) -> Option<String> {
         let pad = self.pad();
 
+        // 0. AS2 `tf.html = true` and `Stage.scaleMode = ...` / `Stage.align = ...`
+        if !self.source_is_as3
+            && let Expr::Assign(op, lhs, rhs) = expr
+            && op == "="
+            && let Expr::Member(base, prop) = lhs.as_ref()
+        {
+            if prop == "html" {
+                return Some(format!(
+                    "{pad}/* [NeoFlash Convert] TextField.html is implicit via htmlText in JS */"
+                ));
+            }
+            if matches!(base.as_ref(), Expr::Name(n) if n == "Stage")
+                && matches!(prop.as_str(), "scaleMode" | "align" | "displayState")
+            {
+                let rhs_js = self.emit_expr_with_offset(rhs, offset);
+                return Some(format!(
+                    "{pad}if (this.stage) {{ this.stage.{prop} = {rhs_js}; }}"
+                ));
+            }
+        }
+
         // 1. AS1/AS2 callback assignments (`this.onEnterFrame = ...`, `this.onKeyDown = ...`, `onResize = ...`)
         if !self.source_is_as3
             && let Expr::Assign(op, lhs, rhs) = expr
@@ -890,7 +996,15 @@ impl<'a> JsEmitter<'a> {
                         ));
                     }
                     let tgt = self.emit_expr_with_offset(&target_expr, offset);
-                    let listener = self.emit_callback_rhs_js(rhs, "event", false, offset);
+                    let receiver_override = (!matches!(&target_expr, Expr::Name(n) if n == "this"))
+                        .then_some(&target_expr);
+                    let listener = self.emit_callback_rhs_js_with_receiver(
+                        rhs,
+                        "event",
+                        false,
+                        receiver_override,
+                        offset,
+                    );
                     return Some(format!(
                         "{pad}{tgt}.addEventListener(\"enterFrame\", {listener});"
                     ));
@@ -907,6 +1021,42 @@ impl<'a> JsEmitter<'a> {
                         _ => "rollOut",
                     };
                     let tgt = self.emit_expr_with_offset(&target_expr, offset);
+                    let tgt_key = listener_target_key(&target_expr).unwrap_or_else(|| tgt.clone());
+                    if let Expr::Function(_) = rhs.as_ref() {
+                        let fn_name = self.next_helper(cb_prop);
+                        let receiver_override =
+                            (!matches!(&target_expr, Expr::Name(n) if n == "this"))
+                                .then_some(&target_expr);
+                        self.mark_declared(&fn_name);
+                        let arrow = self.emit_callback_rhs_js_with_receiver(
+                            rhs,
+                            "event",
+                            false,
+                            receiver_override,
+                            offset,
+                        );
+                        self.mouse_handlers
+                            .insert((tgt_key, cb_prop.to_owned()), fn_name.clone());
+                        return Some(format!(
+                            "{pad}const {fn_name} = {arrow};\n\
+                             {pad}{tgt}.addEventListener(\"{ev_name}\", {fn_name});"
+                        ));
+                    }
+                    if let Expr::Member(rhs_base, rhs_prop) = rhs.as_ref() {
+                        let rhs_key = listener_target_key(rhs_base)
+                            .unwrap_or_else(|| self.emit_expr_with_offset(rhs_base, offset));
+                        if let Some(existing_fn) = self
+                            .mouse_handlers
+                            .get(&(rhs_key, rhs_prop.clone()))
+                            .cloned()
+                        {
+                            self.mouse_handlers
+                                .insert((tgt_key, cb_prop.to_owned()), existing_fn.clone());
+                            return Some(format!(
+                                "{pad}{tgt}.addEventListener(\"{ev_name}\", {existing_fn});"
+                            ));
+                        }
+                    }
                     let listener = self.emit_callback_rhs_js(rhs, "event", false, offset);
                     return Some(format!(
                         "{pad}{tgt}.addEventListener(\"{ev_name}\", {listener});"
@@ -1028,14 +1178,97 @@ impl<'a> JsEmitter<'a> {
                 }
             }
 
-            if let Expr::Member(base, method) = callee.as_ref()
-                && method == "removeMovieClip"
-                && args.is_empty()
-            {
-                let b = self.emit_expr_with_offset(base, offset);
-                return Some(format!(
-                    "{pad}if ({b} && {b}.parent) {{ {b}.parent.removeChild({b}); }}"
-                ));
+            if let Expr::Member(base, method) = callee.as_ref() {
+                match method.as_str() {
+                    "removeMovieClip" if args.is_empty() => {
+                        let b = self.emit_expr_with_offset(base, offset);
+                        return Some(format!(
+                            "{pad}if ({b} && {b}.parent) {{ {b}.parent.removeChild({b}); }}"
+                        ));
+                    }
+                    "setNewTextFormat" if args.len() == 1 => {
+                        let b = self.emit_expr_with_offset(base, offset);
+                        let fmt = self.emit_expr_with_offset(&args[0], offset);
+                        return Some(format!("{pad}{b}.defaultTextFormat = {fmt};"));
+                    }
+                    "attachBitmap" if !args.is_empty() => {
+                        self.note_class_reference("Bitmap");
+                        let b = self.emit_expr_with_offset(base, offset);
+                        let bmd = self.emit_expr_with_offset(&args[0], offset);
+                        let snap = args
+                            .get(2)
+                            .map(|a| self.emit_expr_with_offset(a, offset))
+                            .unwrap_or_else(|| "\"auto\"".into());
+                        let smooth = args
+                            .get(3)
+                            .map(|a| self.emit_expr_with_offset(a, offset))
+                            .unwrap_or_else(|| "false".into());
+                        return Some(format!(
+                            "{pad}{b}.addChild(new Bitmap({bmd}, {snap}, {smooth}));"
+                        ));
+                    }
+                    "attachVideo" if args.len() == 1 => {
+                        let b = self.emit_expr_with_offset(base, offset);
+                        let ns = self.emit_expr_with_offset(&args[0], offset);
+                        return Some(format!("{pad}{b}.attachNetStream({ns});"));
+                    }
+                    "loadMovie" if !args.is_empty() => {
+                        self.note_class_reference("Loader");
+                        self.note_class_reference("URLRequest");
+                        let ldr = self.next_helper("loader");
+                        self.mark_declared(&ldr);
+                        let b = self.emit_expr_with_offset(base, offset);
+                        let url = self.emit_expr_with_offset(&args[0], offset);
+                        return Some(format!(
+                            "{pad}const {ldr} = new Loader();\n\
+                             {pad}{b}.addChild({ldr});\n\
+                             {pad}{ldr}.load(new URLRequest({url}));"
+                        ));
+                    }
+                    "loadSound" if !args.is_empty() => {
+                        self.note_class_reference("URLRequest");
+                        let b = self.emit_expr_with_offset(base, offset);
+                        let url = self.emit_expr_with_offset(&args[0], offset);
+                        return Some(format!("{pad}{b}.load(new URLRequest({url}));"));
+                    }
+                    "setVolume" if args.len() == 1 => {
+                        if let Expr::Name(snd_var) = base.as_ref()
+                            && let Some(vol_var) = self.sound_volume_vars.get(snd_var).cloned()
+                        {
+                            let v = self.emit_scaled_100_to_01(&args[0], offset);
+                            return Some(format!("{pad}{vol_var} = {v};"));
+                        }
+                        return Some(format!(
+                            "{pad}/* [NeoFlash Convert] Sound.setVolume lowered via SoundTransform */"
+                        ));
+                    }
+                    "start" if matches!(base.as_ref(), Expr::Name(snd_var) if self.sound_volume_vars.contains_key(snd_var)) =>
+                    {
+                        self.note_class_reference("SoundTransform");
+                        let b = self.emit_expr_with_offset(base, offset);
+                        let snd_var = match base.as_ref() {
+                            Expr::Name(n) => n.as_str(),
+                            _ => "",
+                        };
+                        let vol_var = self
+                            .sound_volume_vars
+                            .get(snd_var)
+                            .cloned()
+                            .unwrap_or_else(|| "1.0".into());
+                        let start_ms = args
+                            .first()
+                            .map(|a| format!("({}) * 1000", self.emit_expr_with_offset(a, offset)))
+                            .unwrap_or_else(|| "0".into());
+                        let loops = args
+                            .get(1)
+                            .map(|a| self.emit_expr_with_offset(a, offset))
+                            .unwrap_or_else(|| "0".into());
+                        return Some(format!(
+                            "{pad}{b}.play({start_ms}, {loops}, new SoundTransform({vol_var}, 0));"
+                        ));
+                    }
+                    _ => {}
+                }
             }
             if let Expr::Name(fn_name) = callee.as_ref()
                 && fn_name == "removeMovieClip"
@@ -1058,17 +1291,33 @@ impl<'a> JsEmitter<'a> {
         is_key_handler: bool,
         offset: usize,
     ) -> String {
+        self.emit_callback_rhs_js_with_receiver(rhs, ev_param, is_key_handler, None, offset)
+    }
+
+    fn emit_callback_rhs_js_with_receiver(
+        &mut self,
+        rhs: &Expr,
+        ev_param: &str,
+        is_key_handler: bool,
+        receiver_override: Option<&Expr>,
+        offset: usize,
+    ) -> String {
         if let Expr::Function(f) = rhs {
             let saved_ke = self.in_key_handler_event.clone();
             if is_key_handler {
                 self.in_key_handler_event = Some(ev_param.to_owned());
             }
+            let body_stmts = if let Some(recv) = receiver_override {
+                super::hir::rewrite_this_receiver_stmts(&f.body, recv)
+            } else {
+                f.body.clone()
+            };
             self.push_fn_scope();
             self.mark_declared(ev_param);
             self.env
                 .define(ev_param.to_owned(), HirType::Class("Event".into()));
             self.indent += 1;
-            let body = self.emit_stmt_list(&f.body);
+            let body = self.emit_stmt_list(&body_stmts);
             self.indent -= 1;
             self.pop_fn_scope();
             self.in_key_handler_event = saved_ke;
@@ -1132,7 +1381,14 @@ impl<'a> JsEmitter<'a> {
     fn emit_expr_with_offset(&mut self, expr: &Expr, offset: usize) -> String {
         match expr {
             Expr::Literal(raw) => raw.clone(),
-            Expr::RegExpLiteral(pat, flags) => format!("/{pat}/{flags}"),
+            Expr::RegExpLiteral(pat, flags) => {
+                let p = serde_json::from_str::<String>(pat)
+                    .unwrap_or_else(|_| pat.trim_matches('"').to_owned());
+                let fl = serde_json::from_str::<String>(flags)
+                    .unwrap_or_else(|_| flags.trim_matches('"').to_owned());
+                let p_safe = if p.is_empty() { "(?:)".to_owned() } else { p };
+                format!("/{p_safe}/{fl}")
+            }
             Expr::TypeValue(name, _) => {
                 let short = short_type_name(name);
                 self.note_class_reference(short);
@@ -1371,17 +1627,53 @@ impl<'a> JsEmitter<'a> {
                     offset,
                     "E4X XML literal is not natively supported in ES6 JavaScript; manual DOMParser/XML migration required.",
                 );
-                format!("/* FIXME [NeoFlash Convert]: E4X XML literal {raw} */ null")
+                let safe_raw = raw.replace("*/", "* /");
+                format!("/* FIXME [NeoFlash Convert]: E4X XML literal {safe_raw} */ null")
             }
             Expr::XmlSelect {
                 base,
+                namespace,
                 local,
                 attribute,
                 descendant,
-                ..
             } => {
-                let b = self.emit_expr_with_offset(base, offset);
+                let b = self.emit_subexpr(base, 18, offset);
                 let l = self.emit_expr_with_offset(local, offset);
+                if namespace.is_none() {
+                    if !*descendant && *attribute {
+                        self.record_issue(
+                            ConversionIssueKind::Approximated,
+                            offset,
+                            format!(
+                                "Lowered E4X attribute selector '.@{l}' to XML.attribute({l}) in JavaScript."
+                            ),
+                        );
+                        if matches!(local.as_ref(), Expr::Literal(s) if s == "\"*\"") {
+                            return format!("{b}.attributes()");
+                        }
+                        return format!("{b}.attribute({l})");
+                    }
+                    if *descendant && !*attribute {
+                        self.record_issue(
+                            ConversionIssueKind::Approximated,
+                            offset,
+                            format!(
+                                "Lowered E4X descendant selector '..{l}' to XML.descendants({l}) in JavaScript."
+                            ),
+                        );
+                        return format!("{b}.descendants({l})");
+                    }
+                    if !*descendant && !*attribute {
+                        self.record_issue(
+                            ConversionIssueKind::Approximated,
+                            offset,
+                            format!(
+                                "Lowered E4X child selector '.{l}' to XML.child({l}) in JavaScript."
+                            ),
+                        );
+                        return format!("{b}.child({l})");
+                    }
+                }
                 let op_sym = if *descendant { ".." } else { "." };
                 let at_sym = if *attribute { "@" } else { "" };
                 self.record_issue(
@@ -1489,6 +1781,7 @@ impl<'a> JsEmitter<'a> {
                 | "width"
                 | "height"
                 | "currentFrame"
+                | "currentLabel"
                 | "totalFrames"
                 | "mouseX"
                 | "mouseY"
@@ -1504,6 +1797,8 @@ impl<'a> JsEmitter<'a> {
         }
         if name == "Sprite" {
             self.needs_sprite_shim = true;
+        } else if let Some(qname) = flash_builtin_qname(name) {
+            self.used_flash_builtins.insert(name.to_owned(), qname);
         }
 
         sanitize_js_ident(name)
@@ -1638,15 +1933,29 @@ impl<'a> JsEmitter<'a> {
                     _ => format!("\"{prop}\""),
                 };
             }
+            if cls == "TextFieldType" {
+                return match prop {
+                    "INPUT" => "\"input\"".into(),
+                    "DYNAMIC" => "\"dynamic\"".into(),
+                    _ => format!("\"{prop}\""),
+                };
+            }
+            if cls == "GradientType" {
+                return match prop {
+                    "LINEAR" => "\"linear\"".into(),
+                    "RADIAL" => "\"radial\"".into(),
+                    _ => format!("\"{prop}\""),
+                };
+            }
 
             // AS2 `Stage.width` / `Stage.height` / `Stage.scaleMode` / `Stage.align`
             if !self.source_is_as3 && cls == "Stage" {
                 return match prop {
-                    "width" => "this.stage.stageWidth".into(),
-                    "height" => "this.stage.stageHeight".into(),
-                    "scaleMode" => "this.stage.scaleMode".into(),
-                    "align" => "this.stage.align".into(),
-                    "displayState" => "this.stage.displayState".into(),
+                    "width" => "(this.stage ? this.stage.stageWidth : 0)".into(),
+                    "height" => "(this.stage ? this.stage.stageHeight : 0)".into(),
+                    "scaleMode" => "(this.stage ? this.stage.scaleMode : \"showAll\")".into(),
+                    "align" => "(this.stage ? this.stage.align : \"\")".into(),
+                    "displayState" => "(this.stage ? this.stage.displayState : \"normal\")".into(),
                     _ => format!("this.stage.{prop}"),
                 };
             }
@@ -1693,6 +2002,11 @@ impl<'a> JsEmitter<'a> {
                 "Number" | "String" | "Boolean" if args.len() == 1 => {
                     let inner = self.emit_expr_with_offset(&args[0], offset);
                     return format!("{fn_name}({inner})");
+                }
+                "trace" if self.class_ctx.is_some() && !self.is_local_or_outer_var("trace") => {
+                    self.used_trace = true;
+                    let a = self.emit_args(args, offset);
+                    return format!("trace({a})");
                 }
                 "stop" | "play" | "nextFrame" | "prevFrame" | "gotoAndPlay" | "gotoAndStop"
                 | "addChild" | "addChildAt" | "removeChild" | "removeChildAt"
@@ -1783,6 +2097,8 @@ impl<'a> JsEmitter<'a> {
                     method.as_str(),
                     "clear"
                         | "beginFill"
+                        | "beginGradientFill"
+                        | "beginBitmapFill"
                         | "lineStyle"
                         | "moveTo"
                         | "lineTo"
@@ -1799,6 +2115,28 @@ impl<'a> JsEmitter<'a> {
                                 self.emit_scaled_100_to_01(&args[1], offset),
                             ];
                             for extra in &args[2..] {
+                                parts.push(self.emit_expr_with_offset(extra, offset));
+                            }
+                            parts.join(", ")
+                        }
+                        "beginGradientFill" if args.len() >= 5 => {
+                            let fill_type = self.emit_expr_with_offset(&args[0], offset);
+                            let colors = self.emit_expr_with_offset(&args[1], offset);
+                            let alphas = if let Expr::Array(items) = &args[2] {
+                                let scaled: Vec<String> = items
+                                    .iter()
+                                    .map(|opt| match opt {
+                                        Some(e) => self.emit_scaled_100_to_01(e, offset),
+                                        None => "1".into(),
+                                    })
+                                    .collect();
+                                format!("[{}]", scaled.join(", "))
+                            } else {
+                                let raw_a = self.emit_expr_with_offset(&args[2], offset);
+                                format!("({raw_a}).map((_a) => _a / 100)")
+                            };
+                            let mut parts = vec![fill_type, colors, alphas];
+                            for extra in &args[3..] {
                                 parts.push(self.emit_expr_with_offset(extra, offset));
                             }
                             parts.join(", ")
@@ -1822,6 +2160,47 @@ impl<'a> JsEmitter<'a> {
                 if method == "getNextHighestDepth" && args.is_empty() {
                     let b = self.emit_subexpr(base, 18, offset);
                     return format!("({b}.numChildren || 0)");
+                }
+                if method == "getDepth" && args.is_empty() {
+                    let b = self.emit_subexpr(base, 18, offset);
+                    return format!("({b}.parent ? {b}.parent.getChildIndex({b}) : 0)");
+                }
+                if method == "hitTest" {
+                    let b = self.emit_subexpr(base, 18, offset);
+                    if args.len() == 1 {
+                        let tgt = self.emit_expr_with_offset(&args[0], offset);
+                        return format!("{b}.hitTestObject({tgt})");
+                    } else if args.len() >= 2 {
+                        let a = self.emit_args(args, offset);
+                        return format!("{b}.hitTestPoint({a})");
+                    }
+                }
+                if method == "startDrag" && args.len() == 5 {
+                    self.note_class_reference("Rectangle");
+                    let b = self.emit_subexpr(base, 18, offset);
+                    let lock = self.emit_expr_with_offset(&args[0], offset);
+                    let l = self.emit_expr_with_offset(&args[1], offset);
+                    let t = self.emit_expr_with_offset(&args[2], offset);
+                    let r = self.emit_expr_with_offset(&args[3], offset);
+                    let bot = self.emit_expr_with_offset(&args[4], offset);
+                    return format!(
+                        "{b}.startDrag({lock}, new Rectangle({l}, {t}, ({r}) - ({l}), ({bot}) - ({t})))"
+                    );
+                }
+                if method == "parseCSS" && args.len() == 1 {
+                    let b = self.emit_subexpr(base, 18, offset);
+                    let css = self.emit_expr_with_offset(&args[0], offset);
+                    return format!(
+                        "(() => {{ {b}.parseCSS({css}); return Boolean({b}.styleNames && {b}.styleNames.length > 0); }})()"
+                    );
+                }
+                if method == "getVolume" && args.is_empty() {
+                    if let Expr::Name(snd_var) = base.as_ref()
+                        && let Some(vol_var) = self.sound_volume_vars.get(snd_var)
+                    {
+                        return format!("Math.round({vol_var} * 100)");
+                    }
+                    return "100".into();
                 }
             }
         }
@@ -1871,12 +2250,25 @@ impl<'a> JsEmitter<'a> {
                 }
             }
             "ByteArray" => {
+                self.note_class_reference("ByteArray");
                 self.record_issue(
                     ConversionIssueKind::Approximated,
                     offset,
-                    "flash.utils.ByteArray approximated with Uint8Array in JavaScript.",
+                    "flash.utils.ByteArray resolved from NeoFlash runtime with Uint8Array fallback in JavaScript.",
                 );
-                "new Uint8Array()".into()
+                format!("new ByteArray({})", self.emit_args(args, offset))
+            }
+            "XML" if !self.source_is_as3 => {
+                self.note_class_reference("XMLDocument");
+                format!("new XMLDocument({})", self.emit_args(args, offset))
+            }
+            "StyleSheet" if !self.source_is_as3 => {
+                self.note_class_reference("StyleSheet");
+                format!("new StyleSheet({})", self.emit_args(args, offset))
+            }
+            "Sound" if !self.source_is_as3 => {
+                self.note_class_reference("Sound");
+                "new Sound()".into()
             }
             "Stage3D" | "Context3D" => {
                 self.record_issue(
@@ -2094,6 +2486,21 @@ pub(crate) fn emit_js_timeline_script(
         sections.push(emitter.key_down_shim_block());
     }
 
+    let mut bound_fns = Vec::new();
+    let mut exported_fns = Vec::new();
+    for stmt in &parsed.statements {
+        if let Stmt::Function(f) = stmt.unlocated()
+            && let Some(fname) = &f.name
+        {
+            let safe = sanitize_js_ident(fname);
+            bound_fns.push(format!("{safe} = {safe}.bind(this);"));
+            exported_fns.push(format!("this.{safe} = {safe};"));
+        }
+    }
+    if !bound_fns.is_empty() {
+        sections.push(bound_fns.join("\n"));
+    }
+
     let main_body = emitter.emit_stmt_list(&parsed.statements);
     if !main_body.trim().is_empty() {
         sections.push(main_body);
@@ -2108,21 +2515,16 @@ pub(crate) fn emit_js_timeline_script(
 
     // Export top-level timeline functions onto `this` so child clips, external frames, and test hosts
     // can invoke `clip.fnName()` directly while preserving lexical `fnName()` calls inside the frame.
-    let mut exported_fns = Vec::new();
-    for stmt in &parsed.statements {
-        if let Stmt::Function(f) = stmt.unlocated()
-            && let Some(fname) = &f.name
-        {
-            let safe = sanitize_js_ident(fname);
-            exported_fns.push(format!("this.{safe} = {safe};"));
-        }
-    }
     if !exported_fns.is_empty() {
         sections.push(exported_fns.join("\n"));
     }
 
     if emitter.needs_sprite_shim {
         sections.insert(0, JsEmitter::sprite_shim_block().to_owned());
+    }
+    let builtin_bindings = emitter.format_flash_builtin_bindings(None);
+    if !builtin_bindings.is_empty() {
+        sections.insert(0, builtin_bindings.join("\n"));
     }
 
     let import_lines = emitter.format_es_imports();
@@ -2149,6 +2551,7 @@ pub(crate) fn emit_js_class(
     location: &str,
     stage: &ProjectStageIndex,
     module_paths_by_short: &BTreeMap<String, String>,
+    class_to_linkage: &BTreeMap<String, String>,
 ) -> JsEmitOutput {
     let mod_path = to_js_module_path(unit_path, &parsed.qualified_name);
     let mod_path_ref = mod_path.clone();
@@ -2273,9 +2676,12 @@ pub(crate) fn emit_js_class(
             member_blocks.push(format!("{pad}{stat}{fname} = {vc};"));
         } else {
             let def = match f.ty.as_deref().map(HirType::from_annotation) {
-                Some(HirType::Int | HirType::UInt | HirType::Float) => "0",
-                Some(HirType::Bool) => "false",
-                _ => "null",
+                Some(HirType::Int | HirType::UInt | HirType::Float) => "0".to_owned(),
+                Some(HirType::Bool) => "false".to_owned(),
+                _ if !f.is_static && need_display_base_shim.is_some() => {
+                    format!("this.{fname} ?? null")
+                }
+                _ => "null".to_owned(),
             };
             member_blocks.push(format!("{pad}{stat}{fname} = {def};"));
         }
@@ -2351,18 +2757,18 @@ pub(crate) fn emit_js_class(
     };
 
     let mut preambles = emitter.format_es_imports();
+    if emitter.used_trace {
+        preambles.push(
+            "const trace = (..._args) => (typeof globalThis.__nfTrace === \"function\" ? globalThis.__nfTrace(..._args) : typeof globalThis.trace === \"function\" ? globalThis.trace(..._args) : console.log(..._args));".into(),
+        );
+    }
+    preambles.extend(emitter.format_flash_builtin_bindings(need_display_base_shim.as_deref()));
     if emitter.needs_sprite_shim {
         preambles.push(JsEmitter::sprite_shim_block().to_owned());
     }
     if let Some(base_cls) = need_display_base_shim {
-        preambles.push(format!(
-            "const {base_cls} = globalThis.{base_cls} || class {base_cls} {{\n\
-             \x20   constructor() {{ this.x = 0; this.y = 0; this.scaleX = 1; this.scaleY = 1; this.alpha = 1; this.rotation = 0; this.visible = true; this.children = []; }}\n\
-             \x20   addChild(c) {{ this.children.push(c); return c; }}\n\
-             \x20   addEventListener() {{}}\n\
-             \x20   removeEventListener() {{}}\n\
-             }};"
-        ));
+        let linked_id = class_to_linkage.get(&parsed.short_name).map(String::as_str);
+        preambles.push(display_base_shim_block(&base_cls, linked_id));
     }
 
     let full = if preambles.is_empty() {
@@ -2376,6 +2782,148 @@ pub(crate) fn emit_js_class(
         module_path: Some(mod_path),
         issues: emitter.issues,
         synthesized_linkages: emitter.synthesized_linkages.into_values().collect(),
+    }
+}
+
+pub(crate) fn display_base_shim_block(base_cls: &str, linkage_id: Option<&str>) -> String {
+    let qname = match base_cls {
+        "SimpleButton" | "Button" => "flash.display.SimpleButton",
+        "EventDispatcher" => "flash.events.EventDispatcher",
+        "DisplayObject" => "flash.display.DisplayObject",
+        _ => "flash.display.MovieClip",
+    };
+    let linked_alloc = if let Some(link) = linkage_id {
+        let link_json = serde_json::to_string(link).unwrap_or_else(|_| format!("\"{link}\""));
+        format!(
+            "        if (typeof __nfProgram === \"object\" && __nfProgram && typeof __nfProgram.type === \"function\") {{\n\
+             \x20           const _as2 = __nfProgram.type(\"__nfAs2Method\");\n\
+             \x20           const _Mc = __nfProgram.type(\"flash.display.MovieClip\");\n\
+             \x20           if (typeof _as2 === \"function\" && typeof _Mc === \"function\") {{\n\
+             \x20               const _tmp = new _Mc();\n\
+             \x20               const _clip = _as2(_tmp, \"attachMovie\")({link_json}, \"instance\", 0);\n\
+             \x20               _tmp.removeChild(_clip);\n\
+             \x20               return _bindDerivedDisplay(_clip, new.target, {base_cls}.prototype);\n\
+             \x20           }}\n\
+             \x20       }}\n"
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "const _Native{base_cls} = (typeof __nfProgram === \"object\" && __nfProgram && typeof __nfProgram.type === \"function\" ? __nfProgram.type(\"{qname}\") : null) || globalThis.{base_cls};\n\
+         function _bindDerivedDisplay(_inst, _ctor, _stopProto) {{\n\
+         \x20   let _proto = _ctor && _ctor.prototype;\n\
+         \x20   while (_proto && _proto !== _stopProto && _proto !== Object.prototype) {{\n\
+         \x20       for (const _k of Object.getOwnPropertyNames(_proto)) {{\n\
+         \x20           if (_k === \"constructor\") continue;\n\
+         \x20           if (!Object.prototype.hasOwnProperty.call(_inst, _k)) {{\n\
+         \x20               const _d = Object.getOwnPropertyDescriptor(_proto, _k);\n\
+         \x20               if (_d && typeof _d.value === \"function\") {{ _inst[_k] = _d.value.bind(_inst); }}\n\
+         \x20               else if (_d) {{ try {{ Object.defineProperty(_inst, _k, _d); }} catch (_) {{}} }}\n\
+         \x20           }}\n\
+         \x20       }}\n\
+         \x20       _proto = Object.getPrototypeOf(_proto);\n\
+         \x20   }}\n\
+         \x20   return _inst;\n\
+         }}\n\
+         const {base_cls} = class {base_cls} {{\n\
+         \x20   static [Symbol.hasInstance](v) {{\n\
+         \x20       return Boolean((_Native{base_cls} && v instanceof _Native{base_cls}) || (v && typeof v === \"object\" && v.__nfDisplayShim));\n\
+         \x20   }}\n\
+         \x20   constructor() {{\n\
+         \x20       if (globalThis.__nfPendingDisplayTarget) {{\n\
+         \x20           const _target = globalThis.__nfPendingDisplayTarget;\n\
+         \x20           globalThis.__nfPendingDisplayTarget = null;\n\
+         \x20           return _bindDerivedDisplay(_target, new.target, {base_cls}.prototype);\n\
+         \x20       }}\n\
+         {linked_alloc}\
+         \x20       if (typeof _Native{base_cls} === \"function\") {{\n\
+         \x20           try {{ return _bindDerivedDisplay(new _Native{base_cls}(), new.target, {base_cls}.prototype); }} catch (_) {{}}\n\
+         \x20       }}\n\
+         \x20       this.__nfDisplayShim = true;\n\
+         \x20       this.name = \"\";\n\
+         \x20       this.x = 0;\n\
+         \x20       this.y = 0;\n\
+         \x20       this.scaleX = 1;\n\
+         \x20       this.scaleY = 1;\n\
+         \x20       this.alpha = 1;\n\
+         \x20       this.rotation = 0;\n\
+         \x20       this.visible = true;\n\
+         \x20       this.children = [];\n\
+         \x20   }}\n\
+         \x20   addChild(c) {{ this.children.push(c); return c; }}\n\
+         \x20   removeChild(c) {{ return c; }}\n\
+         \x20   addEventListener() {{}}\n\
+         \x20   removeEventListener() {{}}\n\
+         \x20   gotoAndStop() {{}}\n\
+         \x20   gotoAndPlay() {{}}\n\
+         \x20   play() {{}}\n\
+         \x20   stop() {{}}\n\
+         }};"
+    )
+}
+
+fn flash_builtin_qname(short: &str) -> Option<&'static str> {
+    match short {
+        "Point" => Some("flash.geom.Point"),
+        "Rectangle" => Some("flash.geom.Rectangle"),
+        "Matrix" => Some("flash.geom.Matrix"),
+        "ColorTransform" => Some("flash.geom.ColorTransform"),
+        "Transform" => Some("flash.geom.Transform"),
+        "Vector3D" => Some("flash.geom.Vector3D"),
+        "Matrix3D" => Some("flash.geom.Matrix3D"),
+        "Utils3D" => Some("flash.geom.Utils3D"),
+        "PerspectiveProjection" => Some("flash.geom.PerspectiveProjection"),
+        "BitmapData" => Some("flash.display.BitmapData"),
+        "BitmapDataChannel" => Some("flash.display.BitmapDataChannel"),
+        "Bitmap" => Some("flash.display.Bitmap"),
+        "Shape" => Some("flash.display.Shape"),
+        "MovieClip" => Some("flash.display.MovieClip"),
+        "SimpleButton" => Some("flash.display.SimpleButton"),
+        "DisplayObject" => Some("flash.display.DisplayObject"),
+        "DisplayObjectContainer" => Some("flash.display.DisplayObjectContainer"),
+        "InteractiveObject" => Some("flash.display.InteractiveObject"),
+        "Loader" => Some("flash.display.Loader"),
+        "LoaderInfo" => Some("flash.display.LoaderInfo"),
+        "GlowFilter" => Some("flash.filters.GlowFilter"),
+        "DropShadowFilter" => Some("flash.filters.DropShadowFilter"),
+        "BlurFilter" => Some("flash.filters.BlurFilter"),
+        "BevelFilter" => Some("flash.filters.BevelFilter"),
+        "ColorMatrixFilter" => Some("flash.filters.ColorMatrixFilter"),
+        "ConvolutionFilter" => Some("flash.filters.ConvolutionFilter"),
+        "GradientGlowFilter" => Some("flash.filters.GradientGlowFilter"),
+        "GradientBevelFilter" => Some("flash.filters.GradientBevelFilter"),
+        "DisplacementMapFilter" => Some("flash.filters.DisplacementMapFilter"),
+        "TextField" => Some("flash.text.TextField"),
+        "TextFormat" => Some("flash.text.TextFormat"),
+        "TextFieldAutoSize" => Some("flash.text.TextFieldAutoSize"),
+        "TextFieldType" => Some("flash.text.TextFieldType"),
+        "TextFormatAlign" => Some("flash.text.TextFormatAlign"),
+        "StyleSheet" => Some("flash.text.StyleSheet"),
+        "Sound" => Some("flash.media.Sound"),
+        "SoundChannel" => Some("flash.media.SoundChannel"),
+        "SoundTransform" => Some("flash.media.SoundTransform"),
+        "SoundMixer" => Some("flash.media.SoundMixer"),
+        "Video" => Some("flash.media.Video"),
+        "NetConnection" => Some("flash.net.NetConnection"),
+        "NetStream" => Some("flash.net.NetStream"),
+        "URLRequest" => Some("flash.net.URLRequest"),
+        "URLLoader" => Some("flash.net.URLLoader"),
+        "URLVariables" => Some("flash.net.URLVariables"),
+        "SharedObject" => Some("flash.net.SharedObject"),
+        "Timer" => Some("flash.utils.Timer"),
+        "ByteArray" => Some("flash.utils.ByteArray"),
+        "Endian" => Some("flash.utils.Endian"),
+        "XML" => Some("XML"),
+        "XMLList" => Some("XMLList"),
+        "XMLDocument" => Some("flash.xml.XMLDocument"),
+        "XMLNode" => Some("flash.xml.XMLNode"),
+        "Event" => Some("flash.events.Event"),
+        "MouseEvent" => Some("flash.events.MouseEvent"),
+        "KeyboardEvent" => Some("flash.events.KeyboardEvent"),
+        "TimerEvent" => Some("flash.events.TimerEvent"),
+        "NetStatusEvent" => Some("flash.events.NetStatusEvent"),
+        _ => None,
     }
 }
 

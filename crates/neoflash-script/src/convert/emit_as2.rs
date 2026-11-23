@@ -2,9 +2,10 @@
 
 use super::emit_as3::op_prec;
 use super::hir::{
-    AccessorKind, HirType, ParsedClass, ParsedScript, ProjectStageIndex, TypeEnv, fold_01_to_100,
-    is_atomic_expr, map_as3_keyboard_constant, map_modern_direct_prop_to_as2,
-    map_modern_unit_prop_to_as2, short_type_name,
+    AccessorKind, HirType, ParsedClass, ParsedScript, ProjectStageIndex, TypeEnv,
+    extract_numeric_literal, fold_01_to_100, format_clean_number, is_atomic_expr,
+    map_as3_keyboard_constant, map_modern_direct_prop_to_as2, map_modern_unit_prop_to_as2,
+    short_type_name,
 };
 use super::{ConversionIssue, ConversionIssueKind};
 use crate::actionscript::ast::{Case, Expr, Function, PropertyKey, Stmt};
@@ -17,10 +18,19 @@ pub(crate) struct As2EmitOutput {
     pub(crate) issues: Vec<ConversionIssue>,
 }
 
+enum DynamicDisplayKind {
+    EmptyClip,
+    LinkedClip(String),
+    Bitmap(Vec<Expr>),
+    TextField,
+    Loader,
+    Video(usize),
+}
+
 struct DynamicSpritePlan {
     parent_expr: Expr,
     custom_name: Option<Expr>,
-    linkage_id: Option<String>,
+    kind: DynamicDisplayKind,
     add_child_stmt_idx: usize,
     name_assign_stmt_idx: Option<usize>,
 }
@@ -166,12 +176,14 @@ impl<'a> As2Emitter<'a> {
             "*" | "Object" | "Class" => "Object".into(),
             "Sprite"
             | "Shape"
+            | "Bitmap"
             | "MovieClip"
             | "DisplayObject"
             | "DisplayObjectContainer"
             | "InteractiveObject"
             | "flash.display.Sprite"
             | "flash.display.Shape"
+            | "flash.display.Bitmap"
             | "flash.display.MovieClip"
             | "flash.display.DisplayObject"
             | "flash.display.DisplayObjectContainer"
@@ -179,9 +191,14 @@ impl<'a> As2Emitter<'a> {
             "SimpleButton" | "Button" | "flash.display.SimpleButton" => "Button".into(),
             "TextField" | "flash.text.TextField" => "TextField".into(),
             "TextFormat" | "flash.text.TextFormat" => "TextFormat".into(),
+            "StyleSheet" | "flash.text.StyleSheet" | "TextField.StyleSheet" => {
+                "TextField.StyleSheet".into()
+            }
             "Sound" | "flash.media.Sound" => "Sound".into(),
+            "NetConnection" | "flash.net.NetConnection" => "NetConnection".into(),
+            "NetStream" | "flash.net.NetStream" => "NetStream".into(),
             "SharedObject" | "flash.net.SharedObject" => "SharedObject".into(),
-            "XML" | "XMLList" => "XML".into(),
+            "XML" | "XMLList" | "XMLDocument" | "flash.xml.XMLDocument" => "XML".into(),
             "XMLNode" | "flash.xml.XMLNode" => "XMLNode".into(),
             "Point" | "flash.geom.Point" => {
                 self.imports.insert("flash.geom.Point".into());
@@ -202,6 +219,19 @@ impl<'a> As2Emitter<'a> {
             "BitmapData" | "flash.display.BitmapData" => {
                 self.imports.insert("flash.display.BitmapData".into());
                 "BitmapData".into()
+            }
+            "GlowFilter" | "DropShadowFilter" | "BlurFilter" | "BevelFilter"
+            | "ColorMatrixFilter" => {
+                self.imports.insert(format!("flash.filters.{trimmed}"));
+                trimmed.into()
+            }
+            "Video" | "flash.media.Video" => {
+                self.record_issue(
+                    ConversionIssueKind::ManualAttention,
+                    offset,
+                    "AS2 Video requires an authored Video timeline placement; typed as Object.",
+                );
+                "Object".into()
             }
             "Event" | "MouseEvent" | "KeyboardEvent" | "TimerEvent" | "FocusEvent"
             | "ProgressEvent" | "IOErrorEvent" | "Stage" | "SoundChannel" | "SoundTransform"
@@ -293,10 +323,10 @@ impl<'a> As2Emitter<'a> {
         None
     }
 
-    /// Analyze a block of statements to pair `var c:Sprite = new Sprite();` with a subsequent `addChild(c);`.
+    /// Analyze a block of statements to pair `var c = new Sprite|Bitmap|TextField|Loader|Video();` with `addChild(c);`.
     fn plan_dynamic_sprites(&self, stmts: &[Stmt]) -> BTreeMap<usize, DynamicSpritePlan> {
         let mut plans = BTreeMap::new();
-        let mut candidates: BTreeMap<String, (usize, Option<String>)> = BTreeMap::new();
+        let mut candidates: BTreeMap<String, (usize, DynamicDisplayKind)> = BTreeMap::new();
         let mut name_assigns: BTreeMap<String, (usize, Expr)> = BTreeMap::new();
 
         for (idx, stmt) in stmts.iter().enumerate() {
@@ -304,17 +334,21 @@ impl<'a> As2Emitter<'a> {
                 Stmt::Var(vars) if vars.len() == 1 => {
                     let (vname, _, val_opt) = &vars[0];
                     if let Some(val) = val_opt
-                        && let Some(ctor_name) = match_new_display_ctor(val)
+                        && let Some((ctor_name, ctor_args, ctor_off)) =
+                            match_new_display_ctor_with_args(val)
                     {
-                        let linkage = if matches!(ctor_name, "Sprite" | "MovieClip" | "Shape") {
-                            None
-                        } else {
-                            self.find_linkage_for_class(ctor_name)
+                        let kind_opt = match ctor_name {
+                            "Sprite" | "MovieClip" | "Shape" => Some(DynamicDisplayKind::EmptyClip),
+                            "Bitmap" => Some(DynamicDisplayKind::Bitmap(ctor_args.to_vec())),
+                            "TextField" => Some(DynamicDisplayKind::TextField),
+                            "Loader" => Some(DynamicDisplayKind::Loader),
+                            "Video" => Some(DynamicDisplayKind::Video(ctor_off)),
+                            other => self
+                                .find_linkage_for_class(other)
+                                .map(DynamicDisplayKind::LinkedClip),
                         };
-                        if matches!(ctor_name, "Sprite" | "MovieClip" | "Shape")
-                            || linkage.is_some()
-                        {
-                            candidates.insert(vname.clone(), (idx, linkage));
+                        if let Some(kind) = kind_opt {
+                            candidates.insert(vname.clone(), (idx, kind));
                         }
                     }
                 }
@@ -330,7 +364,7 @@ impl<'a> As2Emitter<'a> {
                 Stmt::Expr(Expr::Call(callee, args, _)) => {
                     if let Some(parent_expr) = match_add_child_call(callee)
                         && let Some(Expr::Name(vname)) = args.first()
-                        && let Some((decl_idx, linkage_id)) = candidates.remove(vname)
+                        && let Some((decl_idx, kind)) = candidates.remove(vname)
                     {
                         let name_info = name_assigns.remove(vname);
                         plans.insert(
@@ -338,7 +372,7 @@ impl<'a> As2Emitter<'a> {
                             DynamicSpritePlan {
                                 parent_expr,
                                 custom_name: name_info.as_ref().map(|(_, e)| e.clone()),
-                                linkage_id,
+                                kind,
                                 add_child_stmt_idx: idx,
                                 name_assign_stmt_idx: name_info.map(|(i, _)| i),
                             },
@@ -377,21 +411,99 @@ impl<'a> As2Emitter<'a> {
                     None => serde_json::to_string(vname).unwrap(),
                 };
                 let first_decl = self.mark_declared(vname);
-                self.env.define(vname.clone(), HirType::MovieClip);
-                let rhs = if let Some(linkage) = &plan.linkage_id {
-                    let link_lit = serde_json::to_string(linkage).unwrap();
-                    format!(
-                        "{parent_code}.attachMovie({link_lit}, {name_code}, {parent_code}.getNextHighestDepth())"
-                    )
-                } else {
-                    format!(
-                        "{parent_code}.createEmptyMovieClip({name_code}, {parent_code}.getNextHighestDepth())"
-                    )
-                };
-                if first_decl {
-                    lines.push(format!("{pad}var {vname}:MovieClip = {rhs};"));
-                } else {
-                    lines.push(format!("{pad}{vname} = {rhs};"));
+                match &plan.kind {
+                    DynamicDisplayKind::TextField => {
+                        self.env.define(vname.clone(), HirType::TextField);
+                        let rhs = format!(
+                            "{parent_code}.createTextField({name_code}, {parent_code}.getNextHighestDepth(), 0, 0, 100, 100)"
+                        );
+                        if first_decl {
+                            lines.push(format!("{pad}var {vname}:TextField = {rhs};"));
+                        } else {
+                            lines.push(format!("{pad}{vname} = {rhs};"));
+                        }
+                    }
+                    DynamicDisplayKind::Bitmap(bargs) => {
+                        self.env.define(vname.clone(), HirType::MovieClip);
+                        let rhs = format!(
+                            "{parent_code}.createEmptyMovieClip({name_code}, {parent_code}.getNextHighestDepth())"
+                        );
+                        if first_decl {
+                            lines.push(format!("{pad}var {vname}:MovieClip = {rhs};"));
+                        } else {
+                            lines.push(format!("{pad}{vname} = {rhs};"));
+                        }
+                        if let Some(bmd_arg) = bargs.first() {
+                            let bmd = self.emit_expr_with_offset(bmd_arg, 0);
+                            let snap = bargs
+                                .get(1)
+                                .map(|a| self.emit_expr_with_offset(a, 0))
+                                .unwrap_or_else(|| "\"auto\"".into());
+                            let smooth = bargs
+                                .get(2)
+                                .map(|a| self.emit_expr_with_offset(a, 0))
+                                .unwrap_or_else(|| "false".into());
+                            lines.push(format!(
+                                "{pad}{vname}.attachBitmap({bmd}, 1, {snap}, {smooth});"
+                            ));
+                        }
+                    }
+                    DynamicDisplayKind::Loader => {
+                        self.env.define(vname.clone(), HirType::MovieClip);
+                        let rhs = format!(
+                            "{parent_code}.createEmptyMovieClip({name_code}, {parent_code}.getNextHighestDepth())"
+                        );
+                        if first_decl {
+                            lines.push(format!("{pad}var {vname}:MovieClip = {rhs};"));
+                        } else {
+                            lines.push(format!("{pad}{vname} = {rhs};"));
+                        }
+                        lines.push(format!(
+                            "{pad}{vname}.contentLoaderInfo = {{_width: 0, _height: 0}};"
+                        ));
+                    }
+                    DynamicDisplayKind::Video(voff) => {
+                        self.record_issue(
+                            ConversionIssueKind::ManualAttention,
+                            *voff,
+                            "AS2 Video must be an authored Video symbol on the timeline; lowered dynamic new Video() to a MovieClip placeholder.",
+                        );
+                        self.env.define(vname.clone(), HirType::MovieClip);
+                        let rhs = format!(
+                            "/* FIXME [NeoFlash Convert]: AS2 Video must be an authored Video placement */ {parent_code}.createEmptyMovieClip({name_code}, {parent_code}.getNextHighestDepth())"
+                        );
+                        if first_decl {
+                            lines.push(format!("{pad}var {vname}:Object = {rhs};"));
+                        } else {
+                            lines.push(format!("{pad}{vname} = {rhs};"));
+                        }
+                        lines.push(format!(
+                            "{pad}{vname}.attachVideo = function(_src:Object):Void {{}};"
+                        ));
+                    }
+                    DynamicDisplayKind::LinkedClip(linkage) => {
+                        self.env.define(vname.clone(), HirType::MovieClip);
+                        let link_lit = serde_json::to_string(linkage).unwrap();
+                        let rhs = format!(
+                            "{parent_code}.attachMovie({link_lit}, {name_code}, {parent_code}.getNextHighestDepth())"
+                        );
+                        if first_decl {
+                            lines.push(format!("{pad}var {vname}:MovieClip = {rhs};"));
+                        } else {
+                            lines.push(format!("{pad}{vname} = {rhs};"));
+                        }
+                    }
+                    DynamicDisplayKind::EmptyClip => {
+                        self.env.define(vname.clone(), HirType::MovieClip);
+                        let rhs = format!(
+                            "{parent_code}.createEmptyMovieClip({name_code}, {parent_code}.getNextHighestDepth())"
+                        );
+                        if first_decl {
+                            lines.push(format!("{pad}var {vname}:MovieClip = {rhs};"));
+                        } else {
+                            lines.push(format!("{pad}{vname} = {rhs};"));
+                        }
+                    }
                 }
                 continue;
             }
@@ -427,6 +539,75 @@ impl<'a> As2Emitter<'a> {
             Stmt::Var(vars) => {
                 let mut out_lines = Vec::new();
                 for (name, ty_opt, val_opt) in vars {
+                    // AS3 `var chime:Sound = new Sound(new URLRequest(url));` -> AS2 `new Sound(this)` + `loadSound`
+                    if let Some(val) = val_opt
+                        && let Some((ctor_short, cargs, _)) = match_new_display_ctor_with_args(val)
+                        && ctor_short == "Sound"
+                    {
+                        let first_decl = self.mark_declared(name);
+                        self.env
+                            .define(name.clone(), HirType::Class("Sound".into()));
+                        if first_decl {
+                            out_lines.push(format!("{pad}var {name}:Sound = new Sound(this);"));
+                        } else {
+                            out_lines.push(format!("{pad}{name} = new Sound(this);"));
+                        }
+                        if let Some(req_arg) = cargs.first() {
+                            let url = self.unwrap_url_request_expr(req_arg, offset);
+                            out_lines.push(format!("{pad}{name}.loadSound({url}, false);"));
+                        }
+                        continue;
+                    }
+                    // AS3 `var channel:SoundChannel = chime.play(ms, loops, new SoundTransform(vol, pan));`
+                    if let Some(Expr::Call(callee, cargs, _)) = val_opt
+                        && let Expr::Member(snd_base, m) = callee.as_ref()
+                        && m == "play"
+                        && (ty_opt
+                            .as_deref()
+                            .is_some_and(|t| short_type_name(t) == "SoundChannel")
+                            || matches!(
+                                self.env.infer_expr(snd_base, self.stage),
+                                HirType::Class(ref c) if short_type_name(c) == "Sound"
+                            ))
+                    {
+                        let snd_code = self.emit_expr_with_offset(snd_base, offset);
+                        if let Some(st_arg) = cargs.get(2)
+                            && let Some(("SoundTransform", st_args, _)) =
+                                match_new_display_ctor_with_args(st_arg)
+                            && let Some(vol_arg) = st_args.first()
+                        {
+                            let vol100 = fold_01_to_100(vol_arg).unwrap_or_else(|| {
+                                let vc = self.emit_expr_with_offset(vol_arg, offset);
+                                format!("({vc}) * 100")
+                            });
+                            out_lines.push(format!("{pad}{snd_code}.setVolume({vol100});"));
+                        }
+                        let sec_code = match cargs.first() {
+                            Some(ms_arg) => {
+                                if let Some(ms) = extract_numeric_literal(ms_arg) {
+                                    format_clean_number(ms / 1000.0, false)
+                                } else {
+                                    let mc = self.emit_expr_with_offset(ms_arg, offset);
+                                    format!("({mc}) / 1000")
+                                }
+                            }
+                            None => "0".into(),
+                        };
+                        let loops_code = cargs
+                            .get(1)
+                            .map(|l| self.emit_expr_with_offset(l, offset))
+                            .unwrap_or_else(|| "1".into());
+                        out_lines.push(format!("{pad}{snd_code}.start({sec_code}, {loops_code});"));
+                        let first_decl = self.mark_declared(name);
+                        self.env.define(name.clone(), HirType::Object);
+                        if first_decl {
+                            out_lines.push(format!("{pad}var {name}:Object = {snd_code};"));
+                        } else {
+                            out_lines.push(format!("{pad}{name} = {snd_code};"));
+                        }
+                        continue;
+                    }
+
                     // Check `var code:uint = event.keyCode` inside a key listener
                     let hir_ty = ty_opt
                         .as_deref()
@@ -789,19 +970,46 @@ impl<'a> As2Emitter<'a> {
     fn emit_expr_stmt(&mut self, expr: &Expr, offset: usize) -> String {
         let pad = self.pad();
 
-        // 1. `stage.focus = target;` -> `Selection.setFocus(target);`
+        // 1. `stage.focus = target;` -> `Selection.setFocus(target);` and AS3 property lowerings
         if let Expr::Assign(op, lhs, rhs) = expr
             && op == "="
             && let Expr::Member(base, prop) = lhs.as_ref()
-            && is_stage_expr(base)
         {
-            if prop == "focus" {
-                let rc = self.emit_expr_with_offset(rhs, offset);
-                return format!("{pad}Selection.setFocus({rc});");
+            if is_stage_expr(base) {
+                if prop == "focus" {
+                    let rc = self.emit_expr_with_offset(rhs, offset);
+                    return format!("{pad}Selection.setFocus({rc});");
+                }
+                if matches!(prop.as_str(), "scaleMode" | "align" | "displayState") {
+                    let rc = self.emit_expr_with_offset(rhs, offset);
+                    return format!("{pad}Stage.{prop} = {rc};");
+                }
             }
-            if matches!(prop.as_str(), "scaleMode" | "align" | "displayState") {
+            if prop == "defaultTextFormat" {
+                let recv = self.emit_expr_with_offset(base, offset);
                 let rc = self.emit_expr_with_offset(rhs, offset);
-                return format!("{pad}Stage.{prop} = {rc};");
+                return format!("{pad}{recv}.setNewTextFormat({rc});");
+            }
+            if prop == "htmlText" {
+                let recv = self.emit_expr_with_offset(base, offset);
+                let rc = self.emit_expr_with_offset(rhs, offset);
+                return format!("{pad}{recv}.html = true;\n{pad}{recv}.htmlText = {rc};");
+            }
+            if prop == "buttonMode" {
+                let recv = self.emit_expr_with_offset(base, offset);
+                let rc = self.emit_expr_with_offset(rhs, offset);
+                return format!("{pad}{recv}.useHandCursor = {rc};");
+            }
+            if prop == "client"
+                && let Expr::Object(props) = rhs.as_ref()
+            {
+                let recv = self.emit_expr_with_offset(base, offset);
+                let mut cb_lines = Vec::new();
+                for (PropertyKey { name, .. }, val) in props {
+                    let vc = self.emit_expr_with_offset(val, offset);
+                    cb_lines.push(format!("{pad}{recv}.{name} = {vc};"));
+                }
+                return cb_lines.join("\n");
             }
         }
 
@@ -830,6 +1038,12 @@ impl<'a> As2Emitter<'a> {
             {
                 let cc = self.emit_expr_with_offset(child_arg, *call_off);
                 return format!("{pad}{cc}.removeMovieClip();");
+            }
+
+            // 5. Unmatched `addChild(c)` (e.g. non-var or already attached) -> omit invalid AS2 `addChild`
+            if match_add_child_call(callee).is_some() && !args.is_empty() {
+                let cc = self.emit_expr_with_offset(&args[0], *call_off);
+                return format!("{pad}/* [NeoFlash Convert] placed {cc} */");
             }
         }
 
@@ -1005,6 +1219,22 @@ impl<'a> As2Emitter<'a> {
                 format!("{self_decl}{pad}{recv}.{cb_prop} = function():Void {{\n{body}\n{pad}}};")
             }
             _ => {
+                // If listening on `loader.contentLoaderInfo`, attach callback onto the loader clip instead of running inline!
+                if let Expr::Member(loader_base, prop) = recv_expr
+                    && prop == "contentLoaderInfo"
+                {
+                    let loader_code = self.emit_expr_with_offset(loader_base, offset);
+                    let body = self.emit_as2_listener_invocation(
+                        handler_arg,
+                        self_var,
+                        "{type: \"complete\", target: this}",
+                        false,
+                        offset,
+                    );
+                    return format!(
+                        "{self_decl}{pad}{loader_code}.__onLoadComplete = function():Void {{\n{body}\n{pad}}};"
+                    );
+                }
                 let body = self.emit_as2_listener_invocation(
                     handler_arg,
                     self_var,
@@ -1078,13 +1308,7 @@ impl<'a> As2Emitter<'a> {
                     "/* FIXME [NeoFlash Convert]: E4X XML is not supported in AS2: {raw} */ undefined"
                 )
             }
-            Expr::Literal(raw) => {
-                if raw == "null" {
-                    "undefined".into()
-                } else {
-                    raw.clone()
-                }
-            }
+            Expr::Literal(raw) => raw.clone(),
             Expr::Name(name) => {
                 if matches!(name.as_str(), "ByteArray" | "Stage3D" | "Context3D") {
                     self.record_issue(
@@ -1101,6 +1325,9 @@ impl<'a> As2Emitter<'a> {
                 }
                 if name == "root" {
                     return "_root".into();
+                }
+                if name == "numChildren" && self.env.lookup(name).is_none() {
+                    return "this.getNextHighestDepth()".into();
                 }
                 if let Some(as2_prop) = map_modern_direct_prop_to_as2(name)
                     && self.env.lookup(name).is_none()
@@ -1155,6 +1382,20 @@ impl<'a> As2Emitter<'a> {
                         _ => "\"\"".into(),
                     };
                 }
+                if matches!(base.as_ref(), Expr::Name(n) if n == "TextFieldType") {
+                    return match prop.as_str() {
+                        "INPUT" => "\"input\"".into(),
+                        "DYNAMIC" => "\"dynamic\"".into(),
+                        _ => "\"dynamic\"".into(),
+                    };
+                }
+                if matches!(base.as_ref(), Expr::Name(n) if n == "GradientType") {
+                    return match prop.as_str() {
+                        "LINEAR" => "\"linear\"".into(),
+                        "RADIAL" => "\"radial\"".into(),
+                        _ => "\"linear\"".into(),
+                    };
+                }
                 // `stage.stageWidth` / `stage.stageHeight` / `stage.scaleMode` / `stage.align`
                 if is_stage_expr(base) {
                     if prop == "stage3Ds" {
@@ -1180,6 +1421,21 @@ impl<'a> As2Emitter<'a> {
                 let base_ty = self.env.infer_expr(base, self.stage);
                 if is_geom_or_data_value_type(&base_ty) {
                     return format!("{recv}.{prop}");
+                }
+                if matches!(
+                    prop.as_str(),
+                    "currentLabel" | "currentFrameLabel" | "currentLabels" | "isPlaying"
+                ) {
+                    self.record_issue(
+                        ConversionIssueKind::ManualAttention,
+                        offset,
+                        format!(
+                            "AS3 MovieClip.{prop} timeline metadata is not available in ActionScript 2.0; inspect _currentframe instead."
+                        ),
+                    );
+                }
+                if prop == "numChildren" {
+                    return format!("{recv}.getNextHighestDepth()");
                 }
                 if let Some(as2_prop) = map_modern_direct_prop_to_as2(prop) {
                     return format!("{recv}.{as2_prop}");
@@ -1386,8 +1642,31 @@ impl<'a> As2Emitter<'a> {
                     );
                     return "{}".into();
                 }
-                if matches!(short, "Sprite" | "MovieClip" | "Shape") {
+                if matches!(
+                    short,
+                    "Sprite" | "MovieClip" | "Shape" | "Bitmap" | "Loader"
+                ) {
                     return "this.createEmptyMovieClip(\"_clip_\" + this.getNextHighestDepth(), this.getNextHighestDepth())".into();
+                }
+                if short == "TextField" {
+                    return "this.createTextField(\"_tf_\" + this.getNextHighestDepth(), this.getNextHighestDepth(), 0, 0, 100, 100)".into();
+                }
+                if short == "Video" {
+                    self.record_issue(
+                        ConversionIssueKind::ManualAttention,
+                        *noff,
+                        "AS2 Video must be an authored Video timeline placement; lowered dynamic new Video() to a MovieClip placeholder.",
+                    );
+                    return "/* FIXME [NeoFlash Convert]: AS2 Video must be an authored Video placement */ this.createEmptyMovieClip(\"_vid_\" + this.getNextHighestDepth(), this.getNextHighestDepth())".into();
+                }
+                if short == "URLRequest" {
+                    if let Some(first) = args.first() {
+                        return self.emit_expr_with_offset(first, *noff);
+                    }
+                    return "\"\"".into();
+                }
+                if short == "Sound" {
+                    return "new Sound(this)".into();
                 }
                 let mapped = self.map_type_to_as2(ty, false, *noff);
                 let ac = self.emit_args(args, *noff);
@@ -1481,6 +1760,36 @@ impl<'a> As2Emitter<'a> {
                     }
                     return format!("{recv}.beginFill({col})");
                 }
+                "beginGradientFill" => {
+                    let converted: Vec<String> = args
+                        .iter()
+                        .take(5)
+                        .enumerate()
+                        .map(|(idx, arg)| {
+                            if idx == 2
+                                && let Expr::Array(items) = arg
+                            {
+                                let scaled: Vec<String> = items
+                                    .iter()
+                                    .map(|opt| match opt {
+                                        Some(el) => fold_01_to_100(el).unwrap_or_else(|| {
+                                            let ec = self.emit_expr_with_offset(el, offset);
+                                            format!("({ec}) * 100")
+                                        }),
+                                        None => String::new(),
+                                    })
+                                    .collect();
+                                return format!("[{}]", scaled.join(", "));
+                            }
+                            self.emit_expr_with_offset(arg, offset)
+                        })
+                        .collect();
+                    return format!("{recv}.beginGradientFill({})", converted.join(", "));
+                }
+                "beginBitmapFill" => {
+                    let ac = self.emit_args(args, offset);
+                    return format!("{recv}.beginBitmapFill({ac})");
+                }
                 "lineStyle" => {
                     if args.is_empty() {
                         return format!("{recv}.lineStyle()");
@@ -1519,9 +1828,93 @@ impl<'a> As2Emitter<'a> {
             return format!("this[{ac}]");
         }
 
+        // AS3 `hitTestObject`, `hitTestPoint`, 2-arg `startDrag(lock, boundsRect)`, `attachNetStream`, `Loader.load`, `Sound.load`
+        if let Expr::Member(base, method) = callee {
+            if matches!(method.as_str(), "hitTestObject" | "hitTestPoint") && !args.is_empty() {
+                let recv = self.emit_expr_with_offset(base, offset);
+                let ac = self.emit_args(args, offset);
+                return format!("{recv}.hitTest({ac})");
+            }
+            if method == "startDrag" && args.len() == 2 {
+                let recv = self.emit_expr_with_offset(base, offset);
+                let drag_args = self.emit_as3_2arg_start_drag(args, offset);
+                return format!("{recv}.startDrag({drag_args})");
+            }
+            if method == "attachNetStream" && args.len() == 1 {
+                let recv = self.emit_expr_with_offset(base, offset);
+                let ns = self.emit_expr_with_offset(&args[0], offset);
+                return format!("{recv}.attachVideo({ns})");
+            }
+            if method == "load" && args.len() == 1 {
+                let recv = self.emit_expr_with_offset(base, offset);
+                let url = self.unwrap_url_request_expr(&args[0], offset);
+                if matches!(
+                    self.env.infer_expr(base, self.stage),
+                    HirType::Class(ref c) if short_type_name(c) == "Sound"
+                ) {
+                    return format!("{recv}.loadSound({url}, false)");
+                }
+                if matches!(
+                    self.env.infer_expr(base, self.stage),
+                    HirType::MovieClip | HirType::Sprite
+                ) {
+                    return format!("{recv}.loadMovie({url})");
+                }
+            }
+        }
+        if let Expr::Name(fn_name) = callee
+            && fn_name == "startDrag"
+            && args.len() == 2
+        {
+            let drag_args = self.emit_as3_2arg_start_drag(args, offset);
+            return format!("this.startDrag({drag_args})");
+        }
+
         let c = self.emit_expr_with_offset(callee, offset);
         let a = self.emit_args(args, offset);
         format!("{c}({a})")
+    }
+
+    fn unwrap_url_request_expr(&mut self, expr: &Expr, offset: usize) -> String {
+        if let Some(("URLRequest", uargs, _)) = match_new_display_ctor_with_args(expr)
+            && let Some(first) = uargs.first()
+        {
+            return self.emit_expr_with_offset(first, offset);
+        }
+        self.emit_expr_with_offset(expr, offset)
+    }
+
+    fn emit_as3_2arg_start_drag(&mut self, args: &[Expr], offset: usize) -> String {
+        let lock = self.emit_expr_with_offset(&args[0], offset);
+        if let Some(("Rectangle", rargs, _)) = match_new_display_ctor_with_args(&args[1])
+            && rargs.len() >= 4
+        {
+            let left = self.emit_expr_with_offset(&rargs[0], offset);
+            let top = self.emit_expr_with_offset(&rargs[1], offset);
+            let right = match (
+                extract_numeric_literal(&rargs[0]),
+                extract_numeric_literal(&rargs[2]),
+            ) {
+                (Some(x), Some(w)) => format_clean_number(x + w, false),
+                _ => {
+                    let w = self.emit_expr_with_offset(&rargs[2], offset);
+                    format!("({left}) + ({w})")
+                }
+            };
+            let bottom = match (
+                extract_numeric_literal(&rargs[1]),
+                extract_numeric_literal(&rargs[3]),
+            ) {
+                (Some(y), Some(h)) => format_clean_number(y + h, false),
+                _ => {
+                    let h = self.emit_expr_with_offset(&rargs[3], offset);
+                    format!("({top}) + ({h})")
+                }
+            };
+            return format!("{lock}, {left}, {top}, {right}, {bottom}");
+        }
+        let rect = self.emit_expr_with_offset(&args[1], offset);
+        format!("{lock}, ({rect}).x, ({rect}).y, ({rect}).right, ({rect}).bottom")
     }
 
     fn extract_unit_member(
@@ -1995,11 +2388,11 @@ fn is_as2_scalar_field_init(expr: &Expr) -> bool {
     }
 }
 
-fn match_new_display_ctor(expr: &Expr) -> Option<&str> {
+fn match_new_display_ctor_with_args(expr: &Expr) -> Option<(&str, &[Expr], usize)> {
     match expr {
-        Expr::NewBuiltin(ty, _, _) | Expr::NewClass(ty, _, _) | Expr::NewValue(ty, _, _) => {
-            Some(short_type_name(ty))
-        }
+        Expr::NewBuiltin(ty, args, off)
+        | Expr::NewClass(ty, args, off)
+        | Expr::NewValue(ty, args, off) => Some((short_type_name(ty), args.as_slice(), *off)),
         _ => None,
     }
 }
