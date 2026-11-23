@@ -4,8 +4,8 @@ use crate::{
     tests::primary_button,
     updater::{
         GitHubAsset, GitHubRelease, PlatformTarget, ReleaseVersion, UpdateState, UpdaterConfig,
-        UpdaterController, lookup_sha256_for_asset, select_checksum_asset, select_platform_asset,
-        should_run_daily_check,
+        UpdaterController, is_safe_asset_filename, lookup_sha256_for_asset, select_checksum_asset,
+        select_platform_asset, should_run_daily_check,
     },
     workspace::{UpdateChannel, WorkspacePrefs},
 };
@@ -62,6 +62,9 @@ enum FixtureResponse {
         chunks: usize,
         delay_per_chunk: Duration,
         first_chunk_sent: Arc<AtomicBool>,
+    },
+    RawBodyNoContentLength {
+        body: Vec<u8>,
     },
 }
 
@@ -203,6 +206,11 @@ fn handle_fixture_client(stream: TcpStream, routes: &Mutex<HashMap<String, Fixtu
                 }
                 thread::sleep(delay_per_chunk);
             }
+        }
+        Some(FixtureResponse::RawBodyNoContentLength { body }) => {
+            let _ = write!(writer, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
+            let _ = writer.write_all(&body);
+            let _ = writer.flush();
         }
         None => {
             let body = b"not found";
@@ -1125,5 +1133,505 @@ fn t298_preferences_updates_and_about_ui_remove_fake_data_and_verify_real_flows(
         d.editor.workspace.updates.channel,
         UpdateChannel::Beta,
         "Cancel preserves previously saved preferences"
+    );
+}
+
+#[test]
+fn t472_platform_asset_and_checksum_selection_covers_macos_intel_linux_deb_and_manifests() {
+    let mk_asset = |name: &str, size: u64| GitHubAsset {
+        name: name.to_owned(),
+        browser_download_url: format!(
+            "https://github.com/jazzymiles/NeoFlash/releases/download/v0.1.0/{name}"
+        ),
+        size,
+    };
+
+    // Full multi-platform release set with macOS arm64 + x86_64, Windows x64, Linux .deb + .tar.gz,
+    // and distinct per-platform SHA256SUMS manifests alongside package-macos.sh's SHA256SUMS.txt.
+    let full_assets = vec![
+        mk_asset("../unsafe-traversal-macos-arm64.dmg", 100),
+        mk_asset("NeoFlash-0.1.0-macos-arm64.zip", 42_000_000),
+        mk_asset("NeoFlash-0.1.0-macos-arm64.dmg", 44_000_000),
+        mk_asset("NeoFlash-0.1.0-macos-x86_64.zip", 45_000_000),
+        mk_asset("NeoFlash-0.1.0-macos-x86_64.dmg", 47_000_000),
+        mk_asset("NeoFlash-0.1.0-macos-universal.dmg", 90_000_000),
+        mk_asset("NeoFlash-0.1.0-windows-x64.zip", 48_000_000),
+        mk_asset("neoflash_0.1.0~beta.2+build584_arm64.deb", 39_000_000),
+        mk_asset("NeoFlash-0.1.0-linux-x64-preview.tar.gz", 46_000_000),
+        mk_asset("neoflash_0.1.0~beta.2+build584_amd64.deb", 41_000_000),
+        mk_asset("NeoFlash-0.1.0-windows-x64-SHA256SUMS.txt", 320),
+        mk_asset("NeoFlash-0.1.0-linux-x64-SHA256SUMS.txt", 320),
+        mk_asset("NeoFlash-0.1.0-macos-x86_64-SHA256SUMS.txt", 320),
+        mk_asset("NeoFlash-0.1.0-SHA256SUMS.txt", 320),
+    ];
+
+    assert!(!is_safe_asset_filename("../evil.dmg"));
+    assert!(!is_safe_asset_filename("sub/NeoFlash.dmg"));
+    assert!(!is_safe_asset_filename("sub\\NeoFlash.zip"));
+    assert!(is_safe_asset_filename(
+        "neoflash_0.1.0~beta.2+build584_amd64.deb"
+    ));
+
+    // Primary format preference per platform (.dmg > .zip on macOS, .deb > .tar.gz on Linux x64).
+    assert_eq!(
+        select_platform_asset(&full_assets, PlatformTarget::MacosArm64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-macos-arm64.dmg")
+    );
+    assert_eq!(
+        select_platform_asset(&full_assets, PlatformTarget::MacosX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-macos-x86_64.dmg")
+    );
+    assert_eq!(
+        select_platform_asset(&full_assets, PlatformTarget::WindowsX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-windows-x64.zip")
+    );
+    assert_eq!(
+        select_platform_asset(&full_assets, PlatformTarget::LinuxX64).map(|a| a.name.as_str()),
+        Some("neoflash_0.1.0~beta.2+build584_amd64.deb")
+    );
+
+    // Fallback formats: .zip on macOS arm64 & x86_64, universal when dedicated Intel absent, .tar.gz on Linux.
+    let zip_and_tar_only = vec![
+        mk_asset("NeoFlash-0.1.0-macos-arm64.zip", 42_000_000),
+        mk_asset("NeoFlash-0.1.0-macos-x86_64.zip", 45_000_000),
+        mk_asset("NeoFlash-0.1.0-linux-x64.tar.gz", 46_000_000),
+    ];
+    assert_eq!(
+        select_platform_asset(&zip_and_tar_only, PlatformTarget::MacosArm64)
+            .map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-macos-arm64.zip")
+    );
+    assert_eq!(
+        select_platform_asset(&zip_and_tar_only, PlatformTarget::MacosX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-macos-x86_64.zip")
+    );
+    assert_eq!(
+        select_platform_asset(&zip_and_tar_only, PlatformTarget::LinuxX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-linux-x64.tar.gz")
+    );
+    let universal_only = vec![mk_asset("NeoFlash-0.1.0-macos-universal.dmg", 90_000_000)];
+    assert_eq!(
+        select_platform_asset(&universal_only, PlatformTarget::MacosX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-macos-universal.dmg")
+    );
+
+    // Checksum manifest disambiguation: MacosArm64 never picks macos-x86_64-SHA256SUMS.txt or vice versa.
+    assert_eq!(
+        select_checksum_asset(&full_assets, PlatformTarget::MacosArm64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-SHA256SUMS.txt")
+    );
+    assert_eq!(
+        select_checksum_asset(&full_assets, PlatformTarget::MacosX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-macos-x86_64-SHA256SUMS.txt")
+    );
+    assert_eq!(
+        select_checksum_asset(&full_assets, PlatformTarget::WindowsX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-windows-x64-SHA256SUMS.txt")
+    );
+    assert_eq!(
+        select_checksum_asset(&full_assets, PlatformTarget::LinuxX64).map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-linux-x64-SHA256SUMS.txt")
+    );
+
+    // Multi-format SHA256SUMS parsing: UTF-8 BOM, two-space, binary `*`, Windows `.\`, BSD `SHA256 (...) =`.
+    let d1 = "1a".repeat(32);
+    let d2 = "2b".repeat(32);
+    let d3 = "3c".repeat(32);
+    let d4 = "4d".repeat(32);
+    let manifest = format!(
+        "\u{feff}# multi-format sums\n\
+         {d1}  NeoFlash-0.1.0-macos-arm64.dmg\n\
+         {d2} *NeoFlash-0.1.0-macos-x86_64.dmg\n\
+         {d3} *.\\dist\\NeoFlash-0.1.0-windows-x64.zip\n\
+         SHA256 (neoflash_0.1.0~beta.2+build584_amd64.deb) = {d4}\n"
+    );
+    assert_eq!(
+        lookup_sha256_for_asset(&manifest, "NeoFlash-0.1.0-macos-arm64.dmg").unwrap(),
+        d1
+    );
+    assert_eq!(
+        lookup_sha256_for_asset(&manifest, "NeoFlash-0.1.0-macos-x86_64.dmg").unwrap(),
+        d2
+    );
+    assert_eq!(
+        lookup_sha256_for_asset(&manifest, "NeoFlash-0.1.0-windows-x64.zip").unwrap(),
+        d3
+    );
+    assert_eq!(
+        lookup_sha256_for_asset(&manifest, "neoflash_0.1.0~beta.2+build584_amd64.deb").unwrap(),
+        d4
+    );
+    assert!(lookup_sha256_for_asset(&manifest, "../NeoFlash-0.1.0-macos-arm64.dmg").is_err());
+    assert!(lookup_sha256_for_asset(&format!("{d1}  *\n"), "a.dmg").is_err());
+}
+
+#[test]
+fn t472_loopback_github_releases_multi_mib_e2e_hardening() {
+    let dir = TempDirGuard::new("neoflash-t472-updater-e2e");
+    let server = FixtureServer::start();
+    let base = server.base_url.clone();
+
+    // Realistic 3.2 MiB binary archive (`3_355_443` bytes) deterministic pseudo-random payload.
+    let archive_len: usize = 3 * 1024 * 1024 + 209_715;
+    let mut archive_bytes = vec![0u8; archive_len];
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    for chunk in archive_bytes.chunks_mut(8) {
+        state ^= state >> 12;
+        state ^= state << 25;
+        state ^= state >> 27;
+        let bytes = state.wrapping_mul(0x2545_F491_4F6C_DD1D).to_le_bytes();
+        for (dst, src) in chunk.iter_mut().zip(bytes.iter()) {
+            *dst = *src;
+        }
+    }
+    let archive_sha = Sha256::digest_hex(&archive_bytes);
+
+    let intel_dmg = "NeoFlash-0.1.0-beta.2-macos-x86_64.dmg";
+    let arm_dmg = "NeoFlash-0.1.0-beta.2-macos-arm64.dmg";
+    let linux_deb = "neoflash_0.1.0~beta.2+build584_amd64.deb";
+    let win_zip = "NeoFlash-0.1.0-beta.2-windows-x64.zip";
+    let sums_name = "NeoFlash-0.1.0-beta.2-SHA256SUMS.txt";
+
+    let sums_manifest = format!(
+        "# NeoFlash 0.1.0-beta.2 SHA-256 sums\n\
+         {archive_sha}  {arm_dmg}\n\
+         {archive_sha} *{intel_dmg}\n\
+         {archive_sha} *./dist/{win_zip}\n\
+         {archive_sha}  {linux_deb}\n"
+    );
+
+    // Phase A: Draft v0.2.0 + Prerelease v0.1.0-beta.2 + Old Stable v0.0.9.
+    let ok_resp = |body: Vec<u8>| FixtureResponse::Static {
+        status: 200,
+        headers: Vec::new(),
+        body,
+    };
+    let asset_json = |name: &str, size: u64| {
+        serde_json::json!({
+            "name": name,
+            "browser_download_url": format!("{base}/releases/download/v0.1.0-beta.2/{name}"),
+            "size": size
+        })
+    };
+    let phase_a_releases = serde_json::json!([
+        { "tag_name": "v0.2.0", "draft": true, "prerelease": false, "assets": [] },
+        {
+            "tag_name": "v0.1.0-beta.2",
+            "html_url": format!("{base}/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.2"),
+            "draft": false,
+            "prerelease": true,
+            "assets": [
+                asset_json(arm_dmg, archive_len as u64),
+                asset_json(intel_dmg, archive_len as u64),
+                asset_json(win_zip, archive_len as u64),
+                asset_json(linux_deb, archive_len as u64),
+                asset_json(sums_name, sums_manifest.len() as u64),
+            ]
+        },
+        { "tag_name": "v0.0.9", "draft": false, "prerelease": false, "assets": [] }
+    ]);
+    server.set_route(
+        "/repos/jazzymiles/NeoFlash/releases?per_page=20",
+        ok_resp(phase_a_releases.to_string().into_bytes()),
+    );
+    for asset in [arm_dmg, intel_dmg, win_zip, linux_deb] {
+        server.set_route(
+            &format!("/releases/download/v0.1.0-beta.2/{asset}"),
+            FixtureResponse::Static {
+                status: 302,
+                headers: vec![("Location".into(), format!("{base}/objects/{asset}"))],
+                body: Vec::new(),
+            },
+        );
+        server.set_route(&format!("/objects/{asset}"), ok_resp(archive_bytes.clone()));
+    }
+    server.set_route(
+        &format!("/releases/download/v0.1.0-beta.2/{sums_name}"),
+        ok_resp(sums_manifest.clone().into_bytes()),
+    );
+
+    let ctx = egui::Context::default();
+    let mut ctrl = UpdaterController::new(UpdaterConfig {
+        api_base_override: Some(base.clone()),
+        current_version: "0.1.0-beta.1".into(),
+        platform: PlatformTarget::MacosX64,
+        ..Default::default()
+    });
+
+    // 1. Channel filtering: Stable skips draft v0.2.0 & prerelease v0.1.0-beta.2 -> UpToDate(0.0.9).
+    ctrl.start_check(UpdateChannel::Stable, &ctx);
+    wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(5));
+    assert!(matches!(
+        &ctrl.state,
+        UpdateState::UpToDate { channel: UpdateChannel::Stable, latest_version: Some(v), .. } if v == "0.0.9"
+    ));
+
+    // Beta selects 0.1.0-beta.2 (> 0.1.0-beta.1) and resolves macos-x86_64.dmg + SHA256SUMS.txt.
+    ctrl.sync_selected_channel(UpdateChannel::Beta);
+    ctrl.start_check(UpdateChannel::Beta, &ctx);
+    wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(5));
+    let beta_update = match &ctrl.state {
+        UpdateState::UpdateAvailable {
+            channel: UpdateChannel::Beta,
+            update,
+        } => {
+            assert_eq!(update.version, "0.1.0-beta.2");
+            assert_eq!(
+                update.download.as_ref().expect("x86_64 asset").asset_name,
+                intel_dmg
+            );
+            update.clone()
+        }
+        other => panic!("expected Beta UpdateAvailable, got {other:?}"),
+    };
+
+    // 2. Happy-path verified 3.2 MiB download via 302 redirect + `*`-prefixed SHA256SUMS entry.
+    let verified_dest = dir.0.join(intel_dmg);
+    ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        beta_update.clone(),
+        verified_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(10));
+    assert!(matches!(
+        &ctrl.state,
+        UpdateState::VerifiedDownloaded { version, path, .. }
+            if version == "0.1.0-beta.2" && path == &verified_dest
+    ));
+    let saved_bytes = std::fs::read(&verified_dest).expect("read verified 3.2 MiB dmg");
+    assert_eq!(saved_bytes.len(), archive_len);
+    assert_eq!(Sha256::digest_hex(&saved_bytes), archive_sha);
+
+    // 3. Tampered-byte fail-closed cleanup: flip 1 byte in the 3.2 MiB payload; verify neither a
+    //    new destination nor an existing verified file at `verified_dest` is corrupted or leaked.
+    let mut tampered_bytes = archive_bytes.clone();
+    tampered_bytes[archive_len / 2] ^= 0xA5;
+    server.set_route(&format!("/objects/{intel_dmg}"), ok_resp(tampered_bytes));
+    let tampered_dest = dir.0.join("tampered-intel.dmg");
+    ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        beta_update.clone(),
+        tampered_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(10));
+    assert!(
+        matches!(&ctrl.state, UpdateState::Error { message, .. } if message.contains("SHA-256"))
+    );
+    assert!(!tampered_dest.exists());
+    ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        beta_update.clone(),
+        verified_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(10));
+    assert_eq!(
+        Sha256::digest_hex(&std::fs::read(&verified_dest).unwrap()),
+        archive_sha
+    );
+    let part_leaks: Vec<_> = std::fs::read_dir(&dir.0)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().contains(".part"))
+        .collect();
+    assert!(part_leaks.is_empty(), "temp .part leaked: {part_leaks:?}");
+
+    server.set_route(
+        &format!("/objects/{intel_dmg}"),
+        ok_resp(archive_bytes.clone()),
+    );
+
+    // 4. Missing-checksum rejection: (a) manifest missing entry, (b) release missing SHA256SUMS.txt.
+    server.set_route(
+        &format!("/releases/download/v0.1.0-beta.2/{sums_name}"),
+        ok_resp(format!("{archive_sha}  {arm_dmg}\n").into_bytes()),
+    );
+    let no_entry_dest = dir.0.join("no-entry.dmg");
+    ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        beta_update.clone(),
+        no_entry_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(5));
+    assert!(matches!(
+        &ctrl.state,
+        UpdateState::Error { message, .. } if message.contains("does not contain a checksum")
+    ));
+    assert!(!no_entry_dest.exists());
+
+    let no_sums_release = serde_json::json!([
+        {
+            "tag_name": "v0.1.0",
+            "draft": false,
+            "prerelease": false,
+            "assets": [{
+                "name": "NeoFlash-0.1.0-macos-x86_64.dmg",
+                "browser_download_url": format!("{base}/objects/{intel_dmg}"),
+                "size": archive_len as u64
+            }]
+        },
+        phase_a_releases[1].clone()
+    ]);
+    server.set_route(
+        "/repos/jazzymiles/NeoFlash/releases?per_page=20",
+        ok_resp(no_sums_release.to_string().into_bytes()),
+    );
+    ctrl.sync_selected_channel(UpdateChannel::Stable);
+    ctrl.start_check(UpdateChannel::Stable, &ctx);
+    wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(5));
+    let no_sums_update = match &ctrl.state {
+        UpdateState::UpdateAvailable {
+            channel: UpdateChannel::Stable,
+            update,
+        } => {
+            assert_eq!(update.version, "0.1.0");
+            assert!(
+                update
+                    .download
+                    .as_ref()
+                    .unwrap_err()
+                    .contains("missing a SHA256SUMS manifest")
+            );
+            update.clone()
+        }
+        other => panic!("expected UpdateAvailable for 0.1.0, got {other:?}"),
+    };
+    let blocked_dest = dir.0.join("blocked-0.1.0.dmg");
+    ctrl.start_download_to_path(
+        UpdateChannel::Stable,
+        no_sums_update,
+        blocked_dest.clone(),
+        &ctx,
+    );
+    assert!(matches!(&ctrl.state, UpdateState::Error { .. }));
+    assert!(!blocked_dest.exists());
+
+    server.set_route(
+        &format!("/releases/download/v0.1.0-beta.2/{sums_name}"),
+        ok_resp(sums_manifest.into_bytes()),
+    );
+
+    // 5. Size-cap enforcement: both declared `asset.size > max_download_bytes` and streamed body
+    //    without `Content-Length` exceeding `max_download_bytes` fail closed and remove `.part`.
+    let mut capped_ctrl = UpdaterController::new(UpdaterConfig {
+        api_base_override: Some(base.clone()),
+        current_version: "0.1.0-beta.1".into(),
+        platform: PlatformTarget::MacosX64,
+        max_download_bytes: 1024 * 1024, // 1 MiB cap vs 3.2 MiB archive
+        ..Default::default()
+    });
+    let over_declared_dest = dir.0.join("over-declared.dmg");
+    capped_ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        beta_update.clone(),
+        over_declared_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut capped_ctrl, &ctx, Duration::from_secs(5));
+    assert!(
+        matches!(&capped_ctrl.state, UpdateState::Error { message, .. } if message.contains("download limit")),
+        "expected declared size-cap rejection, got {:?}",
+        capped_ctrl.state
+    );
+    assert!(!over_declared_dest.exists());
+
+    let mut zero_size_update = beta_update.clone();
+    if let Ok(ref mut target) = zero_size_update.download {
+        target.asset_size = 0; // Simulate missing size metadata + omitted HTTP Content-Length.
+    }
+    server.set_route(
+        &format!("/objects/{intel_dmg}"),
+        FixtureResponse::RawBodyNoContentLength {
+            body: archive_bytes,
+        },
+    );
+    let over_stream_dest = dir.0.join("over-stream.dmg");
+    capped_ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        zero_size_update,
+        over_stream_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut capped_ctrl, &ctx, Duration::from_secs(5));
+    assert!(
+        matches!(&capped_ctrl.state, UpdateState::Error { message, .. } if message.contains("safety limit")),
+        "expected streaming size-cap rejection, got {:?}",
+        capped_ctrl.state
+    );
+    assert!(!over_stream_dest.exists());
+
+    // 6. Mid-stream cooperative cancellation on a 4 MiB chunked transfer cleans `.part` deterministically.
+    let first_chunk_sent = Arc::new(AtomicBool::new(false));
+    let chunk_64k = vec![0x5Au8; 64 * 1024];
+    server.set_route(
+        &format!("/objects/{intel_dmg}"),
+        FixtureResponse::Streamed {
+            total_len: chunk_64k.len() * 64, // 4 MiB
+            chunk: chunk_64k,
+            chunks: 64,
+            delay_per_chunk: Duration::from_millis(25),
+            first_chunk_sent: Arc::clone(&first_chunk_sent),
+        },
+    );
+    let cancel_dest = dir.0.join("cancelled-4mib.dmg");
+    ctrl.start_download_to_path(UpdateChannel::Beta, beta_update, cancel_dest.clone(), &ctx);
+
+    let cancel_wait = Instant::now();
+    let mut observed_mid_stream = false;
+    while cancel_wait.elapsed() < Duration::from_secs(5) {
+        let _ = ctrl.poll(&ctx, false);
+        if first_chunk_sent.load(Ordering::Acquire)
+            && let UpdateState::Downloading {
+                received_bytes,
+                total_bytes: Some(total),
+                ..
+            } = &ctrl.state
+            && *received_bytes > 0
+            && *received_bytes < *total
+        {
+            observed_mid_stream = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(observed_mid_stream, "expected mid-stream byte progress");
+    ctrl.cancel_download();
+    assert!(matches!(
+        &ctrl.state,
+        UpdateState::UpdateAvailable {
+            channel: UpdateChannel::Beta,
+            ..
+        }
+    ));
+    let drain_start = Instant::now();
+    while ctrl.has_active_worker() {
+        let _ = ctrl.poll(&ctx, false);
+        assert!(drain_start.elapsed() < Duration::from_secs(5));
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        matches!(
+            &ctrl.state,
+            UpdateState::UpdateAvailable {
+                channel: UpdateChannel::Beta,
+                ..
+            }
+        ),
+        "cancelled worker must keep UpdateAvailable state, got {:?}",
+        ctrl.state
+    );
+    assert!(!cancel_dest.exists());
+    let final_entries: Vec<String> = std::fs::read_dir(&dir.0)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        final_entries,
+        vec![intel_dmg.to_owned()],
+        "only the single SHA-256 verified archive may exist on disk"
     );
 }

@@ -483,6 +483,11 @@ impl UpdaterController {
         matches!(self.state, UpdateState::Downloading { .. })
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn has_active_worker(&self) -> bool {
+        self.worker.is_some()
+    }
+
     pub(crate) fn release_notes_url(&self) -> &str {
         match &self.state {
             UpdateState::UpToDate {
@@ -865,6 +870,7 @@ impl UpdaterController {
                     result,
                 }) => {
                     finish_worker = true;
+                    let cancelled = worker.cancel.load(Ordering::Acquire);
                     match result {
                         Ok(()) => {
                             let reveal_note = if reveal_on_finish {
@@ -891,6 +897,11 @@ impl UpdaterController {
                             };
                         }
                         Err(ReleaseHttpError::Cancelled) => {
+                            if matches!(self.state, UpdateState::Downloading { .. }) {
+                                self.state = UpdateState::UpdateAvailable { channel, update };
+                            }
+                        }
+                        Err(_) if cancelled => {
                             if matches!(self.state, UpdateState::Downloading { .. }) {
                                 self.state = UpdateState::UpdateAvailable { channel, update };
                             }
@@ -1013,15 +1024,31 @@ fn run_verified_download(
     if cancel.load(Ordering::Acquire) {
         return Err(ReleaseHttpError::Cancelled);
     }
+    if !is_safe_asset_filename(&target.asset_name) {
+        return Err(ReleaseHttpError::Io(format!(
+            "Unsafe release asset filename '{}' rejected.",
+            target.asset_name
+        )));
+    }
+    if target.asset_size > config.max_download_bytes {
+        return Err(ReleaseHttpError::SizeExceeded(format!(
+            "Release asset '{}' declares {} bytes, exceeding the {}-byte download limit.",
+            target.asset_name, target.asset_size, config.max_download_bytes
+        )));
+    }
     let loopback = config.loopback_base();
-    let sums_text = fetch_text_with_policy(
+    let sums_text = match fetch_text_with_policy(
         &target.checksum_url,
         "text/plain",
         &config.user_agent(),
         config.max_checksum_bytes,
         config.check_timeout,
         loopback.as_deref(),
-    )?;
+    ) {
+        Ok(text) => text,
+        Err(_) if cancel.load(Ordering::Acquire) => return Err(ReleaseHttpError::Cancelled),
+        Err(err) => return Err(err),
+    };
     if cancel.load(Ordering::Acquire) {
         return Err(ReleaseHttpError::Cancelled);
     }
@@ -1038,7 +1065,7 @@ fn run_verified_download(
         allowed_loopback_base: loopback.as_deref(),
         cancel: cancel.as_ref(),
     };
-    download_verified_file(&req, &mut |received, total| {
+    match download_verified_file(&req, &mut |received, total| {
         let now = Instant::now();
         if received == 0
             || total.is_some_and(|t| received >= t)
@@ -1051,7 +1078,11 @@ fn run_verified_download(
             });
             ctx.request_repaint();
         }
-    })
+    }) {
+        Ok(()) => Ok(()),
+        Err(_) if cancel.load(Ordering::Acquire) => Err(ReleaseHttpError::Cancelled),
+        Err(err) => Err(err),
+    }
 }
 
 fn select_release_for_channel(
@@ -1147,6 +1178,16 @@ fn resolve_verified_asset(
     })
 }
 
+pub(crate) fn is_safe_asset_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name.trim() == name
+        && !name
+            .bytes()
+            .any(|b| b == b'/' || b == b'\\' || b < 0x20 || b == 0x7f)
+}
+
 pub(crate) fn select_platform_asset(
     assets: &[GitHubAsset],
     platform: PlatformTarget,
@@ -1160,60 +1201,82 @@ pub(crate) fn select_platform_asset(
             || lower.ends_with(".sigstore")
             || lower.ends_with(".txt")
     };
+    let find_matching = |pred: &dyn Fn(&str) -> bool| -> Option<&GitHubAsset> {
+        assets.iter().find(|a| {
+            if !is_safe_asset_filename(&a.name) {
+                return false;
+            }
+            let lower = a.name.to_ascii_lowercase();
+            !is_auxiliary(&lower) && pred(&lower)
+        })
+    };
 
     match platform {
         PlatformTarget::MacosArm64 => {
             let matches_arch = |lower: &str| {
                 (lower.contains("macos") || lower.contains("darwin"))
                     && (lower.contains("arm64") || lower.contains("aarch64"))
+                    && !lower.contains("x86_64")
+                    && !lower.contains("x86-64")
+                    && !lower.contains("x64")
+                    && !lower.contains("intel")
             };
-            assets
-                .iter()
-                .find(|a| {
-                    let l = a.name.to_ascii_lowercase();
-                    !is_auxiliary(&l) && matches_arch(&l) && l.ends_with(".dmg")
-                })
-                .or_else(|| {
-                    assets.iter().find(|a| {
-                        let l = a.name.to_ascii_lowercase();
-                        !is_auxiliary(&l) && matches_arch(&l) && l.ends_with(".zip")
-                    })
-                })
+            find_matching(&|l| matches_arch(l) && l.ends_with(".dmg"))
+                .or_else(|| find_matching(&|l| matches_arch(l) && l.ends_with(".zip")))
         }
         PlatformTarget::MacosX64 => {
-            let matches_arch = |lower: &str| {
+            let matches_intel = |lower: &str| {
                 (lower.contains("macos") || lower.contains("darwin"))
+                    && (lower.contains("x86_64")
+                        || lower.contains("x86-64")
+                        || lower.contains("x64")
+                        || lower.contains("intel"))
+                    && !lower.contains("arm64")
+                    && !lower.contains("aarch64")
+            };
+            let matches_universal = |lower: &str| {
+                (lower.contains("macos") || lower.contains("darwin")) && lower.contains("universal")
+            };
+            find_matching(&|l| matches_intel(l) && l.ends_with(".dmg"))
+                .or_else(|| find_matching(&|l| matches_intel(l) && l.ends_with(".zip")))
+                .or_else(|| find_matching(&|l| matches_universal(l) && l.ends_with(".dmg")))
+                .or_else(|| find_matching(&|l| matches_universal(l) && l.ends_with(".zip")))
+        }
+        PlatformTarget::WindowsX64 => {
+            let matches_win_x64 = |lower: &str| {
+                (lower.contains("windows") || lower.contains("win64"))
                     && (lower.contains("x64")
                         || lower.contains("x86_64")
-                        || lower.contains("universal"))
+                        || lower.contains("amd64"))
+                    && !lower.contains("arm64")
+                    && !lower.contains("aarch64")
             };
-            assets
-                .iter()
-                .find(|a| {
-                    let l = a.name.to_ascii_lowercase();
-                    !is_auxiliary(&l) && matches_arch(&l) && l.ends_with(".dmg")
+            find_matching(&|l| matches_win_x64(l) && l.ends_with(".zip")).or_else(|| {
+                find_matching(&|l| {
+                    matches_win_x64(l) && (l.ends_with(".msix") || l.ends_with(".msi"))
                 })
-                .or_else(|| {
-                    assets.iter().find(|a| {
-                        let l = a.name.to_ascii_lowercase();
-                        !is_auxiliary(&l) && matches_arch(&l) && l.ends_with(".zip")
-                    })
-                })
+            })
         }
-        PlatformTarget::WindowsX64 => assets.iter().find(|a| {
-            let l = a.name.to_ascii_lowercase();
-            !is_auxiliary(&l)
-                && (l.contains("windows") || l.contains("win64"))
-                && (l.contains("x64") || l.contains("x86_64"))
-                && l.ends_with(".zip")
-        }),
-        PlatformTarget::LinuxX64 => assets.iter().find(|a| {
-            let l = a.name.to_ascii_lowercase();
-            !is_auxiliary(&l)
-                && l.contains("linux")
-                && (l.contains("x64") || l.contains("x86_64") || l.contains("amd64"))
-                && (l.ends_with(".tar.gz") || l.ends_with(".tgz"))
-        }),
+        PlatformTarget::LinuxX64 => {
+            let matches_deb = |lower: &str| {
+                lower.ends_with(".deb")
+                    && (lower.contains("amd64")
+                        || lower.contains("x86_64")
+                        || lower.contains("x64"))
+                    && !lower.contains("arm64")
+                    && !lower.contains("aarch64")
+            };
+            let matches_tarball = |lower: &str| {
+                lower.contains("linux")
+                    && (lower.contains("x64")
+                        || lower.contains("x86_64")
+                        || lower.contains("amd64"))
+                    && !lower.contains("arm64")
+                    && !lower.contains("aarch64")
+                    && (lower.ends_with(".tar.gz") || lower.ends_with(".tgz"))
+            };
+            find_matching(&matches_deb).or_else(|| find_matching(&matches_tarball))
+        }
         PlatformTarget::Unsupported => None,
     }
 }
@@ -1222,43 +1285,115 @@ pub(crate) fn select_checksum_asset(
     assets: &[GitHubAsset],
     platform: PlatformTarget,
 ) -> Option<&GitHubAsset> {
+    if platform == PlatformTarget::Unsupported {
+        return None;
+    }
     let is_sums = |lower: &str| {
         lower == "sha256sums"
             || lower == "sha256sums.txt"
             || lower.ends_with("-sha256sums.txt")
             || lower.ends_with("-sha256sums")
     };
-    let platform_hint = match platform {
-        PlatformTarget::MacosArm64 => Some("macos"),
-        PlatformTarget::MacosX64 => Some("macos"),
-        PlatformTarget::WindowsX64 => Some("windows-x64"),
-        PlatformTarget::LinuxX64 => Some("linux-x64"),
+    let find_sums = |pred: &dyn Fn(&str) -> bool| -> Option<&GitHubAsset> {
+        assets.iter().find(|a| {
+            if !is_safe_asset_filename(&a.name) {
+                return false;
+            }
+            let lower = a.name.to_ascii_lowercase();
+            is_sums(&lower) && pred(&lower)
+        })
+    };
+
+    let exact_hints: &[&str] = match platform {
+        PlatformTarget::MacosArm64 => &[
+            "macos-arm64",
+            "macos-aarch64",
+            "darwin-arm64",
+            "darwin-aarch64",
+        ],
+        PlatformTarget::MacosX64 => &[
+            "macos-x86_64",
+            "macos-x86-64",
+            "macos-x64",
+            "macos-intel",
+            "darwin-x86_64",
+            "darwin-x64",
+        ],
+        PlatformTarget::WindowsX64 => &["windows-x64", "windows-x86_64", "win64"],
+        PlatformTarget::LinuxX64 => &["linux-x64", "linux-x86_64", "linux-amd64"],
+        PlatformTarget::Unsupported => &[],
+    };
+    for hint in exact_hints {
+        if let Some(found) = find_sums(&|l| l.contains(hint)) {
+            return Some(found);
+        }
+    }
+
+    let is_foreign_platform = |lower: &str| match platform {
+        PlatformTarget::MacosArm64 => {
+            lower.contains("windows")
+                || lower.contains("win64")
+                || lower.contains("linux")
+                || lower.contains("x86_64")
+                || lower.contains("x86-64")
+                || lower.contains("x64")
+                || lower.contains("intel")
+        }
+        PlatformTarget::MacosX64 => {
+            lower.contains("windows")
+                || lower.contains("win64")
+                || lower.contains("linux")
+                || lower.contains("arm64")
+                || lower.contains("aarch64")
+        }
+        PlatformTarget::WindowsX64 => {
+            lower.contains("macos")
+                || lower.contains("darwin")
+                || lower.contains("linux")
+                || lower.contains("arm64")
+                || lower.contains("aarch64")
+        }
+        PlatformTarget::LinuxX64 => {
+            lower.contains("macos")
+                || lower.contains("darwin")
+                || lower.contains("windows")
+                || lower.contains("win64")
+                || lower.contains("arm64")
+                || lower.contains("aarch64")
+        }
+        PlatformTarget::Unsupported => true,
+    };
+
+    let os_hint = match platform {
+        PlatformTarget::MacosArm64 | PlatformTarget::MacosX64 => Some("macos"),
+        PlatformTarget::WindowsX64 => Some("windows"),
+        PlatformTarget::LinuxX64 => Some("linux"),
         PlatformTarget::Unsupported => None,
     };
-    if let Some(hint) = platform_hint
-        && let Some(found) = assets.iter().find(|a| {
-            let l = a.name.to_ascii_lowercase();
-            is_sums(&l) && l.contains(hint)
-        })
+    if let Some(hint) = os_hint
+        && let Some(found) = find_sums(&|l| l.contains(hint) && !is_foreign_platform(l))
     {
         return Some(found);
     }
-    assets
-        .iter()
-        .find(|a| is_sums(&a.name.to_ascii_lowercase()))
+
+    find_sums(&|l| !is_foreign_platform(l))
 }
 
 /// Look up the expected 64-char SHA-256 hex digest for `asset_name` in a `SHA256SUMS` manifest.
 ///
-/// Rejects malformed lines, duplicate conflicting digests, and missing entries.
+/// Rejects unsafe asset names, malformed lines, duplicate conflicting digests, and missing entries.
 pub(crate) fn lookup_sha256_for_asset(manifest: &str, asset_name: &str) -> Result<String, String> {
+    if !is_safe_asset_filename(asset_name) {
+        return Err(format!("Unsafe release asset filename '{asset_name}'."));
+    }
     let target_name = Path::new(asset_name)
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(asset_name);
 
+    let body = manifest.strip_prefix('\u{feff}').unwrap_or(manifest);
     let mut matched: Option<String> = None;
-    for (idx, raw_line) in manifest.lines().enumerate() {
+    for (idx, raw_line) in body.lines().enumerate() {
         let trimmed = raw_line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
@@ -1269,12 +1404,17 @@ pub(crate) fn lookup_sha256_for_asset(manifest: &str, asset_name: &str) -> Resul
                 idx + 1
             ));
         };
-        let clean_name = rest
-            .trim()
-            .strip_prefix('*')
-            .unwrap_or(rest.trim())
-            .trim_start_matches("./");
+        let without_star = rest.trim().strip_prefix('*').unwrap_or(rest.trim());
+        let clean_name = without_star
+            .trim_start_matches("./")
+            .trim_start_matches(".\\");
         let entry_basename = clean_name.rsplit(['/', '\\']).next().unwrap_or(clean_name);
+        if entry_basename.is_empty() || entry_basename == "." || entry_basename == ".." {
+            return Err(format!(
+                "Invalid SHA256SUMS line {} (empty or unsafe filename).",
+                idx + 1
+            ));
+        }
         if clean_name == asset_name || entry_basename == target_name {
             let lower = hash_part.to_ascii_lowercase();
             if let Some(prev) = &matched {
@@ -1297,6 +1437,20 @@ pub(crate) fn lookup_sha256_for_asset(manifest: &str, asset_name: &str) -> Resul
 }
 
 fn split_checksum_line(line: &str) -> Option<(&str, &str)> {
+    // Support BSD/OpenSSL `SHA256 (<filename>) = <64-hex>` alongside GNU/shasum `<64-hex> [*]<filename>`.
+    if let Some(after_tag) = line
+        .strip_prefix("SHA256 (")
+        .or_else(|| line.strip_prefix("SHA256("))
+        && let Some((filename, eq_hash)) = after_tag.rsplit_once(") = ")
+    {
+        let hash = eq_hash.trim();
+        let name = filename.trim();
+        if !name.is_empty() && hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Some((hash, name));
+        }
+        return None;
+    }
+
     let mut split_idx = None;
     for (i, b) in line.bytes().enumerate() {
         if b.is_ascii_whitespace() {
