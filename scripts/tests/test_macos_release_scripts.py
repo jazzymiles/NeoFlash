@@ -111,7 +111,30 @@ class MacosReleaseScriptTests(unittest.TestCase):
             ["application/vnd.neoflash.project+json"],
         )
 
+        imported_utis = plist["UTImportedTypeDeclarations"]
+        self.assertEqual(len(imported_utis), 1)
+        self.assertEqual(
+            imported_utis[0]["UTTypeIdentifier"], "com.adobe.actionscript-source"
+        )
+        self.assertEqual(
+            imported_utis[0]["UTTypeConformsTo"],
+            ["public.source-code", "public.plain-text"],
+        )
+        self.assertEqual(
+            imported_utis[0]["UTTypeTagSpecification"]["public.filename-extension"],
+            ["as"],
+        )
+        self.assertEqual(
+            imported_utis[0]["UTTypeTagSpecification"]["public.mime-type"],
+            ["text/x-actionscript", "application/x-actionscript"],
+        )
+
         doc_types = {entry["CFBundleTypeName"]: entry for entry in plist["CFBundleDocumentTypes"]}
+        for name, entry in doc_types.items():
+            with self.subTest(doc_type=name):
+                self.assertTrue(entry.get("LSItemContentTypes"))
+                self.assertTrue(entry.get("CFBundleTypeExtensions"))
+
         owner = doc_types["NeoFlash Document"]
         self.assertEqual(owner["CFBundleTypeRole"], "Editor")
         self.assertEqual(owner["LSHandlerRank"], "Owner")
@@ -119,9 +142,44 @@ class MacosReleaseScriptTests(unittest.TestCase):
         self.assertEqual(owner["CFBundleTypeExtensions"], ["nflash"])
         self.assertEqual(owner["CFBundleTypeIconFile"], "AppIcon")
 
+        as_source = doc_types["ActionScript Source"]
+        self.assertEqual(as_source["CFBundleTypeRole"], "Editor")
+        self.assertEqual(as_source["LSHandlerRank"], "Alternate")
+        self.assertEqual(as_source["CFBundleTypeExtensions"], ["as"])
+        self.assertEqual(
+            as_source["LSItemContentTypes"],
+            [
+                "com.adobe.actionscript-source",
+                "com.apple.applesingle-archive",
+                "public.source-code",
+                "public.script",
+                "public.plain-text",
+            ],
+        )
+
         viewer = doc_types["Flash & Design Interchange Documents"]
         self.assertEqual(viewer["CFBundleTypeRole"], "Viewer")
         self.assertEqual(viewer["LSHandlerRank"], "Alternate")
+        self.assertEqual(
+            viewer["LSItemContentTypes"],
+            [
+                "com.apple.applesingle-archive",
+                "com.adobe.actionscript-source",
+                "public.source-code",
+                "public.script",
+                "public.plain-text",
+                "public.data",
+                "public.content",
+                "public.item",
+                "public.folder",
+                "public.archive",
+                "com.adobe.pdf",
+                "com.adobe.illustrator.ai-image",
+                "com.adobe.encapsulated-postscript",
+                "com.adobe.photoshop-image",
+                "public.svg-image",
+            ],
+        )
         self.assertEqual(
             viewer["CFBundleTypeExtensions"],
             [
@@ -137,6 +195,7 @@ class MacosReleaseScriptTests(unittest.TestCase):
                 "psb",
                 "pdf",
                 "ai",
+                "eps",
                 "fxg",
             ],
         )

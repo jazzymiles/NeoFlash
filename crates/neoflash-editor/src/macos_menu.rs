@@ -3178,6 +3178,115 @@ pub(crate) fn drain_startup_open_files(into: &mut Vec<PathBuf>) {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) mod open_urls_bridge {
+    use super::*;
+    use objc2::{
+        msg_send,
+        runtime::{AnyObject, Bool, Sel},
+        sel,
+    };
+    use std::ffi::{CStr, OsStr, c_char};
+    use std::os::unix::ffi::OsStrExt as _;
+
+    pub(crate) type OpenUrlsFn =
+        unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>, Option<&AnyObject>);
+
+    /// Extract local filesystem paths from an Objective-C `NSArray<NSURL *> *` (`isFileURL` ->
+    /// `filePathURL` -> `fileSystemRepresentation` / `path`), ignoring `nil` and non-file URLs.
+    pub(crate) unsafe fn extract_file_paths_from_ns_urls(urls: Option<&AnyObject>) -> Vec<PathBuf> {
+        let Some(array) = urls else {
+            return Vec::new();
+        };
+        let has_count: Bool = unsafe { msg_send![array, respondsToSelector: sel!(count)] };
+        let has_obj_at: Bool =
+            unsafe { msg_send![array, respondsToSelector: sel!(objectAtIndex:)] };
+        if !has_count.as_bool() || !has_obj_at.as_bool() {
+            return Vec::new();
+        }
+        let count: usize = unsafe { msg_send![array, count] };
+        let mut accepted = Vec::with_capacity(count);
+        for index in 0..count {
+            let item: *const AnyObject = unsafe { msg_send![array, objectAtIndex: index] };
+            if item.is_null() {
+                continue;
+            }
+            let url = unsafe { &*item };
+            let has_is_file: Bool = unsafe { msg_send![url, respondsToSelector: sel!(isFileURL)] };
+            if !has_is_file.as_bool() {
+                continue;
+            }
+            let is_file: Bool = unsafe { msg_send![url, isFileURL] };
+            if !is_file.as_bool() {
+                continue;
+            }
+            let has_file_path_url: Bool =
+                unsafe { msg_send![url, respondsToSelector: sel!(filePathURL)] };
+            let resolved_ptr: *const AnyObject = if has_file_path_url.as_bool() {
+                unsafe { msg_send![url, filePathURL] }
+            } else {
+                std::ptr::null()
+            };
+            let target_url = if !resolved_ptr.is_null() {
+                unsafe { &*resolved_ptr }
+            } else {
+                url
+            };
+
+            let has_fs_rep: Bool = unsafe {
+                msg_send![target_url, respondsToSelector: sel!(fileSystemRepresentation)]
+            };
+            if has_fs_rep.as_bool() {
+                let fs_rep: *const c_char =
+                    unsafe { msg_send![target_url, fileSystemRepresentation] };
+                if !fs_rep.is_null() {
+                    let bytes = unsafe { CStr::from_ptr(fs_rep) }.to_bytes();
+                    if !bytes.is_empty() {
+                        accepted.push(PathBuf::from(OsStr::from_bytes(bytes)));
+                        continue;
+                    }
+                }
+            }
+
+            let has_path: Bool = unsafe { msg_send![target_url, respondsToSelector: sel!(path)] };
+            if has_path.as_bool() {
+                let path_obj: *const AnyObject = unsafe { msg_send![target_url, path] };
+                if !path_obj.is_null() {
+                    let utf8: *const c_char = unsafe { msg_send![&*path_obj, UTF8String] };
+                    if !utf8.is_null() {
+                        let path_str = unsafe { CStr::from_ptr(utf8) }.to_string_lossy();
+                        if !path_str.is_empty() {
+                            accepted.push(PathBuf::from(path_str.as_ref()));
+                        }
+                    }
+                }
+            }
+        }
+        accepted
+    }
+
+    /// `-[NSApplicationDelegate application:openURLs:]` (`v@:@@`), preferred by AppKit on
+    /// macOS 10.13+ / 15 Sequoia for Finder `Open With`, double-click, and Dock file drops.
+    pub(crate) unsafe extern "C-unwind" fn application_open_urls(
+        _this: &AnyObject,
+        _cmd: Sel,
+        #[allow(unused_variables)] app: Option<&AnyObject>,
+        urls: Option<&AnyObject>,
+    ) {
+        let accepted = unsafe { extract_file_paths_from_ns_urls(urls) };
+        if accepted.is_empty() {
+            return;
+        }
+        if let Ok(mut queue) = global_lifecycle_queue().lock() {
+            queue.push_open_files(accepted);
+        }
+        #[cfg(not(test))]
+        {
+            super::native::focus_root_window_and_wake_from_any_app(app);
+        }
+    }
+}
+
 #[cfg(all(target_os = "macos", not(test)))]
 mod native {
     use super::*;
@@ -3294,6 +3403,19 @@ mod native {
             .iter()
             .find(|w| w.level() != NSFloatingWindowLevel)
             .or_else(|| windows.iter().next())
+    }
+
+    pub(super) fn focus_root_window_and_wake_from_any_app(_app: Option<&AnyObject>) {
+        if let Some(mtm) = MainThreadMarker::new() {
+            let shared_app = NSApplication::sharedApplication(mtm);
+            if let Some(root) = find_root_window(&shared_app) {
+                if root.isMiniaturized() {
+                    root.deminiaturize(None);
+                }
+                root.makeKeyAndOrderFront(None);
+            }
+        }
+        wake_root_viewport();
     }
 
     type OpenFileFn =
@@ -3712,6 +3834,14 @@ mod native {
         let added_open_files =
             add_delegate_method(class, sel!(application:openFiles:), open_files_imp, "v@:@@")?;
 
+        let open_urls_imp = unsafe {
+            std::mem::transmute::<super::open_urls_bridge::OpenUrlsFn, Imp>(
+                super::open_urls_bridge::application_open_urls,
+            )
+        };
+        let added_open_urls =
+            add_delegate_method(class, sel!(application:openURLs:), open_urls_imp, "v@:@@")?;
+
         let reopen_enc = format!("{}@:@{}", Bool::ENCODING, Bool::ENCODING);
         let reopen_imp = unsafe {
             std::mem::transmute::<ShouldHandleReopenFn, Imp>(application_should_handle_reopen)
@@ -3723,7 +3853,7 @@ mod native {
             &reopen_enc,
         )?;
 
-        if added_open_file || added_open_files || added_reopen {
+        if added_open_file || added_open_files || added_open_urls || added_reopen {
             // Refresh NSApplication's cached delegate selector flags without altering winit's
             // delegate instance or notifications.
             app.setDelegate(None);

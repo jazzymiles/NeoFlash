@@ -1264,7 +1264,7 @@ impl Editor {
                 self.close_session_tab(ctx, self.active_session);
             }
             Pending::Open | Pending::Import => {
-                if let Some(path) = rfd::FileDialog::new()
+                if let Some(paths) = rfd::FileDialog::new()
                     .add_filter(
                         "NeoFlash, ActionScript, Flash, Figma or Vector/PSD document",
                         &[
@@ -1283,25 +1283,13 @@ impl Editor {
                         "Vector & Photoshop documents",
                         &["svg", "psd", "psb", "pdf", "ai", "eps", "fxg"],
                     )
-                    .pick_file()
+                    .pick_files()
                 {
-                    if self.session_for_open_path(&path).is_none()
-                        && crate::panels::figma_import::is_figma_file_path(&path)
-                    {
-                        self.open_figma_import_dialog_for_open(ctx, path);
-                    } else {
-                        self.open_path(path, ctx);
-                    }
+                    let _ = self.open_picked_paths(paths, ctx);
                 }
             }
             Pending::OpenPath(path) => {
-                if self.session_for_open_path(&path).is_none()
-                    && crate::panels::figma_import::is_figma_file_path(&path)
-                {
-                    self.open_figma_import_dialog_for_open(ctx, path);
-                } else {
-                    self.open_path(path, ctx);
-                }
+                let _ = self.open_picked_paths(vec![path], ctx);
             }
             Pending::CloseSession(index) => self.finish_session_close(ctx, index),
             Pending::Close | Pending::CloseSessions => self.approve_quit_document(ctx),
@@ -1356,6 +1344,56 @@ impl Editor {
 
     pub fn open_path(&mut self, path: PathBuf, ctx: &egui::Context) {
         let _ = self.try_open_path(path, ctx);
+    }
+
+    /// Open or focus one or more selected/dropped files in deduplicated session tabs (`T-472`).
+    pub(crate) fn open_picked_paths(&mut self, paths: Vec<PathBuf>, ctx: &egui::Context) -> usize {
+        if self.confirm.is_some() || self.close_origin.is_some() || self.timeline_edit.dragging() {
+            return 0;
+        }
+        let mut deduped: Vec<PathBuf> = Vec::with_capacity(paths.len());
+        for path in paths {
+            if !path.as_os_str().is_empty()
+                && !deduped
+                    .iter()
+                    .any(|seen| crate::document_sessions::same_path(seen, &path))
+            {
+                deduped.push(path);
+            }
+        }
+        let mut opened_count = 0usize;
+        let mut opened_as_count = 0usize;
+        let mut pending_figma: Vec<PathBuf> = Vec::new();
+        for path in deduped {
+            if self.session_for_open_path(&path).is_none()
+                && crate::panels::figma_import::is_figma_file_path(&path)
+            {
+                pending_figma.push(path);
+            } else {
+                let is_as = Self::is_actionscript_source_path(&path);
+                if self.try_open_path(path, ctx) {
+                    opened_count += 1;
+                    if is_as {
+                        opened_as_count += 1;
+                    }
+                }
+            }
+        }
+        if !pending_figma.is_empty() {
+            opened_count += pending_figma.len();
+            if pending_figma.len() == 1 {
+                self.open_figma_import_dialog_for_open(ctx, pending_figma.remove(0));
+            } else {
+                self.open_figma_import_dialog(
+                    ctx,
+                    pending_figma,
+                    crate::panels::figma_import::FigmaImportTarget::OpenDocument,
+                );
+            }
+        } else if opened_as_count > 1 && opened_as_count == opened_count {
+            self.message(format!("Opened {opened_as_count} ActionScript files."));
+        }
+        opened_count
     }
 
     pub(crate) fn try_open_path(&mut self, path: PathBuf, ctx: &egui::Context) -> bool {
@@ -2689,3 +2727,7 @@ mod portable_runtime_tests {
 #[cfg(test)]
 #[path = "t471_large_doc_and_swf_stage_tests.rs"]
 mod t471_large_doc_and_swf_stage_tests;
+
+#[cfg(test)]
+#[path = "t472_as_open_tests.rs"]
+mod t472_as_open_tests;

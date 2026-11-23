@@ -285,15 +285,30 @@ impl Editor {
         let position = pointer
             .or(self.graphic_drop_position.take())
             .unwrap_or(area.center());
+        let paths: Option<Vec<_>> = dropped.iter().map(|file| file.path.clone()).collect();
+        let Some(paths) = paths else {
+            if !area.contains(position) {
+                self.message(
+                    "Drop graphics onto the Stage, or use File → Import graphics to Stage.",
+                );
+            } else {
+                self.message("This drop has no local file path. Save the image first, then drag that file onto the Stage.");
+            }
+            return;
+        };
+        let (as_paths, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
+            .into_iter()
+            .partition(|path| Self::is_actionscript_source_path(path));
+        if !as_paths.is_empty() {
+            let _ = self.open_picked_paths(as_paths, ctx);
+            if paths.is_empty() {
+                return;
+            }
+        }
         if !area.contains(position) {
             self.message("Drop graphics onto the Stage, or use File → Import graphics to Stage.");
             return;
         }
-        let paths: Option<Vec<_>> = dropped.iter().map(|file| file.path.clone()).collect();
-        let Some(paths) = paths else {
-            self.message("This drop has no local file path. Save the image first, then drag that file onto the Stage.");
-            return;
-        };
         let point = mapped_drop_point(mapping, origin, self.zoom, position);
         let videos: Vec<_> = paths
             .iter()

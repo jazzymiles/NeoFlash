@@ -1433,3 +1433,166 @@ fn rf02_dirty_cache_and_recent_files_cache_avoid_repeat_traversals_and_preserve_
             .is_empty()
     );
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn t472_application_open_urls_extracts_file_nsurls_and_opens_deduplicated_as_tabs() {
+    use crate::macos_menu::open_urls_bridge::{
+        OpenUrlsFn, application_open_urls, extract_file_paths_from_ns_urls,
+    };
+    use objc2::{
+        ffi, msg_send,
+        rc::Retained,
+        runtime::{AnyClass, AnyObject, Imp},
+        sel,
+    };
+    use std::ffi::CString;
+
+    unsafe fn make_ns_string(text: &str) -> Retained<AnyObject> {
+        let cls = AnyClass::get(c"NSString").expect("NSString");
+        let cstr = CString::new(text).expect("CString");
+        unsafe {
+            let raw: *mut AnyObject = msg_send![cls, alloc];
+            let initialized: *mut AnyObject = msg_send![raw, initWithUTF8String: cstr.as_ptr()];
+            Retained::from_raw(initialized).expect("NSString instance")
+        }
+    }
+
+    unsafe fn make_file_nsurl(path: &Path) -> Retained<AnyObject> {
+        let cls = AnyClass::get(c"NSURL").expect("NSURL");
+        let ns_path = unsafe { make_ns_string(&path.to_string_lossy()) };
+        unsafe {
+            let raw: *mut AnyObject = msg_send![cls, fileURLWithPath: &*ns_path];
+            Retained::retain(raw).expect("file NSURL")
+        }
+    }
+
+    unsafe fn make_web_nsurl(url: &str) -> Retained<AnyObject> {
+        let cls = AnyClass::get(c"NSURL").expect("NSURL");
+        let ns_url = unsafe { make_ns_string(url) };
+        unsafe {
+            let raw: *mut AnyObject = msg_send![cls, URLWithString: &*ns_url];
+            Retained::retain(raw).expect("web NSURL")
+        }
+    }
+
+    unsafe fn make_ns_array(items: &[&AnyObject]) -> Retained<AnyObject> {
+        let cls = AnyClass::get(c"NSMutableArray").expect("NSMutableArray");
+        unsafe {
+            let raw: *mut AnyObject = msg_send![cls, arrayWithCapacity: items.len()];
+            let array = Retained::retain(raw).expect("NSMutableArray instance");
+            for item in items {
+                let _: () = msg_send![&*array, addObject: *item];
+            }
+            array
+        }
+    }
+
+    let (mut editor, ctx, dir) = setup("t472-open-urls");
+    editor.sessions.clear();
+
+    let geom_dir = dir
+        .join("кривые Безье")
+        .join("src")
+        .join("flash")
+        .join("geom");
+    std::fs::create_dir_all(&geom_dir).unwrap();
+    let intersection_as = geom_dir.join("Intersection.as");
+    let bezier_as = geom_dir.join("Bezier.as");
+    std::fs::write(
+        &intersection_as,
+        "package flash.geom {\n    public class Intersection {}\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        &bezier_as,
+        "package flash.geom {\n    public class Bezier {}\n}\n",
+    )
+    .unwrap();
+    let symlink_intersection = dir.join("Intersection-link.as");
+    std::os::unix::fs::symlink(&intersection_as, &symlink_intersection).unwrap();
+
+    // Register a real Objective-C test delegate class hosting `application:openURLs:`.
+    let delegate_cls = if let Some(existing) = AnyClass::get(c"NeoFlashTestOpenUrlsDelegate") {
+        existing
+    } else {
+        let superclass = AnyClass::get(c"NSObject").expect("NSObject");
+        let cls = unsafe {
+            ffi::objc_allocateClassPair(superclass, c"NeoFlashTestOpenUrlsDelegate".as_ptr(), 0)
+        };
+        assert!(!cls.is_null());
+        let imp = unsafe { std::mem::transmute::<OpenUrlsFn, Imp>(application_open_urls) };
+        let added = unsafe {
+            ffi::class_addMethod(cls, sel!(application:openURLs:), imp, c"v@:@@".as_ptr())
+        };
+        assert!(added.as_bool());
+        unsafe { ffi::objc_registerClassPair(cls) };
+        AnyClass::get(c"NeoFlashTestOpenUrlsDelegate").expect("registered delegate class")
+    };
+    let delegate: Retained<AnyObject> = unsafe {
+        let raw: *mut AnyObject = msg_send![delegate_cls, new];
+        Retained::from_raw(raw).expect("delegate instance")
+    };
+
+    // 1. Nil and empty arrays must extract 0 paths safely without crashing.
+    assert!(unsafe { extract_file_paths_from_ns_urls(None) }.is_empty());
+    let empty_arr = unsafe { make_ns_array(&[]) };
+    assert!(unsafe { extract_file_paths_from_ns_urls(Some(&empty_arr)) }.is_empty());
+
+    // 2. Mix of file NSURL, fileReferenceURL, dot-segment duplicate, symlink, and https:// URL.
+    let url_intersection = unsafe { make_file_nsurl(&intersection_as) };
+    let url_intersection_ref: Retained<AnyObject> = unsafe {
+        let raw_ref: *mut AnyObject = msg_send![&*url_intersection, fileReferenceURL];
+        if raw_ref.is_null() {
+            url_intersection.clone()
+        } else {
+            Retained::retain(raw_ref).unwrap()
+        }
+    };
+    let url_dot_dup = unsafe { make_file_nsurl(&geom_dir.join(".").join("Intersection.as")) };
+    let url_symlink = unsafe { make_file_nsurl(&symlink_intersection) };
+    let url_bezier = unsafe { make_file_nsurl(&bezier_as) };
+    let url_https = unsafe { make_web_nsurl("https://neoflash.org/Intersection.as") };
+    let batch = unsafe {
+        make_ns_array(&[
+            &url_https,
+            &url_intersection,
+            &url_intersection_ref,
+            &url_dot_dup,
+            &url_symlink,
+            &url_bezier,
+        ])
+    };
+
+    let extracted = unsafe { extract_file_paths_from_ns_urls(Some(&batch)) };
+    assert_eq!(
+        extracted.len(),
+        5,
+        "non-file https:// URL must be skipped while file URLs & fileReferenceURLs extract cleanly"
+    );
+
+    // Clear any leftover items in the process-wide queue before exercising the ObjC selector.
+    let mut scratch = Vec::new();
+    crate::macos_menu::drain_startup_open_files(&mut scratch);
+
+    let nil_obj: Option<&AnyObject> = None;
+    unsafe {
+        let _: () = msg_send![&*delegate, application: nil_obj, openURLs: nil_obj];
+        let _: () = msg_send![&*delegate, application: nil_obj, openURLs: &*empty_arr];
+        let _: () = msg_send![&*delegate, application: nil_obj, openURLs: &*batch];
+    }
+
+    // Cold-launch drain deduplicates canonical/symlink/fileReferenceURL aliases down to 2 files.
+    let mut cold_launch_paths = Vec::new();
+    crate::macos_menu::drain_startup_open_files(&mut cold_launch_paths);
+    assert_eq!(cold_launch_paths.len(), 2);
+
+    // Live runtime dispatch via `application:openURLs:` -> `drain_events` opens 2 standalone `.as` tabs.
+    unsafe {
+        let _: () = msg_send![&*delegate, application: nil_obj, openURLs: &*batch];
+    }
+    crate::macos_menu::drain_events(&mut editor, &ctx);
+    assert_eq!(editor.session_count(), 2);
+    assert!(editor.is_standalone_script_session());
+    assert_eq!(editor.project.name, "Bezier.as");
+}

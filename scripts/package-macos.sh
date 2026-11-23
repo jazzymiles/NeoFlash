@@ -273,6 +273,30 @@ $icon_plist_keys
     </dict>
   </dict>
 </array>
+<key>UTImportedTypeDeclarations</key>
+<array>
+  <dict>
+    <key>UTTypeIdentifier</key><string>com.adobe.actionscript-source</string>
+    <key>UTTypeDescription</key><string>ActionScript Source</string>
+    <key>UTTypeConformsTo</key>
+    <array>
+      <string>public.source-code</string>
+      <string>public.plain-text</string>
+    </array>
+    <key>UTTypeTagSpecification</key>
+    <dict>
+      <key>public.filename-extension</key>
+      <array>
+        <string>as</string>
+      </array>
+      <key>public.mime-type</key>
+      <array>
+        <string>text/x-actionscript</string>
+        <string>application/x-actionscript</string>
+      </array>
+    </dict>
+  </dict>
+</array>
 <key>CFBundleDocumentTypes</key>
 <array>
   <dict>
@@ -290,9 +314,44 @@ $icon_plist_keys
     <key>CFBundleTypeIconFile</key><string>AppIcon</string>
   </dict>
   <dict>
+    <key>CFBundleTypeName</key><string>ActionScript Source</string>
+    <key>CFBundleTypeRole</key><string>Editor</string>
+    <key>LSHandlerRank</key><string>Alternate</string>
+    <key>LSItemContentTypes</key>
+    <array>
+      <string>com.adobe.actionscript-source</string>
+      <string>com.apple.applesingle-archive</string>
+      <string>public.source-code</string>
+      <string>public.script</string>
+      <string>public.plain-text</string>
+    </array>
+    <key>CFBundleTypeExtensions</key>
+    <array>
+      <string>as</string>
+    </array>
+  </dict>
+  <dict>
     <key>CFBundleTypeName</key><string>Flash &amp; Design Interchange Documents</string>
     <key>CFBundleTypeRole</key><string>Viewer</string>
     <key>LSHandlerRank</key><string>Alternate</string>
+    <key>LSItemContentTypes</key>
+    <array>
+      <string>com.apple.applesingle-archive</string>
+      <string>com.adobe.actionscript-source</string>
+      <string>public.source-code</string>
+      <string>public.script</string>
+      <string>public.plain-text</string>
+      <string>public.data</string>
+      <string>public.content</string>
+      <string>public.item</string>
+      <string>public.folder</string>
+      <string>public.archive</string>
+      <string>com.adobe.pdf</string>
+      <string>com.adobe.illustrator.ai-image</string>
+      <string>com.adobe.encapsulated-postscript</string>
+      <string>com.adobe.photoshop-image</string>
+      <string>public.svg-image</string>
+    </array>
     <key>CFBundleTypeExtensions</key>
     <array>
       <string>fla</string>
@@ -307,6 +366,7 @@ $icon_plist_keys
       <string>psb</string>
       <string>pdf</string>
       <string>ai</string>
+      <string>eps</string>
       <string>fxg</string>
     </array>
   </dict>
