@@ -1100,7 +1100,8 @@ fn t472_fuzz_family_4_swf_fws_cws_zws_tags_and_bytecode_player() {
             0x24, 1, 0x56, 1, 0xD5, // pushbyte 1, newarray 1, setlocal_1 (`a = [1]`)
             0x24, 0, 0xD6, // pushbyte 0, setlocal_2 (`i = 0`)
             0x09, // label (pc = 10)
-            0xD2, 0x24, 28, 0x15, 16, 0, 0, // getlocal_2, pushbyte 28, ifge +16 (to pc = 34)
+            0xD2, 0x24, 28, 0x18, 15, 0,
+            0, // getlocal_2, pushbyte 28, ifge (0x18) +15 (to pc = 33)
             0xD1, 0xD1, 0x46, 1, 1, 0xD5, // a = a.concat(a) (6 bytes)
             0xD2, 0x24, 1, 0xA0, 0xD6, // i = i + 1 (5 bytes)
             0x10, 0xE9, 0xFF, 0xFF, // jump -23 (from pc = 33 back to pc = 10)
