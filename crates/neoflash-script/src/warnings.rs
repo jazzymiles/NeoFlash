@@ -405,13 +405,18 @@ pub fn check_warnings_with_path(script: &Script, path: Option<&str>) -> Vec<Comp
 
 fn check_js_ts_warnings(script: &Script, path: Option<&str>) -> Vec<CompilerWarning> {
     let mut warnings = Vec::new();
+    if script.source.len() > 1_048_576 || crate::check_web_nesting_bounds(&script.source).is_err() {
+        return warnings;
+    }
     let allocator = Allocator::default();
     let source_type = match script.language {
         ScriptLanguage::TypeScript => SourceType::tsx().with_module(true),
         _ => SourceType::jsx().with_module(true),
     };
     let parsed = Parser::new(&allocator, &script.source, source_type).parse();
-    if !parsed.errors.is_empty() {
+    if !parsed.errors.is_empty()
+        || crate::oxc_program_exceeds_depth(&parsed.program, crate::MAX_WEB_AST_DEPTH).is_some()
+    {
         return warnings;
     }
 
@@ -421,6 +426,7 @@ fn check_js_ts_warnings(script: &Script, path: Option<&str>) -> Vec<CompilerWarn
         path: path.map(str::to_string),
         declared_vars: Vec::new(),
         function_depth: 0,
+        expr_depth: 0,
         referenced_idents: BTreeSet::new(),
         known_names: COMMON_BUILTINS.iter().map(|s| (*s).to_string()).collect(),
         unresolved_refs: Vec::new(),
@@ -442,6 +448,7 @@ struct DeclaredVar {
 
 struct JsTsWarningCollector<'a> {
     function_depth: usize,
+    expr_depth: usize,
     source: &'a str,
     language: ScriptLanguage,
     path: Option<String>,
@@ -770,6 +777,15 @@ impl<'a> JsTsWarningCollector<'a> {
     }
 
     fn visit_expression(&mut self, expr: &Expression<'a>) {
+        if self.expr_depth > crate::MAX_WEB_AST_DEPTH {
+            return;
+        }
+        self.expr_depth += 1;
+        self.visit_expression_inner(expr);
+        self.expr_depth -= 1;
+    }
+
+    fn visit_expression_inner(&mut self, expr: &Expression<'a>) {
         match expr {
             Expression::Identifier(ident) => {
                 let name = ident.name.as_str().to_string();

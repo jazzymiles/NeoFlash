@@ -40,15 +40,21 @@ pub use warnings::{
 
 use neoflash_core::{Project, Script, ScriptLanguage, SourceUnit};
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Expression, Statement};
+use oxc_ast::ast::{
+    ChainElement, Declaration, Expression, JSXChild, ObjectPropertyKind, Statement,
+};
 use oxc_codegen::Codegen;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
-use oxc_span::SourceType;
+use oxc_span::{GetSpan, SourceType};
 use oxc_transformer::{JsxOptions, JsxRuntime, TransformOptions, Transformer};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt, path::Path};
+
+pub(crate) const MAX_WEB_DELIM_DEPTH: usize = 128;
+pub(crate) const MAX_WEB_AST_DEPTH: usize = 256;
+pub(crate) const WEB_NESTING_LIMIT_MSG: &str = "Expression or block exceeds maximum supported nesting depth; split it into smaller statements.";
 
 /// Alias for `Diagnostic` used across script tooling.
 pub type ScriptDiagnostic = Diagnostic;
@@ -810,6 +816,9 @@ fn compile_web_output(
     typescript: bool,
     map_name: Option<&str>,
 ) -> Result<(String, Option<SourceMap>), Vec<Diagnostic>> {
+    if let Err(offset) = check_web_nesting_bounds(&script.source) {
+        return Err(vec![Diagnostic::at(script, offset, WEB_NESTING_LIMIT_MSG)]);
+    }
     // Match the runtime's actual function-body context: `return` is legal,
     // module imports/exports and top-level await are not in standalone handlers.
     const PREFIX: &str = "function __neoflash_handler__(){\"use strict\";\n";
@@ -832,6 +841,13 @@ fn compile_web_output(
         )]);
     }
     let mut program = parsed.program;
+    if let Some(span_offset) = oxc_program_exceeds_depth(&program, MAX_WEB_AST_DEPTH) {
+        return Err(vec![Diagnostic::at(
+            script,
+            span_offset.saturating_sub(PREFIX.len()),
+            WEB_NESTING_LIMIT_MSG,
+        )]);
+    }
     let semantic = SemanticBuilder::new()
         .with_check_syntax_error(true)
         .with_excess_capacity(2.0)
@@ -984,6 +1000,771 @@ fn expr_contains_jsx(expr: &Expression<'_>) -> bool {
             .is_some_and(|b| b.statements.iter().any(stmt_contains_jsx)),
         _ => false,
     }
+}
+
+/// Fast single-pass lexical pre-check before `oxc_parser::Parser` runs so deeply nested
+/// delimiters (`(((...)))`, `[[[...]]]`, `{{{...}}}`, `` `${`${...}`}` ``) or right-recursive
+/// unary/ternary/assignment chains cannot overflow thread stacks inside `oxc_parser`.
+pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
+    let bytes = source.as_bytes();
+    let len = bytes.len();
+    // Each stack entry: `(open_delim, ternary_count_in_frame, assign_count_in_frame)`
+    // `open_delim` is `b'('`, `b'['`, `b'{'`, or `b'$'` (for template `${...}`).
+    let mut stack: Vec<(u8, u16, u16)> = Vec::new();
+    let mut top_ternary: u16 = 0;
+    let mut top_assign: u16 = 0;
+    let mut unary_run: usize = 0;
+    let mut template_depth: usize = 0;
+    let mut can_start_regex = true;
+    let mut i = 0usize;
+
+    while i < len {
+        let b = bytes[i];
+
+        // Inside raw template literal text (not inside `${...}`):
+        if template_depth > 0 && stack.last().is_none_or(|(open, _, _)| *open != b'$') {
+            if b == b'\\' {
+                i = (i + 2).min(len);
+                continue;
+            }
+            if b == b'`' {
+                template_depth -= 1;
+                can_start_regex = false;
+                i += 1;
+                continue;
+            }
+            if b == b'$' && i + 1 < len && bytes[i + 1] == b'{' {
+                stack.push((b'$', 0, 0));
+                if stack.len() > MAX_WEB_DELIM_DEPTH {
+                    return Err(i);
+                }
+                can_start_regex = true;
+                unary_run = 0;
+                i += 2;
+                continue;
+            }
+            i += 1;
+            continue;
+        }
+
+        if b.is_ascii_whitespace() {
+            if b == b'\n' || b == b'\r' {
+                can_start_regex = true;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Line & block comments or regex literal:
+        if b == b'/' {
+            if i + 1 < len && bytes[i + 1] == b'/' {
+                i += 2;
+                while i < len && bytes[i] != b'\n' && bytes[i] != b'\r' {
+                    i += 1;
+                }
+                continue;
+            }
+            if i + 1 < len && bytes[i + 1] == b'*' {
+                i += 2;
+                while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i = (i + 2).min(len);
+                continue;
+            }
+            if can_start_regex {
+                i += 1;
+                let mut in_char_class = false;
+                while i < len {
+                    let rb = bytes[i];
+                    if rb == b'\\' {
+                        i = (i + 2).min(len);
+                        continue;
+                    }
+                    if rb == b'\n' || rb == b'\r' {
+                        break;
+                    }
+                    if rb == b'[' {
+                        in_char_class = true;
+                    } else if rb == b']' {
+                        in_char_class = false;
+                    } else if rb == b'/' && !in_char_class {
+                        i += 1;
+                        while i < len && bytes[i].is_ascii_alphabetic() {
+                            i += 1;
+                        }
+                        break;
+                    }
+                    i += 1;
+                }
+                can_start_regex = false;
+                unary_run = 0;
+                continue;
+            }
+        }
+
+        // Quoted strings:
+        if b == b'\'' || b == b'"' {
+            let quote = b;
+            i += 1;
+            while i < len {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(len);
+                    continue;
+                }
+                if bytes[i] == quote || bytes[i] == b'\n' || bytes[i] == b'\r' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            can_start_regex = false;
+            unary_run = 0;
+            continue;
+        }
+
+        // Template literal open:
+        if b == b'`' {
+            template_depth += 1;
+            if template_depth + stack.len() > MAX_WEB_DELIM_DEPTH {
+                return Err(i);
+            }
+            i += 1;
+            continue;
+        }
+
+        match b {
+            b'(' | b'[' | b'{' => {
+                stack.push((b, 0, 0));
+                if stack.len() > MAX_WEB_DELIM_DEPTH {
+                    return Err(i);
+                }
+                can_start_regex = true;
+                unary_run = 0;
+                i += 1;
+            }
+            b')' | b']' | b'}' => {
+                let expected = match b {
+                    b')' => b'(',
+                    b']' => b'[',
+                    _ => b'{',
+                };
+                if expected == b'{' && stack.last().is_some_and(|(open, _, _)| *open == b'$') {
+                    stack.pop();
+                    can_start_regex = false;
+                    unary_run = 0;
+                    i += 1;
+                    continue;
+                }
+                if let Some(pos) = stack.iter().rposition(|(open, _, _)| *open == expected) {
+                    stack.truncate(pos);
+                }
+                can_start_regex = false;
+                unary_run = 0;
+                i += 1;
+            }
+            b',' | b';' => {
+                if let Some((_, t, a)) = stack.last_mut() {
+                    *t = 0;
+                    *a = 0;
+                } else {
+                    top_ternary = 0;
+                    top_assign = 0;
+                }
+                can_start_regex = true;
+                unary_run = 0;
+                i += 1;
+            }
+            b'!' if i + 1 >= len || bytes[i + 1] != b'=' => {
+                unary_run += 1;
+                if unary_run > MAX_WEB_DELIM_DEPTH {
+                    return Err(i);
+                }
+                can_start_regex = true;
+                i += 1;
+            }
+            b'~' => {
+                unary_run += 1;
+                if unary_run > MAX_WEB_DELIM_DEPTH {
+                    return Err(i);
+                }
+                can_start_regex = true;
+                i += 1;
+            }
+            b'?' => {
+                let next = bytes.get(i + 1).copied();
+                if next == Some(b'?') || next == Some(b'.') {
+                    can_start_regex = true;
+                    unary_run = 0;
+                    i += 2;
+                } else {
+                    let count = if let Some((_, t, _)) = stack.last_mut() {
+                        *t = t.saturating_add(1);
+                        *t
+                    } else {
+                        top_ternary = top_ternary.saturating_add(1);
+                        top_ternary
+                    };
+                    if usize::from(count) > MAX_WEB_DELIM_DEPTH {
+                        return Err(i);
+                    }
+                    can_start_regex = true;
+                    unary_run = 0;
+                    i += 1;
+                }
+            }
+            b'=' => {
+                let prev = if i > 0 { Some(bytes[i - 1]) } else { None };
+                let next = bytes.get(i + 1).copied();
+                let is_comparison_or_arrow = next == Some(b'=')
+                    || next == Some(b'>')
+                    || matches!(prev, Some(b'=' | b'!' | b'<' | b'>'));
+                if !is_comparison_or_arrow {
+                    let count = if let Some((_, _, a)) = stack.last_mut() {
+                        *a = a.saturating_add(1);
+                        *a
+                    } else {
+                        top_assign = top_assign.saturating_add(1);
+                        top_assign
+                    };
+                    if usize::from(count) > MAX_WEB_DELIM_DEPTH {
+                        return Err(i);
+                    }
+                }
+                can_start_regex = true;
+                unary_run = 0;
+                i += 1;
+            }
+            b':' | b'&' | b'|' | b'+' | b'-' | b'*' | b'%' | b'^' | b'<' | b'>' => {
+                can_start_regex = true;
+                unary_run = 0;
+                i += 1;
+            }
+            _ => {
+                if b.is_ascii_alphabetic() || b == b'_' || b == b'$' {
+                    let start = i;
+                    i += 1;
+                    while i < len
+                        && (bytes[i].is_ascii_alphanumeric()
+                            || bytes[i] == b'_'
+                            || bytes[i] == b'$')
+                    {
+                        i += 1;
+                    }
+                    let word = &bytes[start..i];
+                    can_start_regex = matches!(
+                        word,
+                        b"return"
+                            | b"throw"
+                            | b"case"
+                            | b"typeof"
+                            | b"void"
+                            | b"delete"
+                            | b"in"
+                            | b"of"
+                            | b"instanceof"
+                            | b"new"
+                            | b"await"
+                            | b"yield"
+                            | b"else"
+                            | b"do"
+                    );
+                    if matches!(word, b"typeof" | b"void" | b"delete" | b"await") {
+                        unary_run += 1;
+                        if unary_run > MAX_WEB_DELIM_DEPTH {
+                            return Err(start);
+                        }
+                    } else {
+                        unary_run = 0;
+                    }
+                } else {
+                    can_start_regex = false;
+                    unary_run = 0;
+                    i += 1;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+enum WebAstWork<'a> {
+    Stmt(&'a Statement<'a>, usize),
+    Expr(&'a Expression<'a>, usize),
+    JsxElem(&'a oxc_ast::ast::JSXElement<'a>, usize),
+    JsxFrag(&'a oxc_ast::ast::JSXFragment<'a>, usize),
+}
+
+/// Iterative, heap-backed AST depth check over `oxc_ast::ast::Program`.
+/// Catches flat 50,000-term operator/member/call chains (`1 + 1 + ...`, `a.b.b...`) built
+/// iteratively by `oxc_parser` before recursive passes (`SemanticBuilder`, `TypeChecker`,
+/// `JsTsWarningCollector`, `Transformer`, `Codegen`) can overflow the stack.
+pub(crate) fn oxc_program_exceeds_depth(
+    program: &oxc_ast::ast::Program<'_>,
+    max_depth: usize,
+) -> Option<usize> {
+    let mut stack: Vec<WebAstWork<'_>> = Vec::with_capacity(64);
+    for stmt in program.body.iter().rev() {
+        stack.push(WebAstWork::Stmt(stmt, 1));
+    }
+
+    while let Some(item) = stack.pop() {
+        match item {
+            WebAstWork::Stmt(stmt, depth) => {
+                if depth > max_depth {
+                    return Some(stmt.span().start as usize);
+                }
+                let next = depth + 1;
+                match stmt {
+                    Statement::BlockStatement(b) => {
+                        for s in b.body.iter().rev() {
+                            stack.push(WebAstWork::Stmt(s, next));
+                        }
+                    }
+                    Statement::ExpressionStatement(e) => {
+                        stack.push(WebAstWork::Expr(&e.expression, next));
+                    }
+                    Statement::VariableDeclaration(v) => {
+                        for d in v.declarations.iter().rev() {
+                            if let Some(init) = &d.init {
+                                stack.push(WebAstWork::Expr(init, next));
+                            }
+                        }
+                    }
+                    Statement::FunctionDeclaration(f) => {
+                        if let Some(body) = &f.body {
+                            for s in body.statements.iter().rev() {
+                                stack.push(WebAstWork::Stmt(s, next));
+                            }
+                        }
+                    }
+                    Statement::ClassDeclaration(c) => {
+                        if let Some(sup) = &c.super_class {
+                            stack.push(WebAstWork::Expr(sup, next));
+                        }
+                        for elem in c.body.body.iter().rev() {
+                            match elem {
+                                oxc_ast::ast::ClassElement::MethodDefinition(m) => {
+                                    if let Some(body) = &m.value.body {
+                                        for s in body.statements.iter().rev() {
+                                            stack.push(WebAstWork::Stmt(s, next));
+                                        }
+                                    }
+                                }
+                                oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                                    if let Some(val) = &p.value {
+                                        stack.push(WebAstWork::Expr(val, next));
+                                    }
+                                }
+                                oxc_ast::ast::ClassElement::StaticBlock(sb) => {
+                                    for s in sb.body.iter().rev() {
+                                        stack.push(WebAstWork::Stmt(s, next));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Statement::ReturnStatement(r) => {
+                        if let Some(arg) = &r.argument {
+                            stack.push(WebAstWork::Expr(arg, next));
+                        }
+                    }
+                    Statement::ThrowStatement(t) => {
+                        stack.push(WebAstWork::Expr(&t.argument, next));
+                    }
+                    Statement::IfStatement(i) => {
+                        if let Some(alt) = &i.alternate {
+                            stack.push(WebAstWork::Stmt(alt, next));
+                        }
+                        stack.push(WebAstWork::Stmt(&i.consequent, next));
+                        stack.push(WebAstWork::Expr(&i.test, next));
+                    }
+                    Statement::WhileStatement(w) => {
+                        stack.push(WebAstWork::Stmt(&w.body, next));
+                        stack.push(WebAstWork::Expr(&w.test, next));
+                    }
+                    Statement::DoWhileStatement(d) => {
+                        stack.push(WebAstWork::Expr(&d.test, next));
+                        stack.push(WebAstWork::Stmt(&d.body, next));
+                    }
+                    Statement::ForStatement(f) => {
+                        stack.push(WebAstWork::Stmt(&f.body, next));
+                        if let Some(u) = &f.update {
+                            stack.push(WebAstWork::Expr(u, next));
+                        }
+                        if let Some(t) = &f.test {
+                            stack.push(WebAstWork::Expr(t, next));
+                        }
+                        if let Some(init) = &f.init {
+                            match init {
+                                oxc_ast::ast::ForStatementInit::VariableDeclaration(vd) => {
+                                    for d in vd.declarations.iter().rev() {
+                                        if let Some(e) = &d.init {
+                                            stack.push(WebAstWork::Expr(e, next));
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    if let Some(e) = init.as_expression() {
+                                        stack.push(WebAstWork::Expr(e, next));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Statement::ForInStatement(f) => {
+                        stack.push(WebAstWork::Stmt(&f.body, next));
+                        stack.push(WebAstWork::Expr(&f.right, next));
+                    }
+                    Statement::ForOfStatement(f) => {
+                        stack.push(WebAstWork::Stmt(&f.body, next));
+                        stack.push(WebAstWork::Expr(&f.right, next));
+                    }
+                    Statement::SwitchStatement(s) => {
+                        for case in s.cases.iter().rev() {
+                            for cs in case.consequent.iter().rev() {
+                                stack.push(WebAstWork::Stmt(cs, next));
+                            }
+                            if let Some(t) = &case.test {
+                                stack.push(WebAstWork::Expr(t, next));
+                            }
+                        }
+                        stack.push(WebAstWork::Expr(&s.discriminant, next));
+                    }
+                    Statement::LabeledStatement(l) => {
+                        stack.push(WebAstWork::Stmt(&l.body, next));
+                    }
+                    Statement::WithStatement(w) => {
+                        stack.push(WebAstWork::Stmt(&w.body, next));
+                        stack.push(WebAstWork::Expr(&w.object, next));
+                    }
+                    Statement::TryStatement(t) => {
+                        if let Some(fin) = &t.finalizer {
+                            for s in fin.body.iter().rev() {
+                                stack.push(WebAstWork::Stmt(s, next));
+                            }
+                        }
+                        if let Some(h) = &t.handler {
+                            for s in h.body.body.iter().rev() {
+                                stack.push(WebAstWork::Stmt(s, next));
+                            }
+                        }
+                        for s in t.block.body.iter().rev() {
+                            stack.push(WebAstWork::Stmt(s, next));
+                        }
+                    }
+                    Statement::ExportNamedDeclaration(e) => {
+                        if let Some(decl) = &e.declaration {
+                            match decl {
+                                Declaration::VariableDeclaration(vd) => {
+                                    for d in vd.declarations.iter().rev() {
+                                        if let Some(init) = &d.init {
+                                            stack.push(WebAstWork::Expr(init, next));
+                                        }
+                                    }
+                                }
+                                Declaration::FunctionDeclaration(fd) => {
+                                    if let Some(body) = &fd.body {
+                                        for s in body.statements.iter().rev() {
+                                            stack.push(WebAstWork::Stmt(s, next));
+                                        }
+                                    }
+                                }
+                                Declaration::ClassDeclaration(cd) => {
+                                    for elem in cd.body.body.iter().rev() {
+                                        match elem {
+                                            oxc_ast::ast::ClassElement::MethodDefinition(m) => {
+                                                if let Some(body) = &m.value.body {
+                                                    for s in body.statements.iter().rev() {
+                                                        stack.push(WebAstWork::Stmt(s, next));
+                                                    }
+                                                }
+                                            }
+                                            oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                                                if let Some(val) = &p.value {
+                                                    stack.push(WebAstWork::Expr(val, next));
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Statement::ExportDefaultDeclaration(e) => {
+                        if let Some(expr) = e.declaration.as_expression() {
+                            stack.push(WebAstWork::Expr(expr, next));
+                        } else {
+                            match &e.declaration {
+                                oxc_ast::ast::ExportDefaultDeclarationKind::FunctionDeclaration(
+                                    fd,
+                                ) => {
+                                    if let Some(body) = &fd.body {
+                                        for s in body.statements.iter().rev() {
+                                            stack.push(WebAstWork::Stmt(s, next));
+                                        }
+                                    }
+                                }
+                                oxc_ast::ast::ExportDefaultDeclarationKind::ClassDeclaration(
+                                    cd,
+                                ) => {
+                                    for elem in cd.body.body.iter().rev() {
+                                        if let oxc_ast::ast::ClassElement::MethodDefinition(m) =
+                                            elem
+                                            && let Some(body) = &m.value.body
+                                        {
+                                            for s in body.statements.iter().rev() {
+                                                stack.push(WebAstWork::Stmt(s, next));
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            WebAstWork::Expr(expr, depth) => {
+                if depth > max_depth {
+                    return Some(expr.span().start as usize);
+                }
+                let next = depth + 1;
+                match expr {
+                    Expression::BinaryExpression(b) => {
+                        stack.push(WebAstWork::Expr(&b.right, next));
+                        stack.push(WebAstWork::Expr(&b.left, next));
+                    }
+                    Expression::LogicalExpression(l) => {
+                        stack.push(WebAstWork::Expr(&l.right, next));
+                        stack.push(WebAstWork::Expr(&l.left, next));
+                    }
+                    Expression::UnaryExpression(u) => {
+                        stack.push(WebAstWork::Expr(&u.argument, next));
+                    }
+                    Expression::UpdateExpression(u) => match &u.argument {
+                        oxc_ast::ast::SimpleAssignmentTarget::StaticMemberExpression(m) => {
+                            stack.push(WebAstWork::Expr(&m.object, next));
+                        }
+                        oxc_ast::ast::SimpleAssignmentTarget::ComputedMemberExpression(m) => {
+                            stack.push(WebAstWork::Expr(&m.expression, next));
+                            stack.push(WebAstWork::Expr(&m.object, next));
+                        }
+                        oxc_ast::ast::SimpleAssignmentTarget::PrivateFieldExpression(m) => {
+                            stack.push(WebAstWork::Expr(&m.object, next));
+                        }
+                        _ => {}
+                    },
+                    Expression::AssignmentExpression(a) => {
+                        stack.push(WebAstWork::Expr(&a.right, next));
+                        match &a.left {
+                            oxc_ast::ast::AssignmentTarget::StaticMemberExpression(m) => {
+                                stack.push(WebAstWork::Expr(&m.object, next));
+                            }
+                            oxc_ast::ast::AssignmentTarget::ComputedMemberExpression(m) => {
+                                stack.push(WebAstWork::Expr(&m.expression, next));
+                                stack.push(WebAstWork::Expr(&m.object, next));
+                            }
+                            oxc_ast::ast::AssignmentTarget::PrivateFieldExpression(m) => {
+                                stack.push(WebAstWork::Expr(&m.object, next));
+                            }
+                            _ => {}
+                        }
+                    }
+                    Expression::ConditionalExpression(c) => {
+                        stack.push(WebAstWork::Expr(&c.alternate, next));
+                        stack.push(WebAstWork::Expr(&c.consequent, next));
+                        stack.push(WebAstWork::Expr(&c.test, next));
+                    }
+                    Expression::SequenceExpression(s) => {
+                        for e in s.expressions.iter().rev() {
+                            stack.push(WebAstWork::Expr(e, next));
+                        }
+                    }
+                    Expression::ParenthesizedExpression(p) => {
+                        stack.push(WebAstWork::Expr(&p.expression, next));
+                    }
+                    Expression::CallExpression(c) => {
+                        for arg in c.arguments.iter().rev() {
+                            if let Some(e) = arg.as_expression() {
+                                stack.push(WebAstWork::Expr(e, next));
+                            }
+                        }
+                        stack.push(WebAstWork::Expr(&c.callee, next));
+                    }
+                    Expression::NewExpression(n) => {
+                        for arg in n.arguments.iter().rev() {
+                            if let Some(e) = arg.as_expression() {
+                                stack.push(WebAstWork::Expr(e, next));
+                            }
+                        }
+                        stack.push(WebAstWork::Expr(&n.callee, next));
+                    }
+                    Expression::StaticMemberExpression(m) => {
+                        stack.push(WebAstWork::Expr(&m.object, next));
+                    }
+                    Expression::ComputedMemberExpression(m) => {
+                        stack.push(WebAstWork::Expr(&m.expression, next));
+                        stack.push(WebAstWork::Expr(&m.object, next));
+                    }
+                    Expression::PrivateFieldExpression(m) => {
+                        stack.push(WebAstWork::Expr(&m.object, next));
+                    }
+                    Expression::ChainExpression(ch) => match &ch.expression {
+                        ChainElement::CallExpression(c) => {
+                            for arg in c.arguments.iter().rev() {
+                                if let Some(e) = arg.as_expression() {
+                                    stack.push(WebAstWork::Expr(e, next));
+                                }
+                            }
+                            stack.push(WebAstWork::Expr(&c.callee, next));
+                        }
+                        ChainElement::StaticMemberExpression(m) => {
+                            stack.push(WebAstWork::Expr(&m.object, next));
+                        }
+                        ChainElement::ComputedMemberExpression(m) => {
+                            stack.push(WebAstWork::Expr(&m.expression, next));
+                            stack.push(WebAstWork::Expr(&m.object, next));
+                        }
+                        ChainElement::PrivateFieldExpression(m) => {
+                            stack.push(WebAstWork::Expr(&m.object, next));
+                        }
+                        ChainElement::TSNonNullExpression(n) => {
+                            stack.push(WebAstWork::Expr(&n.expression, next));
+                        }
+                    },
+                    Expression::ArrayExpression(arr) => {
+                        for el in arr.elements.iter().rev() {
+                            if let Some(e) = el.as_expression() {
+                                stack.push(WebAstWork::Expr(e, next));
+                            }
+                        }
+                    }
+                    Expression::ObjectExpression(obj) => {
+                        for prop in obj.properties.iter().rev() {
+                            match prop {
+                                ObjectPropertyKind::ObjectProperty(p) => {
+                                    stack.push(WebAstWork::Expr(&p.value, next));
+                                    if let Some(k) = p.key.as_expression() {
+                                        stack.push(WebAstWork::Expr(k, next));
+                                    }
+                                }
+                                ObjectPropertyKind::SpreadProperty(s) => {
+                                    stack.push(WebAstWork::Expr(&s.argument, next));
+                                }
+                            }
+                        }
+                    }
+                    Expression::TemplateLiteral(t) => {
+                        for e in t.expressions.iter().rev() {
+                            stack.push(WebAstWork::Expr(e, next));
+                        }
+                    }
+                    Expression::TaggedTemplateExpression(t) => {
+                        for e in t.quasi.expressions.iter().rev() {
+                            stack.push(WebAstWork::Expr(e, next));
+                        }
+                        stack.push(WebAstWork::Expr(&t.tag, next));
+                    }
+                    Expression::ArrowFunctionExpression(a) => {
+                        for s in a.body.statements.iter().rev() {
+                            stack.push(WebAstWork::Stmt(s, next));
+                        }
+                    }
+                    Expression::FunctionExpression(f) => {
+                        if let Some(body) = &f.body {
+                            for s in body.statements.iter().rev() {
+                                stack.push(WebAstWork::Stmt(s, next));
+                            }
+                        }
+                    }
+                    Expression::AwaitExpression(a) => {
+                        stack.push(WebAstWork::Expr(&a.argument, next));
+                    }
+                    Expression::YieldExpression(y) => {
+                        if let Some(arg) = &y.argument {
+                            stack.push(WebAstWork::Expr(arg, next));
+                        }
+                    }
+                    Expression::ImportExpression(i) => {
+                        stack.push(WebAstWork::Expr(&i.source, next));
+                    }
+                    Expression::TSAsExpression(e) => {
+                        stack.push(WebAstWork::Expr(&e.expression, next));
+                    }
+                    Expression::TSSatisfiesExpression(e) => {
+                        stack.push(WebAstWork::Expr(&e.expression, next));
+                    }
+                    Expression::TSTypeAssertion(e) => {
+                        stack.push(WebAstWork::Expr(&e.expression, next));
+                    }
+                    Expression::TSNonNullExpression(e) => {
+                        stack.push(WebAstWork::Expr(&e.expression, next));
+                    }
+                    Expression::TSInstantiationExpression(e) => {
+                        stack.push(WebAstWork::Expr(&e.expression, next));
+                    }
+                    Expression::JSXElement(el) => {
+                        stack.push(WebAstWork::JsxElem(el, next));
+                    }
+                    Expression::JSXFragment(frag) => {
+                        stack.push(WebAstWork::JsxFrag(frag, next));
+                    }
+                    _ => {}
+                }
+            }
+            WebAstWork::JsxElem(el, depth) => {
+                if depth > max_depth {
+                    return Some(el.span.start as usize);
+                }
+                let next = depth + 1;
+                for child in el.children.iter().rev() {
+                    match child {
+                        JSXChild::Element(c) => stack.push(WebAstWork::JsxElem(c, next)),
+                        JSXChild::Fragment(f) => stack.push(WebAstWork::JsxFrag(f, next)),
+                        JSXChild::ExpressionContainer(ec) => {
+                            if let Some(e) = ec.expression.as_expression() {
+                                stack.push(WebAstWork::Expr(e, next));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                for attr in el.opening_element.attributes.iter().rev() {
+                    if let oxc_ast::ast::JSXAttributeItem::Attribute(a) = attr
+                        && let Some(oxc_ast::ast::JSXAttributeValue::ExpressionContainer(ec)) =
+                            &a.value
+                        && let Some(e) = ec.expression.as_expression()
+                    {
+                        stack.push(WebAstWork::Expr(e, next));
+                    }
+                }
+            }
+            WebAstWork::JsxFrag(frag, depth) => {
+                if depth > max_depth {
+                    return Some(frag.span.start as usize);
+                }
+                let next = depth + 1;
+                for child in frag.children.iter().rev() {
+                    match child {
+                        JSXChild::Element(c) => stack.push(WebAstWork::JsxElem(c, next)),
+                        JSXChild::Fragment(f) => stack.push(WebAstWork::JsxFrag(f, next)),
+                        JSXChild::ExpressionContainer(ec) => {
+                            if let Some(e) = ec.expression.as_expression() {
+                                stack.push(WebAstWork::Expr(e, next));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

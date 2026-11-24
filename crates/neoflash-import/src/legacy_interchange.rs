@@ -517,6 +517,7 @@ pub fn import_fxg_into_project(
                     for item in def_node.children().filter(|n| n.is_element()) {
                         parse_fxg_node_into_elements(
                             item,
+                            0,
                             &definition_map,
                             source_name,
                             &doc,
@@ -601,6 +602,7 @@ pub fn import_fxg_into_project(
             let mut group_elements = Vec::new();
             parse_fxg_node_into_elements(
                 child,
+                0,
                 &definition_map,
                 source_name,
                 &doc,
@@ -625,6 +627,7 @@ pub fn import_fxg_into_project(
         } else {
             parse_fxg_node_into_elements(
                 child,
+                0,
                 &definition_map,
                 source_name,
                 &doc,
@@ -1139,14 +1142,28 @@ fn collect_fxg_text(node: Node<'_, '_>) -> String {
     out.trim().to_owned()
 }
 
+const MAX_FXG_GROUP_DEPTH: usize = 64;
+
 fn parse_fxg_node_into_elements(
     node: Node<'_, '_>,
+    depth: usize,
     definition_map: &BTreeMap<String, String>,
     source_name: &str,
     doc: &Document<'_>,
     out: &mut Vec<Element>,
     report: &mut ImportReport,
 ) {
+    if depth > MAX_FXG_GROUP_DEPTH {
+        let loc = fxg_node_location(doc, node, source_name);
+        report.warning(
+            "fxg-nesting-limit-exceeded",
+            loc,
+            format!(
+                "FXG <Group> nesting depth exceeded {MAX_FXG_GROUP_DEPTH}; deeper elements were skipped."
+            ),
+        );
+        return;
+    }
     let tag = node.tag_name().name();
     let name = node
         .attribute("id")
@@ -1188,6 +1205,7 @@ fn parse_fxg_node_into_elements(
                 }
                 parse_fxg_node_into_elements(
                     child,
+                    depth + 1,
                     definition_map,
                     source_name,
                     doc,
@@ -1978,59 +1996,58 @@ struct ParsedFlashScreen {
     texts: Vec<String>,
 }
 
-fn collect_flash_screens_recursive(node: Node<'_, '_>, out: &mut Vec<ParsedFlashScreen>) {
-    let tag = node.tag_name().name();
-    if matches!(tag, "Slide" | "Form" | "screen" | "Screen") {
-        let name = node
-            .attribute("name")
-            .or_else(|| node.attribute("id"))
-            .or_else(|| node.attribute("label"))
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(tag)
-            .to_owned();
-        let width = node
-            .attribute("width")
-            .and_then(|v| v.parse::<u32>().ok())
-            .filter(|&w| (1..=65535).contains(&w));
-        let height = node
-            .attribute("height")
-            .and_then(|v| v.parse::<u32>().ok())
-            .filter(|&h| (1..=65535).contains(&h));
-        let mut script = node.attribute("script").map(str::to_owned);
-        let mut texts = Vec::new();
-        for child in node.children().filter(|n| n.is_element()) {
-            match child.tag_name().name() {
-                "script" | "Script" | "actions" => {
-                    if let Some(code) = child.text().map(str::trim).filter(|s| !s.is_empty()) {
-                        script = Some(code.to_owned());
+fn collect_flash_screens_recursive(root: Node<'_, '_>, out: &mut Vec<ParsedFlashScreen>) {
+    for node in root.descendants().filter(|n| n.is_element()) {
+        let tag = node.tag_name().name();
+        if matches!(tag, "Slide" | "Form" | "screen" | "Screen") {
+            let name = node
+                .attribute("name")
+                .or_else(|| node.attribute("id"))
+                .or_else(|| node.attribute("label"))
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(tag)
+                .to_owned();
+            let width = node
+                .attribute("width")
+                .and_then(|v| v.parse::<u32>().ok())
+                .filter(|&w| (1..=65535).contains(&w));
+            let height = node
+                .attribute("height")
+                .and_then(|v| v.parse::<u32>().ok())
+                .filter(|&h| (1..=65535).contains(&h));
+            let mut script = node.attribute("script").map(str::to_owned);
+            let mut texts = Vec::new();
+            for child in node.children().filter(|n| n.is_element()) {
+                match child.tag_name().name() {
+                    "script" | "Script" | "actions" => {
+                        if let Some(code) = child.text().map(str::trim).filter(|s| !s.is_empty()) {
+                            script = Some(code.to_owned());
+                        }
                     }
-                }
-                "text" | "Label" | "title" => {
-                    if let Some(t) = child.text().map(str::trim).filter(|s| !s.is_empty()) {
-                        texts.push(t.to_owned());
-                    } else if let Some(t) = child
-                        .attribute("text")
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                    {
-                        texts.push(t.to_owned());
+                    "text" | "Label" | "title" => {
+                        if let Some(t) = child.text().map(str::trim).filter(|s| !s.is_empty()) {
+                            texts.push(t.to_owned());
+                        } else if let Some(t) = child
+                            .attribute("text")
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                        {
+                            texts.push(t.to_owned());
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
+            out.push(ParsedFlashScreen {
+                name,
+                kind_label: tag.to_owned(),
+                width,
+                height,
+                script,
+                texts,
+            });
         }
-        out.push(ParsedFlashScreen {
-            name,
-            kind_label: tag.to_owned(),
-            width,
-            height,
-            script,
-            texts,
-        });
-    }
-    for child in node.children().filter(|n| n.is_element()) {
-        collect_flash_screens_recursive(child, out);
     }
 }
 

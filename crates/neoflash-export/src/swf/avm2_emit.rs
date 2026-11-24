@@ -104,14 +104,24 @@ pub(super) fn emit_avm2_load_ident(
 }
 
 fn dotted_member_chain(expr: &SwfExpr) -> Option<Vec<String>> {
-    match expr {
-        SwfExpr::Ident(id) => Some(vec![id.clone()]),
-        SwfExpr::Member(inner, prop) => {
-            let mut v = dotted_member_chain(inner)?;
-            v.push(prop.clone());
-            Some(v)
+    let mut rev_parts = Vec::new();
+    let mut cur = expr;
+    loop {
+        if rev_parts.len() > MAX_SWF_AST_DEPTH {
+            return None;
         }
-        _ => None,
+        match cur {
+            SwfExpr::Ident(id) => {
+                rev_parts.push(id.clone());
+                rev_parts.reverse();
+                return Some(rev_parts);
+            }
+            SwfExpr::Member(inner, prop) => {
+                rev_parts.push(prop.clone());
+                cur = inner;
+            }
+            _ => return None,
+        }
     }
 }
 
@@ -218,9 +228,9 @@ pub(super) fn compile_avm2_expr(
     state: &mut Avm2CompilerState,
     env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
-    if env.compile_depth >= MAX_SWF_PARSE_DEPTH {
+    if env.compile_depth >= MAX_SWF_AST_DEPTH {
         return Err(format!(
-            "expression exceeds maximum compilation depth ({MAX_SWF_PARSE_DEPTH}) in bounded SWF compiler"
+            "expression exceeds maximum compilation depth ({MAX_SWF_AST_DEPTH}) in bounded SWF compiler"
         ));
     }
     env.compile_depth += 1;

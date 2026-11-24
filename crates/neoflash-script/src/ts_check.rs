@@ -312,6 +312,7 @@ fn is_builtin_type_name(name: &str) -> bool {
 pub struct TypeChecker<'s> {
     script: &'s Script,
     prefix_len: usize,
+    expr_depth: usize,
     pub types: BTreeMap<String, TsType>,
     pub constructors: BTreeMap<String, TsFunctionSig>,
     pub class_parents: BTreeMap<String, String>,
@@ -418,6 +419,7 @@ impl<'s> TypeChecker<'s> {
         Self {
             script,
             prefix_len,
+            expr_depth: 0,
             types: BTreeMap::new(),
             constructors: BTreeMap::new(),
             class_parents: BTreeMap::new(),
@@ -1731,6 +1733,16 @@ impl<'s> TypeChecker<'s> {
     }
 
     pub fn infer_expr(&mut self, expr: &Expression<'_>) -> TsType {
+        if self.expr_depth > crate::MAX_WEB_AST_DEPTH {
+            return TsType::Any;
+        }
+        self.expr_depth += 1;
+        let out = self.infer_expr_inner(expr);
+        self.expr_depth -= 1;
+        out
+    }
+
+    fn infer_expr_inner(&mut self, expr: &Expression<'_>) -> TsType {
         match expr {
             Expression::NumericLiteral(n) => TsType::LiteralNumber(n.value.to_string()),
             Expression::StringLiteral(s) => TsType::LiteralString(s.value.to_string()),

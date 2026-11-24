@@ -604,6 +604,18 @@ impl Project {
 
     /// Raise the format version after an edit that uses a newer document feature.
     pub fn upgrade_format_for_features(&mut self) {
+        if self.has_program() {
+            self.format_version = self.format_version.max(2);
+        }
+        if !self.resources.is_empty() {
+            self.format_version = self.format_version.max(3);
+        }
+        if !self.library_folders.is_empty() || self.symbols.iter().any(|s| !s.folder.is_empty()) {
+            self.format_version = self.format_version.max(4);
+        }
+        if self.uses_format_5() {
+            self.format_version = self.format_version.max(5);
+        }
         if self.uses_format_6() {
             self.format_version = self.format_version.max(6);
         }
@@ -634,6 +646,26 @@ impl Project {
         if self.uses_format_15() {
             self.format_version = self.format_version.max(15);
         }
+    }
+
+    pub fn uses_format_5(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|s| &s.timeline.layers)
+            .any(|layer| {
+                layer.properties.end_frame.is_some()
+                    || layer.keyframes.iter().any(|k| {
+                        matches!(k.tween, Some(Easing::Flash { .. }))
+                            || k.property_eases
+                                .iter()
+                                .any(|(_, e)| matches!(e, Easing::Flash { .. }))
+                            || k.elements.iter().any(|el| {
+                                el.transform.skew != 0.0
+                                    || !el.transform.color_transform.is_identity()
+                                    || matches!(el.kind, ElementKind::PaintedPath { .. })
+                            })
+                    })
+            })
     }
 
     pub fn uses_format_15(&self) -> bool {

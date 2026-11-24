@@ -444,6 +444,24 @@ pub(super) fn avm1_compile_expr(
     expr: &SwfExpr,
     reg_map: &HashMap<String, u8>,
 ) -> Result<(), String> {
+    avm1_compile_expr_bounded(out, expr, reg_map, 0)
+}
+
+fn avm1_compile_expr_bounded(
+    out: &mut Vec<u8>,
+    expr: &SwfExpr,
+    reg_map: &HashMap<String, u8>,
+    depth: usize,
+) -> Result<(), String> {
+    if depth >= MAX_SWF_AST_DEPTH {
+        return Err(format!(
+            "expression exceeds maximum compilation depth ({MAX_SWF_AST_DEPTH}) in bounded SWF compiler"
+        ));
+    }
+    let next_depth = depth + 1;
+    let compile_child = |buf: &mut Vec<u8>, child: &SwfExpr| -> Result<(), String> {
+        avm1_compile_expr_bounded(buf, child, reg_map, next_depth)
+    };
     match expr {
         SwfExpr::Null => {
             out.push(0x96);
@@ -469,7 +487,7 @@ pub(super) fn avm1_compile_expr(
         }
         SwfExpr::ArrayLit(elems) => {
             for el in elems.iter().rev() {
-                avm1_compile_expr(out, el, reg_map)?;
+                compile_child(out, el)?;
             }
             avm1_push_int(out, elems.len() as i32);
             out.push(0x42); // ActionInitArray
@@ -477,7 +495,7 @@ pub(super) fn avm1_compile_expr(
         SwfExpr::ObjectLit(props) => {
             for (key, val) in props {
                 avm1_push_string(out, key)?;
-                avm1_compile_expr(out, val, reg_map)?;
+                compile_child(out, val)?;
             }
             avm1_push_int(out, props.len() as i32);
             out.push(0x43); // ActionInitObject
@@ -489,13 +507,13 @@ pub(super) fn avm1_compile_expr(
             avm1_compile_function(out, "", name.as_deref(), params, body)?;
         }
         SwfExpr::Member(obj, prop) => {
-            avm1_compile_expr(out, obj, reg_map)?;
+            compile_child(out, obj)?;
             avm1_push_string(out, prop)?;
             out.push(0x4e); // ActionGetMember
         }
         SwfExpr::Index(obj, idx) => {
-            avm1_compile_expr(out, obj, reg_map)?;
-            avm1_compile_expr(out, idx, reg_map)?;
+            compile_child(out, obj)?;
+            compile_child(out, idx)?;
             out.push(0x4e); // ActionGetMember
         }
         SwfExpr::XmlLit { .. } | SwfExpr::XmlAttr { .. } | SwfExpr::XmlDescendants { .. } => {
@@ -503,25 +521,25 @@ pub(super) fn avm1_compile_expr(
         }
         SwfExpr::Unary { op, expr } => match op {
             SwfUnaryOp::Not => {
-                avm1_compile_expr(out, expr, reg_map)?;
+                compile_child(out, expr)?;
                 out.push(0x12); // ActionNot
             }
             SwfUnaryOp::Neg => {
                 avm1_push_int(out, 0);
-                avm1_compile_expr(out, expr, reg_map)?;
+                compile_child(out, expr)?;
                 out.push(0x0b); // ActionSubtract
             }
             SwfUnaryOp::Pos => {
-                avm1_compile_expr(out, expr, reg_map)?;
+                compile_child(out, expr)?;
                 out.push(0x4a); // ActionToNumber
             }
             SwfUnaryOp::BitNot => {
-                avm1_compile_expr(out, expr, reg_map)?;
+                compile_child(out, expr)?;
                 avm1_push_int(out, -1);
                 out.push(0x62); // ActionBitXor
             }
             SwfUnaryOp::Typeof => {
-                avm1_compile_expr(out, expr, reg_map)?;
+                compile_child(out, expr)?;
                 out.push(0x44); // ActionTypeOf
             }
         },
@@ -531,13 +549,13 @@ pub(super) fn avm1_compile_expr(
                 out.push(0x3b); // ActionDelete2
             }
             SwfLValue::Member(obj, prop) => {
-                avm1_compile_expr(out, obj, reg_map)?;
+                compile_child(out, obj)?;
                 avm1_push_string(out, prop)?;
                 out.push(0x3a); // ActionDelete
             }
             SwfLValue::Index(obj, idx) => {
-                avm1_compile_expr(out, obj, reg_map)?;
-                avm1_compile_expr(out, idx, reg_map)?;
+                compile_child(out, obj)?;
+                compile_child(out, idx)?;
                 out.push(0x3a); // ActionDelete
             }
             SwfLValue::XmlAttr { .. } => {
@@ -549,12 +567,12 @@ pub(super) fn avm1_compile_expr(
             then_expr,
             else_expr,
         } => {
-            avm1_compile_expr(out, cond, reg_map)?;
+            compile_child(out, cond)?;
             out.push(0x12); // ActionNot
             let mut then_bytes = Vec::new();
-            avm1_compile_expr(&mut then_bytes, then_expr, reg_map)?;
+            compile_child(&mut then_bytes, then_expr)?;
             let mut else_bytes = Vec::new();
-            avm1_compile_expr(&mut else_bytes, else_expr, reg_map)?;
+            compile_child(&mut else_bytes, else_expr)?;
             let skip_else = i16::try_from(else_bytes.len())
                 .map_err(|_| "AVM1 ternary branch exceeds i16 jump offset limit".to_owned())?;
             then_bytes.push(0x99); // ActionJump
@@ -570,13 +588,13 @@ pub(super) fn avm1_compile_expr(
         }
         SwfExpr::Binary { op, lhs, rhs } => {
             if matches!(op, SwfBinaryOp::And | SwfBinaryOp::Or) {
-                avm1_compile_expr(out, lhs, reg_map)?;
+                compile_child(out, lhs)?;
                 out.push(0x4c); // ActionPushDuplicate
                 if *op == SwfBinaryOp::And {
                     out.push(0x12); // ActionNot: branch when lhs is false
                 }
                 let mut rhs_bytes = Vec::new();
-                avm1_compile_expr(&mut rhs_bytes, rhs, reg_map)?;
+                compile_child(&mut rhs_bytes, rhs)?;
                 let skip_rhs = rhs_bytes
                     .len()
                     .checked_add(1)
@@ -591,8 +609,8 @@ pub(super) fn avm1_compile_expr(
             }
             if *op == SwfBinaryOp::In {
                 // Evaluate `rhs[lhs] !== undefined` in AVM1
-                avm1_compile_expr(out, rhs, reg_map)?;
-                avm1_compile_expr(out, lhs, reg_map)?;
+                compile_child(out, rhs)?;
+                compile_child(out, lhs)?;
                 out.push(0x4e); // ActionGetMember
                 out.push(0x96);
                 out.extend_from_slice(&1u16.to_le_bytes());
@@ -607,8 +625,8 @@ pub(super) fn avm1_compile_expr(
                         .to_owned(),
                 );
             }
-            avm1_compile_expr(out, lhs, reg_map)?;
-            avm1_compile_expr(out, rhs, reg_map)?;
+            compile_child(out, lhs)?;
+            compile_child(out, rhs)?;
             match op {
                 SwfBinaryOp::Add => out.push(0x47), // ActionAdd2
                 SwfBinaryOp::Sub => out.push(0x0b), // ActionSubtract
@@ -650,11 +668,11 @@ pub(super) fn avm1_compile_expr(
             }
         }
         SwfExpr::Call { callee, args } => {
-            avm1_compile_call(out, callee, args, false, reg_map)?;
+            avm1_compile_call_bounded(out, callee, args, false, reg_map, next_depth)?;
         }
         SwfExpr::New { callee, args } => {
             for a in args.iter().rev() {
-                avm1_compile_expr(out, a, reg_map)?;
+                compile_child(out, a)?;
             }
             avm1_push_int(out, args.len() as i32);
             match callee.as_ref() {
@@ -671,12 +689,12 @@ pub(super) fn avm1_compile_expr(
                     out.push(0x40); // ActionNewObject
                 }
                 SwfExpr::Member(obj, prop) => {
-                    avm1_compile_expr(out, obj, reg_map)?;
+                    compile_child(out, obj)?;
                     avm1_push_string(out, prop)?;
                     out.push(0x53); // ActionNewMethod
                 }
                 other => {
-                    avm1_compile_expr(out, other, reg_map)?;
+                    compile_child(out, other)?;
                     out.push(0x96);
                     out.extend_from_slice(&1u16.to_le_bytes());
                     out.push(0x03); // Undefined method name
@@ -695,11 +713,31 @@ pub(super) fn avm1_compile_call(
     discard_result: bool,
     reg_map: &HashMap<String, u8>,
 ) -> Result<(), String> {
+    avm1_compile_call_bounded(out, callee, args, discard_result, reg_map, 0)
+}
+
+fn avm1_compile_call_bounded(
+    out: &mut Vec<u8>,
+    callee: &SwfExpr,
+    args: &[SwfExpr],
+    discard_result: bool,
+    reg_map: &HashMap<String, u8>,
+    depth: usize,
+) -> Result<(), String> {
+    if depth >= MAX_SWF_AST_DEPTH {
+        return Err(format!(
+            "expression exceeds maximum compilation depth ({MAX_SWF_AST_DEPTH}) in bounded SWF compiler"
+        ));
+    }
+    let next_depth = depth + 1;
+    let compile_child = |buf: &mut Vec<u8>, child: &SwfExpr| -> Result<(), String> {
+        avm1_compile_expr_bounded(buf, child, reg_map, next_depth)
+    };
     if let SwfExpr::Ident(name) = callee
         && let Some(&reg) = reg_map.get(name)
     {
         for a in args.iter().rev() {
-            avm1_compile_expr(out, a, reg_map)?;
+            compile_child(out, a)?;
         }
         avm1_push_int(out, args.len() as i32);
         avm1_push_register(out, reg);
@@ -717,10 +755,10 @@ pub(super) fn avm1_compile_call(
         && name == "super"
     {
         for a in args.iter().rev() {
-            avm1_compile_expr(out, a, reg_map)?;
+            compile_child(out, a)?;
         }
         avm1_push_int(out, args.len() as i32);
-        avm1_compile_expr(out, callee, reg_map)?;
+        compile_child(out, callee)?;
         out.push(0x96);
         out.extend_from_slice(&1u16.to_le_bytes());
         out.push(0x03); // Undefined method name -> invoke super constructor
@@ -834,7 +872,7 @@ pub(super) fn avm1_compile_call(
                         ));
                     }
                     other => {
-                        avm1_compile_expr(out, other, reg_map)?;
+                        compile_child(out, other)?;
                         out.push(0x9f); // ActionGotoFrame2
                         out.extend_from_slice(&1u16.to_le_bytes());
                         out.push(u8::from(is_play));
@@ -844,7 +882,7 @@ pub(super) fn avm1_compile_call(
             }
             "trace" if discard_result => {
                 if let Some(first) = args.first() {
-                    avm1_compile_expr(out, first, reg_map)?;
+                    compile_child(out, first)?;
                 } else {
                     avm1_push_string(out, "")?;
                 }
@@ -883,10 +921,10 @@ pub(super) fn avm1_compile_call(
                     }
                 }
                 avm1_push_string(out, "FSCommand:")?;
-                avm1_compile_expr(out, &args[0], reg_map)?;
+                compile_child(out, &args[0])?;
                 out.push(0x47); // ActionAdd2 -> "FSCommand:" + cmd
                 if let Some(param_expr) = args.get(1) {
-                    avm1_compile_expr(out, param_expr, reg_map)?;
+                    compile_child(out, param_expr)?;
                 } else {
                     avm1_push_string(out, "")?;
                 }
@@ -929,9 +967,9 @@ pub(super) fn avm1_compile_call(
                         return Ok(());
                     }
                 }
-                avm1_compile_expr(out, &args[0], reg_map)?;
+                compile_child(out, &args[0])?;
                 if let Some(tgt_expr) = args.get(1) {
-                    avm1_compile_expr(out, tgt_expr, reg_map)?;
+                    compile_child(out, tgt_expr)?;
                 } else {
                     avm1_push_string(out, "")?;
                 }
@@ -942,7 +980,7 @@ pub(super) fn avm1_compile_call(
             }
             _ => {
                 for a in args.iter().rev() {
-                    avm1_compile_expr(out, a, reg_map)?;
+                    compile_child(out, a)?;
                 }
                 avm1_push_int(out, args.len() as i32);
                 avm1_push_string(out, short_fn)?;
@@ -957,10 +995,10 @@ pub(super) fn avm1_compile_call(
 
     if let SwfExpr::Member(recv, method_name) = callee {
         for a in args.iter().rev() {
-            avm1_compile_expr(out, a, reg_map)?;
+            compile_child(out, a)?;
         }
         avm1_push_int(out, args.len() as i32);
-        avm1_compile_expr(out, recv, reg_map)?;
+        compile_child(out, recv)?;
         avm1_push_string(out, method_name)?;
         out.push(0x52); // ActionCallMethod
         if discard_result {
@@ -971,10 +1009,10 @@ pub(super) fn avm1_compile_call(
 
     // Arbitrary callable expression (e.g. `makeAdder(10)(5)`, `(x => x * 2)(4)`, `fns[0](3)`):
     for a in args.iter().rev() {
-        avm1_compile_expr(out, a, reg_map)?;
+        compile_child(out, a)?;
     }
     avm1_push_int(out, args.len() as i32);
-    avm1_compile_expr(out, callee, reg_map)?;
+    compile_child(out, callee)?;
     out.push(0x96);
     out.extend_from_slice(&1u16.to_le_bytes());
     out.push(0x03); // Undefined method name -> call function value directly

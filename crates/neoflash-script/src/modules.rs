@@ -273,12 +273,43 @@ fn module_export_name_str(name: &ModuleExportName<'_>) -> String {
     }
 }
 
+fn module_nesting_diagnostic(
+    source: &str,
+    language: ScriptLanguage,
+    path_hint: Option<&str>,
+    offset: usize,
+) -> Vec<Diagnostic> {
+    let (line, column) = byte_offset_to_line_col(source, offset);
+    let prefix = path_hint
+        .filter(|p| !p.is_empty())
+        .map(|p| format!("{p}: "))
+        .unwrap_or_default();
+    vec![
+        Diagnostic::new(
+            language,
+            line,
+            column,
+            format!("{prefix}{}", crate::WEB_NESTING_LIMIT_MSG),
+        )
+        .with_source(source)
+        .with_path(path_hint.unwrap_or("")),
+    ]
+}
+
 fn extract_module_header(
     source: &str,
     language: ScriptLanguage,
     path: &str,
     lookup: &BTreeMap<String, String>,
 ) -> Result<ParsedModuleHeader, Vec<Diagnostic>> {
+    if let Err(offset) = crate::check_web_nesting_bounds(source) {
+        return Err(module_nesting_diagnostic(
+            source,
+            language,
+            Some(path),
+            offset,
+        ));
+    }
     let allocator = Allocator::default();
     let source_type = source_type_for(language, Some(path), true);
     let parsed = Parser::new(&allocator, source, source_type).parse();
@@ -299,6 +330,16 @@ fn extract_module_header(
                     .with_path(path)
             })
             .collect());
+    }
+    if let Some(offset) =
+        crate::oxc_program_exceeds_depth(&parsed.program, crate::MAX_WEB_AST_DEPTH)
+    {
+        return Err(module_nesting_diagnostic(
+            source,
+            language,
+            Some(path),
+            offset,
+        ));
     }
 
     let mut imports = Vec::new();
@@ -838,6 +879,14 @@ fn analyze_and_typecheck_module(
     star_targets: &[String],
     compiled_modules: &BTreeMap<String, CompiledModule>,
 ) -> Result<ModuleTypeExports, Vec<Diagnostic>> {
+    if let Err(offset) = crate::check_web_nesting_bounds(source) {
+        return Err(module_nesting_diagnostic(
+            source,
+            language,
+            Some(path),
+            offset,
+        ));
+    }
     let allocator = Allocator::default();
     let source_type = source_type_for(language, Some(path), true);
     let parsed = Parser::new(&allocator, source, source_type).parse();
@@ -858,6 +907,16 @@ fn analyze_and_typecheck_module(
                     .with_path(path)
             })
             .collect());
+    }
+    if let Some(offset) =
+        crate::oxc_program_exceeds_depth(&parsed.program, crate::MAX_WEB_AST_DEPTH)
+    {
+        return Err(module_nesting_diagnostic(
+            source,
+            language,
+            Some(path),
+            offset,
+        ));
     }
 
     let mut check_result = check_typescript_program(
@@ -926,6 +985,11 @@ fn transform_ts_and_jsx_mapped(
     path_hint: Option<&str>,
     is_module: bool,
 ) -> Result<(String, SourceMap), Vec<Diagnostic>> {
+    if let Err(offset) = crate::check_web_nesting_bounds(source) {
+        return Err(module_nesting_diagnostic(
+            source, language, path_hint, offset,
+        ));
+    }
     let allocator = Allocator::default();
     let source_type = source_type_for(language, path_hint, is_module);
     let parsed = Parser::new(&allocator, source, source_type).parse();
@@ -950,6 +1014,11 @@ fn transform_ts_and_jsx_mapped(
     }
 
     let mut program = parsed.program;
+    if let Some(offset) = crate::oxc_program_exceeds_depth(&program, crate::MAX_WEB_AST_DEPTH) {
+        return Err(module_nesting_diagnostic(
+            source, language, path_hint, offset,
+        ));
+    }
     let semantic_ret = SemanticBuilder::new()
         .with_excess_capacity(2.0)
         .build(&program);
@@ -1046,6 +1115,14 @@ fn rewrite_esm_with_ranges(
     allow_exports: bool,
 ) -> Result<(String, Vec<(usize, usize, usize)>), Vec<Diagnostic>> {
     let allocator = Allocator::default();
+    if let Err(offset) = crate::check_web_nesting_bounds(js_code) {
+        return Err(module_nesting_diagnostic(
+            js_code,
+            language,
+            Some(importer_path),
+            offset,
+        ));
+    }
     let parsed = Parser::new(&allocator, js_code, SourceType::mjs()).parse();
     if !parsed.errors.is_empty() {
         return Ok((js_code.to_string(), vec![(0, js_code.len(), 0)]));
@@ -1285,6 +1362,13 @@ pub(crate) fn compile_handler_with_modules_mapped(
     graph: &CompiledModuleGraph,
     source_name: &str,
 ) -> Result<(String, SourceMap), Vec<Diagnostic>> {
+    if let Err(offset) = crate::check_web_nesting_bounds(&script.source) {
+        return Err(vec![Diagnostic::at(
+            script,
+            offset,
+            crate::WEB_NESTING_LIMIT_MSG,
+        )]);
+    }
     // Check if the handler has top-level `import` or `export` statements or JSX
     let allocator = Allocator::default();
     let wrapped_for_check = format!("function __neoflash_handler__() {{\n{}\n}}", script.source);

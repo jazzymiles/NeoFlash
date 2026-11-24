@@ -143,6 +143,196 @@ pub(super) enum SwfExpr {
     },
 }
 
+impl SwfExpr {
+    fn take_box_child(slot: &mut Box<Self>, stack: &mut Vec<Self>) {
+        let child = std::mem::replace(slot.as_mut(), Self::Null);
+        if !matches!(child, Self::Null) {
+            stack.push(child);
+        }
+    }
+
+    fn take_children_into(&mut self, stack: &mut Vec<Self>) {
+        match self {
+            Self::Null
+            | Self::Undefined
+            | Self::Bool(_)
+            | Self::Int(_)
+            | Self::Float(_)
+            | Self::Str(_)
+            | Self::Ident(_)
+            | Self::Function { .. } => {}
+            Self::ArrayLit(elems) => stack.append(elems),
+            Self::ObjectLit(props) => {
+                for (_, val) in std::mem::take(props) {
+                    if !matches!(val, Self::Null) {
+                        stack.push(val);
+                    }
+                }
+            }
+            Self::Member(obj, _) => Self::take_box_child(obj, stack),
+            Self::Index(obj, idx) => {
+                Self::take_box_child(obj, stack);
+                Self::take_box_child(idx, stack);
+            }
+            Self::XmlLit { pieces, .. } => {
+                for piece in std::mem::take(pieces) {
+                    match piece {
+                        SwfXmlCompiledPiece::Raw(_) => {}
+                        SwfXmlCompiledPiece::ElemExpr(mut e)
+                        | SwfXmlCompiledPiece::AttrExpr(mut e) => {
+                            Self::take_box_child(&mut e, stack);
+                        }
+                    }
+                }
+            }
+            Self::XmlAttr { object, attr }
+            | Self::XmlDescendants {
+                object,
+                target: attr,
+                ..
+            } => {
+                Self::take_box_child(object, stack);
+                if let SwfXmlSelector::Computed(idx) = attr {
+                    Self::take_box_child(idx, stack);
+                }
+            }
+            Self::Unary { expr, .. } => Self::take_box_child(expr, stack),
+            Self::Binary { lhs, rhs, .. } => {
+                Self::take_box_child(lhs, stack);
+                Self::take_box_child(rhs, stack);
+            }
+            Self::Call { callee, args } | Self::New { callee, args } => {
+                Self::take_box_child(callee, stack);
+                stack.append(args);
+            }
+            Self::Delete(lv) => match lv.as_mut() {
+                SwfLValue::Ident(_) => {}
+                SwfLValue::Member(obj, _) => Self::take_box_child(obj, stack),
+                SwfLValue::Index(obj, idx) => {
+                    Self::take_box_child(obj, stack);
+                    Self::take_box_child(idx, stack);
+                }
+                SwfLValue::XmlAttr { object, attr } => {
+                    Self::take_box_child(object, stack);
+                    if let SwfXmlSelector::Computed(idx) = attr {
+                        Self::take_box_child(idx, stack);
+                    }
+                }
+            },
+            Self::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                Self::take_box_child(cond, stack);
+                Self::take_box_child(then_expr, stack);
+                Self::take_box_child(else_expr, stack);
+            }
+        }
+    }
+}
+
+impl Drop for SwfExpr {
+    fn drop(&mut self) {
+        let mut stack = Vec::new();
+        self.take_children_into(&mut stack);
+        while let Some(mut node) = stack.pop() {
+            node.take_children_into(&mut stack);
+        }
+    }
+}
+
+pub(super) fn swf_expr_exceeds_depth(root: &SwfExpr, max_depth: usize) -> bool {
+    let mut stack = vec![(root, 1usize)];
+    while let Some((expr, depth)) = stack.pop() {
+        if depth > max_depth {
+            return true;
+        }
+        let next = depth + 1;
+        match expr {
+            SwfExpr::Null
+            | SwfExpr::Undefined
+            | SwfExpr::Bool(_)
+            | SwfExpr::Int(_)
+            | SwfExpr::Float(_)
+            | SwfExpr::Str(_)
+            | SwfExpr::Ident(_)
+            | SwfExpr::Function { .. } => {}
+            SwfExpr::ArrayLit(elems) => {
+                for el in elems {
+                    stack.push((el, next));
+                }
+            }
+            SwfExpr::ObjectLit(props) => {
+                for (_, val) in props {
+                    stack.push((val, next));
+                }
+            }
+            SwfExpr::Member(obj, _) | SwfExpr::Unary { expr: obj, .. } => {
+                stack.push((obj, next));
+            }
+            SwfExpr::Index(obj, idx)
+            | SwfExpr::Binary {
+                lhs: obj, rhs: idx, ..
+            } => {
+                stack.push((obj, next));
+                stack.push((idx, next));
+            }
+            SwfExpr::XmlLit { pieces, .. } => {
+                for piece in pieces {
+                    match piece {
+                        SwfXmlCompiledPiece::Raw(_) => {}
+                        SwfXmlCompiledPiece::ElemExpr(e) | SwfXmlCompiledPiece::AttrExpr(e) => {
+                            stack.push((e, next));
+                        }
+                    }
+                }
+            }
+            SwfExpr::XmlAttr { object, attr }
+            | SwfExpr::XmlDescendants {
+                object,
+                target: attr,
+                ..
+            } => {
+                stack.push((object, next));
+                if let SwfXmlSelector::Computed(idx) = attr {
+                    stack.push((idx, next));
+                }
+            }
+            SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+                stack.push((callee, next));
+                for a in args {
+                    stack.push((a, next));
+                }
+            }
+            SwfExpr::Delete(lv) => match lv.as_ref() {
+                SwfLValue::Ident(_) => {}
+                SwfLValue::Member(obj, _) => stack.push((obj, next)),
+                SwfLValue::Index(obj, idx) => {
+                    stack.push((obj, next));
+                    stack.push((idx, next));
+                }
+                SwfLValue::XmlAttr { object, attr } => {
+                    stack.push((object, next));
+                    if let SwfXmlSelector::Computed(idx) = attr {
+                        stack.push((idx, next));
+                    }
+                }
+            },
+            SwfExpr::Ternary {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                stack.push((cond, next));
+                stack.push((then_expr, next));
+                stack.push((else_expr, next));
+            }
+        }
+    }
+    false
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum SwfStmt {
     VarDecl {
@@ -270,6 +460,11 @@ pub(super) enum SwfToken {
 }
 
 pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String> {
+    if source.len() > 1_048_576 {
+        return Err(
+            "script exceeds the 1 MiB source size limit in bounded SWF compiler".to_owned(),
+        );
+    }
     let bytes = source.as_bytes();
     let len = bytes.len();
     let mut i = 0;
@@ -682,6 +877,11 @@ fn scan_xml_open_tag(
             return Ok(p + 2);
         }
         if bytes[p] == b'>' {
+            if tag_stack.len() >= MAX_SWF_CHAIN_LEN {
+                return Err(format!(
+                    "script exceeds maximum XML nesting depth ({MAX_SWF_CHAIN_LEN}) in bounded SWF compiler"
+                ));
+            }
             push_xml_raw(pieces, ">");
             tag_stack.push(tag_name);
             return Ok(p + 1);
@@ -871,13 +1071,16 @@ fn scan_xml_literal(source: &str, start: usize) -> Result<(SwfToken, usize), Str
     Ok((SwfToken::XmlLiteral { is_list, pieces }, p))
 }
 
-pub(super) const MAX_SWF_PARSE_DEPTH: usize = 40;
+pub(super) const MAX_SWF_PARSE_DEPTH: usize = 28;
+pub(super) const MAX_SWF_CHAIN_LEN: usize = 256;
+pub(super) const MAX_SWF_AST_DEPTH: usize = 256;
 
 pub(super) struct SwfParser {
     pub(super) tokens: Vec<SwfToken>,
     pub(super) pos: usize,
     pub(super) is_avm2: bool,
     pub(super) depth: usize,
+    pub(super) expr_nesting: usize,
     pub(super) function_depth: usize,
     pub(super) in_function_expression: bool,
     pub(super) allow_in: bool,
@@ -894,6 +1097,7 @@ impl SwfParser {
             pos: 0,
             is_avm2,
             depth,
+            expr_nesting: 0,
             function_depth: 0,
             in_function_expression: false,
             allow_in: true,
@@ -1707,8 +1911,28 @@ impl SwfParser {
         }
     }
 
+    fn check_chain_step(chain_len: &mut usize) -> Result<(), String> {
+        if *chain_len >= MAX_SWF_CHAIN_LEN {
+            return Err(format!(
+                "script exceeds maximum operator chain length ({MAX_SWF_CHAIN_LEN}) in bounded SWF compiler"
+            ));
+        }
+        *chain_len += 1;
+        Ok(())
+    }
+
     pub(super) fn parse_expr(&mut self) -> Result<SwfExpr, String> {
-        self.with_recursion_guard(Self::parse_ternary)
+        let is_outer_expr = self.expr_nesting == 0;
+        self.expr_nesting += 1;
+        let res = self.with_recursion_guard(Self::parse_ternary);
+        self.expr_nesting -= 1;
+        let expr = res?;
+        if is_outer_expr && swf_expr_exceeds_depth(&expr, MAX_SWF_AST_DEPTH) {
+            return Err(format!(
+                "script exceeds maximum expression AST depth ({MAX_SWF_AST_DEPTH}) in bounded SWF compiler"
+            ));
+        }
+        Ok(expr)
     }
 
     pub(super) fn parse_ternary(&mut self) -> Result<SwfExpr, String> {
@@ -1732,7 +1956,9 @@ impl SwfParser {
 
     pub(super) fn parse_logical_or(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_logical_and()?;
+        let mut chain_len = 0usize;
         while self.eat(&SwfToken::Or) {
+            Self::check_chain_step(&mut chain_len)?;
             let rhs = self.parse_logical_and()?;
             lhs = SwfExpr::Binary {
                 op: SwfBinaryOp::Or,
@@ -1745,7 +1971,9 @@ impl SwfParser {
 
     pub(super) fn parse_logical_and(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_bit_or()?;
+        let mut chain_len = 0usize;
         while self.eat(&SwfToken::And) {
+            Self::check_chain_step(&mut chain_len)?;
             let rhs = self.parse_bit_or()?;
             lhs = SwfExpr::Binary {
                 op: SwfBinaryOp::And,
@@ -1758,7 +1986,9 @@ impl SwfParser {
 
     pub(super) fn parse_bit_or(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_bit_xor()?;
+        let mut chain_len = 0usize;
         while self.eat(&SwfToken::BitOr) {
+            Self::check_chain_step(&mut chain_len)?;
             let rhs = self.parse_bit_xor()?;
             lhs = SwfExpr::Binary {
                 op: SwfBinaryOp::BitOr,
@@ -1771,7 +2001,9 @@ impl SwfParser {
 
     pub(super) fn parse_bit_xor(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_bit_and()?;
+        let mut chain_len = 0usize;
         while self.eat(&SwfToken::BitXor) {
+            Self::check_chain_step(&mut chain_len)?;
             let rhs = self.parse_bit_and()?;
             lhs = SwfExpr::Binary {
                 op: SwfBinaryOp::BitXor,
@@ -1784,7 +2016,9 @@ impl SwfParser {
 
     pub(super) fn parse_bit_and(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_equality()?;
+        let mut chain_len = 0usize;
         while self.eat(&SwfToken::BitAnd) {
+            Self::check_chain_step(&mut chain_len)?;
             let rhs = self.parse_equality()?;
             lhs = SwfExpr::Binary {
                 op: SwfBinaryOp::BitAnd,
@@ -1797,6 +2031,7 @@ impl SwfParser {
 
     pub(super) fn parse_equality(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_relational()?;
+        let mut chain_len = 0usize;
         while let Some(op) = match self.peek() {
             Some(SwfToken::Eq) => Some(SwfBinaryOp::Eq),
             Some(SwfToken::Ne) => Some(SwfBinaryOp::Ne),
@@ -1804,6 +2039,7 @@ impl SwfParser {
             Some(SwfToken::StrictNe) => Some(SwfBinaryOp::StrictNe),
             _ => None,
         } {
+            Self::check_chain_step(&mut chain_len)?;
             self.pos += 1;
             let rhs = self.parse_relational()?;
             lhs = SwfExpr::Binary {
@@ -1817,6 +2053,7 @@ impl SwfParser {
 
     pub(super) fn parse_relational(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_shift()?;
+        let mut chain_len = 0usize;
         while let Some(op) = match self.peek() {
             Some(SwfToken::Lt) => Some(SwfBinaryOp::Lt),
             Some(SwfToken::Le) => Some(SwfBinaryOp::Le),
@@ -1828,6 +2065,7 @@ impl SwfParser {
             Some(SwfToken::Ident(kw)) if self.allow_in && kw == "in" => Some(SwfBinaryOp::In),
             _ => None,
         } {
+            Self::check_chain_step(&mut chain_len)?;
             self.pos += 1;
             let rhs =
                 if matches!(op, SwfBinaryOp::Is | SwfBinaryOp::As) && self.eat(&SwfToken::Star) {
@@ -1846,12 +2084,14 @@ impl SwfParser {
 
     pub(super) fn parse_shift(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_additive()?;
+        let mut chain_len = 0usize;
         while let Some(op) = match self.peek() {
             Some(SwfToken::Shl) => Some(SwfBinaryOp::Shl),
             Some(SwfToken::Shr) => Some(SwfBinaryOp::Shr),
             Some(SwfToken::UShr) => Some(SwfBinaryOp::UShr),
             _ => None,
         } {
+            Self::check_chain_step(&mut chain_len)?;
             self.pos += 1;
             let rhs = self.parse_additive()?;
             lhs = SwfExpr::Binary {
@@ -1865,11 +2105,13 @@ impl SwfParser {
 
     pub(super) fn parse_additive(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_multiplicative()?;
+        let mut chain_len = 0usize;
         while let Some(op) = match self.peek() {
             Some(SwfToken::Plus) => Some(SwfBinaryOp::Add),
             Some(SwfToken::Minus) => Some(SwfBinaryOp::Sub),
             _ => None,
         } {
+            Self::check_chain_step(&mut chain_len)?;
             self.pos += 1;
             let rhs = self.parse_multiplicative()?;
             lhs = SwfExpr::Binary {
@@ -1883,12 +2125,14 @@ impl SwfParser {
 
     pub(super) fn parse_multiplicative(&mut self) -> Result<SwfExpr, String> {
         let mut lhs = self.parse_unary()?;
+        let mut chain_len = 0usize;
         while let Some(op) = match self.peek() {
             Some(SwfToken::Star) => Some(SwfBinaryOp::Mul),
             Some(SwfToken::Slash) => Some(SwfBinaryOp::Div),
             Some(SwfToken::Percent) => Some(SwfBinaryOp::Mod),
             _ => None,
         } {
+            Self::check_chain_step(&mut chain_len)?;
             self.pos += 1;
             let rhs = self.parse_unary()?;
             lhs = SwfExpr::Binary {
@@ -1980,8 +2224,10 @@ impl SwfParser {
             self.pos += 1;
         }
         let mut expr = self.parse_primary()?;
+        let mut chain_len = 0usize;
         loop {
             if self.eat(&SwfToken::Dot) {
+                Self::check_chain_step(&mut chain_len)?;
                 if self.eat(&SwfToken::At) {
                     if !self.is_avm2 {
                         return Err(
@@ -2007,6 +2253,7 @@ impl SwfParser {
                     expr = SwfExpr::Member(Box::new(expr), prop);
                 }
             } else if self.eat(&SwfToken::DotDot) {
+                Self::check_chain_step(&mut chain_len)?;
                 if !self.is_avm2 {
                     return Err(
                         "ActionScript 3 E4X '..' descendant operator is not supported in AVM1"
@@ -2021,10 +2268,12 @@ impl SwfParser {
                     is_attr,
                 };
             } else if self.eat(&SwfToken::LBracket) {
+                Self::check_chain_step(&mut chain_len)?;
                 let idx = self.parse_expr()?;
                 self.expect(&SwfToken::RBracket)?;
                 expr = SwfExpr::Index(Box::new(expr), Box::new(idx));
             } else if self.eat(&SwfToken::LParen) {
+                Self::check_chain_step(&mut chain_len)?;
                 let mut args = Vec::new();
                 if !self.eat(&SwfToken::RParen) {
                     loop {
@@ -2229,6 +2478,11 @@ impl SwfParser {
                     }
                     let e = self.parse_expr()?;
                     self.expect(&SwfToken::RParen)?;
+                    if swf_expr_exceeds_depth(&e, MAX_SWF_AST_DEPTH) {
+                        return Err(format!(
+                            "script exceeds maximum expression AST depth ({MAX_SWF_AST_DEPTH}) in bounded SWF compiler"
+                        ));
+                    }
                     Ok(e)
                 })();
                 self.allow_in = saved_in;
@@ -2292,12 +2546,26 @@ impl SwfParser {
     }
 }
 
-pub(super) fn expr_to_lvalue(expr: SwfExpr) -> Result<SwfLValue, String> {
-    match expr {
-        SwfExpr::Ident(name) => Ok(SwfLValue::Ident(name)),
-        SwfExpr::Member(obj, prop) => Ok(SwfLValue::Member(obj, prop)),
-        SwfExpr::Index(obj, idx) => Ok(SwfLValue::Index(obj, idx)),
-        SwfExpr::XmlAttr { object, attr } => Ok(SwfLValue::XmlAttr { object, attr }),
+pub(super) fn expr_to_lvalue(mut expr: SwfExpr) -> Result<SwfLValue, String> {
+    match &mut expr {
+        SwfExpr::Ident(name) => Ok(SwfLValue::Ident(std::mem::take(name))),
+        SwfExpr::Member(obj, prop) => {
+            let inner = std::mem::replace(obj.as_mut(), SwfExpr::Null);
+            Ok(SwfLValue::Member(Box::new(inner), std::mem::take(prop)))
+        }
+        SwfExpr::Index(obj, idx) => {
+            let inner_obj = std::mem::replace(obj.as_mut(), SwfExpr::Null);
+            let inner_idx = std::mem::replace(idx.as_mut(), SwfExpr::Null);
+            Ok(SwfLValue::Index(Box::new(inner_obj), Box::new(inner_idx)))
+        }
+        SwfExpr::XmlAttr { object, attr } => {
+            let inner_obj = std::mem::replace(object.as_mut(), SwfExpr::Null);
+            let inner_attr = std::mem::replace(attr, SwfXmlSelector::Named(String::new()));
+            Ok(SwfLValue::XmlAttr {
+                object: Box::new(inner_obj),
+                attr: inner_attr,
+            })
+        }
         _ => Err("invalid assignment target in bounded SWF compiler".to_owned()),
     }
 }
