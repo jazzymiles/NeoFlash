@@ -2817,8 +2817,20 @@ while True:
         );
         wait_until(
             &mut editor,
-            &|ed| ed.debugger_watches()[1].last_value == "124",
-            "watch refresh after Debugger.setVariableValue",
+            &|ed| {
+                ed.debugger_watches()[1].last_value == "124"
+                    && ed
+                        .debugger
+                        .inspection()
+                        .object_properties
+                        .contains_key("obj-hero")
+                    && ed
+                        .debugger
+                        .inspection()
+                        .object_properties
+                        .contains_key("obj-items")
+            },
+            "watch + expanded subtree refresh after Debugger.setVariableValue",
         );
 
         // 5. Inline edit expanded nested object property `hero.x` -> 200 via Runtime.callFunctionOn,
@@ -2851,6 +2863,11 @@ while True:
                         .get("obj-hero")
                         .and_then(|p| p.iter().find(|i| i.name == "x"))
                         .is_some_and(|i| i.value == "200")
+                    && ed
+                        .debugger
+                        .inspection()
+                        .object_properties
+                        .contains_key("obj-items")
             },
             "Locals + Watch + expanded subtree refresh after Runtime.callFunctionOn(number)",
         );
@@ -2888,6 +2905,11 @@ while True:
                         .get("obj-hero")
                         .and_then(|p| p.iter().find(|i| i.name == prop_name))
                         .is_some_and(|i| i.value == expected_display)
+                        && ed
+                            .debugger
+                            .inspection()
+                            .object_properties
+                            .contains_key("obj-items")
                 },
                 prop_name,
             );
