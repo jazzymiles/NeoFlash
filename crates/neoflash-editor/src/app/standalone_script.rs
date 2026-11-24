@@ -2959,9 +2959,26 @@ impl Editor {
                         .is_none_or(|p| !Self::is_actionscript_source_path(p))
                 });
             });
-            return self.open_picked_paths(as_paths, ctx) > 0;
+            self.deferred_stage_script_drops.extend(as_paths);
+            return true;
         }
         false
+    }
+
+    /// A mixed drop places media in the current document before activating a standalone tab.
+    /// Wait for an interactive import to finish so its target document stays active.
+    pub(crate) fn open_deferred_stage_script_drops(&mut self, ctx: &egui::Context) {
+        if self.deferred_stage_script_drops.is_empty()
+            || self.has_modal_dialog_in(ctx)
+            || self.close_origin.is_some()
+            || self.allow_close
+            || self.timeline_edit.dragging()
+        {
+            return;
+        }
+        let paths = std::mem::take(&mut self.deferred_stage_script_drops);
+        self.open_picked_paths(paths, ctx);
+        ctx.request_repaint();
     }
 }
 

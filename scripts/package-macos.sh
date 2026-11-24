@@ -88,6 +88,9 @@ rm -rf "$studio_app_dir"
 rm -rf "$source_bundle_dir"
 rm -f "$source_archive_stage" "$source_report"
 ./scripts/build-web.sh
+# Embed the same revision and build number that go into Info.plist, even if the caller
+# supplied build metadata from another checkout.
+export NEOFLASH_GIT_COMMIT="$commit" NEOFLASH_BUILD_NUMBER="$build_number"
 case "$profile" in
   release) cargo build --locked --release -p neoflash-editor ;;
   debug) cargo build --locked -p neoflash-editor ;;

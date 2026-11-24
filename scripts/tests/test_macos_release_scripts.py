@@ -70,6 +70,19 @@ class MacosReleaseScriptTests(unittest.TestCase):
         text = NOTARIZE.read_text(encoding="utf-8")
         self.assertIn("package-macos.sh release --beta-release first", text)
 
+    def test_package_editor_binary_and_plist_use_the_same_git_metadata(self):
+        text = PACKAGE.read_text(encoding="utf-8")
+        commit = text.index('commit="$(git rev-parse --verify HEAD)"')
+        build = text.index('build_number="$(git rev-list --count HEAD)"')
+        export = text.index(
+            'export NEOFLASH_GIT_COMMIT="$commit" NEOFLASH_BUILD_NUMBER="$build_number"'
+        )
+        self.assertLess(max(commit, build), export)
+        self.assertLess(export, text.index("cargo build --locked --release -p neoflash-editor"))
+        self.assertLess(export, text.index("cargo build --locked -p neoflash-editor"))
+        self.assertIn('<key>NeoFlashGitCommit</key><string>$commit</string>', text)
+        self.assertIn('<key>CFBundleVersion</key><string>$build_number</string>', text)
+
     def test_package_info_plist_declares_exported_nflash_uti_and_document_types(self):
         text = PACKAGE.read_text(encoding="utf-8")
         match = re.search(

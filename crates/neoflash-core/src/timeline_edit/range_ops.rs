@@ -448,6 +448,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
                         let mut key = blank(frame);
                         if let Some(old) = original.keyframes.iter().find(|k| k.frame == frame) {
                             key.label = old.label.clone();
+                            key.label_type = old.label_type;
                         }
                         key
                     } else {

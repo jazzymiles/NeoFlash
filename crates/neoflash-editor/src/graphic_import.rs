@@ -299,11 +299,9 @@ impl Editor {
         let (as_paths, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
             .into_iter()
             .partition(|path| Self::is_actionscript_source_path(path));
-        if !as_paths.is_empty() {
-            let _ = self.open_picked_paths(as_paths, ctx);
-            if paths.is_empty() {
-                return;
-            }
+        self.deferred_stage_script_drops.extend(as_paths);
+        if paths.is_empty() {
+            return;
         }
         if !area.contains(position) {
             self.message("Drop graphics onto the Stage, or use File → Import graphics to Stage.");

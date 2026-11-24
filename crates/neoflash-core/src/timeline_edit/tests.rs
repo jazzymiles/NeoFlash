@@ -55,6 +55,79 @@ fn script_position(project: &Project, root: &Id, source: &str) -> (Option<Id>, u
 }
 
 #[test]
+fn convert_to_blank_keyframes_preserves_comment_and_anchor_labels() {
+    let mut project = Project::blank();
+    let root = project.root.clone();
+    let timeline = &mut project.symbol_mut(&root).unwrap().timeline;
+    timeline.frame_count = 8;
+    let layer_id = timeline.layers[0].id.clone();
+    let artwork = Element {
+        id: "labelled-artwork".into(),
+        kind: ElementKind::Rectangle {
+            width: 10.0,
+            height: 10.0,
+            fill: [0, 0, 0, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        ..Default::default()
+    };
+    timeline.layers[0].keyframes = [
+        (0, "intro", FrameLabelType::Name),
+        (2, "author note", FrameLabelType::Comment),
+        (4, "chapter", FrameLabelType::Anchor),
+        (6, "outro", FrameLabelType::Name),
+    ]
+    .into_iter()
+    .map(|(frame, label, label_type)| Keyframe {
+        frame,
+        label: label.into(),
+        label_type,
+        elements: vec![artwork.clone()],
+        ..Default::default()
+    })
+    .collect();
+    project.upgrade_format_for_features();
+    project.validate().unwrap();
+
+    edit_frames(
+        &mut project,
+        &root,
+        TimelineEdit::ConvertToKeyframes {
+            range: FrameRange {
+                layers: vec![layer_id],
+                start: 2,
+                end: 4,
+            },
+            blank: true,
+        },
+    )
+    .unwrap();
+
+    let timeline = &project.symbol(&root).unwrap().timeline;
+    let layer = &timeline.layers[0];
+    assert_eq!(layer.key_at(2).unwrap().label, "author note");
+    assert_eq!(layer.key_at(2).unwrap().label_type, FrameLabelType::Comment);
+    assert!(layer.key_at(3).unwrap().label.is_empty());
+    assert_eq!(layer.key_at(4).unwrap().label_type, FrameLabelType::Anchor);
+    assert_eq!(
+        timeline.navigable_labels(),
+        [("intro", 0), ("chapter", 4), ("outro", 6)]
+    );
+    for frame in 2..=4 {
+        assert_eq!(layer.key_at(frame).unwrap().frame, frame);
+        assert!(sample_layer(layer, frame).is_empty());
+    }
+    for frame in [1, 5, 6] {
+        assert_eq!(
+            sample_layer(layer, frame).as_slice(),
+            std::slice::from_ref(&artwork)
+        );
+    }
+    project.validate().unwrap();
+}
+
+#[test]
 fn reverse_frames_inverts_easing_curves_to_mirror_poses_in_time() {
     for ease in [
         Easing::EaseIn,

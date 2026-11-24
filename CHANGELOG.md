@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed mixed Stage drops so graphics are imported into the active document before standalone ActionScript tabs
+  open. The standalone Script Editor's **Check** command reloads unopened dependencies from disk. **Convert to
+  Blank Keyframes** preserves existing frame label types. The macOS packager uses the same Git revision and build
+  number for `Info.plist` and the editor binary.
+
 - Fixed **macOS `.as` `"AppleSingle archive"` opening**, hardened **`Save As (converted)` (`48/48` bundles)** & **SWF reference parity (`310` movies)**, verified the **Intel `x86_64` macOS bundle under Rosetta 2** & **`Preferences ▸ Updates` signed-archive downloads**, bounded **SWF/JS/TS/FXG/sync parsers**, and deepened **Experimental Xcode / Swift 6** (`T-472`):
   - **Standalone `.as` Opening on macOS (`Intersection.as` & `src/` Class Packages):** Declared `UTImportedTypeDeclarations` (`com.adobe.actionscript-source`) and claimed `com.apple.applesingle-archive` alongside source UTIs in `Info.plist` + implemented `application:openURLs:` on the AppKit delegate so Finder and Dock open `.as` files directly instead of showing macOS's `"AppleSingle archive"` refusal alert (while real binary `0x00051600`/`0x00051607` AppleSingle/AppleDouble files fail with an explicit NeoFlash diagnostic). Added multi-file selection in **File ▸ Open…**, routed `.as` Stage drag-and-drop to standalone Script Editor tabs, added UTF-8/UTF-16 BOM, Windows-1251/1252 and CRLF/CR normalization without dirtying unmodified tabs, and added cached demand-driven `src/` package-root sibling `.as` class hydration (supporting `package flash.geom` user overrides, `[SWF]`/`[Event]` metadata and file-private helper classes).
   - **`Save As (converted)` Full-Corpus Hardening & `310` Flash Player SWF Reference Oracles:** Preserved `document_class` across `AS3 → AS2` root attachment and `AS3 → AS2 → JS`/`AS3` round trips, verified validation, strict compilation, HTML5 export and live WASM+JS gameplay/trace execution across all 24 authored reference and arcade `.nflash` projects (`48/48` conversions), and expanded 1:1 upstream Ruffle Flash Player `test.swf` + `output.txt` trace parity from `158` to **`310`** non-AIR movies (`152` new disjoint suites).

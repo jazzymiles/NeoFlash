@@ -178,6 +178,11 @@ impl Editor {
             language: unit.language,
             source: unit.source.clone(),
         };
+        if announce {
+            // Explicit Check rereads unopened dependencies, which can change in an external
+            // editor without changing the active source or any open tab's revision.
+            self.standalone_hydration_cache.get_mut().take();
+        }
         let (hydrated, _) = self.hydrated_project_and_fingerprint();
         let mut diagnostics = if Self::is_standalone_class_or_package_unit(&unit) {
             let mut check_proj = hydrated.into_owned();

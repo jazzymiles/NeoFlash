@@ -1772,7 +1772,7 @@
         },
         {
           "id": "convert-keyframes",
-          "title": "Convert frames to keyframes or blank keyframes",
+          "title": "Convert frames to keyframes or blank keyframes while preserving existing frame labels and their types",
           "status": "working"
         }
       ],
@@ -2516,7 +2516,7 @@
         },
         {
           "id": "actions-editing",
-          "title": "Edit sources in Actions with navigator and formatting",
+          "title": "Edit sources in Actions with navigator and formatting, and recheck standalone scripts against current dependencies",
           "status": "working"
         },
         {

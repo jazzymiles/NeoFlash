@@ -205,6 +205,7 @@ pub struct Editor {
     pub library_selected: Option<String>,
     pub(crate) library_panel: crate::library::LibraryPanel,
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
+    pub(crate) deferred_stage_script_drops: Vec<PathBuf>,
     pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
     pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
     pub(crate) export_lottie: Option<crate::panels::export_lottie::ExportLottieDraft>,
@@ -460,6 +461,7 @@ impl Editor {
             live_preview_capturing: false,
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
+            deferred_stage_script_drops: Vec::new(),
             resource_panel: crate::resources::ResourcePanel::default(),
             bitmap_textures: crate::bitmaps::BitmapTextures::default(),
             video_textures: crate::video_cache::VideoTextures::default(),
@@ -2648,6 +2650,7 @@ impl eframe::App for Editor {
         }
         crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
         crate::shell::capture(ctx, ctx.cumulative_pass_nr());
+        self.open_deferred_stage_script_drops(ctx);
         self.dirty_ui_pass = 0;
     }
 }

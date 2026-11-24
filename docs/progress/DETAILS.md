@@ -468,7 +468,7 @@ Nested instances, frames, interpolation and safe authoring previews.
 - Working: Reverse frames
 - Working: Edit artwork across several frames at once
 - Working: Create destination layers when pasting
-- Working: Convert frames to keyframes or blank keyframes
+- Working: Convert frames to keyframes or blank keyframes while preserving existing frame labels and their types
 
 **Scope:** An ordinary click selects one frame; Shift-click and pointer drag create exact rectangular layer/frame ranges, while hovering Timeline grid cells stays silent without tooltip clutter and preserves Grab keyframe cursors. Copy, cut, paste, move, clear, insert and remove time are atomic Undo operations. Left- or right-clicking blank Layers-column space below the rows deselects all layers (`layers_deselected`) and right-clicking opens the compact 10-item contextless layer menu (`Add new layer`, `Add new folder`, `Add motion guide` | `Paste layers` | `Show all`, `Clear all solo`, `Unlock all`, `Show all as solid` | `Expand all folders`, `Collapse all folders`). Right-clicking a selected frame preserves the chosen range, applies Remove Frames to it with Undo/Redo, and groups the six frame utility actions under a compact Utils submenu while Include frame scripts is exposed in Frame Properties. Range edits splitting cubic-representable tweens (`Linear`, `EaseIn`, `EaseOut`, `EaseInOut`, `Flash` and `CubicBezier`, including motion `property_eases`) subdivide editable `CubicBezier` sub-curves via De Casteljau subdivision instead of integer-frame pose baking. Explicit Include frame scripts transfers each selected layer-owned script once and rejects destination collisions; object scripts travel with placements. Independent layer ends can be set numerically or dragged and stop exposure in native and HTML5 evaluation. Range clipboard works within and across open document tabs, preserving visible layer order, stable animation identities and transitive symbols/resources/fonts/swatches/styles while remapping collisions. Edit multiple frames renders every keyframe in the onion range opaque, allows selecting objects that exist only on neighbouring keyframes, and applies Move, Resize, Scale, Rotate and Skew across all keyframes in the range in one Undo step. Pasting a multi-layer range creates missing destination layers in the same Undo transaction.
 
@@ -679,7 +679,7 @@ Publishing websites, apps, games and animation; JS/TS and the browser runtime.
 `web-project-toolchain` · **Closed**
 
 - Working: AS2/AS3 class source files in the project
-- Working: Edit sources in Actions with navigator and formatting
+- Working: Edit sources in Actions with navigator and formatting, and recheck standalone scripts against current dependencies
 - Working: Project panel: source/asset tree, create/rename/delete files, linkage summary and Publish
 - Working: Compiler errors panel (⌥F2) with diagnostic filtering, copy and jump-to-line
 - Working: Code snippets panel with categorized AS3, AS2, AS1, JS and TS templates

@@ -65,6 +65,61 @@ fn encode_cp1251_subset(text: &str) -> Vec<u8> {
 }
 
 #[test]
+fn standalone_check_refreshes_unopened_includes_without_editing_source() {
+    let tmp = TempDirGuard::new("check-unopened-include");
+    let main_path = tmp.path().join("Main.as");
+    let include_path = tmp.path().join("settings.as");
+    let moved_path = tmp.path().join("settings-moved.as");
+    let main_source = "#include \"settings.as\"\ntrace(DEFAULT_SPEED);\n";
+    std::fs::write(&main_path, main_source).unwrap();
+    std::fs::write(&include_path, "var DEFAULT_SPEED:Number = 3;\n").unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    assert!(editor.open_standalone_script_session(&ctx, main_path.clone()));
+
+    editor.check_standalone_script(true);
+    assert_eq!(editor.status, "Code accepted for current language support.");
+    editor.refresh_compiler_diagnostics();
+    assert!(editor.compiler_errors.items.is_empty());
+    let hydrated_runs = editor.standalone_hydration_disk_runs.get();
+    assert_eq!(hydrated_runs, 1);
+
+    std::fs::rename(&include_path, &moved_path).unwrap();
+    editor.refresh_compiler_diagnostics();
+    assert_eq!(editor.standalone_hydration_disk_runs.get(), hydrated_runs);
+    editor.check_standalone_script(true);
+    assert!(editor.status.contains("Error"), "{}", editor.status);
+    assert!(editor.status.contains("settings.as"), "{}", editor.status);
+    editor.refresh_compiler_diagnostics();
+    assert!(
+        editor
+            .compiler_errors
+            .items
+            .iter()
+            .any(|item| item.is_error)
+    );
+    assert_eq!(
+        editor.standalone_hydration_disk_runs.get(),
+        hydrated_runs + 1
+    );
+
+    std::fs::rename(moved_path, include_path).unwrap();
+    editor.check_standalone_script(true);
+    assert_eq!(editor.status, "Code accepted for current language support.");
+    editor.refresh_compiler_diagnostics();
+    assert!(editor.compiler_errors.items.is_empty());
+    assert_eq!(
+        editor.standalone_hydration_disk_runs.get(),
+        hydrated_runs + 2
+    );
+    assert_eq!(editor.standalone_script_source(), Some(main_source));
+    assert_eq!(std::fs::read_to_string(main_path).unwrap(), main_source);
+    assert!(!editor.dirty());
+    assert!(!editor.history.can_undo());
+}
+
+#[test]
 fn t472_binary_applesingle_appledouble_nul_and_legacy_encodings() {
     let tmp = TempDirGuard::new("encodings");
     let ctx = egui::Context::default();
@@ -457,6 +512,7 @@ fn t472_stage_drag_and_drop_routes_single_and_multiple_as_files_to_standalone_ta
                 crate::stage_mapping::StageMapping::identity(),
             );
         });
+        editor.open_deferred_stage_script_drops(ctx);
     });
     assert_eq!(
         editor.session_count(),
@@ -496,18 +552,46 @@ fn t472_stage_drag_and_drop_routes_single_and_multiple_as_files_to_standalone_ta
         ],
         ..Default::default()
     };
-    let mut remaining_after_window_hook = Vec::new();
+    let before_import = editor.project.clone();
+    let authoring_tab = editor.active_session;
     let _ = ctx.run(mixed_raw, |ctx| {
         assert!(editor.handle_window_document_or_as_file_drop(ctx));
-        remaining_after_window_hook = ctx.input(|i| i.raw.dropped_files.clone());
+        assert_eq!(editor.active_session, authoring_tab);
+        assert_eq!(editor.session_count(), 3);
+        assert_eq!(
+            ctx.input(|i| i.raw.dropped_files[0].path.clone()),
+            Some(icon_svg.clone())
+        );
+        editor.stage(ctx);
+        assert!(ctx.input(|i| i.raw.dropped_files.is_empty()));
+        assert_eq!(editor.active_session, authoring_tab);
+        assert!(
+            editor
+                .project
+                .symbols
+                .iter()
+                .any(|symbol| symbol.name == "icon")
+        );
+
+        editor.show_about = true;
+        editor.open_deferred_stage_script_drops(ctx);
+        assert_eq!(editor.active_session, authoring_tab);
+        editor.show_about = false;
+        editor.open_deferred_stage_script_drops(ctx);
     });
     assert_eq!(editor.session_count(), 4);
-    assert_eq!(remaining_after_window_hook.len(), 1);
-    assert_eq!(
-        remaining_after_window_hook[0].path.as_deref(),
-        Some(icon_svg.as_path()),
-        "mixed drop must open .as tabs while leaving non-.as Stage assets intact"
+    assert!(editor.is_standalone_script_session());
+    assert!(editor.switch_session_tab(&ctx, authoring_tab));
+    assert!(
+        editor
+            .project
+            .symbols
+            .iter()
+            .any(|symbol| symbol.name == "icon")
     );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before_import);
 }
 
 fn find_local_bezier_src_dir() -> Option<PathBuf> {

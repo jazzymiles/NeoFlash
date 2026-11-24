@@ -697,6 +697,9 @@ their own layout.
   `timeline_motion.rs::paint_motion_path`.
 
 **PR-11 · Classic Flash Frame Properties & easing** — done (`panels/properties.rs`)
+
+**Convert to Blank Keyframes** keeps existing frame label text and type, including Comment and Anchor. It clears
+the selected frames' contents, and newly created blank keys have no label.
 - Done: Frame `Properties` removes redundant `Range / duration` (`Layer` / `Layer end`) rows, resolves the active exposure span
   (`key_at_or_before(frame)`) so controls stay visible across keyframe `0`, held/in-between span frames, `Motion` spans (backed by
   `motion_tracks` / `set_motion_rotation`) and unextended frames (semantically enabled/disabled per tween kind and fitting floating
