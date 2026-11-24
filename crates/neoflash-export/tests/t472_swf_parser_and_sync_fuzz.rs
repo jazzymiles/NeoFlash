@@ -329,6 +329,41 @@ fn t472_fuzz_script_converter_and_swf_compiler_mutations() {
             let deep_parens_600 = format!("{}1{}", "(".repeat(600), ")".repeat(600));
             let deep_unary_600 = format!("{}1", "!".repeat(600));
             let deep_ternary_400 = build_repeated_chain("1", "?1:1", 400);
+            let newline_div_bypass = format!(
+                "let a = 1\n/ 2; // `\n{}0{};",
+                "(".repeat(5000),
+                ")".repeat(5000)
+            );
+            let postfix_div_bypass = format!(
+                "let a = 1; a++ / 2; // `\n{}0{};",
+                "(".repeat(5000),
+                ")".repeat(5000)
+            );
+            let deep_unary_plus_5000 = format!("var v = {}0;", "+ ".repeat(5000));
+            let deep_jsx_5000 = format!(
+                "var v = {}x{};",
+                "<a>".repeat(5000),
+                "</a>".repeat(5000)
+            );
+            let deep_braceless_if_5000 = format!("{};", "if(1)".repeat(5000));
+            let deep_labels_5000 = format!("{};", "L:".repeat(5000));
+
+            // Positive [A-04] ECMAScript cases on 2 MiB stack:
+            // 1) Regex literal after block `}` + newline and after `break\n/re/` containing escaped `\(` and `//\``
+            // 2) 200-term `a < b && c < d` comparison chain must NOT trip JSX depth!
+            let cmp_chain_200 = build_repeated_chain("1 < 2", " && 1 < 2", 199);
+            for web_lang in [ScriptLanguage::JavaScript, ScriptLanguage::TypeScript] {
+                let valid_regex_and_cmp = Script {
+                    language: web_lang,
+                    source: format!(
+                        "let s = \"foo(//`\";\nif (true) {{}}\n/foo\\(\\/\\/`/.test(s);\nlet ok1 = /foo\\(\\/\\/`/.test(s);\nfor (let i = 0; i < 1; i++) {{\n  break\n  /foo\\(\\/\\/`/.test(s);\n}}\nlet ok2 = {cmp_chain_200};\nreturn ok1 && ok2;"
+                    ),
+                };
+                assert!(
+                    compile(&valid_regex_and_cmp).is_ok(),
+                    "valid block-regex, break-ASI-regex, and 200-term `<` chain must compile in {web_lang:?}"
+                );
+            }
 
             for (label, body) in [
                 ("flat_add_50k", format!("var v = {flat_add_50k};")),
@@ -336,6 +371,12 @@ fn t472_fuzz_script_converter_and_swf_compiler_mutations() {
                 ("deep_parens_600", format!("var v = {deep_parens_600};")),
                 ("deep_unary_600", format!("var v = {deep_unary_600};")),
                 ("deep_ternary_400", format!("var v = {deep_ternary_400};")),
+                ("newline_div_bypass_5000", newline_div_bypass),
+                ("postfix_div_bypass_5000", postfix_div_bypass),
+                ("deep_unary_plus_5000", deep_unary_plus_5000),
+                ("deep_jsx_5000", deep_jsx_5000),
+                ("deep_braceless_if_5000", deep_braceless_if_5000),
+                ("deep_labels_5000", deep_labels_5000),
             ] {
                 for lang in [
                     ScriptLanguage::ActionScript2,

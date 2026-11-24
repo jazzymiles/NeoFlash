@@ -252,13 +252,35 @@ public enum NFRenderer {
         in ctx: CGContext,
         colorTransform: NFColorTransform
     ) -> Bool {
+        guard blurX.isFinite, blurY.isFinite, blurX >= 0.0, blurY >= 0.0 else {
+            return false
+        }
         let contentBounds = object.localContentBounds()
-        guard !contentBounds.isNull, contentBounds.width > 0.0, contentBounds.height > 0.0 else {
+        guard !contentBounds.isNull,
+              !contentBounds.isInfinite,
+              contentBounds.origin.x.isFinite,
+              contentBounds.origin.y.isFinite,
+              contentBounds.width.isFinite,
+              contentBounds.height.isFinite,
+              contentBounds.width > 0.0,
+              contentBounds.height > 0.0 else {
             return false
         }
         let padX = ceil(min(64.0, max(1.0, blurX * 2.0)))
         let padY = ceil(min(64.0, max(1.0, blurY * 2.0)))
         let expanded = contentBounds.insetBy(dx: CGFloat(-padX), dy: CGFloat(-padY)).integral
+        guard !expanded.isNull,
+              !expanded.isInfinite,
+              expanded.origin.x.isFinite,
+              expanded.origin.y.isFinite,
+              expanded.width.isFinite,
+              expanded.height.isFinite,
+              expanded.width > 0.0,
+              expanded.height > 0.0,
+              expanded.width <= 1.0e7,
+              expanded.height <= 1.0e7 else {
+            return false
+        }
         let rawW = Int(expanded.width)
         let rawH = Int(expanded.height)
         guard rawW > 0, rawH > 0 else { return false }
@@ -266,9 +288,10 @@ public enum NFRenderer {
         // Clamp offscreen buffer dimensions to <= 1024px per axis for bounded CPU cost
         let maxDim = 1024.0
         let downscale = min(1.0, min(maxDim / Double(rawW), maxDim / Double(rawH)))
+        guard downscale.isFinite, downscale > 0.0 else { return false }
         let bufW = max(1, Int((Double(rawW) * downscale).rounded(.up)))
         let bufH = max(1, Int((Double(rawH) * downscale).rounded(.up)))
-        let bytesPerRow = bufW * 4
+        let requestedBytesPerRow = bufW * 4
 
         let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         guard let offCtx = CGContext(
@@ -276,12 +299,14 @@ public enum NFRenderer {
             width: bufW,
             height: bufH,
             bitsPerComponent: 8,
-            bytesPerRow: bytesPerRow,
+            bytesPerRow: requestedBytesPerRow,
             space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ), let rawPtr = offCtx.data else {
             return false
         }
+        let actualBytesPerRow = offCtx.bytesPerRow
+        guard actualBytesPerRow >= bufW * 4 else { return false }
 
         // Map Y-down local coordinates into offscreen buffer
         offCtx.translateBy(x: 0, y: CGFloat(bufH))
@@ -289,16 +314,30 @@ public enum NFRenderer {
         offCtx.translateBy(x: -expanded.origin.x, y: -expanded.origin.y)
         drawDisplayObjectContent(object, in: offCtx, colorTransform: colorTransform)
 
-        let rx = max(0, min(64, Int(((blurX * downscale) * 0.5).rounded())))
-        let ry = max(0, min(64, Int(((blurY * downscale) * 0.5).rounded())))
+        let scaledRx = (blurX * downscale) * 0.5
+        let scaledRy = (blurY * downscale) * 0.5
+        let rx = scaledRx.isFinite ? max(0, min(64, Int(scaledRx.rounded()))) : 0
+        let ry = scaledRy.isFinite ? max(0, min(64, Int(scaledRy.rounded()))) : 0
         if rx > 0 || ry > 0 {
             let pixels = rawPtr.assumingMemoryBound(to: UInt8.self)
             for _ in 0..<3 {
                 if rx > 0 {
-                    boxBlurHorizontalRGBA8(pixels, width: bufW, height: bufH, radius: rx)
+                    boxBlurHorizontalRGBA8(
+                        pixels,
+                        width: bufW,
+                        height: bufH,
+                        strideBytes: actualBytesPerRow,
+                        radius: rx
+                    )
                 }
                 if ry > 0 {
-                    boxBlurVerticalRGBA8(pixels, width: bufW, height: bufH, radius: ry)
+                    boxBlurVerticalRGBA8(
+                        pixels,
+                        width: bufW,
+                        height: bufH,
+                        strideBytes: actualBytesPerRow,
+                        radius: ry
+                    )
                 }
             }
         }
@@ -318,14 +357,15 @@ public enum NFRenderer {
         _ buf: UnsafeMutablePointer<UInt8>,
         width: Int,
         height: Int,
+        strideBytes: Int,
         radius: Int
     ) {
-        guard width > 1 && radius > 0 else { return }
+        guard width > 1 && radius > 0 && strideBytes >= width * 4 else { return }
         let kernel = radius * 2 + 1
         var rowCopy = [UInt8](repeating: 0, count: width * 4)
 
         for y in 0..<height {
-            let rowPtr = buf.advanced(by: y * width * 4)
+            let rowPtr = buf.advanced(by: y * strideBytes)
             rowCopy.withUnsafeMutableBufferPointer { dst in
                 guard let base = dst.baseAddress else { return }
                 base.update(from: rowPtr, count: width * 4)
@@ -354,11 +394,11 @@ public enum NFRenderer {
         _ buf: UnsafeMutablePointer<UInt8>,
         width: Int,
         height: Int,
+        strideBytes: Int,
         radius: Int
     ) {
-        guard height > 1 && radius > 0 else { return }
+        guard height > 1 && radius > 0 && strideBytes >= width * 4 else { return }
         let kernel = radius * 2 + 1
-        let strideBytes = width * 4
         var colCopy = [UInt8](repeating: 0, count: height * 4)
 
         for x in 0..<width {

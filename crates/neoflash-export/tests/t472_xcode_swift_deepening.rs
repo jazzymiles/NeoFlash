@@ -1559,3 +1559,136 @@ struct AS2VerifyMain {{
         String::from_utf8_lossy(&run_out.stderr)
     );
 }
+
+#[test]
+fn t472_a07_xcode_external_video_symlink_guard_extension_sanitization_and_fixme_comment_safety() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let base_dir = tmp.path().join("project_base");
+    let outside_dir = tmp.path().join("outside_secret");
+    fs::create_dir_all(&base_dir).unwrap();
+    fs::create_dir_all(&outside_dir).unwrap();
+
+    let secret_file = outside_dir.join("secret.mp4");
+    fs::write(&secret_file, b"TOP_SECRET_HOST_BYTES").unwrap();
+    let symlink_video = base_dir.join("linked.mp4");
+    symlink(&secret_file, &symlink_video).unwrap();
+
+    let mut proj = Project::blank();
+    proj.name = "A07SecurityCheck".into();
+    proj.script_language = Some(ScriptLanguage::ActionScript3);
+    // 1. Symlink external video escaping `base_dir` must NOT be copied into `Generated/Resources/`!
+    proj.resources.push(ResourceUnit {
+        id: "res_sym_vid".into(),
+        path: "linked.mp4".into(),
+        media_type: "video/mp4".into(),
+        data_base64: String::new().into(),
+        audio_export: None,
+        bitmap_export: None,
+    });
+    // 2. Embedded binary resource with `.swift` extension must be sanitized to `.bin` (never `.swift`)!
+    proj.resources.push(
+        ResourceUnit::from_bytes(
+            "res_bad_ext",
+            "payload.swift",
+            "application/octet-stream",
+            b"let pwn = 1",
+        )
+        .unwrap(),
+    );
+
+    let root_id = proj.root.clone();
+    proj.symbol_mut(&root_id)
+        .unwrap()
+        .timeline
+        .scripts
+        .push(FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: r#"
+var rawXml:* = <item note="/* nested */ end */">ok</item>;
+var wild:* = rawXml..*;
+var dynCmd:String = "*/ PWNED() /*";
+fscommand(dynCmd, "/* inner */");
+stop();
+"#
+                .into(),
+            },
+        });
+    proj.upgrade_format_for_features();
+
+    // Also verify AS3 -> AS2 conversion escapes `*/` in E4X & `/a*/` RegExp `FIXME` comments so AS2 compiles!
+    let mut as2_probe = proj.clone();
+    as2_probe.symbol_mut(&root_id).unwrap().timeline.scripts[0]
+        .script
+        .source
+        .push_str("\nvar re:* = /a*/g;\n");
+    let (as2_conv, _) = neoflash_script::convert_project_scripts(
+        &as2_probe,
+        neoflash_script::ConversionTarget::ActionScript2,
+    )
+    .expect("AS3 -> AS2 with E4X ..* and /a*/g");
+    neoflash_script::compile_project(&as2_conv)
+        .expect("AS2 converted FIXME comments must not break out");
+    for sym in &as2_conv.symbols {
+        for fs_item in &sym.timeline.scripts {
+            neoflash_script::compile(&fs_item.script)
+                .expect("AS2 frame script with escaped FIXME comments must compile");
+        }
+    }
+
+    let out_dir = tmp.path().join("ExportedA07");
+    let report = export_xcode_project(
+        &proj,
+        &out_dir,
+        &XcodeExportOptions {
+            base_dir: Some(base_dir),
+            ..XcodeExportOptions::default()
+        },
+        None,
+    )
+    .expect("export A07 Xcode project");
+    assert_plutil_lint(&report.pbxproj_path);
+
+    let res_dir = out_dir.join("Generated/Resources");
+    assert!(
+        !res_dir.join("linked.mp4").exists(),
+        "symlink external video escaping base_dir must be rejected"
+    );
+    assert!(
+        !res_dir.join("payload.swift").exists(),
+        ".swift resource extension must never be emitted into Generated/Resources"
+    );
+    assert!(
+        res_dir.join("payload.bin").is_file(),
+        "disallowed .swift resource extension must sanitize to .bin"
+    );
+
+    if should_skip_xcodebuild() {
+        return;
+    }
+
+    // Verify generated Swift with `/*` and `*/` inside `FIXME` comments compiles cleanly under Swift 6!
+    let mut swiftc_cmd = Command::new("/usr/bin/swiftc");
+    swiftc_cmd
+        .arg("-typecheck")
+        .arg("-swift-version")
+        .arg("6")
+        .arg("-strict-concurrency=complete");
+    for swift_file in &report.generated_swift_files {
+        swiftc_cmd.arg(swift_file);
+    }
+    for app_file in &report.app_swift_files {
+        swiftc_cmd.arg(app_file);
+    }
+    let swiftc_out = swiftc_cmd.output().expect("swiftc -typecheck on A07 scene");
+    assert!(
+        swiftc_out.status.success(),
+        "Swift 6 typecheck failed on escaped FIXME comments:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&swiftc_out.stdout),
+        String::from_utf8_lossy(&swiftc_out.stderr)
+    );
+}

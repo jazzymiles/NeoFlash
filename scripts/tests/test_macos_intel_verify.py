@@ -71,6 +71,24 @@ class MacosIntelVerifyScriptTests(unittest.TestCase):
         self.assertEqual(plist["LSMinimumSystemVersion"], "15.0")
         self.assertEqual(plist["LSArchitecturePriority"], ["x86_64"])
         self.assertEqual(plist["NeoFlashTargetTriple"], "x86_64-apple-darwin")
+        imported_utis = [u["UTTypeIdentifier"] for u in plist.get("UTImportedTypeDeclarations", [])]
+        self.assertIn("com.adobe.actionscript-source", imported_utis)
+        doc_types = {d["CFBundleTypeName"]: d for d in plist.get("CFBundleDocumentTypes", [])}
+        self.assertIn("ActionScript Source", doc_types)
+        self.assertIn("as", doc_types["ActionScript Source"]["CFBundleTypeExtensions"])
+        self.assertIn(
+            "com.apple.applesingle-archive",
+            doc_types["ActionScript Source"]["LSItemContentTypes"],
+        )
+        self.assertIn("Flash & Design Interchange Documents", doc_types)
+        self.assertIn(
+            "fla",
+            doc_types["Flash & Design Interchange Documents"]["CFBundleTypeExtensions"],
+        )
+        self.assertIn(
+            "swf",
+            doc_types["Flash & Design Interchange Documents"]["CFBundleTypeExtensions"],
+        )
         with tempfile.NamedTemporaryFile("wb", suffix=".plist") as handle:
             handle.write(rendered.encode("utf-8"))
             handle.flush()
@@ -117,6 +135,10 @@ class MacosIntelVerifyScriptTests(unittest.TestCase):
             )
             self.assertEqual(res.returncode, 2)
             self.assertIn("refusing to stage Intel verification artifacts inside top-level dist/", res.stderr)
+            self.assertFalse(
+                (project / "dist" / "intel").exists(),
+                "dist/ guard must run before mkdir -p creates any subdirectory inside dist/",
+            )
 
     def _build_hermetic_fixture(
         self,

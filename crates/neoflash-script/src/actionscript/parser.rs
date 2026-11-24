@@ -96,9 +96,57 @@ impl<'a> Frontend<'a> {
     pub(crate) fn statement(&mut self) -> Result<Stmt, Diagnostic> {
         self.enter()?;
         let offset = self.token().offset;
-        let statement = self.statement_inner()?;
+        let statement = if self.eat("if") {
+            self.parse_if()?
+        } else if self.eat("{") {
+            Stmt::Block(self.statements(true)?)
+        } else if self.eat(";") {
+            Stmt::Empty
+        } else if matches!(self.token().kind, Kind::Ident(_))
+            && self
+                .peek(self.pos + 1)
+                .is_some_and(|t| t.kind == Kind::Punct(":"))
+        {
+            self.parse_label()?
+        } else {
+            self.statement_inner()?
+        };
         self.depth -= 1;
         Ok(Stmt::Located(offset, Box::new(statement)))
+    }
+    #[inline(never)]
+    fn parse_label(&mut self) -> Result<Stmt, Diagnostic> {
+        if self.script.language != ScriptLanguage::ActionScript3 {
+            return Err(self
+                .error("Labels require ActionScript 3; AS2 label semantics are not implemented."));
+        }
+        let name = self.ident()?;
+        if invalid_binding(&name, true)
+            || self
+                .controls
+                .iter()
+                .any(|c| c.label.as_ref() == Some(&name))
+        {
+            return Err(self.error("Invalid or duplicate active label."));
+        }
+        self.expect(":")?;
+        let mut at = self.pos;
+        while matches!(self.peek(at).map(|t| t.kind), Some(Kind::Ident(_)))
+            && self
+                .peek(at + 1)
+                .is_some_and(|t| t.kind == Kind::Punct(":"))
+        {
+            at += 2;
+        }
+        let iteration = matches!(self.peek(at).map(|t| t.kind), Some(Kind::Ident(s)) if matches!(s.as_str(), "for" | "while" | "do"));
+        self.controls.push(ControlTarget {
+            label: Some(name.clone()),
+            iteration,
+            breakable: false,
+        });
+        let body = self.statement()?;
+        self.controls.pop();
+        Ok(Stmt::Label(name, Box::new(body)))
     }
     #[inline(never)]
     pub(crate) fn parse_if(&mut self) -> Result<Stmt, Diagnostic> {
@@ -356,6 +404,7 @@ impl<'a> Frontend<'a> {
         }
         Ok(None)
     }
+    #[inline(never)]
     pub(crate) fn statement_inner(&mut self) -> Result<Stmt, Diagnostic> {
         if self.is("#endinitclip") {
             return Err(self.error("Unexpected #endinitclip without a matching #initclip."));

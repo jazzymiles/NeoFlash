@@ -455,3 +455,133 @@ fn dump_scripts(project: &Project) -> String {
     }
     out
 }
+
+#[test]
+fn t472_a03_as3_document_class_to_as2_and_roundtrips_execute_in_wasm_host() {
+    let root = workspace_root();
+    ensure_web_runtime_present(&root);
+    let temp_dir = temp_test_dir("a03-doc-class");
+
+    let mut as3_proj = Project::blank();
+    as3_proj.name = "DocClassRoundtrip".to_owned();
+    as3_proj.script_language = Some(neoflash_core::ScriptLanguage::ActionScript3);
+    as3_proj.document_class = Some("app.Main".to_owned());
+    as3_proj.sources = vec![neoflash_core::SourceUnit {
+        id: "src_main".to_owned(),
+        path: "app/Main.as".to_owned(),
+        language: neoflash_core::ScriptLanguage::ActionScript3,
+        source: concat!(
+            "package app {\n",
+            "    import flash.display.MovieClip;\n",
+            "    public class Main extends MovieClip {\n",
+            "        public var score:Number = 0;\n",
+            "        public function Main() {\n",
+            "            super();\n",
+            "            this.score = 42;\n",
+            "            trace(\"[PASS] Main constructed score=\" + this.score);\n",
+            "        }\n",
+            "        public function ping():String {\n",
+            "            return \"pong:\" + this.score;\n",
+            "        }\n",
+            "    }\n",
+            "}\n"
+        )
+        .to_owned(),
+    }];
+    as3_proj.upgrade_format_for_features();
+    as3_proj
+        .validate()
+        .expect("valid AS3 document_class project");
+
+    // 1. AS3 -> AS2
+    let (p_as2, _) =
+        convert_project_scripts(&as3_proj, ConversionTarget::ActionScript2).expect("AS3 -> AS2");
+    assert_eq!(p_as2.document_class.as_deref(), Some("app.Main"));
+    let root_as2 = p_as2.symbol(&p_as2.root).unwrap();
+    assert!(root_as2.class_name.is_none());
+    assert!(
+        root_as2.timeline.scripts.is_empty(),
+        "unused _documentApp alias must not be injected on Frame 0"
+    );
+    check_project(&p_as2).expect("check AS2 converted project");
+
+    // 2. AS3 -> AS2 -> JS
+    let (p_js, _) =
+        convert_project_scripts(&p_as2, ConversionTarget::JavaScript).expect("AS2 -> JS");
+    assert!(p_js.document_class.is_none());
+    check_project(&p_js).expect("check AS3->AS2->JS converted project");
+
+    // 3. AS3 -> AS2 -> AS3
+    let (p_as3_rt, _) =
+        convert_project_scripts(&p_as2, ConversionTarget::ActionScript3).expect("AS2 -> AS3");
+    assert_eq!(p_as3_rt.document_class.as_deref(), Some("app.Main"));
+    check_project(&p_as3_rt).expect("check AS3->AS2->AS3 converted project");
+
+    let runtime_dir = temp_dir.join("runtime");
+    write_mock_wasm_runtime(&runtime_dir);
+    let publish_opts = PublishOptions::default();
+
+    let mut bundle_paths = Vec::new();
+    for (label, proj) in [("as2", &p_as2), ("js", &p_js), ("as3_rt", &p_as3_rt)] {
+        let out_dir = temp_dir.join(format!("pub-{label}"));
+        export_project_with_options(proj, &out_dir, &runtime_dir, &publish_opts)
+            .unwrap_or_else(|e| panic!("export {label} failed: {e}"));
+        bundle_paths.push((label.to_owned(), out_dir.join("bundle.js")));
+    }
+
+    let host_integration_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/host-integration.mjs"));
+    let rust_runtime_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/rust-runtime-host.mjs"));
+    let runner_path = temp_dir.join("run-a03.mjs");
+    let specs_json = serde_json::to_string(&bundle_paths).unwrap();
+    let runner_src = format!(
+        r#"import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {{ createRuntimeHost }} from {host_integration_url:?};
+import {{ runtimeWasm }} from {rust_runtime_url:?};
+
+const root = {root_str:?};
+const specs = {specs_json};
+
+for (const [label, bundlePath] of specs) {{
+  const text = fs.readFileSync(bundlePath, 'utf8');
+  const jsonText = text.replace(/^globalThis\.NeoFlashBundle\s*=\s*/, '').replace(/;\s*$/, '');
+  const bundle = JSON.parse(jsonText);
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(bundle.project));
+  const compiled = bundle.scripts.map((s, idx) => ({{
+    script: {{ language: s.language, source: s.source }},
+    code: s.code,
+    location: s.location || `script-${{idx}}`,
+  }}));
+  const env = createRuntimeHost(root, player, compiled, {{ bundle, project: bundle.project }});
+  env.host.resetProject();
+  const clip = env.host.proxyFor([]);
+  const traces = env.traceCalls.map(args => args.map(String).join(' '));
+  assert.ok(
+    traces.some(t => t.includes('[PASS] Main constructed score=42')),
+    `[${{label}}] expected [PASS] trace, got ${{JSON.stringify(traces)}}`
+  );
+  assert.equal(clip.ping(), 'pong:42', `[${{label}}] ping() method on constructed document_class`);
+}}
+console.log('A03_DOC_CLASS_ROUNDTRIP_OK');
+"#,
+        host_integration_url = host_integration_url,
+        rust_runtime_url = rust_runtime_url,
+        root_str = root.display().to_string(),
+        specs_json = specs_json,
+    );
+    fs::write(&runner_path, runner_src).expect("write a03 runner");
+    let output = Command::new(node_binary())
+        .arg(&runner_path)
+        .current_dir(&root)
+        .output()
+        .expect("run node a03");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let _ = fs::remove_dir_all(&temp_dir);
+    assert!(
+        output.status.success() && stdout.contains("A03_DOC_CLASS_ROUNDTRIP_OK"),
+        "A-03 WASM+Node roundtrip failed!\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}"
+    );
+}

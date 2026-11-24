@@ -510,15 +510,44 @@ fn t472_stage_drag_and_drop_routes_single_and_multiple_as_files_to_standalone_ta
     );
 }
 
+fn find_local_bezier_src_dir() -> Option<PathBuf> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or(&manifest);
+    let direct = workspace_root.join("examples/old flash files/bezier/src");
+    if direct.is_dir() {
+        return Some(direct);
+    }
+    let dot_git = workspace_root.join(".git");
+    if dot_git.is_file()
+        && let Ok(contents) = std::fs::read_to_string(&dot_git)
+        && let Some(gitdir_raw) = contents.lines().find_map(|l| l.strip_prefix("gitdir:"))
+    {
+        let gitdir = PathBuf::from(gitdir_raw.trim());
+        if let Some(main_repo) = gitdir
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+        {
+            let shared = main_repo.join("examples/old flash files/bezier/src");
+            if shared.is_dir() {
+                return Some(shared);
+            }
+        }
+    }
+    None
+}
+
 #[test]
 fn t472_local_bezier_src_all_29_files_open_highlight_format_and_check_cleanly() {
-    // PRIVACY RULE: `/Users/miles/Projects/NeoFlash/examples/old flash files/bezier/src` is local-only
-    // and git-ignored. Skip gracefully when absent; verify all 29 files live when present on disk.
-    let bezier_src =
-        Path::new("/Users/miles/Projects/NeoFlash/examples/old flash files/bezier/src");
-    if !bezier_src.exists() {
+    // PRIVACY RULE: `examples/old flash files/bezier/src` is local-only and git-ignored.
+    // Skip gracefully when absent; verify all 29 files live when present on disk.
+    let Some(bezier_src_buf) = find_local_bezier_src_dir() else {
         return;
-    }
+    };
+    let bezier_src = bezier_src_buf.as_path();
 
     fn collect_as_files(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -669,4 +698,95 @@ fn t472_local_bezier_src_all_29_files_open_highlight_format_and_check_cleanly() 
         zero_diagnostic_files >= 15,
         "expected at least 15 bezier/src classes to have 0 errors and 0 warnings, got {zero_diagnostic_files}"
     );
+}
+
+#[test]
+fn t472_a01_a02_a08_multibyte_escaped_sibling_stubs_hydration_cache_and_c1_fallback() {
+    let dir = TempDirGuard::new("a01-a02-a08");
+    let pkg_dir = dir.path().join("pkg");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
+
+    // [A-01] Sibling `.as` with backslash + multi-byte UTF-8 scalars at class/signature depth AND body depth!
+    let sibling_src = concat!(
+        "package pkg {\n",
+        "    public class Sibling {\n",
+        "        public static const DASH:String = \"\\—\";\n",
+        "        public static const WIN_PATH:String = \"C:\\Папка\\файл\";\n",
+        "        public function greet(tag:String = \"\\🎉\"):String {\n",
+        "            var localPath:String = \"D:\\Тест\\—\\🎉\";\n",
+        "            return localPath + tag;\n",
+        "        }\n",
+        "    }\n",
+        "}\n"
+    );
+    let stubbed = crate::app::standalone_script::stub_external_sibling_class_source(
+        ScriptLanguage::ActionScript3,
+        sibling_src,
+    );
+    assert!(stubbed.contains("\"\\—\""));
+    assert!(stubbed.contains("\"C:\\Папка\\файл\""));
+    assert!(stubbed.contains("{ throw null; }"));
+
+    let sibling_path = pkg_dir.join("Sibling.as");
+    let main_path = pkg_dir.join("Main.as");
+    std::fs::write(&sibling_path, sibling_src).unwrap();
+    std::fs::write(
+        &main_path,
+        concat!(
+            "package pkg {\n",
+            "    public class Main {\n",
+            "        public function run():String {\n",
+            "            var s:Sibling = new Sibling();\n",
+            "            return Sibling.DASH + s.greet(\"ok\");\n",
+            "        }\n",
+            "    }\n",
+            "}\n"
+        ),
+    )
+    .unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = Editor::from_project(&ctx, Project::blank());
+    editor.sessions.clear();
+    assert!(editor.try_open_path(main_path.clone(), &ctx));
+
+    // [A-02] Repeated per-frame hydration calls must hit `standalone_hydration_cache` with 0 extra disk runs,
+    // and `invalidate_include_dependents_across_sessions()` must invalidate cleanly!
+    editor.standalone_hydration_cache.borrow_mut().take();
+    editor.standalone_hydration_disk_runs.set(0);
+
+    let (p1, fp1) = editor.hydrated_project_and_fingerprint();
+    assert_eq!(editor.standalone_hydration_disk_runs.get(), 1);
+    assert!(p1.sources.len() >= 2, "Sibling.as must be hydrated");
+
+    for _ in 0..8 {
+        let (pn, fpn) = editor.hydrated_project_and_fingerprint();
+        assert_eq!(fpn, fp1);
+        assert_eq!(pn.sources.len(), p1.sources.len());
+    }
+    editor.refresh_compiler_diagnostics();
+    assert_eq!(
+        editor.standalone_hydration_disk_runs.get(),
+        1,
+        "repeated per-frame hydration calls must hit cache with 0 extra disk runs"
+    );
+
+    // Disk reload / include invalidation forces exactly 1 fresh disk hydration:
+    editor.invalidate_include_dependents_across_sessions();
+    let (_, fp2) = editor.hydrated_project_and_fingerprint();
+    assert_eq!(fp2, fp1);
+    assert_eq!(editor.standalone_hydration_disk_runs.get(), 2);
+
+    // [A-08] Mixed legacy C1 bytes (`0x98` + unassigned CP1252 `0x81`, `0x8D`, `0x8F`, `0x90`, `0x9D`)
+    // must decode cleanly without error when passing the binary/NUL guard!
+    let mut mixed_c1 = b"// Legacy comment: ".to_vec();
+    mixed_c1.extend_from_slice(&[0x98, 0x81, 0x8D, 0x8F, 0x90, 0x9D]);
+    mixed_c1.extend_from_slice(b"\r\nvar ok:Number = 1;\r\n");
+    let decoded = crate::app::standalone_script::decode_actionscript_source_bytes(
+        Path::new("legacy_mixed.as"),
+        &mixed_c1,
+    )
+    .expect("mixed legacy C1 comment bytes must decode without error");
+    assert!(decoded.contains("var ok:Number = 1;\n"));
+    assert!(!decoded.contains('\r'));
 }

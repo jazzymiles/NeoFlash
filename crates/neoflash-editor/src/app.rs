@@ -273,6 +273,11 @@ pub struct Editor {
     pub(crate) accessibility_bridge: crate::accessibility_bridge::AccessibilityBridge,
     pub(crate) persist_workspace_requested: bool,
     pub(crate) dirty_cache: std::cell::Cell<crate::document_sessions::DirtyCacheState>,
+    pub(crate) include_hydration_revision: u64,
+    pub(crate) standalone_hydration_cache:
+        std::cell::RefCell<Option<crate::app::standalone_script::StandaloneHydrationCache>>,
+    #[cfg(test)]
+    pub(crate) standalone_hydration_disk_runs: std::cell::Cell<usize>,
     dirty_ui_pass: u64,
     next_dirty_ui_pass: u64,
     last_workspace_snapshot: Option<Box<WorkspacePrefs>>,
@@ -493,6 +498,10 @@ impl Editor {
             accessibility_bridge: Default::default(),
             persist_workspace_requested: false,
             dirty_cache: std::cell::Cell::new(crate::document_sessions::DirtyCacheState::default()),
+            include_hydration_revision: 0,
+            standalone_hydration_cache: std::cell::RefCell::new(None),
+            #[cfg(test)]
+            standalone_hydration_disk_runs: std::cell::Cell::new(0),
             dirty_ui_pass: 0,
             next_dirty_ui_pass: 1,
             last_workspace_snapshot: None,

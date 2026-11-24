@@ -354,12 +354,7 @@ pub(crate) fn decode_actionscript_source_bytes(
         } else {
             char::from(b)
         };
-        if ch == '\u{fffd}' {
-            return Err(format!(
-                "{} contains undecodable byte 0x{b:02X} for ActionScript text",
-                path.display()
-            ));
-        }
+        let ch = if ch == '\u{fffd}' { char::from(b) } else { ch };
         decoded.push(ch);
     }
     Ok(normalize_actionscript_line_endings(decoded))
@@ -1673,10 +1668,27 @@ fn split_as3_package_and_helpers(source: &str, pkg: &str) -> (String, Vec<String
     (source[..split_at].to_owned(), helpers)
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct StandaloneHydrationCacheKey {
+    tracked_disk_path: PathBuf,
+    primary_path: String,
+    primary_language: ScriptLanguage,
+    primary_len: usize,
+    primary_hash: u64,
+    open_tabs_digest: u64,
+    include_revision: u64,
+}
+
+pub(crate) struct StandaloneHydrationCache {
+    key: StandaloneHydrationCacheKey,
+    project: Project,
+    fingerprint: u64,
+}
+
 /// Build a fast, side-effect-free signature stub for an external hydrated sibling `.as` class or
 /// interface (`sources[1..]`), replacing member `{ ... }` bodies with `{}` so sibling method-body
 /// constructs or style warnings never bleed into the active `.as` tab.
-fn stub_external_sibling_class_source(language: ScriptLanguage, source: &str) -> String {
+pub(crate) fn stub_external_sibling_class_source(language: ScriptLanguage, source: &str) -> String {
     let skeleton = strip_comments_and_strings_for_detection(source);
     let is_packaged = skeleton.lines().any(|line| {
         let t = line.trim();
@@ -1706,7 +1718,7 @@ fn stub_external_sibling_class_source(language: ScriptLanguage, source: &str) ->
                 if b == b'\n' && brace_depth < target_body_depth {
                     out.push('\n');
                 }
-                i += 1;
+                i += source[i..].chars().next().map_or(1, char::len_utf8);
             }
             continue;
         }
@@ -1717,12 +1729,17 @@ fn stub_external_sibling_class_source(language: ScriptLanguage, source: &str) ->
                     out.push('\n');
                 }
             }
-            i += 1;
+            i += source[i..].chars().next().map_or(1, char::len_utf8);
             continue;
         }
         if let Some(q) = quote {
             if b == b'\\' {
-                let next = (i + 2).min(bytes.len());
+                let next = if i + 1 < bytes.len() {
+                    i + 1 + source[i + 1..].chars().next().map_or(0, char::len_utf8)
+                } else {
+                    bytes.len()
+                }
+                .min(bytes.len());
                 if brace_depth < target_body_depth {
                     out.push_str(&source[i..next]);
                 }
@@ -1732,13 +1749,11 @@ fn stub_external_sibling_class_source(language: ScriptLanguage, source: &str) ->
             if b == q {
                 quote = None;
             }
+            let ch = source[i..].chars().next().unwrap_or('\0');
             if brace_depth < target_body_depth {
-                let ch = source[i..].chars().next().unwrap();
                 out.push(ch);
-                i += ch.len_utf8();
-            } else {
-                i += 1;
             }
+            i += ch.len_utf8().max(1);
             continue;
         }
         if bytes[i..].starts_with(b"/*") {
@@ -1795,13 +1810,11 @@ fn stub_external_sibling_class_source(language: ScriptLanguage, source: &str) ->
             i += 1;
             continue;
         }
+        let ch = source[i..].chars().next().unwrap_or('\0');
         if brace_depth < target_body_depth {
-            let ch = source[i..].chars().next().unwrap();
             out.push(ch);
-            i += ch.len_utf8();
-        } else {
-            i += 1;
         }
+        i += ch.len_utf8().max(1);
     }
 
     // Strip strictly class-private AS3 member declarations and `override` re-declarations from
@@ -2060,7 +2073,10 @@ fn list_safe_as_files_in_package_dir(
         return Vec::new();
     };
     let mut out = Vec::new();
-    for entry in entries.filter_map(Result::ok) {
+    for entry in entries.take(4096).filter_map(Result::ok) {
+        if out.len() >= 512 {
+            break;
+        }
         if entry
             .file_type()
             .is_ok_and(|ft| ft.is_symlink() || !ft.is_file())
@@ -2588,6 +2604,8 @@ impl Editor {
     /// Invalidate cached compiler feedback, Compiler Errors fingerprints, and live `AuthoredPlayback`
     /// previews across all open sessions so edits/saves/reloads to `.as` files take effect immediately.
     pub(crate) fn invalidate_include_dependents_across_sessions(&mut self) {
+        self.include_hydration_revision = self.include_hydration_revision.wrapping_add(1);
+        self.standalone_hydration_cache.borrow_mut().take();
         self.code_feedback = None;
         self.compiler_errors.fingerprint = None;
         self.authored_preview = None;
@@ -2595,6 +2613,37 @@ impl Editor {
             session.code_feedback = None;
             session.compiler_errors.fingerprint = None;
         }
+    }
+
+    fn open_standalone_as_tabs_digest(&self) -> u64 {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        if !self.has_document() {
+            0usize.hash(&mut h);
+            return h.finish();
+        }
+        for index in 0..self.sessions.len() {
+            if index == self.active_session {
+                if self.standalone_script
+                    && let Some(path) = self.tracked_disk_path()
+                    && let Some(unit) = self.project.sources.first()
+                {
+                    index.hash(&mut h);
+                    path.hash(&mut h);
+                    unit.source.len().hash(&mut h);
+                    unit.source.hash(&mut h);
+                }
+            } else if let Some(session) = self.sessions[index].as_ref()
+                && session.standalone_script
+                && let Some(path) = session.tracked_disk_path()
+                && let Some(unit) = session.project.sources.first()
+            {
+                index.hash(&mut h);
+                path.hash(&mut h);
+                unit.source.len().hash(&mut h);
+                unit.source.hash(&mut h);
+            }
+        }
+        h.finish()
     }
 
     /// Collect `(disk_path, source_text)` for all currently open standalone `.as` tabs (active + background).
@@ -2661,59 +2710,97 @@ impl Editor {
         &self,
         target_project: &'a Project,
     ) -> (Cow<'a, Project>, u64) {
-        let open_tabs = self.open_standalone_as_tab_buffers();
+        let is_active_project = std::ptr::eq(target_project, &self.project);
         if self.is_standalone_script_session()
             && target_project.sources.len() == 1
             && let Some(tracked) = self.tracked_disk_path()
             && !tracked.is_dir()
-            && let Some((ancestor_dir, logical_source_path)) =
-                standalone_script_include_context(tracked, &target_project.sources[0])
         {
             let unit = &target_project.sources[0];
-            let is_class_or_pkg = Self::is_standalone_class_or_package_unit(unit);
-            let mut staged = target_project.clone();
-            staged.sources[0].path = logical_source_path.clone();
-            let (hydrated, sub_fp) = hydrate_project_includes_with_overrides(
-                &staged,
-                Some(ancestor_dir.as_path()),
-                &open_tabs,
-            );
-            let mut hydrated_owned = hydrated.into_owned();
-            let (_, expected_as2_path) = declared_package_segments(unit);
-            let post_hydration_path = if let Some(exp_as2) = expected_as2_path {
-                (logical_source_path == exp_as2
-                    || logical_source_path.ends_with(&format!("/{exp_as2}")))
-                .then_some(exp_as2)
-            } else {
-                Some(unit.path.clone())
-            };
-            if let Some(final_path) = post_hydration_path
-                && final_path != logical_source_path
-                && let Some(hydrated_unit) = hydrated_owned.sources.first_mut()
+            let cache_key = is_active_project.then(|| {
+                let mut ph = std::collections::hash_map::DefaultHasher::new();
+                unit.source.hash(&mut ph);
+                StandaloneHydrationCacheKey {
+                    tracked_disk_path: tracked.to_path_buf(),
+                    primary_path: unit.path.clone(),
+                    primary_language: unit.language,
+                    primary_len: unit.source.len(),
+                    primary_hash: ph.finish(),
+                    open_tabs_digest: self.open_standalone_as_tabs_digest(),
+                    include_revision: self.include_hydration_revision,
+                }
+            });
+            if let Some(ref key) = cache_key
+                && let Some(cached) = self.standalone_hydration_cache.borrow().as_ref()
+                && &cached.key == key
             {
-                hydrated_unit.source = rewrite_includes_between_logical_paths(
-                    hydrated_unit.language,
-                    &hydrated_unit.source,
-                    &logical_source_path,
-                    &final_path,
-                );
-                hydrated_unit.path = final_path;
+                return (Cow::Owned(cached.project.clone()), cached.fingerprint);
             }
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            sub_fp.hash(&mut h);
-            logical_source_path.hash(&mut h);
-            if is_class_or_pkg {
-                Self::hydrate_standalone_class_dependencies(
-                    ancestor_dir.as_path(),
-                    &logical_source_path,
-                    unit,
-                    &mut hydrated_owned,
+
+            if let Some((ancestor_dir, logical_source_path)) =
+                standalone_script_include_context(tracked, unit)
+            {
+                #[cfg(test)]
+                if is_active_project {
+                    self.standalone_hydration_disk_runs
+                        .set(self.standalone_hydration_disk_runs.get() + 1);
+                }
+                let open_tabs = self.open_standalone_as_tab_buffers();
+                let is_class_or_pkg = Self::is_standalone_class_or_package_unit(unit);
+                let mut staged = target_project.clone();
+                staged.sources[0].path = logical_source_path.clone();
+                let (hydrated, sub_fp) = hydrate_project_includes_with_overrides(
+                    &staged,
+                    Some(ancestor_dir.as_path()),
                     &open_tabs,
-                    &mut h,
                 );
+                let mut hydrated_owned = hydrated.into_owned();
+                let (_, expected_as2_path) = declared_package_segments(unit);
+                let post_hydration_path = if let Some(exp_as2) = expected_as2_path {
+                    (logical_source_path == exp_as2
+                        || logical_source_path.ends_with(&format!("/{exp_as2}")))
+                    .then_some(exp_as2)
+                } else {
+                    Some(unit.path.clone())
+                };
+                if let Some(final_path) = post_hydration_path
+                    && final_path != logical_source_path
+                    && let Some(hydrated_unit) = hydrated_owned.sources.first_mut()
+                {
+                    hydrated_unit.source = rewrite_includes_between_logical_paths(
+                        hydrated_unit.language,
+                        &hydrated_unit.source,
+                        &logical_source_path,
+                        &final_path,
+                    );
+                    hydrated_unit.path = final_path;
+                }
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                sub_fp.hash(&mut h);
+                logical_source_path.hash(&mut h);
+                if is_class_or_pkg {
+                    Self::hydrate_standalone_class_dependencies(
+                        ancestor_dir.as_path(),
+                        &logical_source_path,
+                        unit,
+                        &mut hydrated_owned,
+                        &open_tabs,
+                        &mut h,
+                    );
+                }
+                let fp = h.finish();
+                if let Some(key) = cache_key {
+                    *self.standalone_hydration_cache.borrow_mut() =
+                        Some(StandaloneHydrationCache {
+                            key,
+                            project: hydrated_owned.clone(),
+                            fingerprint: fp,
+                        });
+                }
+                return (Cow::Owned(hydrated_owned), fp);
             }
-            return (Cow::Owned(hydrated_owned), h.finish());
         }
+        let open_tabs = self.open_standalone_as_tab_buffers();
         let base_dir = self.active_project_include_base_dir();
         hydrate_project_includes_with_overrides(target_project, base_dir.as_deref(), &open_tabs)
     }

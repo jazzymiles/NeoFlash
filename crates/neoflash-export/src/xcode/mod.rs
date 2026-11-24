@@ -427,7 +427,17 @@ fn extract_xcode_resources(
             } else {
                 trimmed_stem
             };
-            let ext = ext_raw.trim_matches('.');
+            let raw_trimmed = ext_raw.trim_matches('.');
+            let ext: &str = if raw_trimmed.is_empty() {
+                ""
+            } else if raw_trimmed.len() <= 16
+                && raw_trimmed.chars().all(|c| c.is_ascii_alphanumeric())
+                && !raw_trimmed.eq_ignore_ascii_case("swift")
+            {
+                raw_trimmed
+            } else {
+                "bin"
+            };
             let first = if ext.is_empty() {
                 base.to_owned()
             } else {
@@ -529,26 +539,27 @@ fn extract_xcode_resources(
             if let Some(base) = base_dir
                 && validate_external_video_path(&res.path).is_ok()
             {
-                let src_path = base.join(&res.path);
-                if let Ok(bytes) = fs::read(&src_path) {
-                    let ext = if raw_ext.is_empty() { "mp4" } else { raw_ext };
-                    let filename = alloc_unique_filename(raw_stem, ext, &mut occupied_names);
-                    let dest = resources_dir.join(&filename);
-                    atomic_write(&dest, &bytes)?;
-                    resource_filenames.insert(res.id.clone(), filename.clone());
-                    ordered_resource_names.push(filename);
-                    written_paths.push(dest);
-                } else {
-                    preflight_items.push(XcodePreflightItem::new(
-                        "missing_external_video_file",
-                        XcodePreflightSeverity::Warning,
-                        format!("resource '{}'", res.path),
-                        format!(
-                            "External video file '{}' could not be read from '{}'.",
-                            res.path,
-                            src_path.display()
-                        ),
-                    ));
+                match read_safe_external_video_bytes(base, &res.path) {
+                    Ok(bytes) => {
+                        let ext = if raw_ext.is_empty() { "mp4" } else { raw_ext };
+                        let filename = alloc_unique_filename(raw_stem, ext, &mut occupied_names);
+                        let dest = resources_dir.join(&filename);
+                        atomic_write(&dest, &bytes)?;
+                        resource_filenames.insert(res.id.clone(), filename.clone());
+                        ordered_resource_names.push(filename);
+                        written_paths.push(dest);
+                    }
+                    Err(reason) => {
+                        preflight_items.push(XcodePreflightItem::new(
+                            "missing_external_video_file",
+                            XcodePreflightSeverity::Warning,
+                            format!("resource '{}'", res.path),
+                            format!(
+                                "External video file '{}' could not be staged safely: {reason}",
+                                res.path
+                            ),
+                        ));
+                    }
                 }
             }
             continue;
@@ -587,6 +598,65 @@ fn extract_xcode_resources(
         font_postscript_overrides,
         written_paths,
     })
+}
+
+const MAX_XCODE_VIDEO_INPUT_BYTES: u64 = 512 * 1024 * 1024;
+
+fn read_safe_external_video_bytes(base: &Path, rel_path: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let canon_base = fs::canonicalize(base)
+        .map_err(|e| format!("base directory '{}' is inaccessible: {e}", base.display()))?;
+    let mut cur = base.to_path_buf();
+    for comp in Path::new(rel_path).components() {
+        cur.push(comp.as_os_str());
+        let smeta = fs::symlink_metadata(&cur)
+            .map_err(|e| format!("'{}' could not be inspected: {e}", cur.display()))?;
+        if smeta.file_type().is_symlink() {
+            return Err(format!(
+                "refusing symlink component '{}' while reading external video '{}'",
+                cur.display(),
+                rel_path
+            ));
+        }
+    }
+    let canon_target = fs::canonicalize(&cur)
+        .map_err(|e| format!("'{}' could not be canonicalized: {e}", cur.display()))?;
+    if !canon_target.starts_with(&canon_base) {
+        return Err(format!(
+            "external video '{}' escapes base directory '{}'",
+            rel_path,
+            canon_base.display()
+        ));
+    }
+    let file = fs::File::open(&canon_target)
+        .map_err(|e| format!("'{}' could not be opened: {e}", canon_target.display()))?;
+    let meta = file
+        .metadata()
+        .map_err(|e| format!("'{}' metadata failed: {e}", canon_target.display()))?;
+    if !meta.is_file() {
+        return Err(format!(
+            "'{}' is not a regular file",
+            canon_target.display()
+        ));
+    }
+    if meta.len() > MAX_XCODE_VIDEO_INPUT_BYTES {
+        return Err(format!(
+            "external video '{}' ({} bytes) exceeds 512 MiB limit",
+            rel_path,
+            meta.len()
+        ));
+    }
+    let mut buf = Vec::with_capacity(meta.len() as usize);
+    file.take(MAX_XCODE_VIDEO_INPUT_BYTES + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("'{}' read failed: {e}", canon_target.display()))?;
+    if buf.len() as u64 > MAX_XCODE_VIDEO_INPUT_BYTES {
+        return Err(format!(
+            "external video '{}' exceeded 512 MiB limit while reading",
+            rel_path
+        ));
+    }
+    Ok(buf)
 }
 
 fn render_resources_info_plist(font_filenames: &[String]) -> String {

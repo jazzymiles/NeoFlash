@@ -526,7 +526,7 @@ impl<'a> As2Emitter<'a> {
             Stmt::Located(_, inner) => self.emit_stmt(inner),
             Stmt::Empty => String::new(),
             Stmt::DefaultXmlNamespace(e) => {
-                let raw = self.approx_source_expr(e);
+                let raw = super::escape_block_comment_body(&self.approx_source_expr(e));
                 self.record_issue(
                     ConversionIssueKind::ManualAttention,
                     offset,
@@ -1304,8 +1304,9 @@ impl<'a> As2Emitter<'a> {
                         "E4X XML expression requires manual conversion to AS2 XMLNode DOM: {raw}"
                     ),
                 );
+                let safe_raw = super::escape_block_comment_body(&raw);
                 format!(
-                    "/* FIXME [NeoFlash Convert]: E4X XML is not supported in AS2: {raw} */ undefined"
+                    "/* FIXME [NeoFlash Convert]: E4X XML is not supported in AS2: {safe_raw} */ undefined"
                 )
             }
             Expr::Literal(raw) => raw.clone(),
@@ -1630,8 +1631,9 @@ impl<'a> As2Emitter<'a> {
                         *noff,
                         format!("AS3 '{raw}' has no native AVM1 equivalent in ActionScript 2.0."),
                     );
+                    let safe_raw = super::escape_block_comment_body(&raw);
                     return format!(
-                        "/* FIXME [NeoFlash Convert]: {short} is not supported in AS2: {raw} */ undefined"
+                        "/* FIXME [NeoFlash Convert]: {short} is not supported in AS2: {safe_raw} */ undefined"
                     );
                 }
                 if short == "Dictionary" {
@@ -1680,8 +1682,9 @@ impl<'a> As2Emitter<'a> {
                     offset,
                     format!("AS3 RegExp literal /{p}/{fl} has no native AS2 RegExp engine."),
                 );
+                let safe_re = super::escape_block_comment_body(&format!("/{p}/{fl}"));
                 format!(
-                    "/* FIXME [NeoFlash Convert]: RegExp literal /{p}/{fl} requires manual AS2 string handling */ undefined"
+                    "/* FIXME [NeoFlash Convert]: RegExp literal {safe_re} requires manual AS2 string handling */ undefined"
                 )
             }
             Expr::Call(callee, args, call_off) => self.emit_call(callee, args, *call_off),

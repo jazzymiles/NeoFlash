@@ -1865,117 +1865,141 @@ impl<'s> TypeChecker<'s> {
                 }
                 TsType::Number
             }
-            Expression::BinaryExpression(bin) => {
-                let left = self.infer_expr(&bin.left);
-                let right = self.infer_expr(&bin.right);
-                match bin.operator {
-                    BinaryOperator::Addition => {
-                        let concat_allowed =
-                            TsType::Union(vec![TsType::String, TsType::Number, TsType::Boolean]);
-                        if left == TsType::Any || right == TsType::Any {
-                            TsType::Any
-                        } else if self.is_assignable(&left, &TsType::Number)
-                            && self.is_assignable(&right, &TsType::Number)
-                        {
-                            TsType::Number
-                        } else if self.is_assignable(&left, &TsType::String)
-                            || self.is_assignable(&right, &TsType::String)
-                        {
-                            if self.is_assignable(&left, &concat_allowed)
-                                && self.is_assignable(&right, &concat_allowed)
+            Expression::BinaryExpression(_) => {
+                let mut spine = Vec::new();
+                let mut cur = expr;
+                while let Expression::BinaryExpression(b) = cur {
+                    spine.push((b.operator, b.span.start, &b.right));
+                    cur = &b.left;
+                }
+                let mut acc = self.infer_expr(cur);
+                for (operator, span_start, rhs) in spine.into_iter().rev() {
+                    let left = acc;
+                    let right = self.infer_expr(rhs);
+                    acc = match operator {
+                        BinaryOperator::Addition => {
+                            let concat_allowed = TsType::Union(vec![
+                                TsType::String,
+                                TsType::Number,
+                                TsType::Boolean,
+                            ]);
+                            if left == TsType::Any || right == TsType::Any {
+                                TsType::Any
+                            } else if self.is_assignable(&left, &TsType::Number)
+                                && self.is_assignable(&right, &TsType::Number)
                             {
-                                TsType::String
+                                TsType::Number
+                            } else if self.is_assignable(&left, &TsType::String)
+                                || self.is_assignable(&right, &TsType::String)
+                            {
+                                if self.is_assignable(&left, &concat_allowed)
+                                    && self.is_assignable(&right, &concat_allowed)
+                                {
+                                    TsType::String
+                                } else {
+                                    self.error(
+                                        span_start,
+                                        format!(
+                                            "Operator '+' cannot be applied to types '{}' and '{}'.",
+                                            left.display_name(),
+                                            right.display_name()
+                                        ),
+                                    );
+                                    TsType::String
+                                }
                             } else {
                                 self.error(
-                                    bin.span.start,
+                                    span_start,
                                     format!(
                                         "Operator '+' cannot be applied to types '{}' and '{}'.",
                                         left.display_name(),
                                         right.display_name()
                                     ),
                                 );
-                                TsType::String
+                                TsType::Any
                             }
-                        } else {
-                            self.error(
-                                bin.span.start,
-                                format!(
-                                    "Operator '+' cannot be applied to types '{}' and '{}'.",
-                                    left.display_name(),
-                                    right.display_name()
-                                ),
-                            );
-                            TsType::Any
                         }
-                    }
-                    BinaryOperator::Subtraction
-                    | BinaryOperator::Multiplication
-                    | BinaryOperator::Division
-                    | BinaryOperator::Remainder
-                    | BinaryOperator::Exponential
-                    | BinaryOperator::BitwiseOR
-                    | BinaryOperator::BitwiseXOR
-                    | BinaryOperator::BitwiseAnd
-                    | BinaryOperator::ShiftLeft
-                    | BinaryOperator::ShiftRight
-                    | BinaryOperator::ShiftRightZeroFill => {
-                        if !self.is_assignable(&left, &TsType::Number)
-                            || !self.is_assignable(&right, &TsType::Number)
-                        {
-                            self.error(
-                                bin.span.start,
-                                format!(
-                                    "Operator '{}' requires 'number' operands, got '{}' and '{}'.",
-                                    bin.operator.as_str(),
-                                    left.display_name(),
-                                    right.display_name()
-                                ),
-                            );
+                        BinaryOperator::Subtraction
+                        | BinaryOperator::Multiplication
+                        | BinaryOperator::Division
+                        | BinaryOperator::Remainder
+                        | BinaryOperator::Exponential
+                        | BinaryOperator::BitwiseOR
+                        | BinaryOperator::BitwiseXOR
+                        | BinaryOperator::BitwiseAnd
+                        | BinaryOperator::ShiftLeft
+                        | BinaryOperator::ShiftRight
+                        | BinaryOperator::ShiftRightZeroFill => {
+                            if !self.is_assignable(&left, &TsType::Number)
+                                || !self.is_assignable(&right, &TsType::Number)
+                            {
+                                self.error(
+                                    span_start,
+                                    format!(
+                                        "Operator '{}' requires 'number' operands, got '{}' and '{}'.",
+                                        operator.as_str(),
+                                        left.display_name(),
+                                        right.display_name()
+                                    ),
+                                );
+                            }
+                            TsType::Number
                         }
-                        TsType::Number
-                    }
-                    BinaryOperator::LessThan
-                    | BinaryOperator::LessEqualThan
-                    | BinaryOperator::GreaterThan
-                    | BinaryOperator::GreaterEqualThan => {
-                        let both_num = self.is_assignable(&left, &TsType::Number)
-                            && self.is_assignable(&right, &TsType::Number);
-                        let both_str = self.is_assignable(&left, &TsType::String)
-                            && self.is_assignable(&right, &TsType::String);
-                        if !both_num && !both_str && left != TsType::Any && right != TsType::Any {
-                            self.error(
-                                bin.span.start,
-                                format!(
-                                    "Operator '{}' cannot be applied to types '{}' and '{}'.",
-                                    bin.operator.as_str(),
-                                    left.display_name(),
-                                    right.display_name()
-                                ),
-                            );
+                        BinaryOperator::LessThan
+                        | BinaryOperator::LessEqualThan
+                        | BinaryOperator::GreaterThan
+                        | BinaryOperator::GreaterEqualThan => {
+                            let both_num = self.is_assignable(&left, &TsType::Number)
+                                && self.is_assignable(&right, &TsType::Number);
+                            let both_str = self.is_assignable(&left, &TsType::String)
+                                && self.is_assignable(&right, &TsType::String);
+                            if !both_num && !both_str && left != TsType::Any && right != TsType::Any
+                            {
+                                self.error(
+                                    span_start,
+                                    format!(
+                                        "Operator '{}' cannot be applied to types '{}' and '{}'.",
+                                        operator.as_str(),
+                                        left.display_name(),
+                                        right.display_name()
+                                    ),
+                                );
+                            }
+                            TsType::Boolean
                         }
-                        TsType::Boolean
-                    }
-                    BinaryOperator::Equality
-                    | BinaryOperator::Inequality
-                    | BinaryOperator::StrictEquality
-                    | BinaryOperator::StrictInequality
-                    | BinaryOperator::In
-                    | BinaryOperator::Instanceof => TsType::Boolean,
+                        BinaryOperator::Equality
+                        | BinaryOperator::Inequality
+                        | BinaryOperator::StrictEquality
+                        | BinaryOperator::StrictInequality
+                        | BinaryOperator::In
+                        | BinaryOperator::Instanceof => TsType::Boolean,
+                    };
                 }
+                acc
             }
-            Expression::LogicalExpression(log) => {
-                let left = self.infer_expr(&log.left);
-                let right = self.infer_expr(&log.right);
-                match log.operator {
-                    LogicalOperator::And => right,
-                    LogicalOperator::Or | LogicalOperator::Coalesce => {
-                        if left == right {
-                            left
-                        } else {
-                            TsType::Union(vec![left, right])
-                        }
-                    }
+            Expression::LogicalExpression(_) => {
+                let mut spine = Vec::new();
+                let mut cur = expr;
+                while let Expression::LogicalExpression(l) = cur {
+                    spine.push((l.operator, &l.right));
+                    cur = &l.left;
                 }
+                let mut acc = self.infer_expr(cur);
+                for (operator, rhs) in spine.into_iter().rev() {
+                    let left = acc;
+                    let right = self.infer_expr(rhs);
+                    acc = match operator {
+                        LogicalOperator::And => right,
+                        LogicalOperator::Or | LogicalOperator::Coalesce => {
+                            if left == right {
+                                left
+                            } else {
+                                TsType::Union(vec![left, right])
+                            }
+                        }
+                    };
+                }
+                acc
             }
             Expression::ConditionalExpression(cond) => {
                 self.infer_expr(&cond.test);

@@ -194,6 +194,12 @@ fn validate_converted_project(project: &Project) -> Result<(), String> {
         .map_err(|err| format!("Converted project failed document validation: {err}"))
 }
 
+/// Escape `/*` and `*/` inside text interpolated into generated `/* FIXME ... */` block comments
+/// so neither nested Swift block comments nor closing `*/` sequences can break out into code.
+pub(crate) fn escape_block_comment_body(raw: &str) -> String {
+    raw.replace("/*", "/ *").replace("*/", "* /")
+}
+
 fn build_include_lookup(project: &Project) -> BTreeMap<String, ResourceUnit> {
     let mut map = BTreeMap::new();
     for res in &project.resources {
@@ -677,12 +683,10 @@ fn convert_to_as2(
     report: &mut ConversionReport,
 ) -> Result<(), String> {
     let stage = ProjectStageIndex::build(out);
-    let old_doc_class = out.document_class.take();
-    if let Some(doc_cls) = &old_doc_class {
-        for sym in &mut out.symbols {
-            if sym.id == out.root && sym.class_name.as_deref() == Some(doc_cls.as_str()) {
-                sym.class_name = None;
-            }
+    let old_doc_class = out.document_class.clone();
+    for sym in &mut out.symbols {
+        if sym.id == out.root {
+            sym.class_name = None;
         }
     }
 
@@ -789,35 +793,53 @@ fn convert_to_as2(
         }
     }
 
-    // 3. If `project.document_class` was set in AS3, attach it directly onto root in AS2 and bind `_documentApp`!
+    // 3. Keep `out.document_class = Some(doc_cls)` with `root_sym.class_name = None` so runtime
+    //    `Player::display_nodes` attaches the AS2 document class onto `_root` and round-trips cleanly.
+    //    Only prepend `var _documentApp:Object = this;` on Frame 0 if converted root scripts reference `_documentApp`.
     if let Some(doc_cls) = old_doc_class
         && !doc_cls.trim().is_empty()
         && let Some(root_sym) = out.symbols.iter_mut().find(|s| s.id == root_id)
     {
-        root_sym.class_name = Some(doc_cls.clone());
-        let bootstrap = "var _documentApp:Object = this;\n".to_owned();
-        if let Some(f0) = root_sym
+        root_sym.class_name = None;
+        let references_doc_app = root_sym
             .timeline
             .scripts
-            .iter_mut()
-            .find(|fs| fs.frame == 0)
-        {
-            f0.script.source = format!("{bootstrap}\n{}", f0.script.source);
-        } else {
-            let layer = root_sym.timeline.layers.first().map(|l| l.id.clone());
-            root_sym.timeline.scripts.insert(
-                0,
-                FrameScript {
-                    layer,
-                    frame: 0,
-                    script: Script {
-                        language: ScriptLanguage::ActionScript2,
-                        source: bootstrap,
+            .iter()
+            .any(|fs| fs.script.source.contains("_documentApp"))
+            || root_sym
+                .timeline
+                .layers
+                .iter()
+                .flat_map(|l| &l.keyframes)
+                .flat_map(|kf| &kf.elements)
+                .flat_map(|el| &el.scripts)
+                .any(|os| os.script.source.contains("_documentApp"));
+        if references_doc_app {
+            let bootstrap = "var _documentApp:Object = this;\n".to_owned();
+            if let Some(f0) = root_sym
+                .timeline
+                .scripts
+                .iter_mut()
+                .find(|fs| fs.frame == 0)
+            {
+                f0.script.source = format!("{bootstrap}\n{}", f0.script.source);
+            } else {
+                let layer = root_sym.timeline.layers.first().map(|l| l.id.clone());
+                root_sym.timeline.scripts.insert(
+                    0,
+                    FrameScript {
+                        layer,
+                        frame: 0,
+                        script: Script {
+                            language: ScriptLanguage::ActionScript2,
+                            source: bootstrap,
+                        },
                     },
-                },
-            );
-            report.converted_frame_scripts += 1;
+                );
+                report.converted_frame_scripts += 1;
+            }
         }
+        out.document_class = Some(doc_cls);
     }
 
     Ok(())
@@ -1052,8 +1074,13 @@ fn convert_to_js(
                 let mut existing_imports = Vec::new();
                 let mut rest_lines = Vec::new();
                 for line in existing.lines() {
-                    if rest_lines.is_empty() && line.trim_start().starts_with("import ") {
+                    let trimmed = line.trim();
+                    if rest_lines.is_empty() && trimmed.starts_with("import ") {
                         existing_imports.push(line.to_owned());
+                    } else if trimmed == "let _documentApp = this;"
+                        || trimmed == "var _documentApp = this;"
+                    {
+                        // Replaced by `const _documentApp = new {short}();` above.
                     } else {
                         rest_lines.push(line.to_owned());
                     }

@@ -1003,26 +1003,33 @@ fn expr_contains_jsx(expr: &Expression<'_>) -> bool {
 }
 
 /// Fast single-pass lexical pre-check before `oxc_parser::Parser` runs so deeply nested
-/// delimiters (`(((...)))`, `[[[...]]]`, `{{{...}}}`, `` `${`${...}`}` ``) or right-recursive
+/// delimiters (`(((...)))`, `[[[...]]]`, `{{{...}}}`, `` `${`${...}`}` ``), JSX element spines
+/// (`<a><a>...`), braceless control/label headers (`if(1)if(1)...`, `L:L:...`), or right-recursive
 /// unary/ternary/assignment chains cannot overflow thread stacks inside `oxc_parser`.
 pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
     let bytes = source.as_bytes();
     let len = bytes.len();
-    // Each stack entry: `(open_delim, ternary_count_in_frame, assign_count_in_frame)`
+    // Each stack entry: `(open_delim, ternary_count, assign_count, saved_braceless_run, allows_regex_after_rparen)`
     // `open_delim` is `b'('`, `b'['`, `b'{'`, or `b'$'` (for template `${...}`).
-    let mut stack: Vec<(u8, u16, u16)> = Vec::new();
+    let mut stack: Vec<(u8, u16, u16, u16, bool)> = Vec::new();
+    let mut jsx_stack: Vec<usize> = Vec::new();
+    let mut jsx_open_tag_base: Option<usize> = None;
     let mut top_ternary: u16 = 0;
     let mut top_assign: u16 = 0;
+    let mut braceless_run: u16 = 0;
     let mut unary_run: usize = 0;
     let mut template_depth: usize = 0;
     let mut can_start_regex = true;
+    let mut asi_regex_on_newline = false;
+    let mut pending_ctrl_paren = false;
+    let mut last_was_plain_ident = false;
     let mut i = 0usize;
 
     while i < len {
         let b = bytes[i];
 
         // Inside raw template literal text (not inside `${...}`):
-        if template_depth > 0 && stack.last().is_none_or(|(open, _, _)| *open != b'$') {
+        if template_depth > 0 && stack.last().is_none_or(|(open, _, _, _, _)| *open != b'$') {
             if b == b'\\' {
                 i = (i + 2).min(len);
                 continue;
@@ -1030,15 +1037,22 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
             if b == b'`' {
                 template_depth -= 1;
                 can_start_regex = false;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 i += 1;
                 continue;
             }
             if b == b'$' && i + 1 < len && bytes[i + 1] == b'{' {
-                stack.push((b'$', 0, 0));
-                if stack.len() > MAX_WEB_DELIM_DEPTH {
+                stack.push((b'$', 0, 0, braceless_run, false));
+                if stack.len() + jsx_stack.len() > MAX_WEB_DELIM_DEPTH {
                     return Err(i);
                 }
+                braceless_run = 0;
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 unary_run = 0;
                 i += 2;
                 continue;
@@ -1047,12 +1061,97 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
             continue;
         }
 
-        if b.is_ascii_whitespace() {
-            if b == b'\n' || b == b'\r' {
+        // Inside JSX element children text (`<Tag> ... </Tag>`), outside `{...}` expression containers:
+        if jsx_open_tag_base.is_none() && jsx_stack.last() == Some(&stack.len()) {
+            if b == b'{' {
+                stack.push((b'{', 0, 0, braceless_run, false));
+                if stack.len() + jsx_stack.len() > MAX_WEB_DELIM_DEPTH {
+                    return Err(i);
+                }
+                braceless_run = 0;
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
+                unary_run = 0;
+                i += 1;
+                continue;
+            }
+            if b == b'<' {
+                if bytes.get(i + 1) == Some(&b'/') {
+                    i += 2;
+                    while i < len && bytes[i] != b'>' {
+                        i += 1;
+                    }
+                    i = (i + 1).min(len);
+                    jsx_stack.pop();
+                    can_start_regex = false;
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
+                    unary_run = 0;
+                    continue;
+                }
+                if bytes.get(i + 1) == Some(&b'>') {
+                    jsx_stack.push(stack.len());
+                    if stack.len() + jsx_stack.len() > MAX_WEB_DELIM_DEPTH {
+                        return Err(i);
+                    }
+                    i += 2;
+                    continue;
+                }
+                if bytes
+                    .get(i + 1)
+                    .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_' || *c == b'$')
+                {
+                    jsx_open_tag_base = Some(stack.len());
+                    i += 1;
+                    continue;
+                }
             }
             i += 1;
             continue;
+        }
+
+        if b.is_ascii_whitespace() {
+            if (b == b'\n' || b == b'\r') && asi_regex_on_newline {
+                can_start_regex = true;
+                asi_regex_on_newline = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        // Handle JSX opening-tag close (`/>` or `>`) when back at the tag's base delimiter level:
+        if jsx_open_tag_base == Some(stack.len()) {
+            if b == b'/' && bytes.get(i + 1) == Some(&b'>') {
+                jsx_open_tag_base = None;
+                can_start_regex = false;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
+                unary_run = 0;
+                i += 2;
+                continue;
+            }
+            if b == b'>' {
+                jsx_open_tag_base = None;
+                jsx_stack.push(stack.len());
+                if stack.len() + jsx_stack.len() > MAX_WEB_DELIM_DEPTH {
+                    return Err(i);
+                }
+                can_start_regex = false;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
+                unary_run = 0;
+                i += 1;
+                continue;
+            }
+            if b == b',' || b == b';' {
+                // `<T, U>` TypeScript generic parameter list rather than JSX opening tag.
+                jsx_open_tag_base = None;
+            }
         }
 
         // Line & block comments or regex literal:
@@ -1062,17 +1161,29 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                 while i < len && bytes[i] != b'\n' && bytes[i] != b'\r' {
                     i += 1;
                 }
+                if asi_regex_on_newline {
+                    can_start_regex = true;
+                    asi_regex_on_newline = false;
+                }
                 continue;
             }
             if i + 1 < len && bytes[i + 1] == b'*' {
                 i += 2;
+                let mut saw_newline = false;
                 while i + 1 < len && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    if bytes[i] == b'\n' || bytes[i] == b'\r' {
+                        saw_newline = true;
+                    }
                     i += 1;
                 }
                 i = (i + 2).min(len);
+                if saw_newline && asi_regex_on_newline {
+                    can_start_regex = true;
+                    asi_regex_on_newline = false;
+                }
                 continue;
             }
-            if can_start_regex {
+            if can_start_regex && jsx_open_tag_base.is_none() {
                 i += 1;
                 let mut in_char_class = false;
                 while i < len {
@@ -1098,6 +1209,9 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                     i += 1;
                 }
                 can_start_regex = false;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 unary_run = 0;
                 continue;
             }
@@ -1119,6 +1233,9 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                 i += 1;
             }
             can_start_regex = false;
+            asi_regex_on_newline = false;
+            pending_ctrl_paren = false;
+            last_was_plain_ident = false;
             unary_run = 0;
             continue;
         }
@@ -1126,20 +1243,29 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
         // Template literal open:
         if b == b'`' {
             template_depth += 1;
-            if template_depth + stack.len() > MAX_WEB_DELIM_DEPTH {
+            if template_depth + stack.len() + jsx_stack.len() > MAX_WEB_DELIM_DEPTH {
                 return Err(i);
             }
+            asi_regex_on_newline = false;
+            pending_ctrl_paren = false;
+            last_was_plain_ident = false;
             i += 1;
             continue;
         }
 
         match b {
             b'(' | b'[' | b'{' => {
-                stack.push((b, 0, 0));
-                if stack.len() > MAX_WEB_DELIM_DEPTH {
+                let regex_after_rparen = b == b'(' && pending_ctrl_paren;
+                let next_braceless = if b == b'{' { 0 } else { braceless_run };
+                stack.push((b, 0, 0, braceless_run, regex_after_rparen));
+                if stack.len() + jsx_stack.len() > MAX_WEB_DELIM_DEPTH {
                     return Err(i);
                 }
+                braceless_run = next_braceless;
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 unary_run = 0;
                 i += 1;
             }
@@ -1149,29 +1275,61 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                     b']' => b'[',
                     _ => b'{',
                 };
-                if expected == b'{' && stack.last().is_some_and(|(open, _, _)| *open == b'$') {
-                    stack.pop();
+                if expected == b'{' && stack.last().is_some_and(|(open, _, _, _, _)| *open == b'$')
+                {
+                    let (_, _, _, saved_braceless, _) = stack.pop().unwrap();
+                    braceless_run = saved_braceless;
                     can_start_regex = false;
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
                     unary_run = 0;
                     i += 1;
                     continue;
                 }
-                if let Some(pos) = stack.iter().rposition(|(open, _, _)| *open == expected) {
+                let mut regex_after_close = b == b'}';
+                if let Some(pos) = stack
+                    .iter()
+                    .rposition(|(open, _, _, _, _)| *open == expected)
+                {
+                    let (_, _, _, saved_braceless, allows_regex_after_rparen) = stack[pos];
                     stack.truncate(pos);
+                    if b == b'}' {
+                        braceless_run = 0;
+                        if jsx_stack.last() == Some(&stack.len()) {
+                            // Returning from `{expr}` into JSX children text
+                            regex_after_close = false;
+                        }
+                    } else {
+                        braceless_run = saved_braceless;
+                        if b == b')' && allows_regex_after_rparen {
+                            regex_after_close = true;
+                        }
+                    }
                 }
-                can_start_regex = false;
+                can_start_regex = regex_after_close;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 unary_run = 0;
                 i += 1;
             }
             b',' | b';' => {
-                if let Some((_, t, a)) = stack.last_mut() {
+                if let Some((open, t, a, _, _)) = stack.last_mut() {
                     *t = 0;
                     *a = 0;
+                    if b == b',' || *open != b'(' {
+                        braceless_run = 0;
+                    }
                 } else {
                     top_ternary = 0;
                     top_assign = 0;
+                    braceless_run = 0;
                 }
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 unary_run = 0;
                 i += 1;
             }
@@ -1181,6 +1339,9 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                     return Err(i);
                 }
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 i += 1;
             }
             b'~' => {
@@ -1189,16 +1350,75 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                     return Err(i);
                 }
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 i += 1;
+            }
+            b'+' | b'-' => {
+                let next = bytes.get(i + 1).copied();
+                if next == Some(b) {
+                    // `++` or `--`
+                    if can_start_regex {
+                        unary_run += 1;
+                        if unary_run > MAX_WEB_DELIM_DEPTH {
+                            return Err(i);
+                        }
+                        can_start_regex = true;
+                    } else {
+                        // Postfix `x++` / `x--`: `/` immediately following is division, NEVER regex!
+                        can_start_regex = false;
+                        unary_run = 0;
+                    }
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
+                    i += 2;
+                } else if next == Some(b'=') {
+                    // `+=` or `-=`
+                    let count = if let Some((_, _, a, _, _)) = stack.last_mut() {
+                        *a = a.saturating_add(1);
+                        *a
+                    } else {
+                        top_assign = top_assign.saturating_add(1);
+                        top_assign
+                    };
+                    if usize::from(count) > MAX_WEB_DELIM_DEPTH {
+                        return Err(i);
+                    }
+                    can_start_regex = true;
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
+                    unary_run = 0;
+                    i += 2;
+                } else {
+                    if can_start_regex {
+                        unary_run += 1;
+                        if unary_run > MAX_WEB_DELIM_DEPTH {
+                            return Err(i);
+                        }
+                    } else {
+                        unary_run = 0;
+                    }
+                    can_start_regex = true;
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
+                    i += 1;
+                }
             }
             b'?' => {
                 let next = bytes.get(i + 1).copied();
                 if next == Some(b'?') || next == Some(b'.') {
                     can_start_regex = true;
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
                     unary_run = 0;
                     i += 2;
                 } else {
-                    let count = if let Some((_, t, _)) = stack.last_mut() {
+                    let count = if let Some((_, t, _, _, _)) = stack.last_mut() {
                         *t = t.saturating_add(1);
                         *t
                     } else {
@@ -1209,9 +1429,30 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                         return Err(i);
                     }
                     can_start_regex = true;
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
                     unary_run = 0;
                     i += 1;
                 }
+            }
+            b':' => {
+                let cur_ternary = stack.last().map_or(top_ternary, |(_, t, _, _, _)| *t);
+                let in_paren_or_bracket = stack
+                    .last()
+                    .is_some_and(|(open, _, _, _, _)| matches!(*open, b'(' | b'['));
+                if last_was_plain_ident && cur_ternary == 0 && !in_paren_or_bracket {
+                    braceless_run = braceless_run.saturating_add(1);
+                    if usize::from(braceless_run) > MAX_WEB_DELIM_DEPTH {
+                        return Err(i);
+                    }
+                }
+                can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
+                unary_run = 0;
+                i += 1;
             }
             b'=' => {
                 let prev = if i > 0 { Some(bytes[i - 1]) } else { None };
@@ -1220,7 +1461,7 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                     || next == Some(b'>')
                     || matches!(prev, Some(b'=' | b'!' | b'<' | b'>'));
                 if !is_comparison_or_arrow {
-                    let count = if let Some((_, _, a)) = stack.last_mut() {
+                    let count = if let Some((_, _, a, _, _)) = stack.last_mut() {
                         *a = a.saturating_add(1);
                         *a
                     } else {
@@ -1232,11 +1473,53 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                     }
                 }
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 unary_run = 0;
                 i += 1;
             }
-            b':' | b'&' | b'|' | b'+' | b'-' | b'*' | b'%' | b'^' | b'<' | b'>' => {
+            b'<' => {
+                if can_start_regex && jsx_open_tag_base.is_none() {
+                    if bytes.get(i + 1) == Some(&b'>') {
+                        jsx_stack.push(stack.len());
+                        if stack.len() + jsx_stack.len() > MAX_WEB_DELIM_DEPTH {
+                            return Err(i);
+                        }
+                        can_start_regex = false;
+                        asi_regex_on_newline = false;
+                        pending_ctrl_paren = false;
+                        last_was_plain_ident = false;
+                        unary_run = 0;
+                        i += 2;
+                        continue;
+                    }
+                    if bytes
+                        .get(i + 1)
+                        .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_' || *c == b'$')
+                    {
+                        jsx_open_tag_base = Some(stack.len());
+                        can_start_regex = false;
+                        asi_regex_on_newline = false;
+                        pending_ctrl_paren = false;
+                        last_was_plain_ident = false;
+                        unary_run = 0;
+                        i += 1;
+                        continue;
+                    }
+                }
                 can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
+                unary_run = 0;
+                i += 1;
+            }
+            b'&' | b'|' | b'*' | b'%' | b'^' | b'>' => {
+                can_start_regex = true;
+                asi_regex_on_newline = false;
+                pending_ctrl_paren = false;
+                last_was_plain_ident = false;
                 unary_run = 0;
                 i += 1;
             }
@@ -1269,6 +1552,21 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                             | b"else"
                             | b"do"
                     );
+                    asi_regex_on_newline = matches!(
+                        word,
+                        b"break" | b"continue" | b"return" | b"throw" | b"yield"
+                    );
+                    pending_ctrl_paren = matches!(word, b"if" | b"while" | b"for" | b"with");
+                    if matches!(word, b"if" | b"else" | b"while" | b"for" | b"with" | b"do") {
+                        braceless_run = braceless_run.saturating_add(1);
+                        if usize::from(braceless_run) > MAX_WEB_DELIM_DEPTH {
+                            return Err(start);
+                        }
+                        last_was_plain_ident = false;
+                    } else {
+                        last_was_plain_ident = !can_start_regex
+                            && !matches!(word, b"break" | b"continue" | b"function" | b"class");
+                    }
                     if matches!(word, b"typeof" | b"void" | b"delete" | b"await") {
                         unary_run += 1;
                         if unary_run > MAX_WEB_DELIM_DEPTH {
@@ -1279,6 +1577,9 @@ pub(crate) fn check_web_nesting_bounds(source: &str) -> Result<(), usize> {
                     }
                 } else {
                     can_start_regex = false;
+                    asi_regex_on_newline = false;
+                    pending_ctrl_paren = false;
+                    last_was_plain_ident = false;
                     unary_run = 0;
                     i += 1;
                 }

@@ -751,7 +751,8 @@ var mask:uint = uint(15);
 
     let (as2_proj, rep) =
         convert_project_scripts(&proj, ConversionTarget::ActionScript2).expect("AS3 -> AS2");
-    assert!(as2_proj.document_class.is_none());
+    assert_eq!(as2_proj.document_class.as_deref(), Some("app.MainDoc"));
+    assert!(as2_proj.symbols[0].class_name.is_none());
     assert!(
         rep.issues
             .iter()
@@ -761,8 +762,8 @@ var mask:uint = uint(15);
 
     let f0 = &as2_proj.symbols[0].timeline.scripts[0].script.source;
     assert!(
-        f0.contains("_documentApp"),
-        "expected document_class bootstrap on Frame 0:\n{f0}"
+        !f0.contains("_documentApp"),
+        "unused _documentApp alias must not be injected on Frame 0:\n{f0}"
     );
     assert!(
         f0.contains("createEmptyMovieClip"),

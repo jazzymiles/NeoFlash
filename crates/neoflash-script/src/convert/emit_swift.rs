@@ -2168,7 +2168,8 @@ impl<'a> SwiftEmitter<'a> {
                     offset,
                     "Dynamic 'with' / 'tellTarget' scope requires explicit receiver references in Swift 6.",
                 );
-                let tgt = self.emit_expr_with_offset(target, offset);
+                let tgt =
+                    super::escape_block_comment_body(&self.emit_expr_with_offset(target, offset));
                 let b = self.emit_swift_branch(body);
                 format!("{pad}/* FIXME [NeoFlash Swift]: with ({tgt}) */ do {b}")
             }
@@ -2368,7 +2369,7 @@ impl<'a> SwiftEmitter<'a> {
                     *call_off,
                     "Dynamic 'fscommand(...)' requires a string literal command name to generate a SwiftHostProtocol stub.",
                 );
-                let raw_args = self.emit_args(args, *call_off);
+                let raw_args = super::escape_block_comment_body(&self.emit_args(args, *call_off));
                 return Some(format!(
                     "{pad}/* FIXME [NeoFlash Swift]: dynamic fscommand({raw_args}) */"
                 ));
@@ -2382,7 +2383,8 @@ impl<'a> SwiftEmitter<'a> {
                         *call_off,
                         "Dynamic 'ExternalInterface.call(...)' requires a string literal function name to generate a SwiftHostProtocol stub.",
                     );
-                    let raw_args = self.emit_args(args, *call_off);
+                    let raw_args =
+                        super::escape_block_comment_body(&self.emit_args(args, *call_off));
                     return Some(format!(
                         "{pad}/* FIXME [NeoFlash Swift]: dynamic ExternalInterface.call({raw_args}) */"
                     ));
@@ -2393,7 +2395,8 @@ impl<'a> SwiftEmitter<'a> {
                         *call_off,
                         "'ExternalInterface.addCallback' is inbound from host; call public methods on MainScene directly from Swift.",
                     );
-                    let raw_args = self.emit_args(args, *call_off);
+                    let raw_args =
+                        super::escape_block_comment_body(&self.emit_args(args, *call_off));
                     return Some(format!(
                         "{pad}/* FIXME [NeoFlash Swift]: ExternalInterface.addCallback({raw_args}) */"
                     ));
@@ -3093,7 +3096,8 @@ impl<'a> SwiftEmitter<'a> {
                     offset,
                     "E4X XML literals are not supported on the native Swift target.",
                 );
-                format!("/* FIXME [NeoFlash Swift]: E4X XML literal {raw} */ NFValue.null")
+                let safe_raw = super::escape_block_comment_body(raw);
+                format!("/* FIXME [NeoFlash Swift]: E4X XML literal {safe_raw} */ NFValue.null")
             }
             Expr::XmlSelect {
                 base,
@@ -3111,9 +3115,8 @@ impl<'a> SwiftEmitter<'a> {
                     offset,
                     format!("E4X XML operator '{op_sym}{at_sym}{l}' is not supported on the native Swift target."),
                 );
-                format!(
-                    "/* FIXME [NeoFlash Swift]: E4X {b}{op_sym}{at_sym}{l} */ NFValue.undefined"
-                )
+                let safe_sel = super::escape_block_comment_body(&format!("{b}{op_sym}{at_sym}{l}"));
+                format!("/* FIXME [NeoFlash Swift]: E4X {safe_sel} */ NFValue.undefined")
             }
             Expr::XmlWithAttr {
                 local,
@@ -3129,7 +3132,8 @@ impl<'a> SwiftEmitter<'a> {
                     offset,
                     format!("E4X XML selector '{op_sym}{at_sym}{l}' is not supported on the native Swift target."),
                 );
-                format!("/* FIXME [NeoFlash Swift]: E4X {op_sym}{at_sym}{l} */ NFValue.undefined")
+                let safe_sel = super::escape_block_comment_body(&format!("{op_sym}{at_sym}{l}"));
+                format!("/* FIXME [NeoFlash Swift]: E4X {safe_sel} */ NFValue.undefined")
             }
             Expr::XmlFilter(base, predicate, x_off) => {
                 let b = self.emit_expr_with_offset(base, *x_off);
@@ -3139,7 +3143,8 @@ impl<'a> SwiftEmitter<'a> {
                     *x_off,
                     "E4X XML filter predicate '.(...)' is not supported on the native Swift target.",
                 );
-                format!("/* FIXME [NeoFlash Swift]: E4X {b}.({p}) */ NFValue.undefined")
+                let safe_flt = super::escape_block_comment_body(&format!("{b}.({p})"));
+                format!("/* FIXME [NeoFlash Swift]: E4X {safe_flt} */ NFValue.undefined")
             }
         }
     }
@@ -3723,7 +3728,7 @@ impl<'a> SwiftEmitter<'a> {
             );
             return format!(
                 "/* FIXME [NeoFlash Swift]: fscommand({}) */ NFValue.undefined",
-                self.emit_args(args, offset)
+                super::escape_block_comment_body(&self.emit_args(args, offset))
             );
         }
         if let Expr::Member(base, m) = callee
@@ -3737,7 +3742,7 @@ impl<'a> SwiftEmitter<'a> {
             );
             return format!(
                 "/* FIXME [NeoFlash Swift]: ExternalInterface.{m}({}) */ NFValue.undefined",
-                self.emit_args(args, offset)
+                super::escape_block_comment_body(&self.emit_args(args, offset))
             );
         }
 
@@ -3799,7 +3804,7 @@ impl<'a> SwiftEmitter<'a> {
                     );
                     return format!(
                         "/* FIXME [NeoFlash Swift]: eval({}) */ NFValue.undefined",
-                        self.emit_args(args, offset)
+                        super::escape_block_comment_body(&self.emit_args(args, offset))
                     );
                 }
                 "stop" | "play" | "nextFrame" | "prevFrame" | "gotoAndPlay" | "gotoAndStop"

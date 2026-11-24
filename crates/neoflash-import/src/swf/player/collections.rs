@@ -1124,6 +1124,7 @@ impl SwfBytecodePlayer {
                 } else {
                     len.saturating_sub(start)
                 };
+                let max_ins = 65_536usize.saturating_sub(len.saturating_sub(del_cnt));
                 let mut ins = Vec::new();
                 for item in args.iter().skip(2) {
                     let c = self.coerce_avm2_vector_element(
@@ -1136,14 +1137,18 @@ impl SwfBytecodePlayer {
                     if self.avm2_thrown.is_some() {
                         return Some(Avm1Value::Undefined);
                     }
-                    ins.push(c);
+                    if ins.len() < max_ins {
+                        ins.push(c);
+                    }
                 }
                 let removed = if let Some(vd) = self
                     .avm1_objects
                     .get_mut(oid)
                     .and_then(|o| o.avm2_vector.as_mut())
                 {
-                    vd.elements.splice(start..start + del_cnt, ins).collect()
+                    let out: Vec<_> = vd.elements.splice(start..start + del_cnt, ins).collect();
+                    vd.elements.truncate(65_536);
+                    out
                 } else {
                     Vec::new()
                 };

@@ -84,22 +84,18 @@ if [ -z "$python3_bin" ]; then
   exit 1
 fi
 
-artifacts_dir="${NEOFLASH_INTEL_ARTIFACTS_DIR:-$project_root/target/artifacts/macos-x86_64}"
-mkdir -p "$artifacts_dir"
-artifacts_dir="$(cd "$artifacts_dir" && pwd -P)"
-
-dist_guard_dir="$project_root/dist"
-if [ -d "$dist_guard_dir" ]; then
-  dist_real="$(cd "$dist_guard_dir" && pwd -P)"
-else
-  dist_real="$dist_guard_dir"
-fi
+raw_artifacts_dir="${NEOFLASH_INTEL_ARTIFACTS_DIR:-$project_root/target/artifacts/macos-x86_64}"
+artifacts_dir="$("$python3_bin" -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$raw_artifacts_dir")"
+dist_real="$("$python3_bin" -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$project_root/dist")"
 case "$artifacts_dir" in
   "$dist_real"|"$dist_real"/*)
     printf 'Error: refusing to stage Intel verification artifacts inside top-level dist/ (%s).\n' "$artifacts_dir" >&2
     exit 2
     ;;
 esac
+
+mkdir -p "$artifacts_dir"
+artifacts_dir="$(cd "$artifacts_dir" && pwd -P)"
 
 app_dir="$artifacts_dir/NeoFlash.app"
 bundle_bin="$app_dir/Contents/MacOS/neoflash-editor"
@@ -285,6 +281,30 @@ $icon_plist_keys
     </dict>
   </dict>
 </array>
+<key>UTImportedTypeDeclarations</key>
+<array>
+  <dict>
+    <key>UTTypeIdentifier</key><string>com.adobe.actionscript-source</string>
+    <key>UTTypeDescription</key><string>ActionScript Source</string>
+    <key>UTTypeConformsTo</key>
+    <array>
+      <string>public.source-code</string>
+      <string>public.plain-text</string>
+    </array>
+    <key>UTTypeTagSpecification</key>
+    <dict>
+      <key>public.filename-extension</key>
+      <array>
+        <string>as</string>
+      </array>
+      <key>public.mime-type</key>
+      <array>
+        <string>text/x-actionscript</string>
+        <string>application/x-actionscript</string>
+      </array>
+    </dict>
+  </dict>
+</array>
 <key>CFBundleDocumentTypes</key>
 <array>
   <dict>
@@ -300,6 +320,63 @@ $icon_plist_keys
       <string>nflash</string>
     </array>
     <key>CFBundleTypeIconFile</key><string>AppIcon</string>
+  </dict>
+  <dict>
+    <key>CFBundleTypeName</key><string>ActionScript Source</string>
+    <key>CFBundleTypeRole</key><string>Editor</string>
+    <key>LSHandlerRank</key><string>Alternate</string>
+    <key>LSItemContentTypes</key>
+    <array>
+      <string>com.adobe.actionscript-source</string>
+      <string>com.apple.applesingle-archive</string>
+      <string>public.source-code</string>
+      <string>public.script</string>
+      <string>public.plain-text</string>
+    </array>
+    <key>CFBundleTypeExtensions</key>
+    <array>
+      <string>as</string>
+    </array>
+  </dict>
+  <dict>
+    <key>CFBundleTypeName</key><string>Flash &amp; Design Interchange Documents</string>
+    <key>CFBundleTypeRole</key><string>Viewer</string>
+    <key>LSHandlerRank</key><string>Alternate</string>
+    <key>LSItemContentTypes</key>
+    <array>
+      <string>com.apple.applesingle-archive</string>
+      <string>com.adobe.actionscript-source</string>
+      <string>public.source-code</string>
+      <string>public.script</string>
+      <string>public.plain-text</string>
+      <string>public.data</string>
+      <string>public.content</string>
+      <string>public.item</string>
+      <string>public.folder</string>
+      <string>public.archive</string>
+      <string>com.adobe.pdf</string>
+      <string>com.adobe.illustrator.ai-image</string>
+      <string>com.adobe.encapsulated-postscript</string>
+      <string>com.adobe.photoshop-image</string>
+      <string>public.svg-image</string>
+    </array>
+    <key>CFBundleTypeExtensions</key>
+    <array>
+      <string>fla</string>
+      <string>xfl</string>
+      <string>as</string>
+      <string>swf</string>
+      <string>swc</string>
+      <string>fig</string>
+      <string>figma</string>
+      <string>svg</string>
+      <string>psd</string>
+      <string>psb</string>
+      <string>pdf</string>
+      <string>ai</string>
+      <string>eps</string>
+      <string>fxg</string>
+    </array>
   </dict>
 </array>
 </dict></plist>

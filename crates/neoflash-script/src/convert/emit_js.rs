@@ -698,7 +698,7 @@ impl<'a> JsEmitter<'a> {
                     offset,
                     "E4X 'default xml namespace' is not supported in ES6 JavaScript.",
                 );
-                let val = self.emit_expr_with_offset(e, offset);
+                let val = super::escape_block_comment_body(&self.emit_expr_with_offset(e, offset));
                 format!("{pad}/* FIXME [NeoFlash Convert]: default xml namespace = {val} */")
             }
             Stmt::IfFrameLoaded(_, body) => self.emit_stmt(body),
@@ -1627,7 +1627,7 @@ impl<'a> JsEmitter<'a> {
                     offset,
                     "E4X XML literal is not natively supported in ES6 JavaScript; manual DOMParser/XML migration required.",
                 );
-                let safe_raw = raw.replace("*/", "* /");
+                let safe_raw = super::escape_block_comment_body(raw);
                 format!("/* FIXME [NeoFlash Convert]: E4X XML literal {safe_raw} */ null")
             }
             Expr::XmlSelect {
@@ -1683,7 +1683,8 @@ impl<'a> JsEmitter<'a> {
                         "E4X XML query '{op_sym}{at_sym}{l}' is not supported in ES6 JavaScript; manual migration required."
                     ),
                 );
-                format!("/* FIXME [NeoFlash Convert]: E4X {b}{op_sym}{at_sym}{l} */ undefined")
+                let safe_sel = super::escape_block_comment_body(&format!("{b}{op_sym}{at_sym}{l}"));
+                format!("/* FIXME [NeoFlash Convert]: E4X {safe_sel} */ undefined")
             }
             Expr::XmlWithAttr {
                 local,
@@ -1701,7 +1702,8 @@ impl<'a> JsEmitter<'a> {
                         "E4X XML selector '{op_sym}{at_sym}{l}' is not supported in ES6 JavaScript; manual migration required."
                     ),
                 );
-                format!("/* FIXME [NeoFlash Convert]: E4X {op_sym}{at_sym}{l} */ undefined")
+                let safe_sel = super::escape_block_comment_body(&format!("{op_sym}{at_sym}{l}"));
+                format!("/* FIXME [NeoFlash Convert]: E4X {safe_sel} */ undefined")
             }
             Expr::XmlFilter(base, predicate, x_off) => {
                 let b = self.emit_expr_with_offset(base, *x_off);
@@ -1711,7 +1713,8 @@ impl<'a> JsEmitter<'a> {
                     *x_off,
                     "E4X XML filter predicate '.(...)' is not supported in ES6 JavaScript; manual migration required.",
                 );
-                format!("/* FIXME [NeoFlash Convert]: E4X {b}.({p}) */ []")
+                let safe_flt = super::escape_block_comment_body(&format!("{b}.({p})"));
+                format!("/* FIXME [NeoFlash Convert]: E4X {safe_flt} */ []")
             }
         }
     }

@@ -1092,6 +1092,110 @@ fn t472_fuzz_family_4_swf_fws_cws_zws_tags_and_bytecode_player() {
         exercise_swf_bytes(&format!("swf_raw_len_synced_{iter}"), &raw, &tmp);
     }
 
+    // [A-05] 28-step exponential `a = a.concat(a)` loop in AVM2 `DoABC2` must cap at 65,536 without OOM!
+    {
+        // Script: `var a = [1]; for (var i = 0; i < 28; i = i + 1) { a = a.concat(a); } trace(a.length);`
+        let code: Vec<u8> = vec![
+            0xD0, 0x30, // getlocal_0, pushscope
+            0x24, 1, 0x56, 1, 0xD5, // pushbyte 1, newarray 1, setlocal_1 (`a = [1]`)
+            0x24, 0, 0xD6, // pushbyte 0, setlocal_2 (`i = 0`)
+            0x09, // label (pc = 10)
+            0xD2, 0x24, 28, 0x15, 16, 0, 0, // getlocal_2, pushbyte 28, ifge +16 (to pc = 34)
+            0xD1, 0xD1, 0x46, 1, 1, 0xD5, // a = a.concat(a) (6 bytes)
+            0xD2, 0x24, 1, 0xA0, 0xD6, // i = i + 1 (5 bytes)
+            0x10, 0xE9, 0xFF, 0xFF, // jump -23 (from pc = 33 back to pc = 10)
+            0x5E, 3, 0xD1, 0x66, 2, 0x4F, 3,
+            1,    // findpropstrict("trace"), a.length, callpropvoid("trace", 1)
+            0x47, // returnvoid
+        ];
+        let mut abc_concat = vec![
+            0,
+            0,
+            0,
+            0, // flags = 0 (eagerly execute script 0!)
+            b'c',
+            b'c',
+            0, // name = "cc"
+            16,
+            0,
+            46,
+            0, // minor=16, major=46
+            0,
+            0,
+            0, // int=0, uint=0, double=0
+            5, // string_count = 5 (1..=4)
+            0, // [1] ""
+            6,
+            b'c',
+            b'o',
+            b'n',
+            b'c',
+            b'a',
+            b't', // [2] "concat"
+            6,
+            b'l',
+            b'e',
+            b'n',
+            b'g',
+            b't',
+            b'h', // [3] "length"
+            5,
+            b't',
+            b'r',
+            b'a',
+            b'c',
+            b'e', // [4] "trace"
+            2,    // namespace_count = 2 (1..=1)
+            0x16,
+            1, // [1] PackageNamespace("")
+            0, // ns_set_count = 0
+            4, // multiname_count = 4 (1..=3)
+            0x07,
+            1,
+            2, // [1] QName("", "concat")
+            0x07,
+            1,
+            3, // [2] QName("", "length")
+            0x07,
+            1,
+            4, // [3] QName("", "trace")
+            1, // method_count = 1
+            0,
+            0,
+            0,
+            0, // method 0
+            0, // metadata_count = 0
+            0, // class_count = 0
+            1, // script_count = 1
+            0,
+            0, // init=0, traits=0
+            1, // method_body_count = 1
+            0,
+            4,
+            3,
+            0,
+            2, // method=0, max_stack=4, local_count=3, init_scope=0, max_scope=2
+            code.len() as u8,
+        ];
+        abc_concat.extend_from_slice(&code);
+        abc_concat.extend_from_slice(&[0, 0]); // exceptions=0, traits=0
+
+        let mut concat_tags = Vec::new();
+        push_swf_tag(&mut concat_tags, 69, &[0x08, 0, 0, 0]);
+        push_swf_tag(&mut concat_tags, 82, &abc_concat);
+        push_swf_tag(&mut concat_tags, 1, &[]);
+        let concat_swf = wrap_fws(10, &concat_tags);
+        cases += 1;
+        let mut concat_player =
+            SwfBytecodePlayer::from_bytes(&concat_swf).expect("parse AVM2 concat SWF");
+        let _ = concat_player.step_frame();
+        assert_eq!(
+            concat_player.trace_output(),
+            &["65536".to_owned()],
+            "28-step a = a.concat(a) must cap cleanly at 65,536 elements without OOM"
+        );
+    }
+
     assert!(
         cases >= 350,
         "expected >= 350 cases in family 4, got {cases}"

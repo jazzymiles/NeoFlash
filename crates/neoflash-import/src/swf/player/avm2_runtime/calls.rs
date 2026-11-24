@@ -1076,19 +1076,32 @@ impl SwfBytecodePlayer {
                     };
                 }
                 "concat" => {
+                    const MAX_AVM2_CONCAT_LEN: usize = 65_536;
                     let mut out_elems = self
                         .avm1_objects
                         .get(*oid)
-                        .and_then(|o| o.array_elements.clone())
+                        .and_then(|o| o.array_elements.as_ref())
+                        .map(|v| v[..v.len().min(MAX_AVM2_CONCAT_LEN)].to_vec())
                         .unwrap_or_default();
                     for a in args {
+                        if out_elems.len() >= MAX_AVM2_CONCAT_LEN {
+                            break;
+                        }
+                        let rem = MAX_AVM2_CONCAT_LEN - out_elems.len();
                         if let Avm1Value::Object(aid) = &a
-                            && let Some(sub) = self
+                            && let Some(sub_len) = self
                                 .avm1_objects
                                 .get(*aid)
-                                .and_then(|o| o.array_elements.clone())
+                                .and_then(|o| o.array_elements.as_ref().map(Vec::len))
                         {
-                            out_elems.extend(sub);
+                            let take_n = sub_len.min(rem);
+                            if let Some(sub) = self
+                                .avm1_objects
+                                .get(*aid)
+                                .and_then(|o| o.array_elements.as_ref())
+                            {
+                                out_elems.extend_from_slice(&sub[..take_n]);
+                            }
                         } else {
                             out_elems.push(a);
                         }
