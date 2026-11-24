@@ -205,6 +205,9 @@ pub struct Editor {
     pub library_selected: Option<String>,
     pub(crate) library_panel: crate::library::LibraryPanel,
     pub(crate) graphic_drop_position: Option<egui::Pos2>,
+    pub(crate) timeline_drop_zones:
+        std::collections::HashMap<egui::ViewportId, crate::graphic_import::TimelineDropZone>,
+    pub(crate) library_drop_rects: std::collections::HashMap<egui::ViewportId, egui::Rect>,
     pub(crate) deferred_stage_script_drops: Vec<PathBuf>,
     pub(crate) symbol_conversion: Option<crate::symbol_dialog::SymbolConversion>,
     pub(crate) document_settings: Option<crate::panels::document_settings::DocumentSettingsDraft>,
@@ -328,6 +331,7 @@ impl Editor {
         if let Err(error) = crate::native_quit::install(&cc.egui_ctx) {
             s.message(error);
         }
+        crate::native_windows::register_wakeup_context(&cc.egui_ctx);
         crate::native_windows::install();
         if let Err(error) = crate::macos_menu::install(&cc.egui_ctx) {
             s.message(error);
@@ -461,6 +465,8 @@ impl Editor {
             live_preview_capturing: false,
             library_panel: crate::library::LibraryPanel::default(),
             graphic_drop_position: None,
+            timeline_drop_zones: std::collections::HashMap::new(),
+            library_drop_rects: std::collections::HashMap::new(),
             deferred_stage_script_drops: Vec::new(),
             resource_panel: crate::resources::ResourcePanel::default(),
             bitmap_textures: crate::bitmaps::BitmapTextures::default(),
@@ -2529,6 +2535,11 @@ impl eframe::App for Editor {
             self.request_quit(ctx);
         }
         crate::macos_menu::drain_events(self, ctx);
+        crate::native_windows::drain_file_drag_into_context(ctx, None);
+        self.timeline_drop_zones
+            .retain(|vid, _| *vid != egui::ViewportId::ROOT);
+        self.library_drop_rects
+            .retain(|vid, _| *vid != egui::ViewportId::ROOT);
         let now_secs = ctx.input(|i| i.time);
         if let Some(wait) = self.tick_autosave(now_secs, crate::recovery::unix_now_secs()) {
             ctx.request_repaint_after(wait);

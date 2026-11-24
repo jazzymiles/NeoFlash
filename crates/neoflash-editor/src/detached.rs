@@ -36,6 +36,7 @@ pub(crate) struct DetachedState {
     pub(crate) activation: u64,
     pub(crate) context_menu_open: bool,
     pub(crate) tools_desired_inner_height: Option<f32>,
+    pub(crate) rendering_floating_window: Option<(PanelId, bool)>,
 }
 
 /// Interactive edge/corner resize state for borderless floating panel windows.
@@ -1894,19 +1895,14 @@ impl Editor {
             }
             ctx.show_viewport_immediate(id, builder, |ctx, class| {
                 self.detached.context_menu_open = false;
-                // Native file events belong to the receiving window. A panel
-                // has no Stage drop coordinates, so never silently consume a
-                // Finder drop or place artwork at an unrelated remembered point.
-                let dropped_on_panel = ctx.input_mut(|input| {
-                    let dropped = !input.raw.dropped_files.is_empty();
-                    input.raw.dropped_files.clear();
-                    dropped
-                });
-                if dropped_on_panel {
-                    self.message("Drop graphics onto the Stage in the main window, or use File → Import graphics to Stage.");
-                    ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
-                    ctx.request_repaint_of(egui::ViewportId::ROOT);
-                }
+                let drained_native =
+                    crate::native_windows::drain_file_drag_into_context(ctx, Some(&title));
+                let prev_floating = self.detached.rendering_floating_window.replace((
+                    window_id,
+                    class == egui::ViewportClass::Embedded && drained_native,
+                ));
+                self.timeline_drop_zones.remove(&id);
+                self.library_drop_rects.remove(&id);
                 if class == egui::ViewportClass::Embedded {
                     // Backends without native child windows: an in-window NF2 floating panel
                     // (`bg/raised`, radius 12, border, popover shadow, `Floating Panel Header`).
@@ -1916,9 +1912,11 @@ impl Editor {
                             self.set_panel_visible(*panel, false);
                         }
                     }
+                    self.consume_unhandled_floating_file_drop(ctx);
                     self.continue_panel_drag(ctx);
                     self.docking_overlay(ctx, DockSurface::Floating(window_id));
                     self.finish_floating_context_menu(ctx);
+                    self.detached.rendering_floating_window = prev_floating;
                     return;
                 }
                 let awaiting_outer_sync = if ctx.input(|i| i.viewport().close_requested()) {
@@ -1950,7 +1948,9 @@ impl Editor {
                     && self.detached.resize.is_none()
                     && let Some(outer) = ctx.input(|i| {
                         let v = i.viewport();
-                        (v.minimized != Some(true)).then_some(v.outer_rect).flatten()
+                        (v.minimized != Some(true))
+                            .then_some(v.outer_rect)
+                            .flatten()
                     })
                     && let Some(mut prev) = self
                         .workspace
@@ -2017,7 +2017,9 @@ impl Editor {
                             .iter()
                             .find(|w| w.id == window_id)
                             .and_then(|w| w.geometry)
-                            .is_some_and(|prev| (prev.inner_size[0] - geometry.inner_size[0]).abs() > 1.5)
+                            .is_some_and(|prev| {
+                                (prev.inner_size[0] - geometry.inner_size[0]).abs() > 1.5
+                            })
                         && self.workspace.set_tools_stage_anchor(window_id, None)
                     {
                         self.persist_workspace_requested = true;
@@ -2048,6 +2050,7 @@ impl Editor {
                 if ctx.input(|i| i.viewport().close_requested()) {
                     self.close_floating_window(window_id);
                     ctx.request_repaint_of(egui::ViewportId::ROOT);
+                    self.detached.rendering_floating_window = prev_floating;
                     return;
                 }
                 if let Some(focus) = focus {
@@ -2088,7 +2091,10 @@ impl Editor {
                     let full_rect = egui::Rect::from_min_size(
                         viewport_rect.min,
                         egui::vec2(
-                            viewport_rect.width().max(inner_size.x).max(minimum_logical[0]),
+                            viewport_rect
+                                .width()
+                                .max(inner_size.x)
+                                .max(minimum_logical[0]),
                             viewport_rect.height().max(inner_size.y),
                         ),
                     );
@@ -2111,14 +2117,21 @@ impl Editor {
                             );
                         });
                     if !open {
+                        self.consume_unhandled_floating_file_drop(ctx);
                         self.close_floating_window(window_id);
                         ctx.request_repaint_of(egui::ViewportId::ROOT);
+                        self.detached.rendering_floating_window = prev_floating;
                         return;
                     }
                     let collapsed = self.workspace.is_floating_window_collapsed(window_id);
                     if !collapsed {
                         self.floating_window_resize_borders(
-                            ctx, window_id, &panels, minimum, root_maximum, zoom,
+                            ctx,
+                            window_id,
+                            &panels,
+                            minimum,
+                            root_maximum,
+                            zoom,
                         );
                     }
                     if !collapsed
@@ -2126,15 +2139,11 @@ impl Editor {
                         && let Some(desired_h) = self.detached.tools_desired_inner_height
                     {
                         self.compact_floating_tools_window_bottom_up(
-                            ctx,
-                            window_id,
-                            desired_h,
-                            minimum[0],
-                            minimum[1],
-                            zoom,
+                            ctx, window_id, desired_h, minimum[0], minimum[1], zoom,
                         );
                     }
                 }
+                self.consume_unhandled_floating_file_drop(ctx);
                 self.docking_overlay(ctx, DockSurface::Floating(window_id));
                 self.finish_floating_context_menu(ctx);
                 if has_input {
@@ -2151,6 +2160,7 @@ impl Editor {
                     }
                 }
                 crate::panels::dialog_helpers::record_end_of_frame_focus(ctx);
+                self.detached.rendering_floating_window = prev_floating;
             });
         }
         let global_lower_after = self.should_lower_all_floating_windows_globally(ctx);
@@ -2197,9 +2207,41 @@ impl Editor {
         );
         self.docking_overlay(ctx, DockSurface::Main);
         self.finalize_panel_drag(ctx);
+        if self.library_panel.drag.is_some() {
+            let pointer_down = crate::native_screens::pointer_state()
+                .map(|(_, down)| down)
+                .unwrap_or_else(|| ctx.input(|i| i.pointer.primary_down()));
+            if !pointer_down {
+                self.library_panel.drag = None;
+            }
+        }
         if !self.detached.active.is_empty() {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
+    }
+
+    fn consume_unhandled_floating_file_drop(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input_mut(|input| std::mem::take(&mut input.raw.dropped_files));
+        if dropped.is_empty() {
+            return;
+        }
+        let mut non_script_dropped = false;
+        for file in dropped {
+            if let Some(path) = file.path {
+                if Self::is_actionscript_source_path(&path) {
+                    self.deferred_stage_script_drops.push(path);
+                } else {
+                    non_script_dropped = true;
+                }
+            } else {
+                non_script_dropped = true;
+            }
+        }
+        if non_script_dropped {
+            self.message("Drop media onto the Stage, Timeline, or Library.");
+        }
+        ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+        ctx.request_repaint_of(egui::ViewportId::ROOT);
     }
 
     pub(crate) fn close_floating_window(&mut self, window_id: PanelId) {

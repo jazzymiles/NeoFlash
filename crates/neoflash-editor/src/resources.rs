@@ -148,7 +148,7 @@ impl Editor {
                 .row;
                 let response =
                     nf::tooltip(row, &format!("{} · {}", unit.path, unit.media_type), None);
-                if is_placeable_image(&unit.media_type) {
+                if is_placeable_image(&unit.media_type) || unit.is_audio() || unit.is_video() {
                     crate::library::capture_row_drag(
                         &mut self.library_panel,
                         ui,
@@ -838,7 +838,9 @@ pub(crate) fn upsert_imported_font_embedding_metadata(
     Ok(entry)
 }
 
-pub(crate) const IMPORT_AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "aac", "m4a"];
+pub(crate) const IMPORT_AUDIO_EXTENSIONS: &[&str] = &[
+    "mp3", "wav", "ogg", "flac", "aac", "m4a", "aif", "aiff", "caf", "opus",
+];
 
 pub(crate) fn is_audio_import_path(path: &Path) -> bool {
     path.extension()
@@ -848,6 +850,140 @@ pub(crate) fn is_audio_import_path(path: &Path) -> bool {
                 .iter()
                 .any(|allowed| allowed.eq_ignore_ascii_case(ext))
         })
+}
+
+fn parse_aiff_extended_sample_rate(bytes: &[u8]) -> Option<u32> {
+    if bytes.len() < 10 || (bytes[0] & 0x80) != 0 {
+        return None;
+    }
+    let exp = i32::from(u16::from_be_bytes([bytes[0], bytes[1]]) & 0x7FFF);
+    let mantissa = u64::from_be_bytes([
+        bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
+    ]);
+    if exp == 0 || exp == 0x7FFF || mantissa == 0 {
+        return None;
+    }
+    let rate = (mantissa as f64) * 2f64.powi(exp - 16383 - 63);
+    if !rate.is_finite() || !(1_000.0..=384_000.0).contains(&rate) {
+        return None;
+    }
+    Some(rate.round() as u32)
+}
+
+pub(crate) fn transcode_uncompressed_aiff_to_wav(
+    bytes: &[u8],
+    max_bytes: usize,
+) -> Option<Vec<u8>> {
+    if bytes.len() < 12 || &bytes[0..4] != b"FORM" {
+        return None;
+    }
+    let form_type = &bytes[8..12];
+    if form_type != b"AIFF" && form_type != b"AIFC" {
+        return None;
+    }
+    let mut cursor = 12usize;
+    let mut comm: Option<(u16, usize, u16, u32, bool)> = None;
+    let mut ssnd_pcm: Option<&[u8]> = None;
+
+    while cursor.checked_add(8)? <= bytes.len() {
+        let chunk_id = &bytes[cursor..cursor + 4];
+        let chunk_size = u32::from_be_bytes([
+            bytes[cursor + 4],
+            bytes[cursor + 5],
+            bytes[cursor + 6],
+            bytes[cursor + 7],
+        ]) as usize;
+        let data_start = cursor + 8;
+        let data_end = data_start.checked_add(chunk_size)?.min(bytes.len());
+        let data = &bytes[data_start..data_end];
+        if chunk_id == b"COMM" {
+            if data.len() < 18 {
+                return None;
+            }
+            let channels = i16::from_be_bytes([data[0], data[1]]);
+            let frames = u32::from_be_bytes([data[2], data[3], data[4], data[5]]) as usize;
+            let sample_size = i16::from_be_bytes([data[6], data[7]]);
+            let sample_rate = parse_aiff_extended_sample_rate(&data[8..18])?;
+            if !(1..=8).contains(&channels) || !matches!(sample_size, 8 | 16 | 24 | 32) {
+                return None;
+            }
+            let little_endian = if form_type == b"AIFC" {
+                if data.len() < 22 {
+                    return None;
+                }
+                match &data[18..22] {
+                    b"NONE" => false,
+                    b"sowt" => true,
+                    _ => return None,
+                }
+            } else {
+                false
+            };
+            comm = Some((
+                channels as u16,
+                frames,
+                sample_size as u16,
+                sample_rate,
+                little_endian,
+            ));
+        } else if chunk_id == b"SSND" && data.len() >= 8 {
+            let offset = u32::from_be_bytes([data[0], data[1], data[2], data[3]]) as usize;
+            let pcm_start = 8usize.checked_add(offset)?;
+            if pcm_start <= data.len() {
+                ssnd_pcm = Some(&data[pcm_start..]);
+            }
+        }
+        let padded = chunk_size.checked_add(chunk_size & 1)?;
+        cursor = data_start.checked_add(padded)?;
+    }
+
+    let (channels, frames, sample_size, sample_rate, little_endian) = comm?;
+    if frames == 0 {
+        return None;
+    }
+    let pcm = ssnd_pcm?;
+    let bytes_per_sample = (sample_size / 8) as usize;
+    let total_samples = frames.checked_mul(usize::from(channels))?;
+    let needed_src = total_samples.checked_mul(bytes_per_sample)?;
+    if pcm.len() < needed_src {
+        return None;
+    }
+    let wav_data_len = total_samples.checked_mul(2)?;
+    let total_wav_len = wav_data_len.checked_add(44)?;
+    if total_wav_len > max_bytes || wav_data_len > u32::MAX as usize - 36 {
+        return None;
+    }
+
+    let block_align = channels * 2;
+    let byte_rate = sample_rate.checked_mul(u32::from(block_align))?;
+    let mut wav = Vec::with_capacity(total_wav_len);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&((wav_data_len as u32) + 36).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&channels.to_le_bytes());
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    wav.extend_from_slice(&byte_rate.to_le_bytes());
+    wav.extend_from_slice(&block_align.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(wav_data_len as u32).to_le_bytes());
+
+    for chunk in pcm[..needed_src].chunks_exact(bytes_per_sample) {
+        let s16 = match (sample_size, little_endian) {
+            (8, _) => i16::from(chunk[0] as i8) << 8,
+            (16, false) => i16::from_be_bytes([chunk[0], chunk[1]]),
+            (16, true) => i16::from_le_bytes([chunk[0], chunk[1]]),
+            (24, false) => i16::from_be_bytes([chunk[0], chunk[1]]),
+            (24, true) => i16::from_le_bytes([chunk[1], chunk[2]]),
+            (32, false) => i16::from_be_bytes([chunk[0], chunk[1]]),
+            (32, true) => i16::from_le_bytes([chunk[2], chunk[3]]),
+            _ => return None,
+        };
+        wav.extend_from_slice(&s16.to_le_bytes());
+    }
+    Some(wav)
 }
 
 pub(crate) fn read_audio_resource(path: &Path, remaining: usize) -> Result<ResourceUnit, String> {
@@ -888,9 +1024,36 @@ pub(crate) fn read_audio_resource_with_ffmpeg(
             ResourceUnit::from_bytes(new_id("resource"), name, mime, &bytes)
                 .map_err(|error| format!("{name}: {error}"))
         }
-        "ogg" | "flac" | "aac" | "m4a" => {
+        "ogg" | "flac" | "aac" | "m4a" | "aif" | "aiff" | "caf" | "opus" => {
             if !path.is_file() {
                 return Err(format!("{name}: audio file does not exist."));
+            }
+            let max_limit = MAX_RESOURCE_BYTES.min(remaining);
+            if matches!(ext.as_str(), "aif" | "aiff")
+                && let Ok(file) = std::fs::File::open(path)
+            {
+                let mut raw = Vec::new();
+                if file
+                    .take(MAX_RESOURCE_BYTES as u64 + 1)
+                    .read_to_end(&mut raw)
+                    .is_ok()
+                    && raw.len() <= MAX_RESOURCE_BYTES
+                    && let Some(wav_bytes) = transcode_uncompressed_aiff_to_wav(&raw, max_limit)
+                {
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or("sound");
+                    let wav_name = format!("{stem}.wav");
+                    return ResourceUnit::from_bytes(
+                        new_id("resource"),
+                        &wav_name,
+                        "audio/wav",
+                        &wav_bytes,
+                    )
+                    .map_err(|error| format!("{name}: {error}"));
+                }
             }
             let ffmpeg = ffmpeg_override.ok_or_else(|| {
                 format!(
@@ -961,7 +1124,7 @@ pub(crate) fn read_audio_resource_with_ffmpeg(
                 .map_err(|error| format!("{name}: {error}"))
         }
         _ => Err(format!(
-            "{name}: unsupported audio format '.{ext}'. Supported formats: MP3, WAV, OGG, FLAC, AAC, M4A."
+            "{name}: unsupported audio format '.{ext}'. Supported formats: MP3, WAV, AIFF, OGG, FLAC, AAC, M4A, CAF, OPUS."
         )),
     }
 }
@@ -1013,6 +1176,12 @@ fn media_type(path: &Path) -> &'static str {
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "aac" => "audio/aac",
+        "m4a" => "audio/mp4",
+        "aif" | "aiff" => "audio/aiff",
+        "caf" => "audio/x-caf",
+        "opus" => "audio/opus",
         "mp4" | "m4v" | "mov" => "video/mp4",
         "webm" => "video/webm",
         "ogv" => "video/ogg",

@@ -111,6 +111,8 @@ mod symbol_edit_tests;
 #[cfg(test)]
 mod t455_convert_and_xcode_tests;
 #[cfg(test)]
+mod t474_media_drag_and_drop_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod timeline_commands_tests;

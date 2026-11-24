@@ -2009,69 +2009,28 @@ impl Editor {
                     action.selected,
                 );
             }
-            if let Some(crate::library::LibraryDrag::Symbol(sym_id)) =
-                self.library_panel.drag.clone()
-            {
-                if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    self.library_panel.drag = None;
+            let drop_zone = crate::graphic_import::TimelineDropZone {
+                panel_rect: timeline_panel_rect,
+                rows_inner_rect: rows.inner_rect,
+                grid_clip,
+                grid_origin_x: if grid_rect.is_finite() {
+                    grid_rect.left()
                 } else {
-                    let alt = ctx.input(|i| i.modifiers.alt);
-                    if alt
-                        && let Some(pos) = pointer
-                        && (rows.inner_rect.contains(pos) || grid_clip.contains(pos))
-                    {
-                        let row_idx =
-                            ((pos.y - grid_rect.top()) / row_height).floor().max(0.) as usize;
-                        if let Some(&target_layer_idx) = layer_indices.get(row_idx)
-                            && self.can_swap_layer_symbol(target_layer_idx, &sym_id)
-                        {
-                            let highlight = Rect::from_min_max(
-                                Pos2::new(
-                                    rows.inner_rect.left(),
-                                    grid_rect.top() + row_idx as f32 * row_height,
-                                ),
-                                Pos2::new(
-                                    rows.inner_rect.right(),
-                                    grid_rect.top() + (row_idx + 1) as f32 * row_height,
-                                ),
-                            )
-                            .intersect(rows.inner_rect);
-                            let hp = ui.painter_at(rows.inner_rect);
-                            hp.rect_filled(highlight, 0., p.timeline_row_selected);
-                            hp.rect_stroke(
-                                highlight,
-                                0.,
-                                egui::Stroke::new(1.0_f32, p.accent_default),
-                                egui::StrokeKind::Inside,
-                            );
-                            let layer_name =
-                                self.symbol().timeline.layers[target_layer_idx].name.clone();
-                            let ghost_painter = ctx.layer_painter(egui::LayerId::new(
-                                egui::Order::Tooltip,
-                                egui::Id::new("library-symbol-timeline-swap-ghost"),
-                            ));
-                            nf::drag_ghost_at(
-                                &ghost_painter,
-                                &ctx,
-                                pos + Vec2::new(12., 12.),
-                                &format!("Replace on all keyframes of “{layer_name}”"),
-                            );
-                            if !down {
-                                self.library_panel.drag = None;
-                                let previous_layer = self.layer;
-                                self.layer = target_layer_idx;
-                                if self.layer != previous_layer {
-                                    self.clear_timeline_frame_selection();
-                                }
-                                self.swap_layer_or_selected_symbol(target_layer_idx, &sym_id);
-                            }
-                        }
-                    }
-                    if !down {
-                        self.library_panel.drag = None;
-                    }
-                }
-            }
+                    rows.inner_rect.left() + layer_column_width
+                },
+                cell_width,
+                row_height,
+                list_origin_y: if grid_rect.is_finite() {
+                    grid_rect.top()
+                } else {
+                    rows.inner_rect.top()
+                },
+                visible_layer_indices: layer_indices.clone(),
+            };
+            self.timeline_drop_zones
+                .insert(ctx.viewport_id(), drop_zone.clone());
+            self.timeline_file_drop(ui, &drop_zone);
+            self.timeline_library_drop(ui, &drop_zone, p);
             // The playhead is painted over the grid and layer divider. Their keyboard rings
             // belong above it, within the actual visible parts of these controls.
             if let Some(response) = focused_grid {

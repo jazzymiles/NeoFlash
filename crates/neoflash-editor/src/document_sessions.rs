@@ -583,6 +583,16 @@ impl Editor {
         if Self::is_non_native_graphic_document_path(&path) || Self::is_legacy_flash_path(&path) {
             return self.try_import_legacy(path, ctx);
         }
+        if Self::is_authoring_media_or_asset_path(&path) {
+            if !self.has_document() || self.is_standalone_script_session() {
+                self.new_document_session(ctx);
+            }
+            return self.import_dropped_media_into_active_document(
+                ctx,
+                vec![path],
+                crate::graphic_import::MediaPlacementMode::Stage { point: None },
+            );
+        }
         // Parse and validate first. Failure cannot consume a draft, history or recovery.
         match crate::app::read_nflash_project_file(&path) {
             Ok(project) => {

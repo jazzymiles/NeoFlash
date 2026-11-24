@@ -1440,6 +1440,10 @@ impl Editor {
     }
 
     pub(crate) fn library_body(&mut self, ui: &mut egui::Ui) {
+        let library_drop_rect = ui.max_rect();
+        self.library_drop_rects
+            .insert(ui.ctx().viewport_id(), library_drop_rect);
+        self.library_file_drop(ui, library_drop_rect);
         self.handle_library_accesskit_actions(ui.ctx());
         if crate::bitmaps::has_bitmap_properties_dialog(ui.ctx()) {
             self.bitmap_properties_dialog(ui.ctx());

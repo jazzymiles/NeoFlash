@@ -17,12 +17,181 @@
 //!   the root window for root-viewport modals/Help/menus) whenever `Help`, a modal dialog, or a
 //!   menu/popup is open.
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
+use std::path::PathBuf;
 #[cfg(not(test))]
-use std::sync::{
-    Mutex, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
+
+/// Maximum `public.file-url` paths read from a single native drag operation.
+pub const MAX_NATIVE_DRAG_FILE_URLS: usize = 128;
+/// Maximum queued native `public.file-url` drop batches retained before oldest eviction.
+const MAX_QUEUED_NATIVE_DROP_BATCHES: usize = 16;
+
+/// Destination window for a fallback `public.file-url` drag operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NativeDragWindowTarget {
+    Root,
+    FloatingTitle(String),
+}
+
+impl NativeDragWindowTarget {
+    fn matches(&self, floating_title: Option<&str>) -> bool {
+        match (self, floating_title) {
+            (Self::Root, None) => true,
+            (Self::FloatingTitle(expected), Some(actual)) => {
+                expected == actual
+                    || actual
+                        .strip_suffix(" — NeoFlash")
+                        .is_some_and(|stem| stem == expected)
+                    || expected
+                        .strip_suffix(" — NeoFlash")
+                        .is_some_and(|stem| stem == actual)
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Bounded queue bridging `public.file-url`-only macOS drags into `egui::RawInput`.
+#[derive(Default, Debug)]
+pub struct NativeWindowFileDragQueue {
+    hovered: Option<(NativeDragWindowTarget, Vec<PathBuf>)>,
+    dropped_batches: VecDeque<(NativeDragWindowTarget, Vec<PathBuf>)>,
+}
+
+impl NativeWindowFileDragQueue {
+    pub fn set_hovered(&mut self, target: NativeDragWindowTarget, paths: Vec<PathBuf>) {
+        let cleaned: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|p| !p.as_os_str().is_empty())
+            .take(MAX_NATIVE_DRAG_FILE_URLS)
+            .collect();
+        if cleaned.is_empty() {
+            self.hovered = None;
+        } else {
+            self.hovered = Some((target, cleaned));
+        }
+    }
+
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub fn clear_hovered(&mut self) {
+        self.hovered = None;
+    }
+
+    pub fn push_dropped(&mut self, target: NativeDragWindowTarget, paths: Vec<PathBuf>) {
+        self.hovered = None;
+        let cleaned: Vec<PathBuf> = paths
+            .into_iter()
+            .filter(|p| !p.as_os_str().is_empty())
+            .take(MAX_NATIVE_DRAG_FILE_URLS)
+            .collect();
+        if cleaned.is_empty() {
+            return;
+        }
+        while self.dropped_batches.len() >= MAX_QUEUED_NATIVE_DROP_BATCHES {
+            self.dropped_batches.pop_front();
+        }
+        self.dropped_batches.push_back((target, cleaned));
+    }
+
+    /// Inject fallback `public.file-url` hover/drop files into `ctx` only when `winit` did not
+    /// already populate `NSFilenamesPboardType` events on `RawInput`.
+    pub fn drain_into_context(
+        &mut self,
+        ctx: &eframe::egui::Context,
+        floating_title: Option<&str>,
+    ) -> bool {
+        let matching_hover = self
+            .hovered
+            .as_ref()
+            .filter(|(target, _)| target.matches(floating_title))
+            .map(|(_, paths)| paths.clone());
+
+        let mut matching_drops: Vec<PathBuf> = Vec::new();
+        let has_matching_drop = self
+            .dropped_batches
+            .iter()
+            .any(|(target, _)| target.matches(floating_title));
+
+        if matching_hover.is_none() && !has_matching_drop {
+            return false;
+        }
+
+        let mut injected = false;
+        ctx.input_mut(|input| {
+            if let Some(hover_paths) = matching_hover
+                && input.raw.hovered_files.is_empty()
+            {
+                input.raw.hovered_files = hover_paths
+                    .into_iter()
+                    .map(|path| eframe::egui::HoveredFile {
+                        path: Some(path),
+                        ..Default::default()
+                    })
+                    .collect();
+                injected = !input.raw.hovered_files.is_empty();
+            }
+            if has_matching_drop && input.raw.dropped_files.is_empty() {
+                let mut retained = VecDeque::with_capacity(self.dropped_batches.len());
+                while let Some((target, paths)) = self.dropped_batches.pop_front() {
+                    if target.matches(floating_title) {
+                        matching_drops.extend(paths);
+                    } else {
+                        retained.push_back((target, paths));
+                    }
+                }
+                self.dropped_batches = retained;
+                if !matching_drops.is_empty() {
+                    input.raw.dropped_files = matching_drops
+                        .into_iter()
+                        .map(|path| eframe::egui::DroppedFile {
+                            path: Some(path),
+                            ..Default::default()
+                        })
+                        .collect();
+                    injected = true;
+                }
+            }
+        });
+        injected
+    }
+}
+
+static NATIVE_DRAG_QUEUE: OnceLock<Mutex<NativeWindowFileDragQueue>> = OnceLock::new();
+static WAKEUP_CONTEXT: OnceLock<Mutex<Option<eframe::egui::Context>>> = OnceLock::new();
+
+pub fn global_file_drag_queue() -> &'static Mutex<NativeWindowFileDragQueue> {
+    NATIVE_DRAG_QUEUE.get_or_init(|| Mutex::new(NativeWindowFileDragQueue::default()))
+}
+
+pub fn register_wakeup_context(ctx: &eframe::egui::Context) {
+    let slot = WAKEUP_CONTEXT.get_or_init(|| Mutex::new(None));
+    if let Ok(mut guard) = slot.lock() {
+        *guard = Some(ctx.clone());
+    }
+}
+
+#[cfg_attr(any(not(target_os = "macos"), test), allow(dead_code))]
+fn request_drag_repaint() {
+    if let Some(slot) = WAKEUP_CONTEXT.get()
+        && let Ok(guard) = slot.lock()
+        && let Some(ctx) = guard.as_ref()
+    {
+        ctx.request_repaint();
+    }
+}
+
+pub fn drain_file_drag_into_context(
+    ctx: &eframe::egui::Context,
+    floating_title: Option<&str>,
+) -> bool {
+    if let Ok(mut queue) = global_file_drag_queue().lock() {
+        queue.drain_into_context(ctx, floating_title)
+    } else {
+        false
+    }
+}
 
 #[derive(Default)]
 struct PanelWindowLevelsState {
@@ -132,11 +301,14 @@ pub fn window_should_float_for_title(title: Option<&str>) -> bool {
 
 #[cfg(all(target_os = "macos", not(test)))]
 mod imp {
-    use super::{NATIVE_MENU_TRACKING, panel_window_levels};
+    use super::{
+        MAX_NATIVE_DRAG_FILE_URLS, NATIVE_MENU_TRACKING, NativeDragWindowTarget,
+        global_file_drag_queue, panel_window_levels, request_drag_repaint,
+    };
     use objc2::{
-        MainThreadMarker, ffi, msg_send,
+        Encode, MainThreadMarker, ffi, msg_send,
         rc::Retained,
-        runtime::{AnyClass, AnyObject, Imp},
+        runtime::{AnyClass, AnyObject, Bool, Imp, Method, Sel},
         sel,
     };
     use objc2_app_kit::{
@@ -146,7 +318,8 @@ mod imp {
     };
     use std::{
         collections::{HashMap, HashSet},
-        ffi::{CString, c_char},
+        ffi::{CStr, CString, c_char},
+        path::PathBuf,
         sync::{
             Mutex, OnceLock,
             atomic::{AtomicIsize, Ordering},
@@ -155,17 +328,60 @@ mod imp {
 
     const NS_WINDOW_BELOW: isize = -1;
     const NS_WINDOW_ABOVE: isize = 1;
+    const NS_DRAG_OPERATION_NONE: usize = 0;
+    const NS_DRAG_OPERATION_COPY: usize = 1;
 
     struct ConfiguredPanelWindow {
         title: String,
         chrome_configured: bool,
+        drag_types_registered: bool,
         applied_floating: bool,
         ordered_below_root: bool,
     }
 
     static ROOT: AtomicIsize = AtomicIsize::new(0);
+    static ROOT_DRAG_REGISTERED: AtomicIsize = AtomicIsize::new(0);
     static CONFIGURED_WINDOWS: OnceLock<Mutex<HashMap<isize, ConfiguredPanelWindow>>> =
         OnceLock::new();
+
+    #[derive(Clone, Copy)]
+    enum OrigDragOpFn {
+        Bool(unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> Bool),
+        Usize(unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> usize),
+    }
+
+    impl OrigDragOpFn {
+        unsafe fn call(self, this: &AnyObject, sel: Sel, sender: Option<&AnyObject>) -> usize {
+            match self {
+                Self::Bool(f) => {
+                    if (unsafe { f(this, sel, sender) }).as_bool() {
+                        NS_DRAG_OPERATION_COPY
+                    } else {
+                        NS_DRAG_OPERATION_NONE
+                    }
+                }
+                Self::Usize(f) => unsafe { f(this, sel, sender) },
+            }
+        }
+    }
+
+    type PerformDragFn = unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> Bool;
+    type DraggingUpdatedFn =
+        unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> usize;
+    type DraggingExitedFn = unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>);
+
+    struct DelegateDragHooks {
+        orig_entered: Option<OrigDragOpFn>,
+        orig_updated: Option<OrigDragOpFn>,
+        orig_perform: Option<PerformDragFn>,
+        orig_exited: Option<DraggingExitedFn>,
+    }
+
+    static DELEGATE_HOOKS: OnceLock<Mutex<HashMap<usize, DelegateDragHooks>>> = OnceLock::new();
+
+    fn delegate_hooks_map() -> &'static Mutex<HashMap<usize, DelegateDragHooks>> {
+        DELEGATE_HOOKS.get_or_init(|| Mutex::new(HashMap::new()))
+    }
 
     fn configured_windows() -> &'static Mutex<HashMap<isize, ConfiguredPanelWindow>> {
         CONFIGURED_WINDOWS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -297,6 +513,432 @@ mod imp {
         });
     }
 
+    unsafe fn ns_string_to_rust(obj: &AnyObject) -> Option<String> {
+        let utf8: *const c_char = unsafe { msg_send![obj, UTF8String] };
+        if utf8.is_null() {
+            return None;
+        }
+        Some(
+            unsafe { CStr::from_ptr(utf8) }
+                .to_string_lossy()
+                .into_owned(),
+        )
+    }
+
+    fn resolve_drag_window_target(sender: &AnyObject) -> NativeDragWindowTarget {
+        let win_ptr: *const NSWindow = unsafe { msg_send![sender, draggingDestinationWindow] };
+        if win_ptr.is_null() {
+            return NativeDragWindowTarget::Root;
+        }
+        let win = unsafe { &*win_ptr };
+        let number = win.windowNumber();
+        let root = ROOT.load(Ordering::Relaxed);
+        if root > 0 && number == root {
+            return NativeDragWindowTarget::Root;
+        }
+        if let Some(title) = floating_window_title_for_number(number) {
+            return NativeDragWindowTarget::FloatingTitle(title);
+        }
+        let raw_title = win.title().to_string();
+        if !raw_title.is_empty() && root > 0 && number != root {
+            NativeDragWindowTarget::FloatingTitle(raw_title)
+        } else {
+            NativeDragWindowTarget::Root
+        }
+    }
+
+    /// Returns `true` when `NSFilenamesPboardType` carries a non-empty file array so `winit`'s
+    /// native handler owns `HoveredFile`/`DroppedFile` emission without duplicate events.
+    fn pasteboard_has_legacy_filenames(sender: &AnyObject) -> bool {
+        let pb: *const AnyObject = unsafe { msg_send![sender, draggingPasteboard] };
+        if pb.is_null() {
+            return false;
+        }
+        let Some(pboard_type) = ns_string("NSFilenamesPboardType") else {
+            return false;
+        };
+        let plist: *const AnyObject =
+            unsafe { msg_send![&*pb, propertyListForType: &*pboard_type] };
+        if plist.is_null() {
+            return false;
+        }
+        let responds_count: Bool = unsafe { msg_send![&*plist, respondsToSelector: sel!(count)] };
+        if !responds_count.as_bool() {
+            return false;
+        }
+        let count: usize = unsafe { msg_send![&*plist, count] };
+        count > 0
+    }
+
+    /// Extract local file paths from `public.file-url` (`NSURL`) items on `draggingPasteboard`.
+    fn read_pasteboard_file_urls(sender: &AnyObject) -> Vec<PathBuf> {
+        let pb: *const AnyObject = unsafe { msg_send![sender, draggingPasteboard] };
+        if pb.is_null() {
+            return Vec::new();
+        }
+        let Some(url_cls) = AnyClass::get(c"NSURL") else {
+            return Vec::new();
+        };
+        let Some(arr_cls) = AnyClass::get(c"NSArray") else {
+            return Vec::new();
+        };
+        let Some(dict_cls) = AnyClass::get(c"NSDictionary") else {
+            return Vec::new();
+        };
+        let Some(num_cls) = AnyClass::get(c"NSNumber") else {
+            return Vec::new();
+        };
+        let Some(file_only_key) = ns_string("NSPasteboardURLReadingFileURLsOnlyKey") else {
+            return Vec::new();
+        };
+        unsafe {
+            let cls_ptr: *const AnyObject = (url_cls as *const AnyClass).cast();
+            let classes: *const AnyObject =
+                msg_send![arr_cls, arrayWithObjects: &cls_ptr, count: 1usize];
+            if classes.is_null() {
+                return Vec::new();
+            }
+            let yes_num: *const AnyObject = msg_send![num_cls, numberWithBool: Bool::YES];
+            if yes_num.is_null() {
+                return Vec::new();
+            }
+            let options: *const AnyObject =
+                msg_send![dict_cls, dictionaryWithObject: &*yes_num, forKey: &*file_only_key];
+            if options.is_null() {
+                return Vec::new();
+            }
+            let urls: *const AnyObject =
+                msg_send![&*pb, readObjectsForClasses: &*classes, options: &*options];
+            if urls.is_null() {
+                return Vec::new();
+            }
+            let count: usize = msg_send![&*urls, count];
+            let capped = count.min(MAX_NATIVE_DRAG_FILE_URLS);
+            let mut out = Vec::with_capacity(capped);
+            for idx in 0..capped {
+                let url_obj: *const AnyObject = msg_send![&*urls, objectAtIndex: idx];
+                if url_obj.is_null() {
+                    continue;
+                }
+                let responds_file_path_url: Bool =
+                    msg_send![&*url_obj, respondsToSelector: sel!(filePathURL)];
+                let resolved_url: *const AnyObject = if responds_file_path_url.as_bool() {
+                    let fp: *const AnyObject = msg_send![&*url_obj, filePathURL];
+                    if fp.is_null() { url_obj } else { fp }
+                } else {
+                    url_obj
+                };
+                let path_ns: *const AnyObject = msg_send![&*resolved_url, path];
+                if path_ns.is_null() {
+                    continue;
+                }
+                if let Some(path_str) = ns_string_to_rust(&*path_ns)
+                    && !path_str.is_empty()
+                {
+                    out.push(PathBuf::from(path_str));
+                }
+            }
+            out
+        }
+    }
+
+    fn lookup_delegate_hooks(this: &AnyObject) -> Option<DelegateDragHooks> {
+        let mut cur: Option<&AnyClass> = Some(this.class());
+        let map = delegate_hooks_map().lock().ok()?;
+        while let Some(cls) = cur {
+            let key = (cls as *const AnyClass) as usize;
+            if let Some(hooks) = map.get(&key) {
+                return Some(DelegateDragHooks {
+                    orig_entered: hooks.orig_entered,
+                    orig_updated: hooks.orig_updated,
+                    orig_perform: hooks.orig_perform,
+                    orig_exited: hooks.orig_exited,
+                });
+            }
+            cur = cls.superclass();
+        }
+        None
+    }
+
+    unsafe extern "C-unwind" fn swizzled_dragging_entered(
+        this: &AnyObject,
+        sel: Sel,
+        sender: Option<&AnyObject>,
+    ) -> usize {
+        if MainThreadMarker::new().is_none() {
+            return NS_DRAG_OPERATION_NONE;
+        }
+        let Some(sender) = sender else {
+            return NS_DRAG_OPERATION_NONE;
+        };
+        if pasteboard_has_legacy_filenames(sender) {
+            if let Ok(mut queue) = global_file_drag_queue().lock() {
+                queue.clear_hovered();
+            }
+            let op = lookup_delegate_hooks(this)
+                .and_then(|h| h.orig_entered)
+                .map_or(NS_DRAG_OPERATION_COPY, |orig| unsafe {
+                    orig.call(this, sel, Some(sender))
+                });
+            request_drag_repaint();
+            return op;
+        }
+        let paths = read_pasteboard_file_urls(sender);
+        if paths.is_empty() {
+            return NS_DRAG_OPERATION_NONE;
+        }
+        let target = resolve_drag_window_target(sender);
+        if let Ok(mut queue) = global_file_drag_queue().lock() {
+            queue.set_hovered(target, paths);
+        }
+        request_drag_repaint();
+        NS_DRAG_OPERATION_COPY
+    }
+
+    unsafe extern "C-unwind" fn swizzled_dragging_updated(
+        this: &AnyObject,
+        sel: Sel,
+        sender: Option<&AnyObject>,
+    ) -> usize {
+        if MainThreadMarker::new().is_none() {
+            return NS_DRAG_OPERATION_NONE;
+        }
+        let Some(sender) = sender else {
+            return NS_DRAG_OPERATION_NONE;
+        };
+        if pasteboard_has_legacy_filenames(sender) {
+            let op = lookup_delegate_hooks(this)
+                .and_then(|h| h.orig_updated)
+                .map_or(NS_DRAG_OPERATION_COPY, |orig| unsafe {
+                    orig.call(this, sel, Some(sender))
+                });
+            request_drag_repaint();
+            return op;
+        }
+        let has_cached_hover = global_file_drag_queue()
+            .lock()
+            .ok()
+            .is_some_and(|q| q.hovered.is_some());
+        if has_cached_hover {
+            request_drag_repaint();
+            return NS_DRAG_OPERATION_COPY;
+        }
+        let paths = read_pasteboard_file_urls(sender);
+        if paths.is_empty() {
+            return NS_DRAG_OPERATION_NONE;
+        }
+        let target = resolve_drag_window_target(sender);
+        if let Ok(mut queue) = global_file_drag_queue().lock() {
+            queue.set_hovered(target, paths);
+        }
+        request_drag_repaint();
+        NS_DRAG_OPERATION_COPY
+    }
+
+    unsafe extern "C-unwind" fn swizzled_perform_drag_operation(
+        this: &AnyObject,
+        sel: Sel,
+        sender: Option<&AnyObject>,
+    ) -> Bool {
+        if MainThreadMarker::new().is_none() {
+            return Bool::NO;
+        }
+        let Some(sender) = sender else {
+            return Bool::NO;
+        };
+        if pasteboard_has_legacy_filenames(sender) {
+            if let Ok(mut queue) = global_file_drag_queue().lock() {
+                queue.clear_hovered();
+            }
+            let res = lookup_delegate_hooks(this)
+                .and_then(|h| h.orig_perform)
+                .map_or(Bool::NO, |orig| unsafe { orig(this, sel, Some(sender)) });
+            request_drag_repaint();
+            return res;
+        }
+        let paths = read_pasteboard_file_urls(sender);
+        if paths.is_empty() {
+            if let Ok(mut queue) = global_file_drag_queue().lock() {
+                queue.clear_hovered();
+            }
+            return Bool::NO;
+        }
+        let target = resolve_drag_window_target(sender);
+        if let Ok(mut queue) = global_file_drag_queue().lock() {
+            queue.push_dropped(target, paths);
+        }
+        request_drag_repaint();
+        Bool::YES
+    }
+
+    unsafe extern "C-unwind" fn swizzled_dragging_exited(
+        this: &AnyObject,
+        sel: Sel,
+        sender: Option<&AnyObject>,
+    ) {
+        if MainThreadMarker::new().is_none() {
+            return;
+        }
+        if let Ok(mut queue) = global_file_drag_queue().lock() {
+            queue.clear_hovered();
+        }
+        if let Some(orig) = lookup_delegate_hooks(this).and_then(|h| h.orig_exited) {
+            unsafe { orig(this, sel, sender) };
+        }
+        request_drag_repaint();
+    }
+
+    fn decode_orig_drag_op_imp(imp: Imp, is_usize_ret: bool) -> OrigDragOpFn {
+        if is_usize_ret {
+            OrigDragOpFn::Usize(unsafe {
+                std::mem::transmute::<
+                    Imp,
+                    unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> usize,
+                >(imp)
+            })
+        } else {
+            OrigDragOpFn::Bool(unsafe {
+                std::mem::transmute::<
+                    Imp,
+                    unsafe extern "C-unwind" fn(&AnyObject, Sel, Option<&AnyObject>) -> Bool,
+                >(imp)
+            })
+        }
+    }
+
+    fn install_or_replace_delegate_method(
+        delegate_cls: &AnyClass,
+        selector: Sel,
+        new_imp: Imp,
+        encoding: &CStr,
+    ) -> Option<(Imp, bool)> {
+        let existing = delegate_cls.instance_method(selector).map(|method| {
+            let prev_imp = method.implementation();
+            let enc_ptr = unsafe { ffi::method_getTypeEncoding(method as *const Method) };
+            let is_usize_ret = if enc_ptr.is_null() {
+                false
+            } else {
+                let bytes = unsafe { CStr::from_ptr(enc_ptr) }.to_bytes();
+                let first = bytes
+                    .iter()
+                    .copied()
+                    .find(|b| !matches!(b, b'r' | b'n' | b'N' | b'o' | b'O' | b'R' | b'V'));
+                matches!(first, Some(b'Q' | b'L' | b'q' | b'l'))
+            };
+            (prev_imp, is_usize_ret)
+        });
+        let raw_cls = (delegate_cls as *const AnyClass).cast_mut();
+        match existing {
+            None => {
+                let _ =
+                    unsafe { ffi::class_addMethod(raw_cls, selector, new_imp, encoding.as_ptr()) };
+                None
+            }
+            Some((prev_imp, _)) if std::ptr::fn_addr_eq(prev_imp, new_imp) => None,
+            Some((prev_imp, is_usize_ret)) => {
+                let added =
+                    unsafe { ffi::class_addMethod(raw_cls, selector, new_imp, encoding.as_ptr()) };
+                if !added.as_bool() {
+                    let m = unsafe { ffi::class_getInstanceMethod(raw_cls, selector) };
+                    if !m.is_null() {
+                        let _ = unsafe { ffi::method_setImplementation(m.cast_mut(), new_imp) };
+                    }
+                }
+                Some((prev_imp, is_usize_ret))
+            }
+        }
+    }
+
+    fn ensure_delegate_drag_hooks(delegate_cls: &AnyClass) {
+        let cls_key = (delegate_cls as *const AnyClass) as usize;
+        let Ok(mut map) = delegate_hooks_map().lock() else {
+            return;
+        };
+        if map.contains_key(&cls_key) {
+            return;
+        }
+        let Ok(drag_op_enc) = CString::new(format!("{}@:@", usize::ENCODING)) else {
+            return;
+        };
+        let Ok(bool_enc) = CString::new(format!("{}@:@", Bool::ENCODING)) else {
+            return;
+        };
+
+        let entered_imp =
+            unsafe { std::mem::transmute::<DraggingUpdatedFn, Imp>(swizzled_dragging_entered) };
+        let orig_entered = install_or_replace_delegate_method(
+            delegate_cls,
+            sel!(draggingEntered:),
+            entered_imp,
+            drag_op_enc.as_c_str(),
+        )
+        .map(|(prev, is_usize)| decode_orig_drag_op_imp(prev, is_usize));
+
+        let updated_imp =
+            unsafe { std::mem::transmute::<DraggingUpdatedFn, Imp>(swizzled_dragging_updated) };
+        let orig_updated = install_or_replace_delegate_method(
+            delegate_cls,
+            sel!(draggingUpdated:),
+            updated_imp,
+            drag_op_enc.as_c_str(),
+        )
+        .map(|(prev, is_usize)| decode_orig_drag_op_imp(prev, is_usize));
+
+        let perform_imp =
+            unsafe { std::mem::transmute::<PerformDragFn, Imp>(swizzled_perform_drag_operation) };
+        let orig_perform = install_or_replace_delegate_method(
+            delegate_cls,
+            sel!(performDragOperation:),
+            perform_imp,
+            bool_enc.as_c_str(),
+        )
+        .map(|(prev, _)| unsafe { std::mem::transmute::<Imp, PerformDragFn>(prev) });
+
+        let exited_imp =
+            unsafe { std::mem::transmute::<DraggingExitedFn, Imp>(swizzled_dragging_exited) };
+        let orig_exited = install_or_replace_delegate_method(
+            delegate_cls,
+            sel!(draggingExited:),
+            exited_imp,
+            c"v@:@",
+        )
+        .map(|(prev, _)| unsafe { std::mem::transmute::<Imp, DraggingExitedFn>(prev) });
+
+        map.insert(
+            cls_key,
+            DelegateDragHooks {
+                orig_entered,
+                orig_updated,
+                orig_perform,
+                orig_exited,
+            },
+        );
+    }
+
+    fn ensure_window_file_drag_support(window: &NSWindow) {
+        let Some(arr_cls) = AnyClass::get(c"NSArray") else {
+            return;
+        };
+        let Some(filenames_type) = ns_string("NSFilenamesPboardType") else {
+            return;
+        };
+        let Some(file_url_type) = ns_string("public.file-url") else {
+            return;
+        };
+        unsafe {
+            let objs: [*const AnyObject; 2] = [&*filenames_type, &*file_url_type];
+            let types_arr: *const AnyObject =
+                msg_send![arr_cls, arrayWithObjects: objs.as_ptr(), count: 2usize];
+            if !types_arr.is_null() {
+                let _: () = msg_send![window, registerForDraggedTypes: &*types_arr];
+            }
+            let delegate: *const AnyObject = msg_send![window, delegate];
+            if !delegate.is_null() {
+                ensure_delegate_drag_hooks((&*delegate).class());
+            }
+        }
+    }
+
     /// Call once while only the main window exists (from `Editor::new`).
     pub fn install() {
         let Some(mtm) = MainThreadMarker::new() else {
@@ -305,7 +947,10 @@ mod imp {
         NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
         let app = NSApplication::sharedApplication(mtm);
         if let Some(root) = app.windows().iter().next() {
-            ROOT.store(root.windowNumber(), Ordering::Relaxed);
+            let num = root.windowNumber();
+            ROOT.store(num, Ordering::Relaxed);
+            ensure_window_file_drag_support(&root);
+            ROOT_DRAG_REGISTERED.store(num, Ordering::Relaxed);
         }
         install_menu_tracking_observer();
     }
@@ -334,6 +979,13 @@ mod imp {
         {
             root = candidate.windowNumber();
             ROOT.store(root, Ordering::Relaxed);
+        }
+        if root > 0
+            && ROOT_DRAG_REGISTERED.load(Ordering::Relaxed) != root
+            && let Some(root_win) = windows.iter().find(|w| w.windowNumber() == root)
+        {
+            ensure_window_file_drag_support(&root_win);
+            ROOT_DRAG_REGISTERED.store(root, Ordering::Relaxed);
         }
         if windows.len() <= 1 {
             if let Ok(mut cached) = configured_windows().lock() {
@@ -374,9 +1026,14 @@ mod imp {
                 .or_insert_with(|| ConfiguredPanelWindow {
                     title: String::new(),
                     chrome_configured: false,
+                    drag_types_registered: false,
                     applied_floating: false,
                     ordered_below_root: false,
                 });
+            if !entry.drag_types_registered {
+                ensure_window_file_drag_support(&window);
+                entry.drag_types_registered = true;
+            }
             let title_already_matched = !entry.title.is_empty()
                 && (floating_titles_set.contains(&entry.title)
                     || lowered_below_root_titles.contains(&entry.title));

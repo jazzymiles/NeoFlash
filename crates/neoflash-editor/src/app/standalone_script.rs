@@ -2912,14 +2912,124 @@ impl Editor {
         None
     }
 
+    /// Resolve the live cursor coordinate inside `ctx`'s viewport during a file drag-and-drop.
+    /// On macOS, `winit` omits `CursorMoved` while dragging from Finder, leaving `latest_pos()`
+    /// stuck at the point where the cursor exited the window (often `y <= 60` over top chrome).
+    pub(crate) fn live_viewport_drop_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
+        let (active_drag, latest_pos, inner_rect) = ctx.input(|input| {
+            (
+                !input.raw.hovered_files.is_empty() || !input.raw.dropped_files.is_empty(),
+                input.pointer.latest_pos(),
+                input.viewport().inner_rect,
+            )
+        });
+        if active_drag
+            && let Some((global, _)) = crate::native_screens::pointer_state()
+            && let Some(inner) = inner_rect
+        {
+            return Some(global / ctx.zoom_factor() - inner.min.to_vec2());
+        }
+        latest_pos
+    }
+
+    pub(crate) fn root_top_chrome_bottom(&self) -> f32 {
+        neoflash_ui::metrics::top_bar()
+            + if self.has_document() {
+                neoflash_ui::metrics::panel_header()
+            } else {
+                0.0
+            }
+    }
+
+    /// True for authoring media and library asset files (audio, video, raster/vector images,
+    /// image-sequence folders, `.swc`, fonts, palettes) that belong on Timeline/Stage/Library
+    /// and must never be fed into the `.nflash` JSON project loader.
+    pub(crate) fn is_authoring_media_or_asset_path(path: &Path) -> bool {
+        if path.is_dir() {
+            return !path.join("DOMDocument.xml").is_file();
+        }
+        if crate::resources::is_audio_import_path(path)
+            || crate::resources::is_font_import_path(path)
+            || crate::graphic_import::is_video_drop_path(path)
+        {
+            return true;
+        }
+        path.extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "png"
+                        | "jpg"
+                        | "jpeg"
+                        | "webp"
+                        | "gif"
+                        | "bmp"
+                        | "tif"
+                        | "tiff"
+                        | "svg"
+                        | "psd"
+                        | "psb"
+                        | "pdf"
+                        | "ai"
+                        | "eps"
+                        | "fxg"
+                        | "swc"
+                        | "act"
+                        | "clr"
+                        | "ase"
+                )
+            })
+    }
+
+    /// True for files that open as standalone/project tabs when dropped over the top bar or tab
+    /// strip (`.nflash`, `.fla`, `.xfl`, `.swf`, `.as`, `.fig`/`.figma`). Never matches audio,
+    /// video, raster/vector images, sequences, `.swc`, fonts, or palettes.
+    pub(crate) fn is_document_open_drop_path(path: &Path) -> bool {
+        if Self::is_native_nflash_path(path)
+            || Self::is_actionscript_source_path(path)
+            || crate::panels::figma_import::is_figma_file_path(path)
+        {
+            return true;
+        }
+        if path.is_dir() {
+            return path.join("DOMDocument.xml").is_file();
+        }
+        if path
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("DOMDocument.xml"))
+        {
+            return true;
+        }
+        if Self::is_authoring_media_or_asset_path(path) {
+            return false;
+        }
+        path.extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "fla" | "xfl" | "swf" | "json"
+                )
+            })
+    }
+
     /// Handle OS file drag-and-drop onto the empty editor window, standalone `.as` view, or tab bar,
-    /// as well as `.as` file drops anywhere in the root window (`T-412`).
+    /// as well as `.as` file drops anywhere in the root window (`T-412`, `T-474`).
     pub(crate) fn handle_window_document_or_as_file_drop(&mut self, ctx: &egui::Context) -> bool {
         if self.beta_feedback.open || self.has_modal_dialog_in(ctx) {
             return false;
         }
-        let (pointer, dropped) =
-            ctx.input(|input| (input.pointer.latest_pos(), input.raw.dropped_files.clone()));
+        let pointer = Self::live_viewport_drop_pointer(ctx);
+        let (hovering, dropped) = ctx.input(|input| {
+            (
+                !input.raw.hovered_files.is_empty(),
+                input.raw.dropped_files.clone(),
+            )
+        });
+        if hovering && (!self.has_document() || self.is_standalone_script_session()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
         if dropped.is_empty() {
             return false;
         }
@@ -2928,25 +3038,67 @@ impl Editor {
             return false;
         }
 
-        let all_as = paths.iter().all(|p| Self::is_actionscript_source_path(p));
-        let any_as = paths.iter().any(|p| Self::is_actionscript_source_path(p));
-        let over_top_chrome = pointer.is_some_and(|pos| {
-            let chrome_bottom = neoflash_ui::metrics::top_bar()
-                + if self.has_document() {
-                    neoflash_ui::metrics::panel_header()
+        if !self.has_document() || self.is_standalone_script_session() {
+            ctx.input_mut(|input| input.raw.dropped_files.clear());
+            let mut as_paths = Vec::new();
+            let mut doc_paths = Vec::new();
+            let mut media_paths = Vec::new();
+            for path in paths {
+                if Self::is_actionscript_source_path(&path) {
+                    as_paths.push(path);
+                } else if Self::is_document_open_drop_path(&path) {
+                    doc_paths.push(path);
+                } else if Self::is_authoring_media_or_asset_path(&path) {
+                    media_paths.push(path);
                 } else {
-                    0.0
-                };
-            pos.y <= chrome_bottom
-        });
-        let intercept_all = all_as
-            || !self.has_document()
-            || self.is_standalone_script_session()
-            || over_top_chrome;
-        if intercept_all {
+                    doc_paths.push(path);
+                }
+            }
+            if media_paths.is_empty() {
+                doc_paths.extend(as_paths);
+                return self.open_picked_paths(doc_paths, ctx) > 0;
+            }
+            let mut handled = false;
+            if !doc_paths.is_empty() {
+                handled |= self.open_picked_paths(doc_paths, ctx) > 0;
+            }
+            if !self.has_document() || self.is_standalone_script_session() {
+                self.new_document_session(ctx);
+            }
+            handled |= self.import_dropped_media_into_active_document(
+                ctx,
+                media_paths,
+                crate::graphic_import::MediaPlacementMode::Stage { point: None },
+            );
+            self.deferred_stage_script_drops.extend(as_paths);
+            return handled;
+        }
+
+        let over_top_chrome = pointer.is_some_and(|pos| pos.y <= self.root_top_chrome_bottom());
+        if over_top_chrome {
+            let doc_open_paths: Vec<PathBuf> = paths
+                .into_iter()
+                .filter(|p| Self::is_document_open_drop_path(p))
+                .collect();
+            if !doc_open_paths.is_empty() {
+                ctx.input_mut(|input| {
+                    input.raw.dropped_files.retain(|file| {
+                        file.path
+                            .as_deref()
+                            .is_none_or(|p| !Self::is_document_open_drop_path(p))
+                    });
+                });
+                return self.open_picked_paths(doc_open_paths, ctx) > 0;
+            }
+            return false;
+        }
+
+        let all_as = paths.iter().all(|p| Self::is_actionscript_source_path(p));
+        if all_as {
             ctx.input_mut(|input| input.raw.dropped_files.clear());
             return self.open_picked_paths(paths, ctx) > 0;
         }
+        let any_as = paths.iter().any(|p| Self::is_actionscript_source_path(p));
         if any_as {
             let as_paths: Vec<PathBuf> = paths
                 .into_iter()

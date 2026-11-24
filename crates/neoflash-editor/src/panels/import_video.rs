@@ -40,6 +40,17 @@ const MAX_PROGRESSIVE_PREVIEW_FETCHES: usize = 4;
 const MAX_PROGRESSIVE_PREVIEW_STATES: usize = 32;
 const PROGRESSIVE_PREVIEW_RETRY_DELAY: Duration = Duration::from_secs(5);
 
+#[derive(Clone)]
+pub(crate) struct PreparedVideoFile {
+    pub stem: String,
+    pub file_name: String,
+    pub media_type: &'static str,
+    pub raw_bytes: Vec<u8>,
+    pub duration_sec: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
 fn failed_progressive_preview(message: String) -> ProgressivePreviewFetch {
     ProgressivePreviewFetch::Failed {
         message,
@@ -501,18 +512,245 @@ impl Editor {
         });
     }
 
+    /// Validate and decode a local video file before mutating editor or project state (`T-474`).
+    pub(crate) fn prepare_video_file_for_import(
+        &self,
+        path: &Path,
+        remaining: &mut usize,
+    ) -> Result<PreparedVideoFile, String> {
+        let expanded_path = expand_import_path(&path.display().to_string());
+        let path_obj = expanded_path.as_path();
+        let file = std::fs::File::open(path_obj)
+            .map_err(|error| format!("Could not read video '{}': {error}", path_obj.display()))?;
+        let byte_limit = neoflash_core::MAX_RESOURCE_BYTES;
+        let file_len = file
+            .metadata()
+            .map_err(|error| format!("Could not inspect video '{}': {error}", path_obj.display()))?
+            .len();
+        if file_len > byte_limit as u64 {
+            return Err(format!(
+                "Video '{}' exceeds the {} MiB resource limit.",
+                path_obj.display(),
+                byte_limit / (1024 * 1024)
+            ));
+        }
+        let mut raw_bytes = Vec::with_capacity(file_len.min(byte_limit as u64) as usize);
+        file.take(byte_limit as u64 + 1)
+            .read_to_end(&mut raw_bytes)
+            .map_err(|error| format!("Could not read video '{}': {error}", path_obj.display()))?;
+        if raw_bytes.len() > byte_limit {
+            return Err(format!(
+                "Video '{}' exceeds the {} MiB resource limit.",
+                path_obj.display(),
+                byte_limit / (1024 * 1024)
+            ));
+        }
+        let ext = path_obj
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("mp4")
+            .to_ascii_lowercase();
+        let media_type = if raw_bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]) {
+            "video/webm"
+        } else if raw_bytes.starts_with(b"OggS") {
+            "video/ogg"
+        } else if neoflash_core::is_avi_bytes(&raw_bytes) {
+            "video/x-msvideo"
+        } else if raw_bytes.len() >= 12 && &raw_bytes[4..8] == b"ftyp" {
+            "video/mp4"
+        } else if ext == "webm" {
+            "video/webm"
+        } else if ext == "ogv" || ext == "ogg" {
+            "video/ogg"
+        } else if ext == "avi" {
+            "video/x-msvideo"
+        } else {
+            "video/mp4"
+        };
+        let file_name = path_obj
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("video.mp4")
+            .to_owned();
+        let stem = path_obj
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Video")
+            .to_owned();
+        let diagnostics =
+            neoflash_core::inspect_video_resource(&file_name, media_type, &raw_bytes, None);
+        let errors: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.is_error)
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect();
+        if !errors.is_empty() {
+            return Err(errors.join(" "));
+        }
+        let already_in_project = self.project.resources.iter().any(|resource| {
+            resource.is_video()
+                && resource.media_type.eq_ignore_ascii_case(media_type)
+                && resource
+                    .decoded_bytes()
+                    .is_ok_and(|existing| existing.as_slice() == raw_bytes.as_slice())
+        });
+        if !already_in_project {
+            if raw_bytes.len() > *remaining {
+                return Err(format!(
+                    "Video '{}' exceeds the project's remaining resource budget.",
+                    path_obj.display()
+                ));
+            }
+            *remaining = remaining.saturating_sub(raw_bytes.len());
+        }
+        let base_dir = self
+            .path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        let raw_path_str = path_obj.display().to_string();
+        let duration_sec =
+            probe_video_duration_seconds_with_base(&raw_path_str, 0, base_dir.as_deref())
+                .unwrap_or(4.0)
+                .clamp(0.1, 600.0);
+        let (width, height) =
+            neoflash_export::decode_video_stream_bytes(&raw_path_str, media_type, &raw_bytes)
+                .ok()
+                .filter(|s| s.width > 0 && s.height > 0)
+                .map(|s| (f64::from(s.width), f64::from(s.height)))
+                .unwrap_or((320.0, 240.0));
+        Ok(PreparedVideoFile {
+            stem,
+            file_name,
+            media_type,
+            raw_bytes,
+            duration_sec,
+            width,
+            height,
+        })
+    }
+
+    /// Ensure a `PreparedVideoFile` exists as a `video/*` `ResourceUnit` in `candidate.resources`,
+    /// deduplicating byte-identical videos.
+    pub(crate) fn upsert_prepared_video_resource(
+        candidate: &mut neoflash_core::Project,
+        video: &PreparedVideoFile,
+    ) -> Result<(Id, String), String> {
+        let identical = candidate.resources.iter().find(|resource| {
+            resource.is_video()
+                && resource.media_type.eq_ignore_ascii_case(video.media_type)
+                && resource
+                    .decoded_bytes()
+                    .is_ok_and(|existing| existing.as_slice() == video.raw_bytes.as_slice())
+        });
+        if let Some(existing) = identical {
+            return Ok((existing.id.clone(), existing.path.clone()));
+        }
+        if candidate.resources.len() >= neoflash_core::MAX_RESOURCES {
+            return Err("The project supports at most 1024 resource files.".into());
+        }
+        let preferred_path = format!("video/{}", video.file_name);
+        let rel_path =
+            unique_video_resource_path(&candidate.resources, &preferred_path, &video.raw_bytes);
+        let res_id = new_id("res");
+        let resource = ResourceUnit::from_bytes(
+            res_id.clone(),
+            rel_path.clone(),
+            video.media_type,
+            &video.raw_bytes,
+        )
+        .map_err(|e| e.to_string())?;
+        candidate.format_version = candidate.format_version.max(3);
+        candidate.resources.push(resource);
+        Ok((res_id, rel_path))
+    }
+
+    /// Probe duration and dimensions of an existing `video/*` `ResourceUnit` in the Library.
+    pub(crate) fn inspect_existing_video_unit(
+        &self,
+        unit: &ResourceUnit,
+    ) -> (f64, f64, f64, TimelineVideoSpan) {
+        let base_dir = self
+            .path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf);
+        let bytes = unit.decoded_bytes().unwrap_or_default();
+        let (deployment, sync, external_path, stream_url) = if bytes.is_empty() {
+            if unit.path.contains("://") {
+                (
+                    VideoDeploymentMode::Progressive,
+                    VideoSyncMode::Event,
+                    None,
+                    Some(unit.path.clone()),
+                )
+            } else {
+                (
+                    VideoDeploymentMode::External,
+                    VideoSyncMode::Event,
+                    Some(unit.path.clone()),
+                    None,
+                )
+            }
+        } else {
+            (
+                VideoDeploymentMode::Embedded,
+                VideoSyncMode::Stream,
+                None,
+                None,
+            )
+        };
+        let duration_sec = if !bytes.is_empty() {
+            neoflash_export::decode_video_stream_bytes(&unit.path, &unit.media_type, &bytes)
+                .ok()
+                .filter(|s| s.duration_ms > 0)
+                .map(|s| f64::from(s.duration_ms) / 1000.0)
+                .or_else(|| {
+                    probe_video_duration_seconds_with_base(&unit.path, 0, base_dir.as_deref())
+                })
+                .unwrap_or(4.0)
+                .clamp(0.1, 600.0)
+        } else {
+            probe_video_duration_seconds_with_base(&unit.path, 1, base_dir.as_deref())
+                .unwrap_or(4.0)
+                .clamp(0.1, 600.0)
+        };
+        let (width, height) = if !bytes.is_empty() {
+            neoflash_export::decode_video_stream_bytes(&unit.path, &unit.media_type, &bytes)
+                .ok()
+                .filter(|s| s.width > 0 && s.height > 0)
+                .map(|s| (f64::from(s.width), f64::from(s.height)))
+                .unwrap_or((320.0, 240.0))
+        } else {
+            (320.0, 240.0)
+        };
+        let span = TimelineVideoSpan {
+            resource: unit.id.clone(),
+            sync,
+            deployment,
+            external_path,
+            stream_url,
+            start_offset_ms: 0,
+            end_offset_ms: None,
+            loop_video: false,
+            muted: false,
+            cue_points: Vec::new(),
+        };
+        (duration_sec, width, height, span)
+    }
+
     /// Execute video import from the active `Import video` draft in one `"Import video"` Undo step.
     pub(crate) fn confirm_import_video(&mut self, ctx: &egui::Context) -> Result<Id, String> {
         let draft = ctx
             .data(|d| d.get_temp::<ImportVideoDraft>(draft_id()))
             .or_else(|| ctx.data(|d| d.get_temp::<ImportVideoDraft>(inline_draft_id())))
             .unwrap_or_default();
-        self.import_video_draft(ctx, draft, None)
+        self.import_video_draft_with_options(ctx, draft, None, false)
     }
 
-    /// Import a Finder-dropped video immediately at the authored pointer coordinate. Native drops
-    /// use the same validated resource/timeline path as the dialog, but do not require a second
-    /// modal confirmation after the user has already dropped the file on the Stage.
+    #[cfg(test)]
     pub(crate) fn import_video_path_at(
         &mut self,
         ctx: &egui::Context,
@@ -523,16 +761,17 @@ impl Editor {
             file_path: path.display().to_string(),
             ..ImportVideoDraft::default()
         };
-        self.import_video_draft(ctx, draft, Some(point))
+        self.import_video_draft_with_options(ctx, draft, Some(point), true)
     }
 
-    fn import_video_draft(
+    fn import_video_draft_with_options(
         &mut self,
         ctx: &egui::Context,
         draft: ImportVideoDraft,
         placement: Option<[f64; 2]>,
+        auto_create_layer: bool,
     ) -> Result<Id, String> {
-        if !self.layer_editable() {
+        if !auto_create_layer && !self.layer_editable() {
             return Err("Select an unlocked, visible layer before importing video.".into());
         }
 
@@ -750,9 +989,13 @@ impl Editor {
         };
 
         let probed_stream = self.resolve_import_video_stream(&draft, false);
-        let layer_idx = self.layer;
-        let frame = self.frame;
         let symbol_id = self.symbol_id().to_owned();
+        let is_button = self.symbol().kind == SymbolKind::Button;
+        let frame = if is_button {
+            self.frame.min(3)
+        } else {
+            self.frame
+        };
         if let Some(resource) = resource {
             candidate.resources.push(resource);
         }
@@ -772,15 +1015,57 @@ impl Editor {
             }
         }
         let fps = candidate.fps.max(1);
-        let needed_frames =
+        let raw_needed_frames =
             frame.saturating_add(((duration_sec * f64::from(fps)).ceil() as u32).max(1));
         let symbol = candidate
             .symbol_mut(&symbol_id)
             .ok_or_else(|| "Active symbol not found.".to_string())?;
-        if draft.expand_timeline && symbol.timeline.frame_count < needed_frames {
+        let needed_frames = if is_button {
+            symbol.timeline.frame_count.max(frame + 1).min(4)
+        } else {
+            raw_needed_frames
+        };
+        if (draft.expand_timeline || is_button) && symbol.timeline.frame_count < needed_frames {
             symbol.timeline.frame_count = needed_frames;
         }
         let max_tl_frames = symbol.timeline.frame_count;
+        let can_reuse_layer = symbol.timeline.layers.get(self.layer).is_some_and(|l| {
+            l.properties.role == neoflash_core::LayerRole::Normal
+                && l.properties.mask.is_none()
+                && neoflash_core::layer_effective_outline_color(&symbol.timeline, l).is_none()
+                && neoflash_core::layer_effectively_visible(&symbol.timeline, l)
+                && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
+                && (!auto_create_layer
+                    || (l.keyframes.iter().all(|k| k.sound.is_none())
+                        && l.keyframes
+                            .iter()
+                            .find(|k| k.frame == frame)
+                            .and_then(|k| k.video.as_ref())
+                            .is_none()))
+        });
+        let layer_idx = if can_reuse_layer || !auto_create_layer {
+            self.layer
+        } else {
+            let stem = Path::new(&file_name)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .filter(|s| !s.is_empty())
+                .unwrap_or("Video")
+                .to_owned();
+            let mut keyframes = Vec::new();
+            if frame > 0 {
+                keyframes.push(Keyframe::default());
+            }
+            symbol.timeline.layers.push(neoflash_core::Layer {
+                id: new_id("layer"),
+                name: stem,
+                visible: true,
+                locked: false,
+                properties: Default::default(),
+                keyframes,
+            });
+            symbol.timeline.layers.len() - 1
+        };
         let layer = symbol
             .timeline
             .layers
@@ -793,10 +1078,8 @@ impl Editor {
             *end = needed_frames.min(max_tl_frames);
         }
         if !layer.keyframes.iter().any(|key| key.frame == frame) {
-            let previous_elements = layer
-                .key_at(frame)
-                .map(|key| key.elements.clone())
-                .unwrap_or_default();
+            let previous_elements =
+                neoflash_core::sample_layer_at_fps(layer, frame, f64::from(fps));
             layer.keyframes.push(Keyframe {
                 frame,
                 elements: previous_elements,
@@ -812,7 +1095,10 @@ impl Editor {
         // A motion-span property keyframe (◆) cannot carry a timeline video span; convert it to an
         // ordinary keyframe so validation and motion normalization stay consistent.
         key.keyed_properties = None;
+        key.motion_keys = None;
+        key.roving = false;
         key.video = Some(video_span);
+        let mut new_video_el_id = None;
         if draft.place_on_stage {
             let (vid_w, vid_h) = probed_stream
                 .as_ref()
@@ -820,8 +1106,10 @@ impl Editor {
                 .map(|s| (f64::from(s.width), f64::from(s.height)))
                 .unwrap_or((320.0, 240.0));
             let center = placement.unwrap_or([240.0, 180.0]);
+            let el_id = new_id("video");
+            new_video_el_id = Some((layer.id.clone(), el_id.clone()));
             key.elements.push(Element {
-                id: new_id("video"),
+                id: el_id,
                 name: file_name.to_owned(),
                 transform: Transform {
                     x: center[0] - vid_w * 0.5,
@@ -842,6 +1130,17 @@ impl Editor {
         self.finish_edits();
         self.transact_named("Import video", |editor| {
             editor.project = candidate;
+            editor.layer = layer_idx;
+            editor.frame = frame;
+            if auto_create_layer && let Some((lid, eid)) = new_video_el_id {
+                editor.selection = crate::selection::Selection {
+                    symbol: symbol_id,
+                    targets: vec![crate::selection::SelectionTarget {
+                        layer: lid,
+                        element: eid,
+                    }],
+                };
+            }
         });
 
         ctx.data_mut(|data| {
