@@ -4738,6 +4738,19 @@ fn t415_editor_illustrator_pdf_and_eps_placement_edit_in_place_locked_layer_dedu
             element: inner_el_id,
         }]);
         let (eip_bundle, _) = eip_editor.capture_stage_clipboard_bundle(&ctx).unwrap();
+        assert!(
+            ClipboardPayload::from_text(&eip_bundle.neoflash_text)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            eip_bundle
+                .eps_bytes
+                .as_deref()
+                .unwrap()
+                .starts_with(b"%!PS-Adobe")
+        );
+        assert!(eip_bundle.svg_text.as_deref().unwrap().contains("<svg"));
         let reimported = neoflash_import::import_pdf_clipboard(
             eip_bundle.pdf_bytes.as_deref().unwrap(),
             "eip-export.pdf",

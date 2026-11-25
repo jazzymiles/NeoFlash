@@ -169,8 +169,9 @@ fn t349_macos_wgpu_options_disable_indirect_call_validation() {
 /// `MTLCompilerService` (`AirEmulateArgumentBuffers.cpp:997`), preventing the window from opening.
 fn native_wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
     let mut config = eframe::egui_wgpu::WgpuConfiguration::default();
-    #[cfg(target_os = "macos")]
-    if let eframe::egui_wgpu::WgpuSetup::CreateNew(ref mut create_new) = config.wgpu_setup {
+    if cfg!(target_os = "macos")
+        && let eframe::egui_wgpu::WgpuSetup::CreateNew(ref mut create_new) = config.wgpu_setup
+    {
         create_new
             .instance_descriptor
             .flags

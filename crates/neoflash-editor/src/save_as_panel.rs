@@ -16,10 +16,12 @@ pub enum SaveAsFormat {
     UncompressedXfl,
 }
 
-#[cfg_attr(any(not(target_os = "macos"), test), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 impl SaveAsFormat {
+    #[cfg(all(target_os = "macos", not(test)))]
     pub const ALL: [Self; 3] = [Self::NeoFlash, Self::FlashFla, Self::UncompressedXfl];
 
+    #[cfg(all(target_os = "macos", not(test)))]
     pub const fn label(self) -> &'static str {
         match self {
             Self::NeoFlash => "NeoFlash Project (.nflash)",
@@ -36,11 +38,13 @@ impl SaveAsFormat {
         }
     }
 
+    #[cfg(all(target_os = "macos", not(test)))]
     pub fn from_index(index: usize) -> Self {
         Self::ALL.get(index).copied().unwrap_or(Self::NeoFlash)
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 /// Script conversion choice selected in the `Save As` `Script` dropdown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SaveAsScriptOption {
@@ -48,7 +52,7 @@ pub enum SaveAsScriptOption {
     ConvertTo(ConversionTarget),
 }
 
-#[cfg_attr(any(not(target_os = "macos"), test), allow(dead_code))]
+#[cfg(all(target_os = "macos", not(test)))]
 impl SaveAsScriptOption {
     pub const fn conversion_target(self) -> Option<ConversionTarget> {
         match self {
@@ -70,6 +74,7 @@ pub struct SaveAsDialogResult {
     pub conversion: Option<ConversionTarget>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 /// Returns the valid `Script:` dropdown options for a document authored in `project_lang`.
 ///
 /// Only ActionScript sources (`AS1`, `AS2`, `AS3`) offer cross-language conversion
@@ -122,6 +127,7 @@ pub fn available_script_options(project_lang: ScriptLanguage) -> Vec<(SaveAsScri
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 /// Only remove a suffix that this dialog added. A document may already be named
 /// `Scene (converted).nflash` before the dialog opens.
 #[derive(Default)]
@@ -129,6 +135,7 @@ pub(crate) struct SaveAsFilename {
     added_suffix: bool,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl SaveAsFilename {
     pub(crate) fn update(
         &mut self,
@@ -158,12 +165,14 @@ impl SaveAsFilename {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn strip_ascii_suffix<'a>(text: &'a str, suffix: &str) -> Option<&'a str> {
     let (stem, tail) = text.split_at_checked(text.len().checked_sub(suffix.len())?)?;
     (!stem.is_empty() && tail.eq_ignore_ascii_case(suffix)).then_some(stem)
 }
 
 /// The returned URL is the destination for which AppKit checked overwrite consent.
+#[cfg(any(target_os = "macos", test))]
 fn confirmed_save_as_path(path: PathBuf, format: SaveAsFormat) -> Option<PathBuf> {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(format.extension()))

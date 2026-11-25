@@ -17,17 +17,23 @@
 //!   the root window for root-viewport modals/Help/menus) whenever `Help`, a modal dialog, or a
 //!   menu/popup is open.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
+#[cfg(any(target_os = "macos", test))]
+use std::collections::VecDeque;
+#[cfg(any(target_os = "macos", test))]
 use std::path::PathBuf;
 #[cfg(not(test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(any(target_os = "macos", test))]
 /// Maximum `public.file-url` paths read from a single native drag operation.
 pub const MAX_NATIVE_DRAG_FILE_URLS: usize = 128;
+#[cfg(any(target_os = "macos", test))]
 /// Maximum queued native `public.file-url` drop batches retained before oldest eviction.
 const MAX_QUEUED_NATIVE_DROP_BATCHES: usize = 16;
 
+#[cfg(any(target_os = "macos", test))]
 /// Destination window for a fallback `public.file-url` drag operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NativeDragWindowTarget {
@@ -35,6 +41,7 @@ pub enum NativeDragWindowTarget {
     FloatingTitle(String),
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl NativeDragWindowTarget {
     fn matches(&self, floating_title: Option<&str>) -> bool {
         match (self, floating_title) {
@@ -61,6 +68,7 @@ impl NativeDragWindowTarget {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 /// Bounded queue bridging `public.file-url`-only macOS drags into `egui::RawInput`.
 #[derive(Default, Debug)]
 pub struct NativeWindowFileDragQueue {
@@ -68,6 +76,7 @@ pub struct NativeWindowFileDragQueue {
     dropped_batches: VecDeque<(NativeDragWindowTarget, Vec<PathBuf>)>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl NativeWindowFileDragQueue {
     pub fn set_hovered(&mut self, target: NativeDragWindowTarget, paths: Vec<PathBuf>) {
         let paths = Self::bounded_paths(paths);
@@ -78,14 +87,12 @@ impl NativeWindowFileDragQueue {
         }
     }
 
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     pub fn has_hovered_for(&self, target: &NativeDragWindowTarget) -> bool {
         self.hovered
             .as_ref()
             .is_some_and(|(t, _)| t.same_window(target))
     }
 
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     pub fn clear_hovered_for(&mut self, target: &NativeDragWindowTarget) {
         if self
             .hovered
@@ -96,7 +103,6 @@ impl NativeWindowFileDragQueue {
         }
     }
 
-    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     pub fn clear_hovered(&mut self) {
         self.hovered = None;
     }
@@ -204,9 +210,11 @@ impl NativeWindowFileDragQueue {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 static NATIVE_DRAG_QUEUE: OnceLock<Mutex<NativeWindowFileDragQueue>> = OnceLock::new();
 static WAKEUP_CONTEXT: OnceLock<Mutex<Option<eframe::egui::Context>>> = OnceLock::new();
 
+#[cfg(any(target_os = "macos", test))]
 pub fn global_file_drag_queue() -> &'static Mutex<NativeWindowFileDragQueue> {
     NATIVE_DRAG_QUEUE.get_or_init(|| Mutex::new(NativeWindowFileDragQueue::default()))
 }
@@ -228,6 +236,7 @@ fn request_drag_repaint() {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub fn drain_file_drag_into_context(
     ctx: &eframe::egui::Context,
     floating_title: Option<&str>,
@@ -237,6 +246,11 @@ pub fn drain_file_drag_into_context(
     } else {
         false
     }
+}
+
+#[cfg(not(any(target_os = "macos", test)))]
+pub fn drain_file_drag_into_context(_: &eframe::egui::Context, _: Option<&str>) -> bool {
+    false
 }
 
 #[derive(Default)]

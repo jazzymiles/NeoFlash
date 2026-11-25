@@ -21,6 +21,7 @@ pub(crate) struct StageClipboardFlavors {
     pub(crate) png: Option<Vec<u8>>,
 }
 
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 #[derive(Clone, Debug)]
 pub(crate) struct StageClipboardBundle {
     pub(crate) neoflash_text: String,
@@ -587,6 +588,7 @@ impl Editor {
         true
     }
 
+    #[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
     pub(crate) fn capture_stage_clipboard_bundle(
         &mut self,
         ctx: &egui::Context,
@@ -3180,6 +3182,7 @@ fn vector_styles_equal_modulo_id_and_name(
 /// Build a vector-export `Project` from `capture_project`, attaching any active Stage `LayerRole::Mask`
 /// layers that mask selected elements so `export_clipboard_pdf`, `export_clipboard_eps`, and
 /// `export_clipboard_svg` preserve `W`/`W*` clipping masks alongside unmasked selection items.
+#[cfg(any(test, all(target_os = "macos", target_arch = "aarch64")))]
 fn build_vector_export_project(
     source_project: &neoflash_core::Project,
     symbol_id: &str,
