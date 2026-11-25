@@ -10,6 +10,7 @@ const http = require('node:http');
 const https = require('node:https');
 const crypto = require('node:crypto');
 const path = require('node:path');
+const { createInterface } = require('node:readline');
 const vm = require('node:vm');
 const { execFileSync, spawn } = require('node:child_process');
 const { Worker: NodeThreadWorker } = require('node:worker_threads');
@@ -1861,14 +1862,30 @@ async function startSharedObjectRelay(t, origins, store) {
   const relay = spawn(path.join(repoRoot,'target/debug/neoflash-sync'), [
     '--bind','127.0.0.1:0', ...origins.flatMap(origin=>['--origin',origin]), ...(store ? ['--store',store] : []),
   ], {stdio:['ignore','pipe','inherit']});
-  const exited = new Promise(resolve=>relay.once('exit',resolve));
-  const stop = async () => { if (relay.exitCode === null && relay.signalCode === null) relay.kill(); await exited; };
+  const closed = new Promise(resolve => relay.once('close', (code, signal) => resolve(signal ?? code)));
+  const stop = async () => {
+    if (relay.pid && relay.exitCode === null && relay.signalCode === null) relay.kill();
+    await closed;
+  };
   t.after(stop);
-  let output = '';
-  relay.stdout.on('data', chunk=>{ output += chunk; });
-  await until(()=>output.includes('\n'),'relay listens');
-  const address = output.match(/^LISTENING (127\.0\.0\.1:\d+)/)[1];
-  return {url:'ws://' + address + '/live', stop};
+  const lines = createInterface({ input: relay.stdout });
+  let timeout;
+  try {
+    const address = await new Promise((resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error('SharedObject relay did not announce LISTENING within 30s')), 30_000);
+      relay.once('error', reject);
+      closed.then(status => reject(new Error(`SharedObject relay closed before LISTENING (${status})`)));
+      lines.once('line', line => {
+        const match = /^LISTENING (127\.0\.0\.1:\d+)$/u.exec(line);
+        if (match) resolve(match[1]);
+        else reject(new Error(`Unexpected SharedObject relay startup line: ${line}`));
+      });
+    });
+    return { url: `ws://${address}/live`, stop };
+  } finally {
+    clearTimeout(timeout);
+    lines.close();
+  }
 }
 
 async function openRoom(t, wasm, {url}, origin, legacy = false, persistent = false) {
@@ -2037,6 +2054,7 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
   }
   ensureFreshExportBinary();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-area8-chrome-'));
+  t.after(() => fs.rmSync(workDir, { recursive: true, force: true }));
 
   // Serve exported bundle + crossdomain.xml + HLS stream + RFC 6455 WebSocket echo on one HTTP server!
   let pubDir = '';
@@ -2088,7 +2106,11 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     };
   });
 
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  t.after(async () => {
+    wsHub.destroyAll();
+    await new Promise(resolve => server.close(resolve));
+  });
+  await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
 
   const origin = `http://127.0.0.1:${port}`;
@@ -2397,8 +2419,5 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
       }, 2000);
       chromeProc.once('exit', () => { clearTimeout(t); resolve(); });
     });
-    wsHub.destroyAll();
-    await new Promise(r => server.close(r));
-    fs.rmSync(workDir, { recursive: true, force: true });
   }
 });
