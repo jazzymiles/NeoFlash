@@ -1109,7 +1109,7 @@
     '[data-neoflash-module] { position: relative; width: 100%; height: 100%; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; font: 13px system-ui, sans-serif; color: #d2d6dd; }',
     '[data-neoflash-module][data-clean="true"] { grid-template-rows: minmax(0,1fr); }',
     '[data-neoflash-module][data-clean="true"] > [data-neoflash-role="footer"] { display: none !important; }',
-    '[data-neoflash-module] [data-neoflash-role="viewport"] { position: relative; width: 100%; height: 100%; overflow: auto; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; outline: none; }',
+    '[data-neoflash-module] [data-neoflash-role="viewport"] { position: relative; width: 100%; height: 100%; overflow: hidden; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; outline: none; }',
     '[data-neoflash-module] [data-neoflash-role="viewport"]:fullscreen, [data-neoflash-module] [data-neoflash-role="viewport"]:-webkit-full-screen { background: #000; width: 100vw; height: 100vh; overflow: hidden; }',
     '[data-neoflash-module] [data-neoflash-role="stage-space"] { position: relative; }',
     '[data-neoflash-module] [data-neoflash-role="stage-surface"] { position: absolute; }',
@@ -1138,8 +1138,10 @@
     '[data-neoflash-module] [data-neoflash-role="transport"] { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }',
     '[data-neoflash-module] [data-neoflash-role="footer"] button, [data-neoflash-module] [data-neoflash-role="footer"] select { background: #34373e; color: #f3f4f6; border: 1px solid #555a64; border-radius: 4px; font: inherit; padding: 6px 10px; cursor: pointer; min-height: 30px; }',
     '[data-neoflash-module] [data-neoflash-role="preview-info"] { display: flex; flex-wrap: wrap; gap: 4px 12px; min-width: 0; flex: 1; }',
+    '[data-neoflash-module] [data-neoflash-role="name"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
     '[data-neoflash-module] [data-neoflash-role="status"] { font-variant-numeric: tabular-nums; color: #a5acb7; white-space: nowrap; }',
-    '[data-neoflash-module] [data-neoflash-role="trace"] { flex-basis: 100%; overflow-wrap: anywhere; min-height: 1em; color: #c6d8ef; }',
+    '[data-neoflash-module] [data-neoflash-role="load-info"] { font-variant-numeric: tabular-nums; color: #9db4d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',
+    '[data-neoflash-module] [data-neoflash-role="trace"] { flex-basis: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; min-height: 1.35em; color: #c6d8ef; }',
     '[data-neoflash-module] [data-neoflash-role="error"] { position: absolute; inset: 12px; max-height: calc(100% - 24px); overflow: auto; margin: auto; z-index: 2; padding: 16px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }',
     '[data-neoflash-module] [data-neoflash-role="loading"] { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }',
   ].join('\n');
@@ -2204,8 +2206,8 @@
       hostStageLayoutPinned = shouldAutoEnableStageLayout();
       if (hostStageLayoutPinned || ownsViewportFullscreen()) enableHostStageLayout(hostStageLayoutPinned);
       else if (!as2StageHost?.isActive?.() && typeof preview !== 'undefined' && preview) {
-        preview.setStageLayout?.(null);
         if (typeof viewport !== 'undefined' && viewport?.style) viewport.style.overflow = initialViewportOverflow;
+        preview.setStageLayout?.(null);
       }
     }
     function logicalSize(){return [typeof preview==='undefined'||!preview?.view?typeof project==='undefined'?800:project.width:preview.view.logicalWidth||project.width,typeof preview==='undefined'||!preview?.view?typeof project==='undefined'?600:project.height:preview.view.logicalHeight||project.height];}
@@ -5007,7 +5009,10 @@
         }
       }
       const traceText = lastTrace + (lastTraceLocation ? ` (${lastTraceLocation})` : '');
-      if (traceElement && traceElement.textContent !== traceText) traceElement.textContent = traceText;
+      if (traceElement && traceElement.textContent !== traceText) {
+        traceElement.textContent = traceText;
+        traceElement.title = traceText;
+      }
       if (toggle) toggle.textContent = player.is_playing() ? 'Pause' : 'Play';
     }
     function hitAt(event,details=false) {
@@ -5258,20 +5263,33 @@
     if (playerConfig.autoplay === false) {
       player.set_playing(false);
     }
+    const measureViewport = () => viewport
+      ? (global.NeoFlashPreview?.viewportBox ? global.NeoFlashPreview.viewportBox(viewport) : [viewport.clientWidth, viewport.clientHeight])
+      : [0, 0];
     syncInitialStageLayout();
     resize();
+    const [preRenderW, preRenderH] = measureViewport();
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.
-    try { initializeProgram(); dispatchScripts(); render(); } catch (error) { fail(error); }
+    try {
+      initializeProgram();
+      dispatchScripts();
+      render();
+      const [postRenderW, postRenderH] = measureViewport();
+      if (postRenderW !== preRenderW || postRenderH !== preRenderH) {
+        resize();
+        if (!failed) render();
+      }
+    } catch (error) { fail(error); }
     if (typeof ResizeObserver === 'function' && viewport) {
       // The status/footer can reflow on audio unlock. Keep a pressed stage target
       // under the pointer through release and the browser's ensuing click.
       let stagePointer = null;
-      let lastWidth = 0, lastHeight = 0;
+      let [lastWidth, lastHeight] = measureViewport();
       const applyViewportResize = guardHostCallback(() => {
         resizeRafId = 0;
         if (runtimeDisposed || stagePointer !== null) return;
-        const width = viewport.clientWidth, height = viewport.clientHeight;
+        const [width, height] = measureViewport();
         if (width === lastWidth && height === lastHeight) return;
         lastWidth = width;
         lastHeight = height;

@@ -1348,3 +1348,106 @@ test('AS2 showRedrawRegions renders and clears Canvas/DOM dirty outlines and Con
     realPlayer.free();
   }
 });
+
+test('Preview.resize and layout prevent HiDPI classic-scrollbar ResizeObserver oscillation across Fit, 100% and 200% zoom', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const { layout, viewportBox, Preview } = require('../preview.js');
+
+  // 1. IEEE-754 float overshoot guard: 600 * (529 / 600) === 529.0000000000001 in float64,
+  //    which previously produced spaceHeight = 561.0000000000001 > viewportHeight (561).
+  const ieeeFit = layout(960, 600, 1000, 561, 'fit', 16);
+  assert.ok(ieeeFit.stageHeight <= 529, `expected stageHeight <= 529, got ${ieeeFit.stageHeight}`);
+  assert.equal(ieeeFit.spaceWidth, 1000);
+  assert.equal(ieeeFit.spaceHeight, 561);
+
+  // 2. Reproduce exact Ubuntu Retina XWayland Chrome geometry (`1018 x 647.50` CSS px at dpr=2,
+  //    where DOM rounds offsetHeight/clientHeight to 648 while classic scrollbars take 15px
+  //    whenever overflow !== 'hidden' and #stage-space exceeds the unrounded 1018.00 x 647.50 box).
+  const space = { style: { width: '0px', height: '0px' } };
+  const surface = { style: { left: '0px', top: '0px', width: '0px', height: '0px' } };
+  const canvas = { width: 0, height: 0 };
+  const trueW = 1018.0;
+  const trueH = 647.5;
+  const scrollbarPx = 15;
+
+  function computeScrollbars() {
+    if (viewport.style.overflow === 'hidden') return [0, 0];
+    const spW = parseFloat(space.style.width) || 0;
+    const spH = parseFloat(space.style.height) || 0;
+    let vBar = spH > trueH ? scrollbarPx : 0;
+    let hBar = spW > (trueW - vBar) ? scrollbarPx : 0;
+    if (hBar && !vBar && spH > (trueH - hBar)) vBar = scrollbarPx;
+    return [vBar, hBar];
+  }
+
+  const viewport = {
+    scrollLeft: 0,
+    scrollTop: 0,
+    style: { overflow: '' },
+    classList: { toggle() {} },
+    addEventListener() {},
+    hasPointerCapture: () => false,
+    releasePointerCapture() {},
+    get offsetWidth() { return Math.round(trueW); },
+    get offsetHeight() { return Math.round(trueH); },
+    get clientWidth() {
+      const [vBar] = computeScrollbars();
+      return Math.round(trueW - vBar);
+    },
+    get clientHeight() {
+      const [, hBar] = computeScrollbars();
+      return Math.round(trueH - hBar);
+    },
+    getBoundingClientRect() {
+      return { left: 0, top: 0, width: trueW, height: trueH };
+    },
+  };
+
+  assert.deepEqual(viewportBox(viewport), [1018, 647], 'subpixel 647.50 height floors to 647 rather than rounding up to 648');
+
+  const preview = new Preview(viewport, space, surface, canvas, { width: 960, height: 600 }, () => {});
+  const seenStates = new Set();
+  for (let frame = 0; frame < 20; frame++) {
+    preview.resize();
+    seenStates.add(`${viewport.clientWidth}x${viewport.clientHeight}:${space.style.width}x${space.style.height}:${surface.style.left},${surface.style.top}`);
+  }
+  assert.equal(viewport.style.overflow, 'hidden', 'Fit mode disables viewport scrollbars');
+  assert.equal(seenStates.size, 1, `Fit mode must be 100% stable across ResizeObserver frames, got ${[...seenStates].join(' | ')}`);
+  assert.deepEqual(computeScrollbars(), [0, 0]);
+
+  // 3. Switching to 100% ('1') and 50% ('0.5') enables overflow:auto for scrollable zoom modes,
+  //    yet still produces zero scrollbar oscillation when 960x600 + 32px gutter fits inside 1018x647.5.
+  preview.setMode('1');
+  assert.equal(viewport.style.overflow, 'auto');
+  const seen100 = new Set();
+  for (let frame = 0; frame < 10; frame++) {
+    preview.resize();
+    seen100.add(`${viewport.clientWidth}x${viewport.clientHeight}:${space.style.width}x${space.style.height}`);
+  }
+  assert.equal(seen100.size, 1, `100% mode must not oscillate on subpixel HiDPI height, got ${[...seen100].join(' | ')}`);
+  assert.deepEqual(computeScrollbars(), [0, 0], 'no classic scrollbars when 960x600 stage fits inside 1018x647.5');
+
+  // 4. Switching to 200% ('2') enables scrolling over 1952x1232, and returning to 'fit' immediately clears scrollbars.
+  preview.setMode('2');
+  assert.equal(viewport.style.overflow, 'auto');
+  assert.equal(space.style.width, '1952px');
+  assert.equal(space.style.height, '1232px');
+  assert.deepEqual(computeScrollbars(), [15, 15], 'zoomed 200% stage exposes classic scrollbars for panning');
+  viewport.scrollLeft = 240;
+  viewport.scrollTop = 180;
+
+  preview.setMode('fit');
+  assert.equal(viewport.style.overflow, 'hidden');
+  assert.equal(viewport.clientWidth, 1018, 'returning to Fit immediately reclaims the 15px scrollbar gutter');
+  assert.equal(viewport.clientHeight, 648);
+  assert.equal(space.style.width, '1018px');
+  assert.equal(space.style.height, '647px');
+  assert.equal(viewport.scrollLeft, 0);
+  assert.equal(viewport.scrollTop, 0);
+
+  // 5. Scoped module CSS keeps #viewport overflow:hidden by default and clamps #trace to a stable single line.
+  const runtimeSrc = fs.readFileSync(path.resolve(__dirname, '../runtime.js'), 'utf8');
+  assert.match(runtimeSrc, /\[data-neoflash-role="viewport"\][^}]*overflow:\s*hidden/);
+  assert.match(runtimeSrc, /\[data-neoflash-role="trace"\][^}]*white-space:\s*nowrap/);
+});

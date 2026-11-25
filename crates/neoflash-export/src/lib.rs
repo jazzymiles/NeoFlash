@@ -3404,7 +3404,7 @@ fn html_document_with_config(
     :root {{ color-scheme: dark; font: 13px system-ui, sans-serif; }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}{clean_css}{template_css}
-    #viewport {{ position: relative; overflow: auto; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }}
+    #viewport {{ position: relative; overflow: hidden; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }}
     #viewport:fullscreen, #viewport:-webkit-full-screen {{ background: #000; width: 100vw; height: 100vh; overflow: hidden; }}
     #stage-space {{ position: relative; }}
     #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}
@@ -3428,7 +3428,7 @@ fn html_document_with_config(
     #audio-status {{ color: #c6d8ef; }}
     #status {{ font-variant-numeric: tabular-nums; color: #a5acb7; white-space: nowrap; }}
     #load-info {{ font-variant-numeric: tabular-nums; color: #9db4d0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    #trace {{ flex-basis: 100%; overflow-wrap: anywhere; min-height: 1em; color: #c6d8ef; }}
+    #trace {{ flex-basis: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; min-height: 1.35em; color: #c6d8ef; }}
     #size-report {{ position: fixed; inset: 24px 24px 72px 24px; max-height: calc(100vh - 96px); overflow: auto; margin: 0; z-index: 2; padding: 20px 24px; border: 1px solid #555a64; border-radius: 6px; background: #1d1f24f2; color: #d8dee9; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; display: none; box-shadow: 0 16px 48px #0009; }}
     #error {{ position: fixed; inset: 24px; max-height: 60vh; overflow: auto; margin: auto; z-index: 2; padding: 24px; border: 1px solid #f19393; background: #351d22; color: #ffe0e0; white-space: pre-wrap; display: none; }}
     #loading {{ position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }}

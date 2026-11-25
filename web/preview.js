@@ -5,13 +5,23 @@
     const availW=Math.max(1,viewportWidth-2*gutter),availH=Math.max(1,viewportHeight-2*gutter);
     const fit=Math.min(1,availW/width,availH/height);
     if(mode==='stretch'){
-      const scale=availW/width,scaleY=availH/height,stageWidth=width*scale,stageHeight=height*scaleY;
+      const scale=availW/width,scaleY=availH/height,stageWidth=availW,stageHeight=availH;
       return {scale,scaleY,stageWidth,stageHeight,left:Math.max(gutter,(viewportWidth-stageWidth)/2),top:Math.max(gutter,(viewportHeight-stageHeight)/2),spaceWidth:Math.max(viewportWidth,stageWidth+2*gutter),spaceHeight:Math.max(viewportHeight,stageHeight+2*gutter)};
     }
     const scale=mode==='fit'?fit:mode==='fill'?Math.max(availW/width,availH/height):Number(mode);
     if(!Number.isFinite(scale)||scale<=0)throw new Error('Invalid preview scale');
-    const stageWidth=width*scale,stageHeight=height*scale;
+    const stageWidth=mode==='fit'?Math.min(availW,width*scale):width*scale;
+    const stageHeight=mode==='fit'?Math.min(availH,height*scale):height*scale;
     return {scale,stageWidth,stageHeight,left:Math.max(gutter,(viewportWidth-stageWidth)/2),top:Math.max(gutter,(viewportHeight-stageHeight)/2),spaceWidth:Math.max(viewportWidth,stageWidth+2*gutter),spaceHeight:Math.max(viewportHeight,stageHeight+2*gutter)};
+  }
+  function viewportBox(v){
+    let cw=v?.clientWidth||0,ch=v?.clientHeight||0;
+    if(v&&typeof v.getBoundingClientRect==='function'&&typeof v.offsetWidth==='number'&&typeof v.offsetHeight==='number'){
+      const r=v.getBoundingClientRect();
+      if(r&&r.width>0&&Math.abs(r.width-v.offsetWidth)<1)cw=Math.max(0,Math.floor(r.width-Math.max(0,v.offsetWidth-cw)+1e-6));
+      if(r&&r.height>0&&Math.abs(r.height-v.offsetHeight)<1)ch=Math.max(0,Math.floor(r.height-Math.max(0,v.offsetHeight-ch)+1e-6));
+    }
+    return [cw,ch];
   }
   class Preview {
     constructor(viewport,space,surface,canvas,project,onChange){
@@ -31,8 +41,12 @@
     resize(){
       if(this.drag){const id=this.drag.id;this.drag=null;this.suppressClick=true;setTimeout(()=>{this.suppressClick=false;},0);if(this.viewport.hasPointerCapture(id))this.viewport.releasePointerCapture(id);}
       const v=this.viewport,old=this.view;
-      const center=old?[(v.scrollLeft+v.clientWidth/2-old.left)/old.scale,(v.scrollTop+v.clientHeight/2-old.top)/(old.scaleY||old.scale)]:[this.project.width/2,this.project.height/2];
-      this.view=this.stageLayout?this.stageLayout(Math.max(1,v.clientWidth),Math.max(1,v.clientHeight)):layout(this.project.width,this.project.height,v.clientWidth,v.clientHeight,this.mode);
+      const scrollable=!this.stageLayout&&this.mode!=='fit'&&this.mode!=='stretch';
+      const nextOverflow=scrollable?'auto':'hidden';
+      if(v.style&&v.style.overflow!==nextOverflow)v.style.overflow=nextOverflow;
+      const [vw,vh]=viewportBox(v);
+      const center=old?[(v.scrollLeft+vw/2-old.left)/old.scale,(v.scrollTop+vh/2-old.top)/(old.scaleY||old.scale)]:[this.project.width/2,this.project.height/2];
+      this.view=this.stageLayout?this.stageLayout(Math.max(1,vw),Math.max(1,vh)):layout(this.project.width,this.project.height,vw,vh,this.mode);
       const next=this.view;
       const spaceW=next.spaceWidth+'px',spaceH=next.spaceHeight+'px';
       if(this.space.style.width!==spaceW)this.space.style.width=spaceW;
@@ -46,7 +60,7 @@
       const ratio=Math.min((global.devicePixelRatio||1)*Math.max(next.scale,next.scaleY||next.scale),4,8192/logicalWidth,8192/logicalHeight);
       const width=Math.max(1,Math.round(logicalWidth*ratio)),height=Math.max(1,Math.round(logicalHeight*ratio));
       if(this.canvas.width!==width||this.canvas.height!==height){this.canvas.width=width;this.canvas.height=height;}
-      if(this.stageLayout||this.mode==='fit'){v.scrollLeft=0;v.scrollTop=0;}else if(old){v.scrollLeft=center[0]*next.scale+next.left-v.clientWidth/2;v.scrollTop=center[1]*next.scale+next.top-v.clientHeight/2;}
+      if(!scrollable){v.scrollLeft=0;v.scrollTop=0;}else if(old){v.scrollLeft=center[0]*next.scale+next.left-vw/2;v.scrollTop=center[1]*next.scale+next.top-vh/2;}
       return next;
     }
   }
@@ -712,7 +726,7 @@
     try{Object.defineProperty(hostGlobal,'__neoflashOutputRelay',{value:relay,configurable:true,enumerable:false});}catch(_){}
     return relay;
   }
-  const api={layout,Preview,isLoopbackHttpOrigin,parseStackFrameLine,parseStackFrames,decodeSourceMapLocations,resolveErrorLocation,humanizeRuntimeErrorMessage,installOutputRelay};
+  const api={layout,viewportBox,Preview,isLoopbackHttpOrigin,parseStackFrameLine,parseStackFrames,decodeSourceMapLocations,resolveErrorLocation,humanizeRuntimeErrorMessage,installOutputRelay};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashPreview=api;
   if(typeof document!=='undefined')installOutputRelay(global);
 })(globalThis);
