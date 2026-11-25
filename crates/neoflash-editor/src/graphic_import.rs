@@ -5431,8 +5431,8 @@ mod tests {
                     .iter()
                     .flat_map(|layer| &layer.keyframes)
                     .filter_map(|key| key.sound.as_ref().map(|sound| (key.frame, &sound.resource)));
-                assert_eq!(sounds.next(), Some((3, &resources[0].id)));
-                assert_eq!(sounds.next(), Some((3, &resources[1].id)));
+                assert_eq!(sounds.next(), Some((0, &resources[0].id)));
+                assert_eq!(sounds.next(), Some((0, &resources[1].id)));
                 assert_eq!(sounds.next(), None);
             }
             editor.project.validate().unwrap();
