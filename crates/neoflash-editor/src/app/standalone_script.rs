@@ -3062,10 +3062,7 @@ impl Editor {
             if !doc_paths.is_empty() {
                 handled |= self.open_picked_paths(doc_paths, ctx) > 0;
             }
-            if !self.has_document() || self.is_standalone_script_session() {
-                self.new_document_session(ctx);
-            }
-            handled |= self.import_dropped_media_into_active_document(
+            handled |= self.import_media_with_auto_document_session(
                 ctx,
                 media_paths,
                 crate::graphic_import::MediaPlacementMode::Stage { point: None },

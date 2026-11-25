@@ -1250,3 +1250,526 @@ fn t474_internal_library_drag_of_audio_video_image_and_symbol_onto_timeline() {
     editor.undo();
     assert_eq!(editor.project, baseline);
 }
+
+#[test]
+fn t474_a01_media_drop_on_filtered_and_repeater_exposure_frame_preserves_authored_pose() {
+    let tmp = TempTestDir::new("a01-authored-pose");
+    let png_path = tmp.path().join("badge.png");
+    let avi_path = tmp.path().join("cut.avi");
+    std::fs::write(&png_path, make_png_bytes(16, 16, [80, 160, 240, 255])).unwrap();
+    std::fs::write(&avi_path, make_avi_bytes(32, 24, 12, 12)).unwrap();
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.format_version = 12;
+    project.fps = 24;
+    project.symbols[0].timeline.frame_count = 24;
+    project.symbols[0].timeline.layers[0].properties.filters = vec![FilterSpec::Blur {
+        blur_x: 6.0,
+        blur_y: 6.0,
+        quality: 1,
+    }];
+    let base_el_id: Id = "authored-rect".into();
+    project.symbols[0].timeline.layers[0].keyframes[0].elements = vec![Element {
+        id: base_el_id.clone(),
+        name: "BaseRect".into(),
+        transform: Transform::default(),
+        kind: ElementKind::Rectangle {
+            width: 30.0,
+            height: 20.0,
+            fill: [220, 80, 60, 255],
+            stroke: [0, 0, 0, 0],
+            stroke_width: 0.0,
+        },
+        ..Element::default()
+    }];
+    project.symbols[0].timeline.layers[0].keyframes[0].appearances = vec![ElementAppearance {
+        element_id: base_el_id.clone(),
+        modifiers: vec![VectorModifier::Repeater {
+            copies: 4,
+            offset_x: 15.0,
+            offset_y: 0.0,
+            scale_step: 1.0,
+            rotation_step: 0.0,
+        }],
+        ..ElementAppearance::default()
+    }];
+    let clip_id = new_id("symbol");
+    project.symbols.push(Symbol {
+        id: clip_id.clone(),
+        name: "DotClip".into(),
+        folder: String::new(),
+        kind: SymbolKind::MovieClip,
+        class_name: None,
+        linkage_id: None,
+        timeline: Timeline {
+            frame_count: 1,
+            layers: vec![Layer {
+                id: new_id("layer"),
+                name: "Layer 1".into(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: vec![Element {
+                        id: new_id("el"),
+                        name: String::new(),
+                        transform: Transform::default(),
+                        kind: ElementKind::Ellipse {
+                            width: 12.0,
+                            height: 12.0,
+                            fill: [255, 255, 255, 255],
+                            stroke: [0, 0, 0, 0],
+                            stroke_width: 0.0,
+                        },
+                        ..Element::default()
+                    }],
+                    ..Keyframe::default()
+                }],
+                properties: Default::default(),
+            }],
+            scripts: Vec::new(),
+            guides: Vec::new(),
+        },
+    });
+    project.validate().unwrap();
+
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.history.clear();
+    let baseline = editor.project.clone();
+
+    let _ = run_timeline_pass(&ctx, &mut editor, None, vec![], vec![], vec![]);
+    let zone = editor
+        .timeline_drop_zones
+        .get(&egui::ViewportId::ROOT)
+        .unwrap()
+        .clone();
+
+    // 1. Drop `.png` onto exposure frame 6 of filtered + Repeater Layer 1:
+    //    must NOT bake layer filters onto `base_el_id` and must NOT flatten/serialize `#rep` copies!
+    let pos_f6 = Pos2::new(
+        zone.grid_origin_x + 6.5 * zone.cell_width,
+        zone.list_origin_y + 0.5 * zone.row_height,
+    );
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(pos_f6),
+        vec![],
+        vec![png_path],
+        vec![],
+    );
+    let kf6 = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 6)
+        .expect("keyframe at frame 6");
+    assert!(
+        !kf6.elements.iter().any(|e| e.id.contains("#rep")),
+        "derived Repeater copies must never be baked into Keyframe.elements"
+    );
+    let preserved_rect = kf6
+        .elements
+        .iter()
+        .find(|e| e.id == base_el_id)
+        .expect("authored rectangle preserved at frame 6");
+    assert!(matches!(preserved_rect.kind, ElementKind::Rectangle { .. }));
+    assert!(
+        preserved_rect.filters.is_empty(),
+        "derived layer filters must never be baked onto element.filters"
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+
+    // 2. Drop `LibraryDrag::Symbol` onto exposure frame 10 of Layer 1.
+    let pos_f10 = Pos2::new(
+        zone.grid_origin_x + 10.5 * zone.cell_width,
+        zone.list_origin_y + 0.5 * zone.row_height,
+    );
+    editor.library_panel.drag = Some(LibraryDrag::Symbol(clip_id));
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(pos_f10),
+        vec![],
+        vec![],
+        vec![egui::Event::PointerButton {
+            pos: pos_f10,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    let kf10 = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 10)
+        .expect("keyframe at frame 10");
+    assert!(!kf10.elements.iter().any(|e| e.id.contains("#rep")));
+    let preserved_rect_10 = kf10.elements.iter().find(|e| e.id == base_el_id).unwrap();
+    assert!(matches!(
+        preserved_rect_10.kind,
+        ElementKind::Rectangle { .. }
+    ));
+    assert!(preserved_rect_10.filters.is_empty());
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+
+    // 3. Video import onto exposure frame 14 of Layer 1 (`import_video_path_at`).
+    editor.layer = 0;
+    editor.frame = 14;
+    editor
+        .import_video_path_at(&ctx, &avi_path, [160.0, 120.0])
+        .unwrap();
+    let kf14 = editor.symbol().timeline.layers[0]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 14)
+        .expect("keyframe at frame 14");
+    assert!(!kf14.elements.iter().any(|e| e.id.contains("#rep")));
+    let preserved_rect_14 = kf14.elements.iter().find(|e| e.id == base_el_id).unwrap();
+    assert!(matches!(
+        preserved_rect_14.kind,
+        ElementKind::Rectangle { .. }
+    ));
+    assert!(preserved_rect_14.filters.is_empty());
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+}
+
+#[test]
+fn t474_a02_second_video_drop_on_exposure_frame_of_video_layer_creates_dedicated_layer() {
+    let tmp = TempTestDir::new("a02-second-video");
+    let intro_path = tmp.path().join("intro.avi");
+    let broll_path = tmp.path().join("broll.avi");
+    std::fs::write(&intro_path, make_avi_bytes(64, 48, 12, 24)).unwrap(); // 2.0s -> 48 frames
+    std::fs::write(&broll_path, make_avi_bytes(40, 30, 12, 12)).unwrap(); // 1.0s -> 24 frames
+
+    let ctx = egui::Context::default();
+    let mut editor = make_one_frame_editor(&ctx);
+
+    let _ = run_timeline_pass(&ctx, &mut editor, None, vec![], vec![], vec![]);
+    let zone = editor
+        .timeline_drop_zones
+        .get(&egui::ViewportId::ROOT)
+        .unwrap()
+        .clone();
+
+    // Place first video `intro.avi` on `(Layer 1, frame = 0)`.
+    let pos_f0 = Pos2::new(
+        zone.grid_origin_x + 0.5 * zone.cell_width,
+        zone.list_origin_y + 0.5 * zone.row_height,
+    );
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(pos_f0),
+        vec![],
+        vec![intro_path],
+        vec![],
+    );
+    assert_eq!(editor.symbol().timeline.layers.len(), 1);
+    assert_eq!(editor.symbol().timeline.frame_count, 48);
+    editor.history.clear();
+    let one_video_baseline = editor.project.clone();
+
+    // 1. Timeline file drop of `broll.avi` onto `(Layer 1, frame = 20)` (an exposure frame of `intro.avi`):
+    //    must create a dedicated `broll` layer instead of cloning `intro.avi`'s `ElementKind::Video`!
+    let _ = run_timeline_pass(&ctx, &mut editor, None, vec![], vec![], vec![]);
+    let zone = editor
+        .timeline_drop_zones
+        .get(&egui::ViewportId::ROOT)
+        .unwrap()
+        .clone();
+    let pos_f20 = Pos2::new(
+        zone.grid_origin_x + 20.5 * zone.cell_width,
+        zone.list_origin_y + 0.5 * zone.row_height,
+    );
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(pos_f20),
+        vec![],
+        vec![broll_path.clone()],
+        vec![],
+    );
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    assert_eq!(editor.symbol().timeline.layers[1].name, "broll");
+    assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
+    let broll_kf = editor.symbol().timeline.layers[1]
+        .keyframes
+        .iter()
+        .find(|k| k.frame == 20)
+        .expect("broll keyframe at frame 20");
+    assert_eq!(
+        broll_kf
+            .elements
+            .iter()
+            .filter(|e| matches!(e.kind, ElementKind::Video { .. }))
+            .count(),
+        1,
+        "second video keyframe must never carry two ElementKind::Video elements"
+    );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, one_video_baseline);
+
+    // 2. Stage `import_video_path_at` at exposure frame 20 on `Layer 1` -> also creates dedicated layer!
+    editor.layer = 0;
+    editor.frame = 20;
+    editor
+        .import_video_path_at(&ctx, &broll_path, [180.0, 140.0])
+        .unwrap();
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    assert_eq!(editor.symbol().timeline.layers[1].name, "broll");
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, one_video_baseline);
+
+    // 3. Internal `LibraryDrag::Resource(video_id)` onto `(Layer 1, frame = 20)` -> dedicated layer!
+    editor
+        .import_graphics_to_library_paths(std::slice::from_ref(&broll_path))
+        .unwrap();
+    let broll_res_id = editor
+        .project
+        .resources
+        .iter()
+        .find(|r| r.path.contains("broll"))
+        .unwrap()
+        .id
+        .clone();
+    editor.history.clear();
+    let with_lib_broll = editor.project.clone();
+    editor.library_panel.drag = Some(LibraryDrag::Resource(broll_res_id));
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(pos_f20),
+        vec![],
+        vec![],
+        vec![egui::Event::PointerButton {
+            pos: pos_f20,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        }],
+    );
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    assert_eq!(editor.symbol().timeline.layers[1].name, "broll");
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, with_lib_broll);
+}
+
+#[test]
+fn t474_a03_media_and_library_drops_clear_stale_timeline_frame_selection() {
+    let tmp = TempTestDir::new("a03-range-clear");
+    let wav_path = tmp.path().join("hit.wav");
+    let png_path = tmp.path().join("icon.png");
+    std::fs::write(&wav_path, make_wav_bytes(8_000)).unwrap(); // 1.0s -> 24 frames
+    std::fs::write(&png_path, make_png_bytes(16, 16, [255, 120, 40, 255])).unwrap();
+
+    let ctx = egui::Context::default();
+    let mut project = Project::blank();
+    project.fps = 24;
+    project.symbols[0].timeline.frame_count = 12;
+    let mut editor = Editor::from_project(&ctx, project);
+    editor.history.clear();
+
+    let layer0_id = editor.symbol().timeline.layers[0].id.clone();
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer0_id.clone()],
+        start: 0,
+        end: 3,
+    });
+    assert!(editor.timeline_edit.range.is_some());
+    assert!(editor.timeline_edit.focused);
+
+    // 1. Library-only drop onto Library panel preserves active Timeline frame selection.
+    let lib_area = Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 520.0));
+    let raw_lib = egui::RawInput {
+        screen_rect: Some(lib_area),
+        events: vec![egui::Event::PointerMoved(Pos2::new(120.0, 180.0))],
+        dropped_files: vec![egui::DroppedFile {
+            path: Some(png_path.clone()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let _ = ctx.run(raw_lib, |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            editor.library_contents(ui);
+        });
+    });
+    assert!(
+        editor.timeline_edit.range.is_some(),
+        "LibraryOnly import must not clear Timeline frame selection"
+    );
+
+    // 2. Dropping `.png` onto Timeline creating `Layer 2` at frame 8 MUST clear `timeline_edit.range`
+    //    so subsequent `convert_to_keyframes` (`F6`) targets the new track rather than `Layer 1 @ 0..=3`!
+    let _ = run_timeline_pass(&ctx, &mut editor, None, vec![], vec![], vec![]);
+    let zone = editor
+        .timeline_drop_zones
+        .get(&egui::ViewportId::ROOT)
+        .unwrap()
+        .clone();
+    let below_f8 = Pos2::new(
+        zone.grid_origin_x + 8.5 * zone.cell_width,
+        zone.list_origin_y + 3.5 * zone.row_height,
+    );
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(below_f8),
+        vec![],
+        vec![png_path],
+        vec![],
+    );
+    assert_eq!(editor.layer, 1);
+    assert_eq!(editor.frame, 8);
+    assert!(
+        editor.timeline_edit.range.is_none() && !editor.timeline_edit.focused,
+        "Timeline graphic drop must clear stale timeline_edit.range"
+    );
+    let layer0_kfs_before = editor.symbol().timeline.layers[0].keyframes.clone();
+    editor.frame = 9;
+    editor.convert_to_keyframes(false);
+    assert_eq!(
+        editor.symbol().timeline.layers[0].keyframes,
+        layer0_kfs_before,
+        "F6 after Timeline drop must target the newly active layer, not stale Layer 1 range"
+    );
+    assert!(
+        editor.symbol().timeline.layers[1]
+            .keyframes
+            .iter()
+            .any(|k| k.frame == 9)
+    );
+
+    // 3. Re-select stale `Layer 1 @ 0..=3`, then drop `.wav` audio onto Timeline at frame 10:
+    //    stale `Layer 1` range is replaced by `show_frame_sound()`'s single-cell focus on the new Sound track.
+    editor.select_frame_range(FrameRange {
+        layers: vec![layer0_id],
+        start: 0,
+        end: 3,
+    });
+    let _ = run_timeline_pass(&ctx, &mut editor, None, vec![], vec![], vec![]);
+    let zone = editor
+        .timeline_drop_zones
+        .get(&egui::ViewportId::ROOT)
+        .unwrap()
+        .clone();
+    let below_f10 = Pos2::new(
+        zone.grid_origin_x + 10.5 * zone.cell_width,
+        zone.list_origin_y + 4.5 * zone.row_height,
+    );
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(below_f10),
+        vec![],
+        vec![wav_path],
+        vec![],
+    );
+    assert_eq!(editor.layer, 2);
+    assert_eq!(editor.frame, 10);
+    let new_sound_layer_id = editor.symbol().timeline.layers[2].id.clone();
+    assert_eq!(
+        editor.timeline_edit.range,
+        Some(FrameRange {
+            layers: vec![new_sound_layer_id],
+            start: 10,
+            end: 10,
+        }),
+        "Audio drop must never retain stale Layer 1 @ 0..=3 selection"
+    );
+    editor.project.validate().unwrap();
+}
+
+#[test]
+fn t474_a04_failed_media_drop_on_welcome_or_dirty_standalone_as_leaves_no_spurious_tab() {
+    let tmp = TempTestDir::new("a04-rollback-temp-session");
+    let corrupt_mp4 = tmp.path().join("corrupt.mp4");
+    let unsupported_mkv = tmp.path().join("clip.mkv");
+    let broken_png = tmp.path().join("broken.png");
+    let empty_dir = tmp.path().join("not_an_xfl_folder");
+    let as_path = tmp.path().join("Main.as");
+
+    std::fs::write(&corrupt_mp4, b"not a valid mp4 container").unwrap();
+    std::fs::write(&unsupported_mkv, b"\x1A\x45\xDF\xA3mkv").unwrap();
+    std::fs::write(&broken_png, b"not a valid png").unwrap();
+    std::fs::create_dir_all(&empty_dir).unwrap();
+    std::fs::write(&as_path, "package {\n    public class Main {}\n}\n").unwrap();
+
+    let ctx = egui::Context::default();
+
+    // 1. Empty editor window (`!has_document()`, 0 sessions): failed drops must leave 0 sessions!
+    let mut empty_ed = Editor::from_project(&ctx, Project::blank());
+    empty_ed.close_session_tab(&ctx, 0);
+    assert!(!empty_ed.has_document());
+    assert_eq!(empty_ed.session_count(), 0);
+
+    for bad_path in [&corrupt_mp4, &unsupported_mkv, &broken_png, &empty_dir] {
+        empty_ed.status.clear();
+        run_full_window_drop(
+            &ctx,
+            &mut empty_ed,
+            Some(Pos2::new(400.0, 300.0)),
+            vec![bad_path.clone()],
+        );
+        assert!(
+            !empty_ed.has_document() && empty_ed.session_count() == 0,
+            "failed drop of {:?} on Welcome screen must not leave a blank Untitled session",
+            bad_path.file_name()
+        );
+        assert!(
+            !empty_ed.status.is_empty() && empty_ed.status != "Document closed.",
+            "failure status must be preserved after rolling back temporary session (got {:?})",
+            empty_ed.status
+        );
+    }
+
+    // 2. Dirty standalone `.as` session: failed drops via window drop OR `open_path_in_session`
+    //    must keep `Main.as` active, dirty, and sole session (`session_count() == 1`)!
+    let mut as_ed = Editor::from_project(&ctx, Project::blank());
+    as_ed.close_session_tab(&ctx, 0);
+    assert!(as_ed.open_path_in_session(&ctx, as_path));
+    let dirty_code = "package {\n    public class Main { public var unsaved:int = 99; }\n}\n";
+    as_ed.transact_named("Edit AS", |ed| {
+        ed.project.sources[0].source = dirty_code.to_owned();
+    });
+    assert!(as_ed.is_standalone_script_session());
+    assert!(as_ed.dirty());
+    assert_eq!(as_ed.session_count(), 1);
+
+    for bad_path in [&corrupt_mp4, &unsupported_mkv, &broken_png, &empty_dir] {
+        as_ed.status.clear();
+        run_full_window_drop(
+            &ctx,
+            &mut as_ed,
+            Some(Pos2::new(400.0, 300.0)),
+            vec![bad_path.clone()],
+        );
+        assert_eq!(
+            as_ed.session_count(),
+            1,
+            "failed drop of {:?} must not leave a blank Untitled tab next to Main.as",
+            bad_path.file_name()
+        );
+        assert_eq!(as_ed.active_session, 0);
+        assert!(as_ed.is_standalone_script_session());
+        assert!(as_ed.dirty());
+        assert_eq!(as_ed.project.sources[0].source, dirty_code);
+        assert!(!as_ed.status.is_empty() && as_ed.status != "Document closed.");
+
+        assert!(!as_ed.open_path_in_session(&ctx, bad_path.clone()));
+        assert_eq!(as_ed.session_count(), 1);
+        assert!(as_ed.is_standalone_script_session());
+        assert!(as_ed.dirty());
+        assert_eq!(as_ed.project.sources[0].source, dirty_code);
+    }
+}

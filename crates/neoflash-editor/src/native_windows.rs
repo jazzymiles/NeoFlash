@@ -51,6 +51,14 @@ impl NativeDragWindowTarget {
             _ => false,
         }
     }
+
+    pub fn same_window(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Root, Self::Root) => true,
+            (Self::FloatingTitle(_), Self::FloatingTitle(b)) => self.matches(Some(b)),
+            _ => false,
+        }
+    }
 }
 
 /// Bounded queue bridging `public.file-url`-only macOS drags into `egui::RawInput`.
@@ -71,6 +79,24 @@ impl NativeWindowFileDragQueue {
             self.hovered = None;
         } else {
             self.hovered = Some((target, cleaned));
+        }
+    }
+
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub fn has_hovered_for(&self, target: &NativeDragWindowTarget) -> bool {
+        self.hovered
+            .as_ref()
+            .is_some_and(|(t, _)| t.same_window(target))
+    }
+
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+    pub fn clear_hovered_for(&mut self, target: &NativeDragWindowTarget) {
+        if self
+            .hovered
+            .as_ref()
+            .is_some_and(|(t, _)| t.same_window(target))
+        {
+            self.hovered = None;
         }
     }
 
@@ -715,10 +741,11 @@ mod imp {
             request_drag_repaint();
             return op;
         }
+        let target = resolve_drag_window_target(sender);
         let has_cached_hover = global_file_drag_queue()
             .lock()
             .ok()
-            .is_some_and(|q| q.hovered.is_some());
+            .is_some_and(|q| q.has_hovered_for(&target));
         if has_cached_hover {
             request_drag_repaint();
             return NS_DRAG_OPERATION_COPY;
@@ -727,7 +754,6 @@ mod imp {
         if paths.is_empty() {
             return NS_DRAG_OPERATION_NONE;
         }
-        let target = resolve_drag_window_target(sender);
         if let Ok(mut queue) = global_file_drag_queue().lock() {
             queue.set_hovered(target, paths);
         }
@@ -779,8 +805,12 @@ mod imp {
         if MainThreadMarker::new().is_none() {
             return;
         }
+        let target_opt = sender.map(resolve_drag_window_target);
         if let Ok(mut queue) = global_file_drag_queue().lock() {
-            queue.clear_hovered();
+            match target_opt {
+                Some(target) => queue.clear_hovered_for(&target),
+                None => queue.clear_hovered(),
+            }
         }
         if let Some(orig) = lookup_delegate_hooks(this).and_then(|h| h.orig_exited) {
             unsafe { orig(this, sel, sender) };
@@ -1138,4 +1168,54 @@ pub fn root_window_number() -> isize {
 #[allow(dead_code)]
 pub fn floating_window_title_for_number(_number: isize) -> Option<String> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t474_a05_overlapping_root_and_floating_hover_targets_never_starve_or_clobber_each_other() {
+        let mut queue = NativeWindowFileDragQueue::default();
+        let root_target = NativeDragWindowTarget::Root;
+        let floating_tl = NativeDragWindowTarget::FloatingTitle("Timeline — NeoFlash".into());
+        let floating_tl_short = NativeDragWindowTarget::FloatingTitle("Timeline".into());
+        let floating_lib = NativeDragWindowTarget::FloatingTitle("Library — NeoFlash".into());
+        let clip_path = PathBuf::from("/tmp/overlapping_drag.mp4");
+
+        // 1. Entering Root caches hover only for Root, NOT for overlapping floating windows.
+        queue.set_hovered(root_target.clone(), vec![clip_path.clone()]);
+        assert!(queue.has_hovered_for(&root_target));
+        assert!(!queue.has_hovered_for(&floating_tl));
+        assert!(!queue.has_hovered_for(&floating_lib));
+
+        // 2. Moving into an overlapping floating Timeline window updates hover to FloatingTitle
+        //    even before Root's `draggingExited:` fires; a subsequent `[Root draggingExited:]`
+        //    must NOT wipe the floating Timeline's active hover state!
+        queue.set_hovered(floating_tl.clone(), vec![clip_path.clone()]);
+        assert!(queue.has_hovered_for(&floating_tl));
+        assert!(queue.has_hovered_for(&floating_tl_short));
+        assert!(!queue.has_hovered_for(&root_target));
+
+        queue.clear_hovered_for(&root_target);
+        assert!(
+            queue.has_hovered_for(&floating_tl),
+            "Root draggingExited: must not wipe FloatingTitle hover state"
+        );
+
+        let ctx = eframe::egui::Context::default();
+        let _ = ctx.run(eframe::egui::RawInput::default(), |c| {
+            assert!(!queue.drain_into_context(c, None));
+            assert!(c.input(|i| i.raw.hovered_files.is_empty()));
+            assert!(queue.drain_into_context(c, Some("Timeline — NeoFlash")));
+            assert_eq!(c.input(|i| i.raw.hovered_files.len()), 1);
+        });
+
+        // 3. Leaving a different floating window (`Library`) also leaves `Timeline` intact;
+        //    leaving `Timeline` clears it cleanly.
+        queue.clear_hovered_for(&floating_lib);
+        assert!(queue.has_hovered_for(&floating_tl));
+        queue.clear_hovered_for(&floating_tl);
+        assert!(!queue.has_hovered_for(&floating_tl));
+    }
 }

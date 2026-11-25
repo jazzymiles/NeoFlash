@@ -1029,20 +1029,22 @@ impl Editor {
             symbol.timeline.frame_count = needed_frames;
         }
         let max_tl_frames = symbol.timeline.frame_count;
-        let can_reuse_layer = symbol.timeline.layers.get(self.layer).is_some_and(|l| {
-            l.properties.role == neoflash_core::LayerRole::Normal
-                && l.properties.mask.is_none()
-                && neoflash_core::layer_effective_outline_color(&symbol.timeline, l).is_none()
-                && neoflash_core::layer_effectively_visible(&symbol.timeline, l)
-                && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
-                && (!auto_create_layer
-                    || (l.keyframes.iter().all(|k| k.sound.is_none())
-                        && l.keyframes
+        let can_reuse_layer =
+            symbol.timeline.layers.get(self.layer).is_some_and(|l| {
+                l.properties.role == neoflash_core::LayerRole::Normal
+                    && l.properties.mask.is_none()
+                    && neoflash_core::layer_effective_outline_color(&symbol.timeline, l).is_none()
+                    && neoflash_core::layer_effectively_visible(&symbol.timeline, l)
+                    && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
+                    && (!auto_create_layer
+                        || (l
+                            .keyframes
                             .iter()
-                            .find(|k| k.frame == frame)
-                            .and_then(|k| k.video.as_ref())
-                            .is_none()))
-        });
+                            .all(|k| k.sound.is_none() && k.video.is_none())
+                            && !l.keyframes.iter().flat_map(|k| &k.elements).any(|e| {
+                                matches!(e.kind, neoflash_core::ElementKind::Video { .. })
+                            })))
+            });
         let layer_idx = if can_reuse_layer || !auto_create_layer {
             self.layer
         } else {
@@ -1079,7 +1081,7 @@ impl Editor {
         }
         if !layer.keyframes.iter().any(|key| key.frame == frame) {
             let previous_elements =
-                neoflash_core::sample_layer_at_fps(layer, frame, f64::from(fps));
+                neoflash_core::sample_layer_authored_pose_at_fps(layer, frame, f64::from(fps));
             layer.keyframes.push(Keyframe {
                 frame,
                 elements: previous_elements,
@@ -1128,10 +1130,31 @@ impl Editor {
         candidate.validate().map_err(|error| error.to_string())?;
 
         self.finish_edits();
+        let prev_layer = self.layer;
+        let prev_frame = self.frame;
         self.transact_named("Import video", |editor| {
             editor.project = candidate;
             editor.layer = layer_idx;
             editor.frame = frame;
+            let stale_range = editor.timeline_edit.range.as_ref().is_some_and(|r| {
+                let lid = editor
+                    .symbol()
+                    .timeline
+                    .layers
+                    .get(editor.layer)
+                    .map(|l| l.id.as_str());
+                r.layers.len() != 1
+                    || Some(r.layers[0].as_str()) != lid
+                    || r.start != editor.frame
+                    || r.end != editor.frame
+            });
+            if editor.layer != prev_layer
+                || editor.frame != prev_frame
+                || auto_create_layer
+                || stale_range
+            {
+                editor.clear_timeline_frame_selection();
+            }
             if auto_create_layer && let Some((lid, eid)) = new_video_el_id {
                 editor.selection = crate::selection::Selection {
                     symbol: symbol_id,

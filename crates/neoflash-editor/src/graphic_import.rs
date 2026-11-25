@@ -1286,6 +1286,7 @@ impl Editor {
         if stops_playback {
             self.set_playing(false);
         }
+        let clears_timeline_range = target_layer.is_some() || target_frame.is_some();
         self.transact_named(label, |editor| {
             editor.project = project;
             if let Some(layer) = target_layer {
@@ -1294,6 +1295,9 @@ impl Editor {
             if let Some(frame) = target_frame {
                 let last = editor.symbol().timeline.frame_count.saturating_sub(1);
                 editor.frame = frame.min(last);
+            }
+            if clears_timeline_range {
+                editor.clear_timeline_frame_selection();
             }
             if let Some(selection) = selection {
                 editor.selection = selection;
@@ -1657,7 +1661,7 @@ impl Editor {
                 *end = needed_end.min(max_tl);
             }
             if !layer.keyframes.iter().any(|k| k.frame == base_frame) {
-                let elems = sample_layer_at_fps(layer, base_frame, fps);
+                let elems = sample_layer_authored_pose_at_fps(layer, base_frame, fps);
                 layer.keyframes.push(Keyframe {
                     frame: base_frame,
                     elements: elems,
@@ -1696,12 +1700,14 @@ impl Editor {
                                 && layer_effective_outline_color(timeline, l).is_none()
                                 && layer_effectively_visible(timeline, l)
                                 && !layer_effectively_locked(timeline, l)
-                                && l.keyframes.iter().all(|k| k.sound.is_none())
                                 && l.keyframes
                                     .iter()
-                                    .find(|k| k.frame == base_frame)
-                                    .and_then(|k| k.video.as_ref())
-                                    .is_none()
+                                    .all(|k| k.sound.is_none() && k.video.is_none())
+                                && !l
+                                    .keyframes
+                                    .iter()
+                                    .flat_map(|k| &k.elements)
+                                    .any(|e| matches!(e.kind, ElementKind::Video { .. }))
                         })
                     });
                 let layer_idx = if reuse {
@@ -1736,7 +1742,7 @@ impl Editor {
                     *end = needed_end.min(max_tl);
                 }
                 if !layer.keyframes.iter().any(|k| k.frame == base_frame) {
-                    let elems = sample_layer_at_fps(layer, base_frame, fps);
+                    let elems = sample_layer_authored_pose_at_fps(layer, base_frame, fps);
                     layer.keyframes.push(Keyframe {
                         frame: base_frame,
                         elements: elems,
@@ -2084,7 +2090,7 @@ impl Editor {
                 *end = needed_end.min(max_tl);
             }
             if !layer.keyframes.iter().any(|k| k.frame == target_frame) {
-                let elems = sample_layer_at_fps(layer, target_frame, fps);
+                let elems = sample_layer_authored_pose_at_fps(layer, target_frame, fps);
                 layer.keyframes.push(Keyframe {
                     frame: target_frame,
                     elements: elems,
@@ -2111,6 +2117,7 @@ impl Editor {
                 if let Some(f) = set_frame {
                     editor.frame = f.min(editor.symbol().timeline.frame_count.saturating_sub(1));
                 }
+                editor.clear_timeline_frame_selection();
             });
             self.show_frame_sound();
             self.message(format!(
@@ -2163,12 +2170,14 @@ impl Editor {
                         && layer_effective_outline_color(timeline, l).is_none()
                         && layer_effectively_visible(timeline, l)
                         && !layer_effectively_locked(timeline, l)
-                        && l.keyframes.iter().all(|k| k.sound.is_none())
                         && l.keyframes
                             .iter()
-                            .find(|k| k.frame == target_frame)
-                            .and_then(|k| k.video.as_ref())
-                            .is_none()
+                            .all(|k| k.sound.is_none() && k.video.is_none())
+                        && !l
+                            .keyframes
+                            .iter()
+                            .flat_map(|k| &k.elements)
+                            .any(|e| matches!(e.kind, ElementKind::Video { .. }))
                 })
             });
             let layer_idx = if reuse {
@@ -2202,7 +2211,7 @@ impl Editor {
                 *end = needed_end.min(max_tl);
             }
             if !layer.keyframes.iter().any(|k| k.frame == target_frame) {
-                let elems = sample_layer_at_fps(layer, target_frame, fps);
+                let elems = sample_layer_authored_pose_at_fps(layer, target_frame, fps);
                 layer.keyframes.push(Keyframe {
                     frame: target_frame,
                     elements: elems,
@@ -2258,6 +2267,7 @@ impl Editor {
                 if let Some(f) = set_frame {
                     editor.frame = f.min(editor.symbol().timeline.frame_count.saturating_sub(1));
                 }
+                editor.clear_timeline_frame_selection();
                 editor.selection = selection;
             });
             self.message(format!(
@@ -2332,6 +2342,7 @@ impl Editor {
             "Import to Library"
         };
         let set_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(target_frame);
+        let clears_timeline_range = layer.is_some() || set_frame.is_some();
         self.transact_named(label, |editor| {
             editor.project = candidate;
             if let Some(layer) = layer {
@@ -2339,6 +2350,9 @@ impl Editor {
             }
             if let Some(f) = set_frame {
                 editor.frame = f.min(editor.symbol().timeline.frame_count.saturating_sub(1));
+            }
+            if clears_timeline_range {
+                editor.clear_timeline_frame_selection();
             }
             if let Some(selection) = selection {
                 editor.selection = selection;
@@ -2756,6 +2770,7 @@ impl Editor {
             ..
         } = staged;
         let set_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(target_frame);
+        let clears_timeline_range = layer.is_some() || set_frame.is_some();
         self.transact(|editor| {
             editor.project = candidate;
             if let Some(layer) = layer {
@@ -2763,6 +2778,9 @@ impl Editor {
             }
             if let Some(f) = set_frame {
                 editor.frame = f.min(editor.symbol().timeline.frame_count.saturating_sub(1));
+            }
+            if clears_timeline_range {
+                editor.clear_timeline_frame_selection();
             }
             if let Some(selection) = selection {
                 editor.selection = selection;
@@ -2815,6 +2833,7 @@ impl Editor {
             editor.project = candidate;
             if let Some(layer) = layer {
                 editor.layer = layer;
+                editor.clear_timeline_frame_selection();
             }
             if let Some(selection) = selection {
                 editor.selection = selection;
@@ -2918,7 +2937,7 @@ impl Editor {
         }
         let layer_id = layer.id.clone();
         if !layer.keyframes.iter().any(|key| key.frame == target_frame) {
-            let elems = sample_layer_at_fps(layer, target_frame, fps);
+            let elems = sample_layer_authored_pose_at_fps(layer, target_frame, fps);
             layer.keyframes.push(Keyframe {
                 frame: target_frame,
                 elements: elems,
@@ -3162,6 +3181,7 @@ impl Editor {
             editor.project = candidate;
             if let Some(layer) = layer {
                 editor.layer = layer;
+                editor.clear_timeline_frame_selection();
             }
             if let Some(selection) = selection {
                 editor.selection = selection;
@@ -3419,6 +3439,7 @@ impl Editor {
         self.transact_named("Import Figma", |editor| {
             editor.project = candidate;
             editor.layer = target_layer_idx;
+            editor.clear_timeline_frame_selection();
             editor.selection = selection;
         });
 

@@ -584,10 +584,7 @@ impl Editor {
             return self.try_import_legacy(path, ctx);
         }
         if Self::is_authoring_media_or_asset_path(&path) {
-            if !self.has_document() || self.is_standalone_script_session() {
-                self.new_document_session(ctx);
-            }
-            return self.import_dropped_media_into_active_document(
+            return self.import_media_with_auto_document_session(
                 ctx,
                 vec![path],
                 crate::graphic_import::MediaPlacementMode::Stage { point: None },
@@ -615,6 +612,38 @@ impl Editor {
                 false
             }
         }
+    }
+
+    /// Import authoring media onto the active document, opening a temporary untitled authoring
+    /// session first when no `.nflash` document is active (Welcome screen or standalone `.as` tab)
+    /// and cleanly rolling that temporary session back if the import fails (`T-474`).
+    pub(crate) fn import_media_with_auto_document_session(
+        &mut self,
+        ctx: &egui::Context,
+        paths: Vec<PathBuf>,
+        mode: crate::graphic_import::MediaPlacementMode,
+    ) -> bool {
+        let needs_temp_session = !self.has_document() || self.is_standalone_script_session();
+        if !needs_temp_session {
+            return self.import_dropped_media_into_active_document(ctx, paths, mode);
+        }
+        let prev_count = self.session_count();
+        let prev_origin = self.active_session;
+        let temp_idx = self.new_document_session(ctx);
+        let created_temp = self.session_count() > prev_count && self.active_session == temp_idx;
+        let ok = self.import_dropped_media_into_active_document(ctx, paths, mode);
+        if !ok && created_temp && !self.has_modal_dialog_in(ctx) && self.active_session == temp_idx
+        {
+            let preserved_status = self.status.clone();
+            let temp_events = self.output.events().to_vec();
+            self.close_origin = Some(prev_origin);
+            self.finish_session_close(ctx, temp_idx);
+            self.status = preserved_status;
+            if self.has_document() && !temp_events.is_empty() {
+                self.push_output_batch_coalesced(temp_events);
+            }
+        }
+        ok
     }
 
     pub(crate) fn session_for_path(&self, path: &Path) -> Option<usize> {
