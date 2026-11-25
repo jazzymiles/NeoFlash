@@ -791,6 +791,7 @@ fn mixed_tab_strip_drop_places_media_before_activating_script_tab() {
 
     let ctx = egui::Context::default();
     let mut editor = make_one_frame_editor(&ctx);
+    let before = editor.project.clone();
     run_full_window_drop(
         &ctx,
         &mut editor,
@@ -801,8 +802,9 @@ fn mixed_tab_strip_drop_places_media_before_activating_script_tab() {
     assert_eq!(editor.session_count(), 2);
     assert!(editor.switch_session_tab(&ctx, 0));
     assert!(editor.project.symbols.iter().any(|s| s.name == "badge"));
-    assert_eq!(editor.undo_menu_label(), "Undo Import files");
     editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, before);
 }
 
 #[test]
