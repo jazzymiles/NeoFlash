@@ -70,15 +70,11 @@ pub struct NativeWindowFileDragQueue {
 
 impl NativeWindowFileDragQueue {
     pub fn set_hovered(&mut self, target: NativeDragWindowTarget, paths: Vec<PathBuf>) {
-        let cleaned: Vec<PathBuf> = paths
-            .into_iter()
-            .filter(|p| !p.as_os_str().is_empty())
-            .take(MAX_NATIVE_DRAG_FILE_URLS)
-            .collect();
-        if cleaned.is_empty() {
-            self.hovered = None;
+        let paths = Self::bounded_paths(paths);
+        if paths.is_empty() {
+            self.clear_hovered_for(&target);
         } else {
-            self.hovered = Some((target, cleaned));
+            self.hovered = Some((target, paths));
         }
     }
 
@@ -106,19 +102,23 @@ impl NativeWindowFileDragQueue {
     }
 
     pub fn push_dropped(&mut self, target: NativeDragWindowTarget, paths: Vec<PathBuf>) {
-        self.hovered = None;
-        let cleaned: Vec<PathBuf> = paths
-            .into_iter()
-            .filter(|p| !p.as_os_str().is_empty())
-            .take(MAX_NATIVE_DRAG_FILE_URLS)
-            .collect();
-        if cleaned.is_empty() {
+        self.clear_hovered_for(&target);
+        let paths = Self::bounded_paths(paths);
+        if paths.is_empty() {
             return;
         }
         while self.dropped_batches.len() >= MAX_QUEUED_NATIVE_DROP_BATCHES {
             self.dropped_batches.pop_front();
         }
-        self.dropped_batches.push_back((target, cleaned));
+        self.dropped_batches.push_back((target, paths));
+    }
+
+    fn bounded_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+        paths
+            .into_iter()
+            .filter(|path| !path.as_os_str().is_empty())
+            .take(MAX_NATIVE_DRAG_FILE_URLS)
+            .collect()
     }
 
     /// Inject fallback `public.file-url` hover/drop files into `ctx` only when `winit` did not
@@ -134,7 +134,6 @@ impl NativeWindowFileDragQueue {
             .filter(|(target, _)| target.matches(floating_title))
             .map(|(_, paths)| paths.clone());
 
-        let mut matching_drops: Vec<PathBuf> = Vec::new();
         let has_matching_drop = self
             .dropped_batches
             .iter()
@@ -145,6 +144,7 @@ impl NativeWindowFileDragQueue {
         }
 
         let mut injected = false;
+        let mut retry_drop = false;
         ctx.input_mut(|input| {
             if let Some(hover_paths) = matching_hover
                 && input.raw.hovered_files.is_empty()
@@ -158,28 +158,48 @@ impl NativeWindowFileDragQueue {
                     .collect();
                 injected = !input.raw.hovered_files.is_empty();
             }
-            if has_matching_drop && input.raw.dropped_files.is_empty() {
-                let mut retained = VecDeque::with_capacity(self.dropped_batches.len());
-                while let Some((target, paths)) = self.dropped_batches.pop_front() {
-                    if target.matches(floating_title) {
-                        matching_drops.extend(paths);
-                    } else {
-                        retained.push_back((target, paths));
+            if !has_matching_drop {
+                return;
+            }
+            if input.raw.dropped_files.is_empty() {
+                let mut matching_drops = Vec::new();
+                self.dropped_batches.retain_mut(|(target, paths)| {
+                    if !target.matches(floating_title) {
+                        return true;
                     }
-                }
-                self.dropped_batches = retained;
-                if !matching_drops.is_empty() {
-                    input.raw.dropped_files = matching_drops
-                        .into_iter()
-                        .map(|path| eframe::egui::DroppedFile {
-                            path: Some(path),
-                            ..Default::default()
-                        })
-                        .collect();
-                    injected = true;
-                }
+                    matching_drops.append(paths);
+                    false
+                });
+                input.raw.dropped_files = matching_drops
+                    .into_iter()
+                    .map(|path| eframe::egui::DroppedFile {
+                        path: Some(path),
+                        ..Default::default()
+                    })
+                    .collect();
+                injected = true;
+            } else {
+                // Keep a different pending drop for a later frame, but discard files already
+                // delivered by winit so the same drop cannot reappear after RawInput clears.
+                let delivered: HashSet<_> = input
+                    .raw
+                    .dropped_files
+                    .iter()
+                    .filter_map(|file| file.path.as_deref())
+                    .collect();
+                self.dropped_batches.retain_mut(|(target, paths)| {
+                    if !target.matches(floating_title) {
+                        return true;
+                    }
+                    paths.retain(|path| !delivered.contains(path.as_path()));
+                    retry_drop |= !paths.is_empty();
+                    !paths.is_empty()
+                });
             }
         });
+        if retry_drop {
+            ctx.request_repaint_of(eframe::egui::ViewportId::ROOT);
+        }
         injected
     }
 }
@@ -772,29 +792,26 @@ mod imp {
         let Some(sender) = sender else {
             return Bool::NO;
         };
-        if pasteboard_has_legacy_filenames(sender) {
-            if let Ok(mut queue) = global_file_drag_queue().lock() {
-                queue.clear_hovered();
-            }
-            let res = lookup_delegate_hooks(this)
-                .and_then(|h| h.orig_perform)
-                .map_or(Bool::NO, |orig| unsafe { orig(this, sel, Some(sender)) });
-            request_drag_repaint();
-            return res;
-        }
-        let paths = read_pasteboard_file_urls(sender);
-        if paths.is_empty() {
-            if let Ok(mut queue) = global_file_drag_queue().lock() {
-                queue.clear_hovered();
-            }
-            return Bool::NO;
-        }
         let target = resolve_drag_window_target(sender);
+        let legacy = pasteboard_has_legacy_filenames(sender);
+        let paths = if legacy {
+            Vec::new()
+        } else {
+            read_pasteboard_file_urls(sender)
+        };
+        let accepted = !paths.is_empty();
         if let Ok(mut queue) = global_file_drag_queue().lock() {
             queue.push_dropped(target, paths);
         }
+        let result = if legacy {
+            lookup_delegate_hooks(this)
+                .and_then(|hooks| hooks.orig_perform)
+                .map_or(Bool::NO, |orig| unsafe { orig(this, sel, Some(sender)) })
+        } else {
+            Bool::new(accepted)
+        };
         request_drag_repaint();
-        Bool::YES
+        result
     }
 
     unsafe extern "C-unwind" fn swizzled_dragging_exited(
@@ -1215,7 +1232,60 @@ mod tests {
         //    leaving `Timeline` clears it cleanly.
         queue.clear_hovered_for(&floating_lib);
         assert!(queue.has_hovered_for(&floating_tl));
+        queue.set_hovered(floating_lib.clone(), vec![]);
+        queue.push_dropped(root_target, vec![clip_path]);
+        assert!(queue.has_hovered_for(&floating_tl));
         queue.clear_hovered_for(&floating_tl);
         assert!(!queue.has_hovered_for(&floating_tl));
+    }
+
+    #[test]
+    fn matching_winit_drop_is_not_replayed_and_other_pending_files_are_retained() {
+        use eframe::egui::{Context, DroppedFile, RawInput};
+
+        let duplicate = PathBuf::from("/tmp/shared.mp4");
+        let other = PathBuf::from("/tmp/other.wav");
+        let mut queue = NativeWindowFileDragQueue::default();
+        queue.push_dropped(
+            NativeDragWindowTarget::Root,
+            vec![duplicate.clone(), other.clone()],
+        );
+        queue.push_dropped(
+            NativeDragWindowTarget::FloatingTitle("Library — NeoFlash".into()),
+            vec![duplicate.clone()],
+        );
+
+        let ctx = Context::default();
+        let winit_input = RawInput {
+            dropped_files: vec![DroppedFile {
+                path: Some(duplicate.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let dropped_paths = |ctx: &Context| {
+            ctx.input(|input| {
+                input
+                    .raw
+                    .dropped_files
+                    .iter()
+                    .filter_map(|file| file.path.clone())
+                    .collect::<Vec<_>>()
+            })
+        };
+        let _ = ctx.run(winit_input, |ctx| {
+            assert!(!queue.drain_into_context(ctx, None));
+            assert_eq!(dropped_paths(ctx), std::slice::from_ref(&duplicate));
+        });
+        let _ = ctx.run(RawInput::default(), |ctx| {
+            assert!(queue.drain_into_context(ctx, None));
+            assert_eq!(dropped_paths(ctx), std::slice::from_ref(&other));
+        });
+        let _ = ctx.run(RawInput::default(), |ctx| {
+            assert!(!queue.drain_into_context(ctx, None));
+            assert!(dropped_paths(ctx).is_empty());
+            assert!(queue.drain_into_context(ctx, Some("Library")));
+            assert_eq!(dropped_paths(ctx), std::slice::from_ref(&duplicate));
+        });
     }
 }

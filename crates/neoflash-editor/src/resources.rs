@@ -43,15 +43,16 @@ impl Editor {
             .map(|resource| resource.path.to_lowercase())
             .collect();
         for path in paths {
-            let unit = if is_font_import_path(path) {
-                let mut f_unit = read_font_resource(path, remaining)?;
-                f_unit.path =
-                    unique_font_resource_path_from_reserved(&reserved_paths, &f_unit.path);
-                reserved_paths.insert(f_unit.path.to_lowercase());
-                f_unit
+            let mut unit = if is_font_import_path(path) {
+                read_font_resource(path, remaining)?
             } else {
                 read_resource(path, remaining)?
             };
+            if unit.is_audio() || neoflash_core::is_font_resource_unit(&unit) {
+                unit.path =
+                    unique_imported_resource_path_from_reserved(&reserved_paths, &unit.path);
+            }
+            reserved_paths.insert(unit.path.to_lowercase());
             remaining -= unit.byte_len();
             if unit.is_audio() {
                 audio_sources.push((unit.id.clone(), path.clone()));
@@ -618,40 +619,47 @@ fn is_valid_font_magic(bytes: &[u8]) -> bool {
 }
 
 pub(crate) fn unique_font_resource_path(existing: &[ResourceUnit], requested: &str) -> String {
+    unique_imported_resource_path(existing, requested)
+}
+
+pub(crate) fn unique_imported_resource_path(existing: &[ResourceUnit], requested: &str) -> String {
     let reserved: HashSet<String> = existing
         .iter()
         .map(|resource| resource.path.to_lowercase())
         .collect();
-    unique_font_resource_path_from_reserved(&reserved, requested)
+    unique_imported_resource_path_from_reserved(&reserved, requested)
 }
 
-fn unique_font_resource_path_from_reserved(reserved: &HashSet<String>, requested: &str) -> String {
+fn unique_imported_resource_path_from_reserved(
+    reserved: &HashSet<String>,
+    requested: &str,
+) -> String {
     if !reserved.contains(&requested.to_lowercase()) {
         return requested.to_owned();
     }
-    let req_path = Path::new(requested);
-    let parent = req_path
-        .parent()
-        .and_then(|p| p.to_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("fonts");
+    let (prefix, filename) = requested
+        .rsplit_once('/')
+        .map_or((String::new(), requested), |(parent, name)| {
+            (format!("{parent}/"), name)
+        });
+    let req_path = Path::new(filename);
     let stem = req_path
         .file_stem()
         .and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
-        .unwrap_or("font");
-    let ext = req_path.extension().and_then(|s| s.to_str()).unwrap_or("");
-    for idx in 2..=10_000 {
-        let candidate = if ext.is_empty() {
-            format!("{parent}/{stem}-{idx}")
-        } else {
-            format!("{parent}/{stem}-{idx}.{ext}")
-        };
+        .unwrap_or("resource");
+    let ext = req_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .map_or_else(String::new, |s| format!(".{s}"));
+    for idx in 2..=reserved.len() + 1 {
+        let candidate = format!("{prefix}{stem}-{idx}{ext}");
         if !reserved.contains(&candidate.to_lowercase()) {
             return candidate;
         }
     }
-    format!("{parent}/{stem}-{}", new_id("font"))
+    unreachable!("the finite resource list always leaves a unique path")
 }
 
 pub(crate) fn read_font_resource(path: &Path, remaining: usize) -> Result<ResourceUnit, String> {

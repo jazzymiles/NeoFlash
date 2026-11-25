@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed repeated macOS file drops and placement of media dropped alongside ActionScript files on the tab strip.
+  Welcome opens document and script drops in order, and the tab strip recognizes SWF content without a `.swf` suffix.
+  Audio clips with the same filename can be imported together. Reusing a Progressive video from Library keeps its
+  original URL, and WebM and Ogg video placement uses the decoded duration when available.
+
 - Added **After Effects–style media drag-and-drop** onto **Timeline** (docked and floating), **Stage**, and **Library** (`T-474`):
   - **Finder & Library Drops Across Timeline, Stage & Library:** Dragging audio (`.mp3`, `.wav`, `.ogg`, `.flac`, `.aac`, `.m4a`, `.aif`/`.aiff`, `.caf`, `.opus`), video (`.mp4`, `.m4v`, `.mov`, `.webm`, `.ogv`, `.avi`), images, vectors, or numbered image sequences onto a docked or detached **Timeline** places single clips onto a compatible unlocked layer at the hovered frame (or active playhead when dropped on a layer header), creates dedicated stem-named tracks (`Sound` layers for audio, normal layers for video/graphics) when dropping multiple tracks, onto locked/folder/occupied layers, or into empty Timeline space, expands the timeline to fit decoded audio/video or sequence duration, and commits the entire batch in **one Undo step**. Dropping files onto **Library** imports audio, video, graphics, sequences, `.swc`, fonts, and palettes as reusable resources/symbols without mutating Stage artwork, and **Library** rows for audio, video, images, and symbols can be dragged directly onto **Timeline** or **Stage** (auto-creating an untitled document when dropped with no project open or from a standalone `.as` tab, and rolling back cleanly if import fails).
   - **macOS `public.file-url` Pasteboard & Live Pointer Resolution:** Registered `NSPasteboardTypeFileURL` (`public.file-url`) and `NSWindowDelegate` `draggingEntered:`/`draggingUpdated:`/`performDragOperation:` handling alongside `NSFilenamesPboardType` across the main and floating windows without duplicate events, and resolved drop targets from live screen coordinates (`pointer_state()`) so stale top-bar cursor positions never misroute media drops into project JSON loading.

@@ -187,6 +187,104 @@ struct PreparedAudioFile {
     duration_sec: Option<f64>,
 }
 
+fn import_audio_duration(unit: &ResourceUnit) -> Option<f64> {
+    crate::timeline_sound::decode_unit(unit)
+        .ok()
+        .map(|audio| audio.duration())
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+}
+
+fn compatible_audio_layer(
+    timeline: &Timeline,
+    candidate_layer: Option<usize>,
+    target_frame: u32,
+) -> Option<usize> {
+    candidate_layer.filter(|&index| {
+        timeline.layers.get(index).is_some_and(|layer| {
+            layer.properties.role == LayerRole::Normal
+                && layer.properties.mask.is_none()
+                && layer_effective_outline_color(timeline, layer).is_none()
+                && layer_effectively_visible(timeline, layer)
+                && !layer_effectively_locked(timeline, layer)
+                && layer
+                    .keyframes
+                    .iter()
+                    .all(|key| key.elements.is_empty() && key.video.is_none())
+                && layer
+                    .keyframes
+                    .iter()
+                    .find(|key| key.frame == target_frame)
+                    .and_then(|key| key.sound.as_ref())
+                    .is_none()
+        })
+    })
+}
+
+fn stage_audio_attachment(
+    symbol: &mut Symbol,
+    existing_layer: Option<usize>,
+    frame: u32,
+    fps: f64,
+    duration_sec: Option<f64>,
+    resource: Id,
+    layer_name: &str,
+) -> usize {
+    let timeline = &mut symbol.timeline;
+    let layer_index = existing_layer.unwrap_or_else(|| {
+        timeline.layers.push(Layer {
+            id: new_id("layer"),
+            name: layer_name.to_owned(),
+            visible: true,
+            locked: false,
+            properties: Default::default(),
+            keyframes: if frame > 0 {
+                vec![Keyframe::default()]
+            } else {
+                Vec::new()
+            },
+        });
+        timeline.layers.len() - 1
+    });
+    let audio_frames = duration_sec
+        .map(|seconds| ((seconds * fps).ceil() as u32).clamp(1, 36_000))
+        .unwrap_or(1);
+    let needed_end = if symbol.kind == SymbolKind::Button {
+        timeline.frame_count.max(frame + 1).min(4)
+    } else {
+        frame.saturating_add(audio_frames)
+    };
+    timeline.frame_count = timeline.frame_count.max(needed_end);
+    let layer = &mut timeline.layers[layer_index];
+    if let Some(end) = &mut layer.properties.end_frame {
+        *end = (*end).max(needed_end);
+    }
+    let key_index = match layer
+        .keyframes
+        .binary_search_by_key(&frame, |key| key.frame)
+    {
+        Ok(index) => index,
+        Err(index) => {
+            let elements = sample_layer_authored_pose_at_fps(layer, frame, fps);
+            layer.keyframes.insert(
+                index,
+                Keyframe {
+                    frame,
+                    elements,
+                    ..Keyframe::default()
+                },
+            );
+            index
+        }
+    };
+    let key = &mut layer.keyframes[key_index];
+    key.keyed_properties = None;
+    key.motion_keys = None;
+    key.roving = false;
+    key.sound = Some(FrameSound::new(resource));
+    layer.normalize_motion_keys();
+    layer_index
+}
+
 #[derive(Clone)]
 struct PreparedFileImport {
     swcs: Vec<(PathBuf, neoflash_import::SwcLibrary)>,
@@ -1227,10 +1325,11 @@ impl Editor {
         for audio_path in &audio_paths {
             let unit = crate::resources::read_audio_resource(audio_path, remaining)?;
             remaining = remaining.saturating_sub(unit.byte_len());
-            let duration_sec = crate::timeline_sound::decode_unit(&unit)
-                .ok()
-                .map(|d| d.duration())
-                .filter(|d| d.is_finite() && *d > 0.0);
+            let duration_sec = if place_on_stage {
+                import_audio_duration(&unit)
+            } else {
+                None
+            };
             let stem = audio_path
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -1409,8 +1508,10 @@ impl Editor {
             candidate.format_version = candidate.format_version.max(3);
             for prepared_unit in &prepared.fonts {
                 let mut unit = prepared_unit.clone();
-                unit.path =
-                    crate::resources::unique_font_resource_path(&candidate.resources, &unit.path);
+                unit.path = crate::resources::unique_imported_resource_path(
+                    &candidate.resources,
+                    &unit.path,
+                );
                 resource_selected = Some(unit.id.clone());
                 candidate.resources.push(unit.clone());
                 crate::resources::upsert_imported_font_embedding_metadata(
@@ -1426,8 +1527,13 @@ impl Editor {
             }
             candidate.format_version = candidate.format_version.max(3);
             for audio_item in &prepared.audio {
-                resource_selected = Some(audio_item.unit.id.clone());
-                candidate.resources.push(audio_item.unit.clone());
+                let mut unit = audio_item.unit.clone();
+                unit.path = crate::resources::unique_imported_resource_path(
+                    &candidate.resources,
+                    &unit.path,
+                );
+                resource_selected = Some(unit.id.clone());
+                candidate.resources.push(unit);
             }
         }
 
@@ -1603,83 +1709,26 @@ impl Editor {
         // 1. Place audio track(s).
         for audio_item in &prepared.audio {
             let fps = f64::from(candidate.fps.max(1));
-            let audio_frames = audio_item
-                .duration_sec
-                .map(|dur| ((dur * fps).ceil() as u32).clamp(1, 36_000))
-                .unwrap_or(1);
-            let timeline = &mut candidate
+            let symbol = candidate
                 .symbol_mut(&symbol_id)
-                .ok_or("The current symbol was removed.")?
-                .timeline;
-            let reuse = stage_shared_empty_layer
-                || (single_track
-                    && candidate_layer_idx.is_some_and(|idx| {
-                        timeline.layers.get(idx).is_some_and(|l| {
-                            l.properties.role == LayerRole::Normal
-                                && l.properties.mask.is_none()
-                                && layer_effective_outline_color(timeline, l).is_none()
-                                && layer_effectively_visible(timeline, l)
-                                && !layer_effectively_locked(timeline, l)
-                                && l.keyframes
-                                    .iter()
-                                    .all(|k| k.elements.is_empty() && k.video.is_none())
-                                && l.keyframes
-                                    .iter()
-                                    .find(|k| k.frame == base_frame)
-                                    .and_then(|k| k.sound.as_ref())
-                                    .is_none()
-                        })
-                    }));
-            let layer_idx = if reuse {
-                candidate_layer_idx.unwrap()
+                .ok_or("The current symbol was removed.")?;
+            let existing_layer = if stage_shared_empty_layer {
+                candidate_layer_idx
+            } else if single_track {
+                compatible_audio_layer(&symbol.timeline, candidate_layer_idx, base_frame)
             } else {
-                let mut keyframes = Vec::new();
-                if base_frame > 0 {
-                    keyframes.push(Keyframe::default());
-                }
-                timeline.layers.push(Layer {
-                    id: new_id("layer"),
-                    name: audio_item.stem.clone(),
-                    visible: true,
-                    locked: false,
-                    properties: Default::default(),
-                    keyframes,
-                });
-                timeline.layers.len() - 1
+                None
             };
-            let needed_end = if is_button {
-                timeline.frame_count.max(base_frame + 1).min(4)
-            } else {
-                base_frame.saturating_add(audio_frames)
-            };
-            timeline.frame_count = timeline.frame_count.max(needed_end);
-            let max_tl = timeline.frame_count;
-            let layer = &mut timeline.layers[layer_idx];
-            if let Some(end) = &mut layer.properties.end_frame
-                && *end < needed_end.min(max_tl)
-            {
-                *end = needed_end.min(max_tl);
-            }
-            if !layer.keyframes.iter().any(|k| k.frame == base_frame) {
-                let elems = sample_layer_authored_pose_at_fps(layer, base_frame, fps);
-                layer.keyframes.push(Keyframe {
-                    frame: base_frame,
-                    elements: elems,
-                    ..Keyframe::default()
-                });
-                layer.keyframes.sort_by_key(|k| k.frame);
-            }
-            let key = layer
-                .keyframes
-                .iter_mut()
-                .find(|k| k.frame == base_frame)
-                .ok_or("Could not create an audio import keyframe.")?;
-            key.keyed_properties = None;
-            key.motion_keys = None;
-            key.roving = false;
-            key.sound = Some(FrameSound::new(audio_item.unit.id.clone()));
-            layer.normalize_motion_keys();
-            final_layer = Some(layer_idx);
+            let layer = stage_audio_attachment(
+                symbol,
+                existing_layer,
+                base_frame,
+                fps,
+                audio_item.duration_sec,
+                audio_item.unit.id.clone(),
+                &audio_item.stem,
+            );
+            final_layer = Some(layer);
             audio_attached_count += 1;
         }
 
@@ -2032,82 +2081,21 @@ impl Editor {
                 _ => Some(self.layer),
             };
             let fps = f64::from(candidate.fps.max(1));
-            let audio_frames = crate::timeline_sound::decode_unit(&unit)
-                .ok()
-                .map(|d| d.duration())
-                .filter(|d| d.is_finite() && *d > 0.0)
-                .map(|dur| ((dur * fps).ceil() as u32).clamp(1, 36_000))
-                .unwrap_or(1);
-            let timeline = &mut candidate
+            let duration_sec = import_audio_duration(&unit);
+            let symbol = candidate
                 .symbol_mut(&symbol_id)
-                .ok_or("The current symbol was removed.")?
-                .timeline;
-            let reuse = candidate_layer.is_some_and(|idx| {
-                timeline.layers.get(idx).is_some_and(|l| {
-                    l.properties.role == LayerRole::Normal
-                        && l.properties.mask.is_none()
-                        && layer_effective_outline_color(timeline, l).is_none()
-                        && layer_effectively_visible(timeline, l)
-                        && !layer_effectively_locked(timeline, l)
-                        && l.keyframes
-                            .iter()
-                            .all(|k| k.elements.is_empty() && k.video.is_none())
-                        && l.keyframes
-                            .iter()
-                            .find(|k| k.frame == target_frame)
-                            .and_then(|k| k.sound.as_ref())
-                            .is_none()
-                })
-            });
-            let layer_idx = if reuse {
-                candidate_layer.unwrap()
-            } else {
-                let mut keyframes = Vec::new();
-                if target_frame > 0 {
-                    keyframes.push(Keyframe::default());
-                }
-                timeline.layers.push(Layer {
-                    id: new_id("layer"),
-                    name: stem,
-                    visible: true,
-                    locked: false,
-                    properties: Default::default(),
-                    keyframes,
-                });
-                timeline.layers.len() - 1
-            };
-            let needed_end = if is_button {
-                timeline.frame_count.max(target_frame + 1).min(4)
-            } else {
-                target_frame.saturating_add(audio_frames)
-            };
-            timeline.frame_count = timeline.frame_count.max(needed_end);
-            let max_tl = timeline.frame_count;
-            let layer = &mut timeline.layers[layer_idx];
-            if let Some(end) = &mut layer.properties.end_frame
-                && *end < needed_end.min(max_tl)
-            {
-                *end = needed_end.min(max_tl);
-            }
-            if !layer.keyframes.iter().any(|k| k.frame == target_frame) {
-                let elems = sample_layer_authored_pose_at_fps(layer, target_frame, fps);
-                layer.keyframes.push(Keyframe {
-                    frame: target_frame,
-                    elements: elems,
-                    ..Keyframe::default()
-                });
-                layer.keyframes.sort_by_key(|k| k.frame);
-            }
-            let key = layer
-                .keyframes
-                .iter_mut()
-                .find(|k| k.frame == target_frame)
-                .ok_or("Could not create an audio keyframe.")?;
-            key.keyed_properties = None;
-            key.motion_keys = None;
-            key.roving = false;
-            key.sound = Some(FrameSound::new(unit.id.clone()));
-            layer.normalize_motion_keys();
+                .ok_or("The current symbol was removed.")?;
+            let existing_layer =
+                compatible_audio_layer(&symbol.timeline, candidate_layer, target_frame);
+            let layer_idx = stage_audio_attachment(
+                symbol,
+                existing_layer,
+                target_frame,
+                fps,
+                duration_sec,
+                unit.id.clone(),
+                &stem,
+            );
             crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
             candidate.validate().map_err(|e| e.to_string())?;
             let set_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(target_frame);
@@ -5212,6 +5200,67 @@ mod tests {
         }
         std::fs::write(&wav_path, wav_bytes).unwrap();
         wav_path
+    }
+
+    #[test]
+    fn audio_files_with_matching_names_keep_distinct_resource_paths_and_sources() {
+        let temp = std::env::temp_dir().join(new_id("neoflash-audio-collision"));
+        let first = temp.join("first");
+        let second = temp.join("second");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        let first_wav = write_test_wav(&first);
+        let second_wav = second.join("CLICK.WAV");
+        std::fs::copy(&first_wav, &second_wav).unwrap();
+        let paths = [first_wav, second_wav];
+        let ctx = egui::Context::default();
+
+        for attach_to_timeline in [true, false] {
+            let original = Project::blank();
+            let mut editor = Editor::from_project(&ctx, original.clone());
+            editor.history.clear();
+            if attach_to_timeline {
+                editor
+                    .import_media_paths(
+                        &paths,
+                        MediaPlacementMode::Timeline(TimelineDropPlacement {
+                            frame: 3,
+                            hovered_layer: Some(0),
+                        }),
+                    )
+                    .unwrap();
+            } else {
+                editor.import_resource_paths(&paths).unwrap();
+            }
+            let resources = &editor.project.resources;
+            assert_eq!(resources.len(), 2);
+            assert_eq!(resources[0].path, "click.wav");
+            assert_eq!(resources[1].path, "CLICK-2.WAV");
+            for (resource, file) in resources.iter().zip(&paths) {
+                assert_eq!(
+                    editor.timeline_audio.source_paths.get(&resource.id),
+                    Some(file)
+                );
+            }
+            if attach_to_timeline {
+                let mut sounds = editor
+                    .symbol()
+                    .timeline
+                    .layers
+                    .iter()
+                    .flat_map(|layer| &layer.keyframes)
+                    .filter_map(|key| key.sound.as_ref().map(|sound| (key.frame, &sound.resource)));
+                assert_eq!(sounds.next(), Some((3, &resources[0].id)));
+                assert_eq!(sounds.next(), Some((3, &resources[1].id)));
+                assert_eq!(sounds.next(), None);
+            }
+            editor.project.validate().unwrap();
+            assert_eq!(editor.history.undo_len(), 1);
+            editor.undo();
+            assert_eq!(editor.project, original);
+        }
+
+        std::fs::remove_dir_all(temp).unwrap();
     }
 
     #[test]

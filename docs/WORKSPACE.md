@@ -95,6 +95,10 @@ Drag SVG, PNG, JPEG, WebP, GIF, BMP, TIFF, numbered image sequences, video (`MP4
 
 Imported graphics and videos are fitted within the page around the Stage drop point or visible view center (or centered on Stage when dropped onto Timeline). If the target layer is a folder, guide, mask, locked, hidden, outlined or already occupied by incompatible media, import creates stem-named visible normal or Sound layers and expands the timeline to cover decoded audio/video or sequence duration. Placement selects the new objects and stops playback. Native Finder drags accept both `public.file-url` and filename pasteboards and resolve live desktop pointer coordinates per window even when the window system does not send ordinary pointer movement events.
 
+Dropping media together with `.as` files on the tab strip places the media before opening the scripts. The tab strip
+also recognizes Flash containers by their contents. Audio files with matching names get distinct Library resource
+paths. Dragging a Progressive video from Library retains its source URL.
+
 Try `examples/authoring-workspace.nflash` and drag `examples/authoring-badge.svg` onto its stage. Document format 4 and later preserve layer roles and library folders; older documents remain readable.
 
 ## Drawing and color

@@ -740,6 +740,72 @@ fn t474_stage_drop_on_locked_or_folder_layer_and_motion_and_button_invariants() 
 }
 
 #[test]
+fn window_drop_keeps_document_order_and_recognizes_extensionless_swf() {
+    let tmp = TempTestDir::new("ordered-document-drop");
+    let script = tmp.path().join("Script.as");
+    let movie = tmp.path().join("movie");
+    std::fs::write(&script, "trace('ready');").unwrap();
+    // Uncompressed SWF, one 100 × 100 frame, with ShowFrame and End tags.
+    std::fs::write(
+        &movie,
+        b"FWS\x08\x18\x00\x00\x00\x60\x00\x1f\x40\x00\x07\xd0\x00\x00\x18\x01\x00\x40\x00\x00\x00",
+    )
+    .unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = make_one_frame_editor(&ctx);
+    editor.sessions.clear();
+    run_full_window_drop(
+        &ctx,
+        &mut editor,
+        Some(Pos2::new(400.0, 300.0)),
+        vec![script.clone(), movie.clone()],
+    );
+    assert_eq!(editor.session_count(), 2);
+    assert!(!editor.is_standalone_script_session());
+    assert_eq!(
+        editor.import_source,
+        Some(movie.clone().canonicalize().unwrap())
+    );
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert_eq!(editor.standalone_script_source(), Some("trace('ready');"));
+
+    let mut editor = make_one_frame_editor(&ctx);
+    run_full_window_drop(
+        &ctx,
+        &mut editor,
+        Some(Pos2::new(420.0, 10.0)),
+        vec![movie.clone()],
+    );
+    assert_eq!(editor.session_count(), 2);
+    assert_eq!(editor.import_source, Some(movie.canonicalize().unwrap()));
+}
+
+#[test]
+fn mixed_tab_strip_drop_places_media_before_activating_script_tab() {
+    let tmp = TempTestDir::new("mixed-tab-strip-drop");
+    let script = tmp.path().join("Script.as");
+    let image = tmp.path().join("badge.png");
+    std::fs::write(&script, "trace('ready');").unwrap();
+    std::fs::write(&image, make_png_bytes(20, 20, [200, 100, 50, 255])).unwrap();
+
+    let ctx = egui::Context::default();
+    let mut editor = make_one_frame_editor(&ctx);
+    run_full_window_drop(
+        &ctx,
+        &mut editor,
+        Some(Pos2::new(420.0, 10.0)),
+        vec![script, image],
+    );
+    assert!(editor.is_standalone_script_session());
+    assert_eq!(editor.session_count(), 2);
+    assert!(editor.switch_session_tab(&ctx, 0));
+    assert!(editor.project.symbols.iter().any(|s| s.name == "badge"));
+    assert_eq!(editor.undo_menu_label(), "Undo Import files");
+    editor.project.validate().unwrap();
+}
+
+#[test]
 fn t474_stale_over_top_chrome_pointer_empty_window_and_dirty_standalone_as_preservation() {
     let tmp = TempTestDir::new("top-chrome-and-sessions");
     let wav_path = tmp.path().join("loop.wav");
