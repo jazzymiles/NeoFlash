@@ -2,7 +2,7 @@
 
 Open-source vector animation, interactive media and application authoring studio inspired by classic Macromedia/Adobe Flash before Animate, built in Rust. NeoFlash gives illustrators, animators, web designers and game makers one responsive workspace with HTML5 + WebAssembly as its primary publishing target—requiring no Flash Player, browser plug-in or external CDN.
 
-**Status: `0.1.0-beta.1` for macOS 15+ (Apple Silicon), with Windows x64 and Linux x64 Technical Previews.** Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
+**Beta 1 supports macOS 15+ on Apple Silicon and macOS 12+ on Intel, with Windows x64 and Ubuntu 24.04 x64 Technical Previews.** Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
 ## Key capabilities
 
@@ -22,8 +22,8 @@ Open-source vector animation, interactive media and application authoring studio
 | Timelines and animation | 84 of 84 | 0 | 0 | 10 / 0 / 0 |
 | HTML5 and interactivity | 111 of 111 | 0 | 0 | 12 / 0 / 0 |
 | Import and file compatibility | 69 of 69 | 0 | 0 | 10 / 0 / 0 |
-| Platform and quality | 65 of 68 | 2 | 1 | 9 / 1 / 0 |
-| **All areas** | 499 of 502 | 2 | 1 | 53 / 1 / 0 |
+| Platform and quality | 66 of 68 | 1 | 1 | 9 / 1 / 0 |
+| **All areas** | 500 of 502 | 1 | 1 | 53 / 1 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -43,7 +43,9 @@ Generated from `docs/progress/`; GitHub Pages rebuilds on every push to `main`.
 
 ## Install, Update & Run (`0.1.0-beta.1`)
 
-Install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Command Line Tools on macOS 15+ (Apple Silicon). The repository pins its Rust toolchain.
+Download [NeoFlash Beta 1, build 605](https://github.com/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.1). On a Mac, choose the disk image or ZIP for your processor. Both Mac editions are Developer ID signed and notarized by Apple.
+
+To build from source, install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Command Line Tools on macOS 15+ (Apple Silicon). The repository pins its Rust toolchain.
 
 ```sh
 ./scripts/run.sh                    # build the browser runtime and open the editor
@@ -56,19 +58,19 @@ stale macOS release archives for the same version. A complete macOS Beta release
 `./scripts/package-macos.sh release --beta-release` adds the ZIP, DMG, corresponding-source archive and checksums.
 Use that mode only when preparing an authorized Beta release.
 
-Technical Preview packages are built in `dist/`:
+Windows and Linux downloads are available on the same release page.
 
 - Windows x64: `NeoFlash-0.1.0-beta.1-windows-x64-preview.zip`; extract it and run `neoflash-editor.exe`.
 - **Ubuntu 24.04 x64** — install the downloaded package with `sudo apt install ./neoflash_*.deb`. Open NeoFlash from the applications menu, open a `.nflash` project from Files, or run `neoflash`. Install a newer build with the same command. Remove the application with `sudo apt remove neoflash`. The portable `NeoFlash-0.1.0-beta.1-linux-x64-preview.tar.gz` also runs directly after extraction.
-- Verify each platform download and its media corresponding-source archive against its matching `SHA256SUMS.txt` (`NeoFlash-0.1.0-beta.1-SHA256SUMS.txt` covers the macOS `.zip`, `.dmg` and `NeoFlash-0.1.0-beta.1-media-corresponding-source.tar.xz`; `NeoFlash-0.1.0-beta.1-windows-x64-SHA256SUMS.txt` and `NeoFlash-0.1.0-beta.1-linux-x64-SHA256SUMS.txt` cover the portable previews and `NeoFlash-0.1.0-beta.1-portable-media-corresponding-source.tar.xz`). All application, Rust-dependency and bundled-media licence texts are already included; users do not need to find licences themselves.
+- Verify your download against `NeoFlash-0.1.0-beta.1-SHA256SUMS.txt` on the release page. Each package includes its licence notices. Separate corresponding-source archives cover the media tools for Apple Silicon, Intel, and Windows/Linux. The release notes include reassembly instructions for the two Windows/Linux source parts.
 
-- **Install & manual update:** Drag `NeoFlash.app` into `/Applications` (or run `dist/NeoFlash.app` directly). Local and unnotarized Beta 1 macOS builds are ad-hoc signed: if macOS Gatekeeper blocks first launch, open **System Settings ▸ Privacy & Security** and click **Open Anyway** (`scripts/notarize-macos-beta.sh` signs and notarizes release builds when Apple Developer ID credentials are configured). To update to a newer Beta build, quit NeoFlash and replace `NeoFlash.app` in `/Applications`; user preferences, custom workspace layouts, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash` are preserved automatically.
+- **Install & manual update:** Drag `NeoFlash.app` into `/Applications` (or run `dist/NeoFlash.app` directly). To update to a newer Beta build, quit NeoFlash and replace `NeoFlash.app` in `/Applications`; user preferences, custom workspace layouts, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash` are preserved automatically.
 - **Bundled media helpers:** Every packaged build includes `ffmpeg` and `ffprobe` helpers (`NeoFlash.app/Contents/Resources/media/bin/` on macOS and `media/bin/` in portable archives), so video import, audio/video transcoding, and MP4 export require no separate media-tool installation. Windows/Linux helpers include their codec dependencies but still use normal operating-system runtime libraries such as glibc on Linux. Exact Rust and media notices are inside each package; the explicit full-release gate also emits a checksummed corresponding-source archive beside it. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
 - **Backups and bug reports:** Save versioned `.nflash` projects in Git or keep regular backups. Include a minimal reproduction, the relevant Output diagnostics and the build from **About NeoFlash** when reporting a bug.
 - **Beta 1 known issues & limitations:**
   - The macOS editor exposes native accessibility metadata and shows keyboard focus on panel controls. HTML5 publications expose `role`, `aria-label` and `tabindex` through the accessibility overlay. Spoken VoiceOver output remains unverified.
   - Physical graphics-tablet pressure, tilt-to-angle mapping, and pen-tip/eraser switching are **experimental** in `0.1.0-beta.1`: the deterministic event-level pipeline (pressure `0.05..=1.0`, tilt-to-nib angle, consecutive strokes, pen/eraser tool switching, single-step Undo, and `.nflash` round-trip) is verified, while physical Wacom and Apple Sidecar hardware certification remains an external hardware check (`T-235`).
-  - macOS Intel (`x86_64`) builds and a built-in automatic updater are not part of `0.1.0-beta.1`. Ad-hoc signed macOS builds require **System Settings ▸ Privacy & Security ▸ Open Anyway** on first launch when downloaded outside a notarized Developer ID build; the unsigned Windows archive may trigger SmartScreen, and its private connected Test Movie debugger is not yet available (ordinary Test Movie works). The Linux archive is tested on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES. Interactive acceptance on a physical Windows 11 desktop and broader Linux distributions remains pending.
+  - Updates require manual installation. The unsigned Windows archive may trigger SmartScreen. Its private connected Test Movie debugger is not yet available (ordinary Test Movie works). The Linux archive is tested on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES. Interactive acceptance on a physical Windows 11 desktop and broader Linux distributions remains pending.
   - Legacy binary FLA, SWF, and ActionScript compatibility remains bounded by the documented [compatibility matrix](docs/COMPATIBILITY.md) and [legacy import rules](docs/IMPORTS.md).
 
 The first source build downloads pinned Rust/WASM dependencies. Node.js 22+ is needed for repository verification checks, not for running `NeoFlash.app` or published HTML5 content. See [contributing](CONTRIBUTING.md) for verification commands.

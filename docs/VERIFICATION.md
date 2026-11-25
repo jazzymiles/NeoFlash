@@ -459,6 +459,8 @@ checksum gates run only for an owner-authorized complete release through
 `./scripts/package-macos.sh release --beta-release`; notarization consumes that complete release set. An app-only
 build must not be reported as a complete Beta release package.
 
+Build 605 was distributed from `d1d529a1`. Apple accepted the Developer ID signed apps and disk images for Apple Silicon and Intel. The extracted ZIP apps and the disk images carry stapled tickets. Run `xcrun stapler validate /path/to/NeoFlash.app` and `spctl --assess --type execute --verbose=4 /path/to/NeoFlash.app` to check a downloaded app. The Windows x64 preview ran under x64 emulation in Windows 11 ARM. The Ubuntu amd64 package was installed on an Ubuntu 24.04 x64 machine. [Packages and checksums](https://github.com/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.1)
+
 Automated Beta 1 verification (`t278_beta1_help_golden_examples_and_accessibility_smoke` and `t235_tablet_pressure_tilt_consecutive_strokes_eraser_switch_undo_and_save_reopen`) covers:
 
 - **Built-in Help, Scripting Reference and offline Browser HTML:** All 19 chapters (`0..10` Authoring Help, `10..19` Scripting Reference) and portable `file://` HTML exports across all four NF2 themes (`Dark`, `Light`, `Mid Neutral Gray` and `Dark Graphite`) emit zero `<script>` tags and agree with public docs on the **NeoFlash `0.1.0-beta.1`** release identity for **macOS 15+ Apple Silicon plus Windows/Linux x64 Technical Previews**, manual macOS update, `.nflash` backups, bug reporting, bundled media-helper locations, included licence evidence, corresponding-source/checksum files and platform limits.

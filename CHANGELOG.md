@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-beta.1 — 26 November 2026
+
+Download build **605** for Apple Silicon (macOS 15+) or Intel (macOS 12+) as a Developer ID signed and notarized disk image or ZIP. Windows x64 and Ubuntu 24.04 x64 are available as Technical Previews. [Downloads and checksums](https://github.com/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.1)
 
 - Fixed rapid stage resize shaking and flashing scrollbars in HTML5 **Test Movie** / **Test Scene** on Linux and Windows HiDPI browsers with classic non-overlay scrollbars (`T-483`): `#viewport` now defaults to `overflow: hidden` in `Fit` and `Stretch` modes while re-enabling `overflow: auto` for zoomed (`25%–400%` / `Fill`) panning, `Preview.resize()` floors subpixel HiDPI viewport dimensions (`viewportBox`) and clamps IEEE-754 float `Fit` bounds so `#stage-space` never overflows by `0.5px` into a `ResizeObserver` scrollbar loop, and `#trace` in the preview footer stays on a stable single line across `trace()` updates.
 
