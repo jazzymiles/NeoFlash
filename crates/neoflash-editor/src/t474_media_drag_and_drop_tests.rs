@@ -297,7 +297,9 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
     );
     assert_eq!(editor.project, initial);
 
-    // 1a. Drop 3.0s `.wav` onto `(Layer 1, frame = 12)` -> reuses empty Layer 1, expands 1 -> 84 frames!
+    // 1a. Drop 3.0s `.wav` onto Timeline even when cursor is at column 12 ->
+    //     starts at Frame 1 (`frame = 0`, ZERO leading empty frames!), reuses & renames untouched
+    //     sole `Layer 1` -> `"drum_loop"`, and expands 1 -> 72 frames!
     let _ = run_timeline_pass(
         &ctx,
         &mut editor,
@@ -307,8 +309,9 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
         vec![],
     );
     assert_eq!(editor.undo_menu_label(), "Undo Import audio");
-    assert_eq!(editor.frame, 12);
+    assert_eq!(editor.frame, 0);
     assert_eq!(editor.symbol().timeline.layers.len(), 1);
+    assert_eq!(editor.symbol().timeline.layers[0].name, "drum_loop");
     assert_eq!(
         layer_kind(
             &editor.symbol().timeline,
@@ -316,18 +319,19 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
         ),
         tl::LayerKind::Sound
     );
-    assert_eq!(editor.symbol().timeline.frame_count, 12 + 72);
+    assert_eq!(editor.symbol().timeline.frame_count, 72);
+    assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
     assert!(
-        editor.symbol().timeline.layers[0]
-            .keyframes
-            .iter()
-            .any(|k| k.frame == 12 && k.sound.is_some())
+        editor.symbol().timeline.layers[0].keyframes[0].frame == 0
+            && editor.symbol().timeline.layers[0].keyframes[0]
+                .sound
+                .is_some()
     );
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, initial);
 
-    // 1b. Drop `.mp3` and `.aiff` audio together -> 2 dedicated Sound layers, neither audio file dropped!
+    // 1b. Drop `.mp3` and `.aiff` audio together -> 2 dedicated Sound layers starting at Frame 1 (`frame = 0`)!
     let _ = run_timeline_pass(
         &ctx,
         &mut editor,
@@ -337,6 +341,7 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
         vec![],
     );
     assert_eq!(editor.undo_menu_label(), "Undo Import audio");
+    assert_eq!(editor.frame, 0);
     let sound_layers: Vec<&Layer> = editor
         .symbol()
         .timeline
@@ -351,13 +356,21 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
     );
     assert_eq!(sound_layers[0].name, "voice_line");
     assert_eq!(sound_layers[1].name, "synth_pad");
-    assert!(editor.symbol().timeline.frame_count >= 12 + 24);
+    for sl in &sound_layers {
+        assert_eq!(sl.keyframes.len(), 1);
+        assert_eq!(sl.keyframes[0].frame, 0);
+        assert!(sl.keyframes[0].sound.is_some());
+    }
+    assert!(editor.symbol().timeline.frame_count >= 24);
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, initial);
 
-    // 1c. Drop `.avi` and `.mp4` individually at frame 12 -> places Video + TimelineVideoSpan at frame 12!
-    for (v_path, min_frames) in [(&avi_path, 12 + 48), (&mp4_path, 12 + 96)] {
+    // 1c. Drop `.avi` and `.mp4` individually onto Timeline -> starts at Frame 1 (`frame = 0`), zero empty frames!
+    for (v_path, min_frames, expected_stem) in [
+        (&avi_path, 48, "intro_video"),
+        (&mp4_path, 96, "broll_clip"),
+    ] {
         let _ = run_timeline_pass(
             &ctx,
             &mut editor,
@@ -367,16 +380,15 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
             vec![],
         );
         assert_eq!(editor.undo_menu_label(), "Undo Import video");
-        assert_eq!(editor.frame, 12);
+        assert_eq!(editor.frame, 0);
+        assert_eq!(editor.symbol().timeline.layers[0].name, expected_stem);
         assert!(editor.symbol().timeline.frame_count >= min_frames);
-        let kf12 = editor.symbol().timeline.layers[0]
-            .keyframes
-            .iter()
-            .find(|k| k.frame == 12)
-            .expect("video keyframe at frame 12");
-        assert!(kf12.video.is_some());
+        assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
+        let kf0 = &editor.symbol().timeline.layers[0].keyframes[0];
+        assert_eq!(kf0.frame, 0);
+        assert!(kf0.video.is_some());
         assert!(
-            kf12.elements
+            kf0.elements
                 .iter()
                 .any(|e| matches!(e.kind, ElementKind::Video { .. }))
         );
@@ -385,8 +397,8 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
         assert_eq!(editor.project, initial);
     }
 
-    // 1d. Drop `.png` and `.svg` individually at frame 12 -> places Graphic instance at frame 12!
-    for g_path in [&png_path, &svg_path] {
+    // 1d. Drop `.png` and `.svg` individually onto Timeline -> starts at Frame 1 (`frame = 0`), zero empty frames!
+    for (g_path, expected_stem) in [(&png_path, "character"), (&svg_path, "badge")] {
         let _ = run_timeline_pass(
             &ctx,
             &mut editor,
@@ -395,14 +407,13 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
             vec![g_path.clone()],
             vec![],
         );
-        assert_eq!(editor.frame, 12);
-        let kf12 = editor.symbol().timeline.layers[0]
-            .keyframes
-            .iter()
-            .find(|k| k.frame == 12)
-            .expect("graphic keyframe at frame 12");
+        assert_eq!(editor.frame, 0);
+        assert_eq!(editor.symbol().timeline.layers[0].name, expected_stem);
+        assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
+        let kf0 = &editor.symbol().timeline.layers[0].keyframes[0];
+        assert_eq!(kf0.frame, 0);
         assert!(
-            kf12.elements
+            kf0.elements
                 .iter()
                 .any(|e| matches!(e.kind, ElementKind::Instance { .. }))
         );
@@ -412,7 +423,7 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
     }
 
     // 1e. Mixed drop (`drum_loop.wav` + `intro_video.avi` + `character.png` + `badge.svg`) onto
-    //     both `(Layer 1, frame = 12)` AND empty space below Timeline layers -> dedicated tracks, 1 Undo!
+    //     both `(Layer 1, col = 12)` AND empty space below Timeline layers -> dedicated tracks at Frame 1 (`0`), 1 Undo!
     for drop_pos in [cell_frame_12, below_rows_frame_12] {
         let _ = run_timeline_pass(
             &ctx,
@@ -428,8 +439,8 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
             vec![],
         );
         assert_eq!(editor.undo_menu_label(), "Undo Import files");
-        assert_eq!(editor.frame, 12);
-        assert_eq!(editor.symbol().timeline.frame_count, 84);
+        assert_eq!(editor.frame, 0);
+        assert_eq!(editor.symbol().timeline.frame_count, 72);
         let tl = &editor.symbol().timeline;
         let drum_layer = tl
             .layers
@@ -437,25 +448,23 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
             .find(|l| l.name == "drum_loop")
             .expect("dedicated drum_loop Sound layer");
         assert_eq!(layer_kind(tl, drum_layer), tl::LayerKind::Sound);
-        assert!(
-            drum_layer
-                .keyframes
-                .iter()
-                .any(|k| k.frame == 12 && k.sound.is_some())
-        );
+        assert_eq!(drum_layer.keyframes.len(), 1);
+        assert!(drum_layer.keyframes[0].frame == 0 && drum_layer.keyframes[0].sound.is_some());
 
         let vid_layer = tl
             .layers
             .iter()
             .find(|l| l.name == "intro_video")
             .expect("dedicated intro_video layer");
-        assert!(vid_layer.keyframes.iter().any(|k| {
-            k.frame == 12
-                && k.video.is_some()
-                && k.elements
+        assert_eq!(vid_layer.keyframes.len(), 1);
+        assert!(
+            vid_layer.keyframes[0].frame == 0
+                && vid_layer.keyframes[0].video.is_some()
+                && vid_layer.keyframes[0]
+                    .elements
                     .iter()
                     .any(|e| matches!(e.kind, ElementKind::Video { .. }))
-        }));
+        );
 
         for sym_stem in ["character", "badge"] {
             let g_layer = tl
@@ -463,12 +472,14 @@ fn t474_timeline_drop_audio_video_images_individually_and_mixed_at_frame_12_and_
                 .iter()
                 .find(|l| l.name == sym_stem)
                 .unwrap_or_else(|| panic!("dedicated {sym_stem} layer"));
-            assert!(g_layer.keyframes.iter().any(|k| {
-                k.frame == 12
-                    && k.elements
+            assert_eq!(g_layer.keyframes.len(), 1);
+            assert!(
+                g_layer.keyframes[0].frame == 0
+                    && g_layer.keyframes[0]
+                        .elements
                         .iter()
                         .any(|e| matches!(e.kind, ElementKind::Instance { .. }))
-            }));
+            );
         }
         assert_eq!(
             editor.layer,
@@ -531,8 +542,8 @@ fn t474_timeline_drop_numbered_image_sequence_at_frame_5() {
         vec![],
     );
     assert_eq!(editor.undo_menu_label(), "Undo Import Image Sequence");
-    assert_eq!(editor.frame, 5);
-    assert_eq!(editor.symbol().timeline.frame_count, 8);
+    assert_eq!(editor.frame, 0);
+    assert_eq!(editor.symbol().timeline.frame_count, 3);
     let seq_layer = editor.symbol().timeline.layers.last().unwrap();
     let placed_frames: Vec<u32> = seq_layer
         .keyframes
@@ -540,7 +551,7 @@ fn t474_timeline_drop_numbered_image_sequence_at_frame_5() {
         .filter(|k| !k.elements.is_empty())
         .map(|k| k.frame)
         .collect();
-    assert_eq!(placed_frames, vec![5, 6, 7]);
+    assert_eq!(placed_frames, vec![0, 1, 2]);
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, initial);
@@ -731,9 +742,11 @@ fn t474_stage_drop_on_locked_or_folder_layer_and_motion_and_button_invariants() 
                 },
             ),
         )
-        .expect("drop onto Button timeline clamps to frame 3 and keeps 4-frame invariant");
+        .expect(
+            "drop onto Button timeline starts new layers at Up (0) and keeps 4-frame invariant",
+        );
     assert_eq!(btn_ed.symbol().timeline.frame_count, 4);
-    assert_eq!(btn_ed.frame, 3);
+    assert_eq!(btn_ed.frame, 0);
     btn_ed.project.validate().unwrap();
     btn_ed.undo();
     assert_eq!(btn_ed.project, btn_initial);
@@ -1284,7 +1297,8 @@ fn t474_internal_library_drag_of_audio_video_image_and_symbol_onto_timeline() {
     editor.undo();
     assert_eq!(editor.project, baseline);
 
-    // 4. Internal `LibraryDrag::Symbol(clip_id)` dropped below rows at frame 7 on Timeline!
+    // 4. Internal `LibraryDrag::Symbol(clip_id)` dropped below rows (hovered_layer == None):
+    //    creates a dedicated `"StarClip"` layer starting at Frame 1 (`frame = 0`), ZERO empty frames!
     let pos_f7_below = Pos2::new(
         zone.grid_origin_x + 7.5 * zone.cell_width,
         zone.list_origin_y + 3.5 * zone.row_height,
@@ -1304,16 +1318,17 @@ fn t474_internal_library_drag_of_audio_video_image_and_symbol_onto_timeline() {
         }],
     );
     assert!(editor.library_panel.drag.is_none());
-    assert_eq!(editor.frame, 7);
-    assert_eq!(editor.symbol().timeline.frame_count, 7 + 10);
+    assert_eq!(editor.frame, 0);
+    assert_eq!(editor.symbol().timeline.frame_count, 10);
     let new_layer = editor.symbol().timeline.layers.last().unwrap();
     assert_eq!(new_layer.name, "StarClip");
-    assert!(new_layer.keyframes.iter().any(|k| {
-        k.frame == 7
-            && k.elements.iter().any(|e| {
+    assert_eq!(new_layer.keyframes.len(), 1);
+    assert!(
+        new_layer.keyframes[0].frame == 0
+            && new_layer.keyframes[0].elements.iter().any(|e| {
                 matches!(&e.kind, ElementKind::Instance { symbol_id, .. } if *symbol_id == clip_id)
             })
-    }));
+    );
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, baseline);
@@ -1413,20 +1428,13 @@ fn t474_a01_media_drop_on_filtered_and_repeater_exposure_frame_preserves_authore
         .unwrap()
         .clone();
 
-    // 1. Drop `.png` onto exposure frame 6 of filtered + Repeater Layer 1:
+    // 1. Stage drop of `.png` onto exposure frame 6 of filtered + Repeater Layer 1:
     //    must NOT bake layer filters onto `base_el_id` and must NOT flatten/serialize `#rep` copies!
-    let pos_f6 = Pos2::new(
-        zone.grid_origin_x + 6.5 * zone.cell_width,
-        zone.list_origin_y + 0.5 * zone.row_height,
-    );
-    let _ = run_timeline_pass(
-        &ctx,
-        &mut editor,
-        Some(pos_f6),
-        vec![],
-        vec![png_path],
-        vec![],
-    );
+    editor.layer = 0;
+    editor.frame = 6;
+    editor
+        .import_graphics_paths(std::slice::from_ref(&png_path), Some([140.0, 100.0]))
+        .unwrap();
     let kf6 = editor.symbol().timeline.layers[0]
         .keyframes
         .iter()
@@ -1446,6 +1454,30 @@ fn t474_a01_media_drop_on_filtered_and_repeater_exposure_frame_preserves_authore
         preserved_rect.filters.is_empty(),
         "derived layer filters must never be baked onto element.filters"
     );
+    editor.project.validate().unwrap();
+    editor.undo();
+    assert_eq!(editor.project, baseline);
+    editor.frame = 0;
+
+    // 1b. Finder drop of `.png` onto Timeline over occupied Layer 1 at column 6:
+    //     creates dedicated `"badge"` layer at Frame 1 (`frame = 0`) without altering Layer 1!
+    let pos_f6 = Pos2::new(
+        zone.grid_origin_x + 6.5 * zone.cell_width,
+        zone.list_origin_y + 0.5 * zone.row_height,
+    );
+    let _ = run_timeline_pass(
+        &ctx,
+        &mut editor,
+        Some(pos_f6),
+        vec![],
+        vec![png_path],
+        vec![],
+    );
+    assert_eq!(editor.symbol().timeline.layers.len(), 2);
+    assert_eq!(editor.symbol().timeline.layers[1].name, "badge");
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes.len(), 1);
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes[0].frame, 0);
+    assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, baseline);
@@ -1545,7 +1577,8 @@ fn t474_a02_second_video_drop_on_exposure_frame_of_video_layer_creates_dedicated
     let one_video_baseline = editor.project.clone();
 
     // 1. Timeline file drop of `broll.avi` onto `(Layer 1, frame = 20)` (an exposure frame of `intro.avi`):
-    //    must create a dedicated `broll` layer instead of cloning `intro.avi`'s `ElementKind::Video`!
+    //    must create a dedicated `broll` layer starting at Frame 1 (`frame = 0`, zero leading empty frames)
+    //    instead of cloning `intro.avi`'s `ElementKind::Video`!
     let _ = run_timeline_pass(&ctx, &mut editor, None, vec![], vec![], vec![]);
     let zone = editor
         .timeline_drop_zones
@@ -1567,11 +1600,9 @@ fn t474_a02_second_video_drop_on_exposure_frame_of_video_layer_creates_dedicated
     assert_eq!(editor.symbol().timeline.layers.len(), 2);
     assert_eq!(editor.symbol().timeline.layers[1].name, "broll");
     assert_eq!(editor.symbol().timeline.layers[0].keyframes.len(), 1);
-    let broll_kf = editor.symbol().timeline.layers[1]
-        .keyframes
-        .iter()
-        .find(|k| k.frame == 20)
-        .expect("broll keyframe at frame 20");
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes.len(), 1);
+    let broll_kf = &editor.symbol().timeline.layers[1].keyframes[0];
+    assert_eq!(broll_kf.frame, 0);
     assert_eq!(
         broll_kf
             .elements
@@ -1585,7 +1616,7 @@ fn t474_a02_second_video_drop_on_exposure_frame_of_video_layer_creates_dedicated
     editor.undo();
     assert_eq!(editor.project, one_video_baseline);
 
-    // 2. Stage `import_video_path_at` at exposure frame 20 on `Layer 1` -> also creates dedicated layer!
+    // 2. Stage `import_video_path_at` at exposure frame 20 on `Layer 1` -> creates dedicated layer at Frame 1 (`0`)!
     editor.layer = 0;
     editor.frame = 20;
     editor
@@ -1593,11 +1624,14 @@ fn t474_a02_second_video_drop_on_exposure_frame_of_video_layer_creates_dedicated
         .unwrap();
     assert_eq!(editor.symbol().timeline.layers.len(), 2);
     assert_eq!(editor.symbol().timeline.layers[1].name, "broll");
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes.len(), 1);
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes[0].frame, 0);
+    assert_eq!(editor.frame, 0);
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, one_video_baseline);
 
-    // 3. Internal `LibraryDrag::Resource(video_id)` onto `(Layer 1, frame = 20)` -> dedicated layer!
+    // 3. Internal `LibraryDrag::Resource(video_id)` onto `(Layer 1, frame = 20)` -> dedicated layer at Frame 1 (`0`)!
     editor
         .import_graphics_to_library_paths(std::slice::from_ref(&broll_path))
         .unwrap();
@@ -1627,6 +1661,9 @@ fn t474_a02_second_video_drop_on_exposure_frame_of_video_layer_creates_dedicated
     );
     assert_eq!(editor.symbol().timeline.layers.len(), 2);
     assert_eq!(editor.symbol().timeline.layers[1].name, "broll");
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes.len(), 1);
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes[0].frame, 0);
+    assert_eq!(editor.frame, 0);
     editor.project.validate().unwrap();
     editor.undo();
     assert_eq!(editor.project, with_lib_broll);
@@ -1677,8 +1714,24 @@ fn t474_a03_media_and_library_drops_clear_stale_timeline_frame_selection() {
         "LibraryOnly import must not clear Timeline frame selection"
     );
 
-    // 2. Dropping `.png` onto Timeline creating `Layer 2` at frame 8 MUST clear `timeline_edit.range`
-    //    so subsequent `convert_to_keyframes` (`F6`) targets the new track rather than `Layer 1 @ 0..=3`!
+    // 2. Dropping `.png` onto Timeline creating a track at Frame 1 (`0`) MUST clear `timeline_edit.range`
+    //    so subsequent `convert_to_keyframes` (`F6`) targets the active track rather than `Layer 1 @ 0..=3`!
+    //    First give `Layer 1` an element so `icon.png` creates `Layer 2` above it.
+    editor.symbol_mut().timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "bg".into(),
+            name: "bg".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 20.0,
+                height: 20.0,
+                fill: [40, 40, 40, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
     let _ = run_timeline_pass(&ctx, &mut editor, None, vec![], vec![], vec![]);
     let zone = editor
         .timeline_drop_zones
@@ -1698,7 +1751,9 @@ fn t474_a03_media_and_library_drops_clear_stale_timeline_frame_selection() {
         vec![],
     );
     assert_eq!(editor.layer, 1);
-    assert_eq!(editor.frame, 8);
+    assert_eq!(editor.frame, 0);
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes.len(), 1);
+    assert_eq!(editor.symbol().timeline.layers[1].keyframes[0].frame, 0);
     assert!(
         editor.timeline_edit.range.is_none() && !editor.timeline_edit.focused,
         "Timeline graphic drop must clear stale timeline_edit.range"
@@ -1718,8 +1773,8 @@ fn t474_a03_media_and_library_drops_clear_stale_timeline_frame_selection() {
             .any(|k| k.frame == 9)
     );
 
-    // 3. Re-select stale `Layer 1 @ 0..=3`, then drop `.wav` audio onto Timeline at frame 10:
-    //    stale `Layer 1` range is replaced by `show_frame_sound()`'s single-cell focus on the new Sound track.
+    // 3. Re-select stale `Layer 1 @ 0..=3`, then drop `.wav` audio onto Timeline at col 10:
+    //    new Sound track starts at Frame 1 (`frame = 0`) and replaces stale `Layer 1` range!
     editor.select_frame_range(FrameRange {
         layers: vec![layer0_id],
         start: 0,
@@ -1744,16 +1799,18 @@ fn t474_a03_media_and_library_drops_clear_stale_timeline_frame_selection() {
         vec![],
     );
     assert_eq!(editor.layer, 2);
-    assert_eq!(editor.frame, 10);
+    assert_eq!(editor.frame, 0);
+    assert_eq!(editor.symbol().timeline.layers[2].keyframes.len(), 1);
+    assert_eq!(editor.symbol().timeline.layers[2].keyframes[0].frame, 0);
     let new_sound_layer_id = editor.symbol().timeline.layers[2].id.clone();
     assert_eq!(
         editor.timeline_edit.range,
         Some(FrameRange {
             layers: vec![new_sound_layer_id],
-            start: 10,
-            end: 10,
+            start: 0,
+            end: 0,
         }),
-        "Audio drop must never retain stale Layer 1 @ 0..=3 selection"
+        "Audio drop must focus Frame 1 (`0`) on the new Sound track and clear stale Layer 1 @ 0..=3"
     );
     editor.project.validate().unwrap();
 }
@@ -1840,4 +1897,801 @@ fn t474_a04_failed_media_drop_on_welcome_or_dirty_standalone_as_leaves_no_spurio
         assert!(as_ed.dirty());
         assert_eq!(as_ed.project.sources[0].source, dirty_code);
     }
+}
+
+#[test]
+fn t476_frame_script_never_migrates_to_new_layer_and_new_layers_start_at_frame_one() {
+    let tmp = TempTestDir::new("t476-script-and-frame1");
+    let wav_path = tmp.path().join("theme_music.wav");
+    let avi_path = tmp.path().join("intro_reel.avi");
+    let png_path = tmp.path().join("hero_sprite.png");
+    let seq1 = tmp.path().join("walk_0001.png");
+    let seq2 = tmp.path().join("walk_0002.png");
+    std::fs::write(&wav_path, make_wav_bytes(16_000)).unwrap(); // 2.0s -> 48 frames @ 24fps
+    std::fs::write(&avi_path, make_avi_bytes(48, 36, 12, 12)).unwrap(); // 1.0s -> 24 frames @ 24fps
+    std::fs::write(&png_path, make_png_bytes(32, 32, [220, 90, 40, 255])).unwrap();
+    std::fs::write(&seq1, make_png_bytes(16, 16, [255, 0, 0, 255])).unwrap();
+    std::fs::write(&seq2, make_png_bytes(16, 16, [0, 255, 0, 255])).unwrap();
+
+    let ctx = egui::Context::default();
+
+    // 1. `Project::demo()` has a layerless `FrameScript { layer: None, frame: 0 }` on `Orbit instances` (layer 2).
+    //    Verify that `+ Add Layer`, Timeline drops (at x = col 18!), and Stage drops (at frame 15!)
+    //    NEVER migrate the ActionScript `a` marker onto the newly created layer, AND every newly
+    //    created layer starts at Frame 1 (`frame = 0`) with ZERO leading empty frames!
+    let mut demo_ed = Editor::from_project(&ctx, Project::demo());
+    demo_ed.history.clear();
+    let demo_baseline = demo_ed.project.clone();
+    let orbit_id = demo_ed.symbol().timeline.layers[2].id.clone();
+    assert_eq!(demo_ed.symbol().timeline.scripts[0].layer, None);
+    assert!(demo_ed.symbol().timeline.key_carries_frame_script(2, 0));
+
+    // 1a. Clicking `+ Add Layer` (`add_new_layer_at_top`) pins the script to `Orbit instances` (layer 2)
+    //     and leaves `Layer 4` (layer 3) completely script-free!
+    demo_ed.add_new_layer_at_top();
+    assert_eq!(demo_ed.symbol().timeline.layers.len(), 4);
+    assert_eq!(
+        demo_ed.symbol().timeline.scripts[0].layer.as_ref(),
+        Some(&orbit_id)
+    );
+    assert!(demo_ed.symbol().timeline.key_carries_frame_script(2, 0));
+    assert!(
+        !demo_ed.symbol().timeline.key_carries_frame_script(3, 0),
+        "newly added top layer must NEVER steal frame 0 ActionScript from Orbit instances"
+    );
+    demo_ed.project.validate().unwrap();
+    demo_ed.undo();
+    assert_eq!(demo_ed.project, demo_baseline);
+
+    // 1b. Finder drop of audio, video, single image, sequence, and mixed batch onto `Project::demo()` Timeline
+    //     at horizontal column 18 (`x = grid_origin_x + 18.5 * cell_width`):
+    //     - `Orbit instances` (layer 2) keeps its `FrameScript` (`key_carries_frame_script(2, 0) == true`)
+    //     - Zero new layers carry a frame script
+    //     - Every newly created layer starts immediately at Frame 1 (`keyframes[0].frame == 0`, non-empty)!
+    let _ = run_timeline_pass(&ctx, &mut demo_ed, None, vec![], vec![], vec![]);
+    let zone = demo_ed
+        .timeline_drop_zones
+        .get(&egui::ViewportId::ROOT)
+        .unwrap()
+        .clone();
+    let drop_col_18_over_orbit = Pos2::new(
+        zone.grid_origin_x + 18.5 * zone.cell_width,
+        zone.list_origin_y + 0.5 * zone.row_height,
+    );
+    let drop_col_18_below_rows = Pos2::new(
+        zone.grid_origin_x + 18.5 * zone.cell_width,
+        zone.list_origin_y + 4.5 * zone.row_height,
+    );
+
+    demo_ed.workspace.sequence_import_options.placement =
+        neoflash_import::ImageSequencePlacement::KeyframesOnSingleLayer;
+
+    for pos in [drop_col_18_over_orbit, drop_col_18_below_rows] {
+        for batch in [
+            vec![wav_path.clone()],
+            vec![avi_path.clone()],
+            vec![png_path.clone()],
+            vec![seq1.clone(), seq2.clone()],
+            vec![wav_path.clone(), avi_path.clone(), png_path.clone()],
+        ] {
+            let _ = run_timeline_pass(&ctx, &mut demo_ed, Some(pos), vec![], batch.clone(), vec![]);
+            assert_eq!(demo_ed.frame, 0);
+            let tl = &demo_ed.symbol().timeline;
+            assert!(
+                tl.layers.len() > 3,
+                "Timeline drop on occupied demo must create dedicated track(s)"
+            );
+            assert!(
+                tl.key_carries_frame_script(2, 0),
+                "Orbit instances must retain Frame 1 ActionScript after dropping {batch:?}"
+            );
+            for new_idx in 3..tl.layers.len() {
+                assert!(
+                    !tl.key_carries_frame_script(new_idx, 0),
+                    "new layer {} ('{}') must NEVER steal Frame 1 ActionScript",
+                    new_idx,
+                    tl.layers[new_idx].name
+                );
+                let new_layer = &tl.layers[new_idx];
+                assert!(
+                    !new_layer.keyframes.is_empty() && new_layer.keyframes[0].frame == 0,
+                    "new layer '{}' must start at Frame 1 (0), got {:?}",
+                    new_layer.name,
+                    new_layer
+                        .keyframes
+                        .iter()
+                        .map(|k| k.frame)
+                        .collect::<Vec<_>>()
+                );
+                let kf0 = &new_layer.keyframes[0];
+                assert!(
+                    !kf0.elements.is_empty() || kf0.sound.is_some() || kf0.video.is_some(),
+                    "Frame 1 (0) of new layer '{}' must hold the imported media, never an empty placeholder keyframe!",
+                    new_layer.name
+                );
+            }
+            demo_ed.project.validate().unwrap();
+            demo_ed.undo();
+            assert_eq!(demo_ed.project, demo_baseline);
+        }
+    }
+
+    // 2. Classic Flash dedicated `"Actions"` layer (`elements: []`, `FrameScript { layer: None, frame: 0 }`)
+    //    at `editor.frame = 14`: dropping audio, video, or image onto STAGE or TIMELINE must:
+    //    - NEVER pollute the `"Actions"` layer with audio, video, or graphics!
+    //    - NEVER move `stop();` off `"Actions"` onto the newly created media layer!
+    //    - Start the newly created media layer at Frame 1 (`frame = 0`), even though `editor.frame` was 14!
+    let mut actions_proj = Project::blank();
+    actions_proj.fps = 24;
+    actions_proj.symbols[0].timeline.frame_count = 24;
+    actions_proj.symbols[0].timeline.layers[0].name = "Actions".into();
+    let actions_layer_id = actions_proj.symbols[0].timeline.layers[0].id.clone();
+    actions_proj.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "stop();".into(),
+        },
+    });
+    actions_proj.validate().unwrap();
+
+    let mut actions_ed = Editor::from_project(&ctx, actions_proj);
+    actions_ed.history.clear();
+    let actions_baseline = actions_ed.project.clone();
+    let stage_area = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+    let stage_origin = Pos2::new(60.0, 60.0);
+    let mapping = crate::stage_mapping::StageMapping::identity();
+
+    for single_file in [&wav_path, &avi_path, &png_path] {
+        actions_ed.layer = 0;
+        actions_ed.frame = 14;
+        let raw_stage = egui::RawInput {
+            screen_rect: Some(stage_area),
+            events: vec![egui::Event::PointerMoved(Pos2::new(320.0, 220.0))],
+            dropped_files: vec![egui::DroppedFile {
+                path: Some(single_file.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let _ = ctx.run(raw_stage, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                actions_ed.stage_file_drop(ui, stage_area, stage_origin, mapping);
+            });
+        });
+        let tl = &actions_ed.symbol().timeline;
+        assert_eq!(
+            tl.layers.len(),
+            2,
+            "dropping {:?} when Actions layer is active must create a separate media layer",
+            single_file.file_name()
+        );
+        assert!(
+            tl.layers[0]
+                .keyframes
+                .iter()
+                .all(|k| k.elements.is_empty() && k.sound.is_none() && k.video.is_none()),
+            "Actions layer must stay completely free of media/elements"
+        );
+        assert_eq!(tl.scripts[0].layer.as_ref(), Some(&actions_layer_id));
+        assert!(tl.key_carries_frame_script(0, 0));
+        assert!(!tl.key_carries_frame_script(1, 0));
+        assert_eq!(tl.layers[1].keyframes.len(), 1);
+        assert_eq!(tl.layers[1].keyframes[0].frame, 0);
+        assert!(
+            !tl.layers[1].keyframes[0].elements.is_empty()
+                || tl.layers[1].keyframes[0].sound.is_some()
+                || tl.layers[1].keyframes[0].video.is_some()
+        );
+        actions_ed.project.validate().unwrap();
+        actions_ed.undo();
+        assert_eq!(actions_ed.project, actions_baseline);
+    }
+
+    // 3. `F6` (`ConvertToKeyframes` in `edit_frames`) on a higher layer that previously had NO keyframe
+    //    at `script.frame` must ALSO pin the lower layer's `layer: None` script instead of stealing it!
+    let mut f6_proj = Project::blank();
+    f6_proj.symbols[0].timeline.frame_count = 10;
+    let bottom_id = f6_proj.symbols[0].timeline.layers[0].id.clone();
+    f6_proj.symbols[0].timeline.layers[0]
+        .keyframes
+        .push(Keyframe {
+            frame: 5,
+            ..Keyframe::default()
+        });
+    f6_proj.symbols[0].timeline.layers.push(Layer {
+        id: new_id("layer"),
+        name: "Top Artwork".into(),
+        visible: true,
+        locked: false,
+        properties: Default::default(),
+        keyframes: vec![Keyframe::default()],
+    });
+    f6_proj.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 5,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "trace('frame 6 on bottom');".into(),
+        },
+    });
+    f6_proj.validate().unwrap();
+    assert_eq!(
+        f6_proj.symbols[0].timeline.action_layer_for_frame(5),
+        Some(0)
+    );
+
+    let mut f6_ed = Editor::from_project(&ctx, f6_proj);
+    f6_ed.history.clear();
+    let f6_baseline = f6_ed.project.clone();
+    f6_ed.layer = 1;
+    f6_ed.frame = 5;
+    f6_ed.convert_to_keyframes(false);
+    assert_eq!(
+        f6_ed.symbol().timeline.scripts[0].layer.as_ref(),
+        Some(&bottom_id)
+    );
+    assert!(f6_ed.symbol().timeline.key_carries_frame_script(0, 5));
+    assert!(!f6_ed.symbol().timeline.key_carries_frame_script(1, 5));
+    f6_ed.project.validate().unwrap();
+    f6_ed.undo();
+    assert_eq!(f6_ed.project, f6_baseline);
+}
+
+#[test]
+fn t476_audit_edge_cases_coalesce_multi_scripts_collapsed_folders_figma_video_paste_and_batch() {
+    let tmp = TempTestDir::new("t476-audit-remediations");
+    let wav_path = tmp.path().join("cue.wav");
+    let avi_path = tmp.path().join("clip.avi");
+    let png_path = tmp.path().join("badge.png");
+    let png_bytes = make_png_bytes(16, 16, [40, 180, 90, 255]);
+    std::fs::write(&wav_path, make_wav_bytes(8_000)).unwrap();
+    std::fs::write(&avi_path, make_avi_bytes(16, 16, 24, 6)).unwrap();
+    std::fs::write(&png_path, &png_bytes).unwrap();
+
+    let ctx = egui::Context::default();
+
+    // 1. Finding #1: Multiple `FrameScript { layer: None, frame: 0 }` entries on the same frame
+    //    (e.g., imported legacy `.fla` multi-script frame) coalesce cleanly without violating
+    //    `(layer_id, frame)` uniqueness in `validation.rs`!
+    let mut multi_proj = Project::blank();
+    multi_proj.format_version = 12;
+    let legacy_layer_id = multi_proj.symbols[0].timeline.layers[0].id.clone();
+    multi_proj.symbols[0].timeline.layers[0].name = "Legacy Scripts".into();
+    multi_proj.symbols[0].timeline.scripts = vec![
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "var a:int = 1;".into(),
+            },
+        },
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "trace(a);".into(),
+            },
+        },
+    ];
+    multi_proj.validate().unwrap();
+
+    let mut multi_ed = Editor::from_project(&ctx, multi_proj);
+    multi_ed.history.clear();
+    let multi_baseline = multi_ed.project.clone();
+    multi_ed
+        .import_media_paths(
+            std::slice::from_ref(&png_path),
+            crate::graphic_import::MediaPlacementMode::Timeline(
+                crate::graphic_import::TimelineDropPlacement {
+                    frame: 12,
+                    hovered_layer: Some(0),
+                },
+            ),
+        )
+        .expect("multi-script legacy frame coalesces cleanly on Timeline drop");
+    multi_ed.project.validate().unwrap();
+    let multi_tl = &multi_ed.symbol().timeline;
+    assert_eq!(multi_tl.layers.len(), 2);
+    assert_eq!(multi_tl.scripts.len(), 1);
+    assert_eq!(multi_tl.scripts[0].layer.as_ref(), Some(&legacy_layer_id));
+    assert_eq!(
+        multi_tl.scripts[0].script.source,
+        "var a:int = 1;\n\ntrace(a);"
+    );
+    assert!(multi_tl.key_carries_frame_script(0, 0));
+    assert!(!multi_tl.key_carries_frame_script(1, 0));
+    assert_eq!(multi_tl.layers[1].keyframes[0].frame, 0);
+    assert!(!multi_tl.layers[1].keyframes[0].elements.is_empty());
+    multi_ed.undo();
+    assert_eq!(multi_ed.project, multi_baseline);
+
+    // Mixed-language `layer: None` entries route the 2nd language to another valid layer instead of failing validation.
+    let mut mixed_lang_proj = Project::blank();
+    mixed_lang_proj.format_version = 12;
+    let bot_id = mixed_lang_proj.symbols[0].timeline.layers[0].id.clone();
+    let top_id = new_id("layer");
+    mixed_lang_proj.symbols[0].timeline.layers.push(Layer {
+        id: top_id.clone(),
+        name: "Top Script".into(),
+        visible: true,
+        locked: false,
+        properties: Default::default(),
+        keyframes: vec![Keyframe::default()],
+    });
+    mixed_lang_proj.symbols[0].timeline.scripts = vec![
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "stop();".into(),
+            },
+        },
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::JavaScript,
+                source: "console.log('ok');".into(),
+            },
+        },
+    ];
+    mixed_lang_proj.validate().unwrap();
+    let mut mixed_ed = Editor::from_project(&ctx, mixed_lang_proj);
+    mixed_ed
+        .import_media_paths(
+            std::slice::from_ref(&png_path),
+            crate::graphic_import::MediaPlacementMode::Timeline(
+                crate::graphic_import::TimelineDropPlacement {
+                    frame: 0,
+                    hovered_layer: None,
+                },
+            ),
+        )
+        .expect(
+            "mixed-language layer:None scripts route without duplicate (layer_id, frame) error",
+        );
+    mixed_ed.project.validate().unwrap();
+    assert_eq!(
+        mixed_ed.symbol().timeline.scripts[0].layer.as_ref(),
+        Some(&top_id)
+    );
+    assert_eq!(
+        mixed_ed.symbol().timeline.scripts[1].layer.as_ref(),
+        Some(&bot_id)
+    );
+
+    // 2. Finding #5: `layer: None` script inside a collapsed `LayerRole::Folder` stays pinned to the
+    //    child layer inside the folder instead of migrating onto a newly dropped top-level layer!
+    let mut folder_proj = Project::blank();
+    folder_proj.format_version = 12;
+    let child_id = folder_proj.symbols[0].timeline.layers[0].id.clone();
+    let folder_id = new_id("folder");
+    folder_proj.symbols[0].timeline.layers[0].name = "Nested Actions".into();
+    folder_proj.symbols[0].timeline.layers[0].properties.parent = Some(folder_id.clone());
+    folder_proj.symbols[0].timeline.layers.insert(
+        0,
+        Layer {
+            id: folder_id,
+            name: "Group".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Folder,
+                collapsed: true,
+                ..Default::default()
+            },
+            keyframes: Vec::new(),
+        },
+    );
+    folder_proj.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "stop();".into(),
+        },
+    });
+    folder_proj.validate().unwrap();
+    assert_eq!(
+        folder_proj.symbols[0].timeline.action_layer_for_frame(0),
+        None
+    );
+
+    let mut folder_ed = Editor::from_project(&ctx, folder_proj);
+    folder_ed.history.clear();
+    let folder_baseline = folder_ed.project.clone();
+    folder_ed
+        .import_media_paths(
+            std::slice::from_ref(&wav_path),
+            crate::graphic_import::MediaPlacementMode::Timeline(
+                crate::graphic_import::TimelineDropPlacement {
+                    frame: 8,
+                    hovered_layer: None,
+                },
+            ),
+        )
+        .unwrap();
+    folder_ed.project.validate().unwrap();
+    let folder_tl = &folder_ed.symbol().timeline;
+    assert_eq!(folder_tl.layers.len(), 3);
+    assert_eq!(folder_tl.scripts[0].layer.as_ref(), Some(&child_id));
+    assert!(folder_tl.key_carries_frame_script(1, 0));
+    assert!(!folder_tl.key_carries_frame_script(2, 0));
+    assert_eq!(folder_tl.layers[2].keyframes[0].frame, 0);
+    folder_ed.undo();
+    assert_eq!(folder_ed.project, folder_baseline);
+
+    // 3. Finding #2 & #6.2: `active_timeline_is_single_blank_layer`, `commit_figma_pages_directly_as_layers`,
+    //    and `sole_untouched_blank_layer` respect `"Actions"` layers and non-default layer/keyframe props!
+    let mut fig_target = Project::blank();
+    fig_target.symbols[0].timeline.frame_count = 20;
+    fig_target.symbols[0].timeline.layers[0].name = "Actions".into();
+    let fig_actions_id = fig_target.symbols[0].timeline.layers[0].id.clone();
+    fig_target.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "stop();".into(),
+        },
+    });
+    assert!(
+        !crate::panels::figma_import::active_timeline_is_single_blank_layer(
+            &fig_target.symbols[0].timeline,
+            0
+        )
+    );
+
+    let mut donor_figma = Project::blank();
+    let fig_folder_id = new_id("fig_folder");
+    donor_figma.symbols[0].timeline.layers[0].name = "Figma Hero".into();
+    donor_figma.symbols[0].timeline.layers[0].properties.parent = Some(fig_folder_id.clone());
+    donor_figma.symbols[0].timeline.layers[0].keyframes[0]
+        .elements
+        .push(Element {
+            id: "hero_rect".into(),
+            name: "hero".into(),
+            transform: Transform::default(),
+            kind: ElementKind::Rectangle {
+                width: 80.0,
+                height: 40.0,
+                fill: [20, 120, 220, 255],
+                stroke: [0, 0, 0, 0],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        });
+    donor_figma.symbols[0].timeline.layers.insert(
+        0,
+        Layer {
+            id: fig_folder_id,
+            name: "Figma Group".into(),
+            visible: true,
+            locked: false,
+            properties: LayerProperties {
+                role: LayerRole::Folder,
+                ..Default::default()
+            },
+            keyframes: Vec::new(),
+        },
+    );
+    let mut fig_ed = Editor::from_project(&ctx, fig_target);
+    fig_ed.frame = 14;
+    fig_ed.history.clear();
+    let fig_baseline = fig_ed.project.clone();
+    let fig_report = neoflash_import::ImportReport {
+        source: "hero.fig".into(),
+        format: neoflash_import::ImportFormat::Figma,
+        version: None,
+        can_import: true,
+        statistics: neoflash_import::Statistics::default(),
+        diagnostics: Vec::new(),
+        binary_fla: None,
+        swf: None,
+        swc: None,
+    };
+    fig_ed
+        .commit_figma_pages_directly_as_layers(
+            Path::new("hero.fig"),
+            donor_figma,
+            &fig_report,
+            None,
+        )
+        .expect("Figma pages import onto Actions timeline preserves Actions and starts at Frame 1");
+    fig_ed.project.validate().unwrap();
+    assert_eq!(fig_ed.frame, 0);
+    assert_eq!(fig_ed.symbol().timeline.layers.len(), 3);
+    assert_eq!(fig_ed.symbol().timeline.layers[0].name, "Actions");
+    assert_eq!(
+        fig_ed.symbol().timeline.scripts[0].layer.as_ref(),
+        Some(&fig_actions_id)
+    );
+    assert!(fig_ed.symbol().timeline.key_carries_frame_script(0, 0));
+    assert!(!fig_ed.symbol().timeline.key_carries_frame_script(1, 0));
+    assert!(!fig_ed.symbol().timeline.key_carries_frame_script(2, 0));
+    assert_eq!(
+        fig_ed.symbol().timeline.layers[1].properties.role,
+        LayerRole::Folder
+    );
+    assert!(
+        fig_ed.symbol().timeline.layers[1].keyframes.is_empty(),
+        "LayerRole::Folder imported from Figma must keep empty keyframes"
+    );
+    assert_eq!(fig_ed.symbol().timeline.layers[2].keyframes.len(), 1);
+    assert_eq!(fig_ed.symbol().timeline.layers[2].keyframes[0].frame, 0);
+    assert_eq!(
+        fig_ed.symbol().timeline.layers[2].keyframes[0]
+            .elements
+            .len(),
+        1
+    );
+    fig_ed.undo();
+    assert_eq!(fig_ed.project, fig_baseline);
+
+    // Non-default `LayerProperties` (`blend_mode: Multiply`) on sole `Layer 1` is NOT overwritten by Timeline drop.
+    let mut blend_proj = Project::blank();
+    blend_proj.format_version = 10;
+    blend_proj.symbols[0].timeline.layers[0]
+        .properties
+        .blend_mode = BlendMode::Multiply;
+    blend_proj.validate().unwrap();
+    let mut blend_ed = Editor::from_project(&ctx, blend_proj);
+    blend_ed
+        .import_media_paths(
+            std::slice::from_ref(&png_path),
+            crate::graphic_import::MediaPlacementMode::Timeline(
+                crate::graphic_import::TimelineDropPlacement {
+                    frame: 0,
+                    hovered_layer: None,
+                },
+            ),
+        )
+        .unwrap();
+    assert_eq!(blend_ed.symbol().timeline.layers.len(), 2);
+    assert_eq!(
+        blend_ed.symbol().timeline.layers[0].properties.blend_mode,
+        BlendMode::Multiply
+    );
+    blend_ed.project.validate().unwrap();
+
+    // 4. Finding #3: `import_video_draft_with_options` with `expand_timeline = false` and `end_frame = Some(2)`
+    //    at `editor.frame = 5` extends `end_frame` so `validation.rs` never fails!
+    let mut vid_proj = Project::blank();
+    vid_proj.format_version = 6;
+    vid_proj.symbols[0].timeline.frame_count = 10;
+    vid_proj.symbols[0].timeline.layers[0].properties.end_frame = Some(2);
+    vid_proj.validate().unwrap();
+    let mut vid_ed = Editor::from_project(&ctx, vid_proj);
+    vid_ed.frame = 5;
+    let draft = crate::panels::import_video::ImportVideoDraft {
+        file_path: avi_path.display().to_string(),
+        expand_timeline: false,
+        ..Default::default()
+    };
+    vid_ed
+        .import_video_draft_with_options(&ctx, draft, Some([100.0, 100.0]), false)
+        .expect("import_video with expand_timeline=false extends end_frame past placed keyframe");
+    vid_ed.project.validate().unwrap();
+    assert_eq!(vid_ed.symbol().timeline.frame_count, 10);
+    assert!(
+        vid_ed.symbol().timeline.layers[0]
+            .properties
+            .end_frame
+            .unwrap()
+            >= 6
+    );
+
+    // 5. Finding #4: `add_actions_and_stop_layer` pins existing `layer: None` artwork scripts to their
+    //    original layer instead of clobbering them with `"stop();\n"`!
+    let mut demo_stop = Editor::from_project(&ctx, Project::demo());
+    let orbit_id = demo_stop.symbol().timeline.layers[2].id.clone();
+    let original_orbit_src = demo_stop.symbol().timeline.scripts[0].script.source.clone();
+    demo_stop.history.clear();
+    let demo_stop_baseline = demo_stop.project.clone();
+    demo_stop.add_actions_and_stop_layer();
+    demo_stop.project.validate().unwrap();
+    let stop_tl = &demo_stop.symbol().timeline;
+    assert_eq!(stop_tl.layers.len(), 4);
+    assert_eq!(stop_tl.layers[3].name, "actions");
+    let actions_new_id = stop_tl.layers[3].id.clone();
+    assert_eq!(stop_tl.scripts.len(), 2);
+    assert!(
+        stop_tl
+            .scripts
+            .iter()
+            .any(|s| s.layer.as_ref() == Some(&orbit_id) && s.script.source == original_orbit_src),
+        "Orbit instances must retain its original script untouched!"
+    );
+    assert!(
+        stop_tl
+            .scripts
+            .iter()
+            .any(|s| s.layer.as_ref() == Some(&actions_new_id)
+                && s.script.source.trim() == "stop();"),
+        "New Actions layer must receive its own stop() script!"
+    );
+    demo_stop.undo();
+    assert_eq!(demo_stop.project, demo_stop_baseline);
+
+    // Also test existing `"actions"` layer below an artwork layer that owns `layer: None` script:
+    let mut existing_act_proj = Project::blank();
+    existing_act_proj.symbols[0].timeline.layers[0].name = "actions".into();
+    let existing_act_id = existing_act_proj.symbols[0].timeline.layers[0].id.clone();
+    let art_top_id = new_id("art");
+    existing_act_proj.symbols[0].timeline.layers.push(Layer {
+        id: art_top_id.clone(),
+        name: "Artwork".into(),
+        visible: true,
+        locked: false,
+        properties: Default::default(),
+        keyframes: vec![Keyframe::default()],
+    });
+    existing_act_proj.symbols[0]
+        .timeline
+        .scripts
+        .push(FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "trace('art');".into(),
+            },
+        });
+    let mut existing_act_ed = Editor::from_project(&ctx, existing_act_proj);
+    existing_act_ed.add_actions_and_stop_layer();
+    existing_act_ed.project.validate().unwrap();
+    assert_eq!(existing_act_ed.symbol().timeline.scripts.len(), 2);
+    assert!(
+        existing_act_ed
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .any(|s| s.layer.as_ref() == Some(&art_top_id) && s.script.source == "trace('art');")
+    );
+    assert!(
+        existing_act_ed
+            .symbol()
+            .timeline
+            .scripts
+            .iter()
+            .any(|s| s.layer.as_ref() == Some(&existing_act_id)
+                && s.script.source.trim() == "stop();")
+    );
+
+    // 6. Clipboard Paste (`paste_svg` & `paste_image_bytes`) onto an `"Actions"` layer creates `"Pasted graphics"`
+    //    and pins `layer: None` script onto `"Actions"`!
+    let mut paste_proj = Project::blank();
+    paste_proj.symbols[0].timeline.layers[0].name = "Actions".into();
+    let paste_actions_id = paste_proj.symbols[0].timeline.layers[0].id.clone();
+    paste_proj.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript3,
+            source: "stop();".into(),
+        },
+    });
+    let mut paste_ed = Editor::from_project(&ctx, paste_proj);
+    paste_ed.history.clear();
+    let paste_baseline = paste_ed.project.clone();
+    assert!(paste_ed.paste_svg(
+        &ctx,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\"><rect width=\"24\" height=\"24\" fill=\"#00aaff\"/></svg>",
+        false
+    ));
+    paste_ed.project.validate().unwrap();
+    assert_eq!(paste_ed.symbol().timeline.layers.len(), 2);
+    assert!(
+        paste_ed.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    assert_eq!(
+        paste_ed.symbol().timeline.scripts[0].layer.as_ref(),
+        Some(&paste_actions_id)
+    );
+    assert!(
+        !paste_ed.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    paste_ed.undo();
+    assert_eq!(paste_ed.project, paste_baseline);
+
+    assert!(paste_ed.paste_image_bytes(&ctx, &png_bytes, "image/png", false));
+    paste_ed.project.validate().unwrap();
+    assert_eq!(paste_ed.symbol().timeline.layers.len(), 2);
+    assert!(
+        paste_ed.symbol().timeline.layers[0].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    assert_eq!(
+        paste_ed.symbol().timeline.scripts[0].layer.as_ref(),
+        Some(&paste_actions_id)
+    );
+    assert!(
+        !paste_ed.symbol().timeline.layers[1].keyframes[0]
+            .elements
+            .is_empty()
+    );
+    paste_ed.undo();
+    assert_eq!(paste_ed.project, paste_baseline);
+
+    // 7. Finding #6.1: Headless `batch` `add_layer` and `add_keyframe` pin displaced `layer: None` scripts!
+    let batch_proj_path = tmp.path().join("batch_pin.nflash");
+    let mut batch_proj = Project::blank();
+    batch_proj.symbols[0].timeline.frame_count = 6;
+    let batch_bottom_id = batch_proj.symbols[0].timeline.layers[0].id.clone();
+    batch_proj.symbols[0].timeline.layers[0]
+        .keyframes
+        .push(Keyframe {
+            frame: 3,
+            ..Keyframe::default()
+        });
+    batch_proj.symbols[0].timeline.scripts = vec![
+        FrameScript {
+            layer: None,
+            frame: 0,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "trace('f0');".into(),
+            },
+        },
+        FrameScript {
+            layer: None,
+            frame: 3,
+            script: Script {
+                language: ScriptLanguage::ActionScript3,
+                source: "trace('f3');".into(),
+            },
+        },
+    ];
+    std::fs::write(
+        &batch_proj_path,
+        serde_json::to_string_pretty(&batch_proj).unwrap(),
+    )
+    .unwrap();
+    let ops_json = serde_json::json!([
+        { "op": "add_layer", "name": "Top Batch Layer" },
+        { "op": "add_keyframe", "layer": "Top Batch Layer", "frame": 3 }
+    ])
+    .to_string();
+    let args = vec![
+        "--headless".to_owned(),
+        "batch".to_owned(),
+        "--project".to_owned(),
+        batch_proj_path.display().to_string(),
+        "--in-place".to_owned(),
+        "--stdin".to_owned(),
+    ];
+    let mut stdin = std::io::Cursor::new(ops_json.into_bytes());
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let code = crate::headless::run_cli_with_io(&args, true, &mut stdin, &mut stdout, &mut stderr);
+    assert_eq!(
+        code,
+        0,
+        "headless batch failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&stdout),
+        String::from_utf8_lossy(&stderr)
+    );
+    let saved_batch: Project =
+        serde_json::from_str(&std::fs::read_to_string(&batch_proj_path).unwrap()).unwrap();
+    saved_batch.validate().unwrap();
+    assert_eq!(saved_batch.symbols[0].timeline.layers.len(), 2);
+    assert!(
+        saved_batch.symbols[0]
+            .timeline
+            .scripts
+            .iter()
+            .all(|s| s.layer.as_ref() == Some(&batch_bottom_id)),
+        "both frame 0 and frame 3 layer:None scripts must remain pinned to bottom layer after batch add_layer + add_keyframe!"
+    );
 }

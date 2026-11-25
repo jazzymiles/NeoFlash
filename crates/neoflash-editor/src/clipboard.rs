@@ -1743,6 +1743,8 @@ impl Editor {
             layer.normalize_motion_keys();
             (target_idx, layer_id, created_new)
         };
+        candidate.pin_displaced_frame_script_layers(&self.project);
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         if let Err(error) = candidate.validate() {
             self.message(format!("Paste failed: {error}"));
             return false;
@@ -1920,6 +1922,8 @@ impl Editor {
             layer.normalize_motion_keys();
             (target_idx, layer_id, created_new)
         };
+        candidate.pin_displaced_frame_script_layers(&self.project);
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         if let Err(error) = candidate.validate() {
             self.message(format!("Paste failed: {error}"));
             return false;
@@ -2408,6 +2412,7 @@ fn resolve_or_insert_paste_normal_layer(
     occupied_ids: &mut std::collections::HashSet<Id>,
 ) -> (usize, Id, bool) {
     let use_current = !active_layer_solo_hidden
+        && !crate::graphic_import::layer_is_dedicated_script_layer(timeline, preferred_layer_idx)
         && timeline
             .layers
             .get(preferred_layer_idx)
@@ -2665,6 +2670,7 @@ fn merge_imported_clipboard_project(
         remap_appearance_refs(app, &maps.swatch_map, &maps.style_map);
     }
 
+    let before_pin = candidate.clone();
     let fps = f64::from(candidate.fps);
     let (target_layer_idx, layer_id, created_new_layer) = {
         let timeline = &mut candidate
@@ -2740,6 +2746,7 @@ fn merge_imported_clipboard_project(
         (target_idx, layer_id, created_new)
     };
 
+    candidate.pin_displaced_frame_script_layers(&before_pin);
     candidate.prune_authoring_groups();
     crate::timeline_commands::upgrade_all_format_versions(candidate);
     if let Err(err) = candidate.validate() {

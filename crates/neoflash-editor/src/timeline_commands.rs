@@ -446,6 +446,7 @@ impl Editor {
                 record_motion_property_keys(before, project);
                 project.prune_authoring_groups();
                 project.prune_motion_guides();
+                project.pin_displaced_frame_script_layers(before);
                 project.prune_frame_script_layers();
                 upgrade_all_format_versions(project);
             });
@@ -4257,6 +4258,7 @@ impl Editor {
             .unwrap_or(ScriptLanguage::ActionScript3);
         self.transact_named("Add actions & stop() layer", move |editor| {
             let timeline = &mut editor.symbol_mut().timeline;
+            let before_tl = timeline.clone();
             let last_frame = timeline.frame_count.max(1) - 1;
             let existing_idx = timeline.layers.iter().position(|layer| {
                 layer.name.eq_ignore_ascii_case("actions")
@@ -4319,6 +4321,7 @@ impl Editor {
                 });
                 timeline.layers.len() - 1
             };
+            timeline.pin_displaced_frame_script_layers(&before_tl);
             let actions_layer_id = timeline.layers[actions_idx].id.clone();
             let existing_index = timeline.frame_script_index_for_layer(actions_idx, last_frame);
             if let Some(index) = existing_index {

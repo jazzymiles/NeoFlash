@@ -821,7 +821,7 @@ impl Editor {
         self.import_video_draft_with_options(ctx, draft, Some(point), true)
     }
 
-    fn import_video_draft_with_options(
+    pub(crate) fn import_video_draft_with_options(
         &mut self,
         ctx: &egui::Context,
         draft: ImportVideoDraft,
@@ -1013,20 +1013,10 @@ impl Editor {
             }
         }
         let fps = candidate.fps.max(1);
-        let raw_needed_frames =
-            frame.saturating_add(((duration_sec * f64::from(fps)).ceil() as u32).max(1));
+        let video_frames = ((duration_sec * f64::from(fps)).ceil() as u32).max(1);
         let symbol = candidate
             .symbol_mut(&symbol_id)
             .ok_or_else(|| "Active symbol not found.".to_string())?;
-        let needed_frames = if is_button {
-            symbol.timeline.frame_count.max(frame + 1).min(4)
-        } else {
-            raw_needed_frames
-        };
-        if (draft.expand_timeline || is_button) && symbol.timeline.frame_count < needed_frames {
-            symbol.timeline.frame_count = needed_frames;
-        }
-        let max_tl_frames = symbol.timeline.frame_count;
         let can_reuse_layer =
             symbol.timeline.layers.get(self.layer).is_some_and(|l| {
                 l.properties.role == neoflash_core::LayerRole::Normal
@@ -1035,7 +1025,10 @@ impl Editor {
                     && neoflash_core::layer_effectively_visible(&symbol.timeline, l)
                     && !neoflash_core::layer_effectively_locked(&symbol.timeline, l)
                     && (!auto_create_layer
-                        || (l
+                        || (!crate::graphic_import::layer_is_dedicated_script_layer(
+                            &symbol.timeline,
+                            self.layer,
+                        ) && l
                             .keyframes
                             .iter()
                             .all(|k| k.sound.is_none() && k.video.is_none())
@@ -1043,7 +1036,26 @@ impl Editor {
                                 matches!(e.kind, neoflash_core::ElementKind::Video { .. })
                             })))
             });
-        let layer_idx = if can_reuse_layer || !auto_create_layer {
+        let reusing_existing_layer = can_reuse_layer || !auto_create_layer;
+        let effective_frame = if reusing_existing_layer { frame } else { 0 };
+        let min_key_frames = if is_button {
+            (effective_frame + 1).min(4)
+        } else {
+            effective_frame + 1
+        };
+        let raw_needed_frames = effective_frame.saturating_add(video_frames);
+        let needed_frames = if is_button {
+            symbol.timeline.frame_count.max(min_key_frames).min(4)
+        } else if draft.expand_timeline {
+            raw_needed_frames
+        } else {
+            symbol.timeline.frame_count.max(min_key_frames)
+        };
+        if symbol.timeline.frame_count < needed_frames {
+            symbol.timeline.frame_count = needed_frames;
+        }
+        let max_tl_frames = symbol.timeline.frame_count;
+        let layer_idx = if reusing_existing_layer {
             self.layer
         } else {
             let stem = Path::new(&file_name)
@@ -1052,17 +1064,13 @@ impl Editor {
                 .filter(|s| !s.is_empty())
                 .unwrap_or("Video")
                 .to_owned();
-            let mut keyframes = Vec::new();
-            if frame > 0 {
-                keyframes.push(Keyframe::default());
-            }
             symbol.timeline.layers.push(neoflash_core::Layer {
                 id: new_id("layer"),
                 name: stem,
                 visible: true,
                 locked: false,
                 properties: Default::default(),
-                keyframes,
+                keyframes: Vec::new(),
             });
             symbol.timeline.layers.len() - 1
         };
@@ -1071,17 +1079,28 @@ impl Editor {
             .layers
             .get_mut(layer_idx)
             .ok_or_else(|| "Selected layer was not found.".to_string())?;
-        if draft.expand_timeline
-            && let Some(end) = &mut layer.properties.end_frame
-            && *end < needed_frames.min(max_tl_frames)
+        let required_layer_end = if draft.expand_timeline || is_button {
+            needed_frames.min(max_tl_frames)
+        } else {
+            min_key_frames.min(max_tl_frames)
+        };
+        if let Some(end) = &mut layer.properties.end_frame
+            && *end < required_layer_end
         {
-            *end = needed_frames.min(max_tl_frames);
+            *end = required_layer_end;
         }
-        if !layer.keyframes.iter().any(|key| key.frame == frame) {
-            let previous_elements =
-                neoflash_core::sample_layer_authored_pose_at_fps(layer, frame, f64::from(fps));
+        if !layer
+            .keyframes
+            .iter()
+            .any(|key| key.frame == effective_frame)
+        {
+            let previous_elements = neoflash_core::sample_layer_authored_pose_at_fps(
+                layer,
+                effective_frame,
+                f64::from(fps),
+            );
             layer.keyframes.push(Keyframe {
-                frame,
+                frame: effective_frame,
                 elements: previous_elements,
                 ..Keyframe::default()
             });
@@ -1090,7 +1109,7 @@ impl Editor {
         let key = layer
             .keyframes
             .iter_mut()
-            .find(|key| key.frame == frame)
+            .find(|key| key.frame == effective_frame)
             .ok_or_else(|| "Could not create the destination video keyframe.".to_string())?;
         // A motion-span property keyframe (◆) cannot carry a timeline video span; convert it to an
         // ordinary keyframe so validation and motion normalization stay consistent.
@@ -1124,7 +1143,8 @@ impl Editor {
             });
         }
         layer.normalize_motion_keys();
-        candidate.upgrade_format_for_features();
+        candidate.pin_displaced_frame_script_layers(&self.project);
+        crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|error| error.to_string())?;
 
         self.finish_edits();
@@ -1133,7 +1153,7 @@ impl Editor {
         self.transact_named("Import video", |editor| {
             editor.project = candidate;
             editor.layer = layer_idx;
-            editor.frame = frame;
+            editor.frame = effective_frame;
             let stale_range = editor.timeline_edit.range.as_ref().is_some_and(|r| {
                 let lid = editor
                     .symbol()

@@ -194,6 +194,49 @@ fn import_audio_duration(unit: &ResourceUnit) -> Option<f64> {
         .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
 }
 
+pub(crate) fn layer_is_dedicated_script_layer(timeline: &Timeline, index: usize) -> bool {
+    let Some(layer) = timeline.layers.get(index) else {
+        return false;
+    };
+    let has_no_media_or_elements = layer
+        .keyframes
+        .iter()
+        .all(|k| k.elements.is_empty() && k.sound.is_none() && k.video.is_none());
+    if !has_no_media_or_elements {
+        return false;
+    }
+    let named_actions = matches!(
+        layer.name.trim().to_ascii_lowercase().as_str(),
+        "actions" | "action" | "scripts" | "script"
+    );
+    named_actions || timeline.layer_owns_any_frame_script(index)
+}
+
+fn sole_untouched_blank_layer(timeline: &Timeline) -> Option<usize> {
+    if timeline.layers.len() != 1 || layer_is_dedicated_script_layer(timeline, 0) {
+        return None;
+    }
+    let layer = &timeline.layers[0];
+    let untouched = layer.properties == neoflash_core::LayerProperties::default()
+        && layer_effective_outline_color(timeline, layer).is_none()
+        && layer_effectively_visible(timeline, layer)
+        && !layer_effectively_locked(timeline, layer)
+        && layer.keyframes.len() <= 1
+        && layer.keyframes.iter().all(|k| {
+            k.frame == 0
+                && k.elements.is_empty()
+                && k.sound.is_none()
+                && k.video.is_none()
+                && k.camera.is_none()
+                && k.filters.is_empty()
+                && k.bitmap_fills.is_empty()
+                && k.appearances.is_empty()
+                && k.tween.is_none()
+                && k.label.is_empty()
+        });
+    untouched.then_some(0)
+}
+
 fn compatible_audio_layer(
     timeline: &Timeline,
     candidate_layer: Option<usize>,
@@ -206,6 +249,7 @@ fn compatible_audio_layer(
                 && layer_effective_outline_color(timeline, layer).is_none()
                 && layer_effectively_visible(timeline, layer)
                 && !layer_effectively_locked(timeline, layer)
+                && !layer_is_dedicated_script_layer(timeline, index)
                 && layer
                     .keyframes
                     .iter()
@@ -220,6 +264,45 @@ fn compatible_audio_layer(
     })
 }
 
+fn compatible_video_layer(timeline: &Timeline, candidate_layer: Option<usize>) -> Option<usize> {
+    candidate_layer.filter(|&index| {
+        timeline.layers.get(index).is_some_and(|l| {
+            l.properties.role == LayerRole::Normal
+                && l.properties.mask.is_none()
+                && layer_effective_outline_color(timeline, l).is_none()
+                && layer_effectively_visible(timeline, l)
+                && !layer_effectively_locked(timeline, l)
+                && !layer_is_dedicated_script_layer(timeline, index)
+                && l.keyframes
+                    .iter()
+                    .all(|k| k.sound.is_none() && k.video.is_none())
+                && !l
+                    .keyframes
+                    .iter()
+                    .flat_map(|k| &k.elements)
+                    .any(|e| matches!(e.kind, ElementKind::Video { .. }))
+        })
+    })
+}
+
+fn compatible_graphic_layer(timeline: &Timeline, candidate_layer: Option<usize>) -> Option<usize> {
+    candidate_layer.filter(|&index| {
+        timeline.layers.get(index).is_some_and(|layer| {
+            layer.properties.role == LayerRole::Normal
+                && layer.properties.mask.is_none()
+                && layer_effective_outline_color(timeline, layer).is_none()
+                && layer_effectively_visible(timeline, layer)
+                && !layer_effectively_locked(timeline, layer)
+                && !layer_is_dedicated_script_layer(timeline, index)
+                && layer
+                    .keyframes
+                    .iter()
+                    .all(|k| k.sound.is_none() && k.video.is_none())
+        })
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
 fn stage_audio_attachment(
     symbol: &mut Symbol,
     existing_layer: Option<usize>,
@@ -228,8 +311,10 @@ fn stage_audio_attachment(
     duration_sec: Option<f64>,
     resource: Id,
     layer_name: &str,
-) -> usize {
+    rename_default_layer: bool,
+) -> (usize, u32) {
     let timeline = &mut symbol.timeline;
+    let place_frame = if existing_layer.is_some() { frame } else { 0 };
     let layer_index = existing_layer.unwrap_or_else(|| {
         timeline.layers.push(Layer {
             id: new_id("layer"),
@@ -237,11 +322,7 @@ fn stage_audio_attachment(
             visible: true,
             locked: false,
             properties: Default::default(),
-            keyframes: if frame > 0 {
-                vec![Keyframe::default()]
-            } else {
-                Vec::new()
-            },
+            keyframes: Vec::new(),
         });
         timeline.layers.len() - 1
     });
@@ -249,26 +330,29 @@ fn stage_audio_attachment(
         .map(|seconds| ((seconds * fps).ceil() as u32).clamp(1, 36_000))
         .unwrap_or(1);
     let needed_end = if symbol.kind == SymbolKind::Button {
-        timeline.frame_count.max(frame + 1).min(4)
+        timeline.frame_count.max(place_frame + 1).min(4)
     } else {
-        frame.saturating_add(audio_frames)
+        place_frame.saturating_add(audio_frames)
     };
     timeline.frame_count = timeline.frame_count.max(needed_end);
     let layer = &mut timeline.layers[layer_index];
+    if rename_default_layer && existing_layer == Some(0) && layer.name == "Layer 1" {
+        layer.name = layer_name.to_owned();
+    }
     if let Some(end) = &mut layer.properties.end_frame {
         *end = (*end).max(needed_end);
     }
     let key_index = match layer
         .keyframes
-        .binary_search_by_key(&frame, |key| key.frame)
+        .binary_search_by_key(&place_frame, |key| key.frame)
     {
         Ok(index) => index,
         Err(index) => {
-            let elements = sample_layer_authored_pose_at_fps(layer, frame, fps);
+            let elements = sample_layer_authored_pose_at_fps(layer, place_frame, fps);
             layer.keyframes.insert(
                 index,
                 Keyframe {
-                    frame,
+                    frame: place_frame,
                     elements,
                     ..Keyframe::default()
                 },
@@ -282,7 +366,7 @@ fn stage_audio_attachment(
     key.roving = false;
     key.sound = Some(FrameSound::new(resource));
     layer.normalize_motion_keys();
-    layer_index
+    (layer_index, place_frame)
 }
 
 #[derive(Clone)]
@@ -315,6 +399,7 @@ struct StagedSwcReport {
 
 struct StagedGraphicPlacement {
     layer: Option<usize>,
+    placed_frame: u32,
     selection: Option<Selection>,
     library_selected: Option<Id>,
     message: String,
@@ -601,7 +686,11 @@ impl Editor {
                 egui::Order::Tooltip,
                 egui::Id::new(("timeline-file-drop", ctx.viewport_id())),
             ));
-            let highlight = zone.highlight_rect(pos, placement.frame);
+            let highlight = if is_button {
+                zone.highlight_rect(pos, placement.frame)
+            } else {
+                zone.panel_rect.shrink(neoflash_ui::tokens::space::s1())
+            };
             painter.rect_filled(
                 highlight,
                 neoflash_ui::tokens::radius::sm(),
@@ -767,14 +856,13 @@ impl Editor {
         }
         if !figma_paths.is_empty() {
             let target = match mode {
-                MediaPlacementMode::LibraryOnly => {
-                    crate::panels::figma_import::FigmaImportTarget::Library
-                }
                 MediaPlacementMode::Stage { point } => {
                     crate::panels::figma_import::FigmaImportTarget::Stage { point }
                 }
-                MediaPlacementMode::Timeline(_) => {
-                    crate::panels::figma_import::FigmaImportTarget::Stage { point: None }
+                MediaPlacementMode::LibraryOnly | MediaPlacementMode::Timeline(_) => {
+                    // `timeline_file_drop` partitions `.fig` paths into `Stage { point: None }`;
+                    // any non-Stage mode stays side-effect-free on Stage/Timeline.
+                    crate::panels::figma_import::FigmaImportTarget::Library
                 }
             };
             self.open_figma_import_dialog(ctx, figma_paths, target);
@@ -1041,7 +1129,39 @@ impl Editor {
                 .unwrap_or_else(|| res_id.clone()),
             crate::library::LibraryDrag::Folder(_) => String::new(),
         };
-        let highlight = zone.highlight_rect(pos, placement.frame);
+        let will_reuse_row = match &drag_payload {
+            crate::library::LibraryDrag::Symbol(_) => {
+                compatible_graphic_layer(&self.symbol().timeline, placement.hovered_layer).is_some()
+            }
+            crate::library::LibraryDrag::Resource(res_id) => self
+                .project
+                .resources
+                .iter()
+                .find(|r| &r.id == res_id)
+                .is_some_and(|unit| {
+                    if unit.is_audio() {
+                        compatible_audio_layer(
+                            &self.symbol().timeline,
+                            placement.hovered_layer,
+                            placement.frame,
+                        )
+                        .is_some()
+                    } else if unit.is_video() {
+                        compatible_video_layer(&self.symbol().timeline, placement.hovered_layer)
+                            .is_some()
+                    } else {
+                        compatible_graphic_layer(&self.symbol().timeline, placement.hovered_layer)
+                            .is_some()
+                    }
+                }),
+            crate::library::LibraryDrag::Folder(_) => false,
+        };
+        let preview_frame = if will_reuse_row { placement.frame } else { 0 };
+        let highlight = if will_reuse_row {
+            zone.highlight_rect(pos, preview_frame)
+        } else {
+            zone.panel_rect.shrink(neoflash_ui::tokens::space::s1())
+        };
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Tooltip,
             egui::Id::new(("library-timeline-drop", ctx.viewport_id())),
@@ -1061,7 +1181,7 @@ impl Editor {
             &painter,
             ctx,
             pos + egui::vec2(12., 12.),
-            &format!("Place “{item_name}” at frame {}", placement.frame + 1),
+            &format!("Place “{item_name}” at frame {}", preview_frame + 1),
         );
         ctx.set_cursor_icon(egui::CursorIcon::Copy);
 
@@ -1572,6 +1692,7 @@ impl Editor {
                 Some(staged) => (staged.library_selected, Some(staged.message)),
                 None => (None, None),
             };
+            candidate.pin_displaced_frame_script_layers(&self.project);
             crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
             candidate.validate().map_err(|error| error.to_string())?;
             let audio_source_paths = prepared
@@ -1595,30 +1716,11 @@ impl Editor {
             });
         }
 
+        let before_timeline_plan = candidate.clone();
         let symbol_id = self.symbol_id().to_owned();
         let is_button = candidate
             .symbol(&symbol_id)
             .is_some_and(|s| s.kind == SymbolKind::Button);
-        let base_frame = match mode {
-            MediaPlacementMode::Stage { .. } | MediaPlacementMode::LibraryOnly => {
-                if is_button {
-                    self.frame.min(3)
-                } else {
-                    self.frame.min(999_999)
-                }
-            }
-            MediaPlacementMode::Timeline(tl) => {
-                if is_button {
-                    tl.frame.min(3)
-                } else {
-                    tl.frame.min(999_999)
-                }
-            }
-        };
-        let candidate_layer_idx = match mode {
-            MediaPlacementMode::Stage { .. } | MediaPlacementMode::LibraryOnly => Some(self.layer),
-            MediaPlacementMode::Timeline(tl) => tl.hovered_layer,
-        };
         let is_timeline_drop = matches!(mode, MediaPlacementMode::Timeline(_));
         let separate_graphic_layers =
             is_timeline_drop || !staged_videos.is_empty() || prepared.audio.len() > 1;
@@ -1635,6 +1737,39 @@ impl Editor {
         };
         let total_tracks = prepared.audio.len() + staged_videos.len() + graphic_track_count;
         let single_track = total_tracks == 1;
+        let (base_frame, candidate_layer_idx, rename_blank_timeline_layer) = match mode {
+            MediaPlacementMode::Stage { .. } | MediaPlacementMode::LibraryOnly => (
+                if is_button {
+                    self.frame.min(3)
+                } else {
+                    self.frame.min(999_999)
+                },
+                Some(self.layer),
+                false,
+            ),
+            MediaPlacementMode::Timeline(tl) => {
+                if is_button {
+                    if single_track {
+                        (tl.frame.min(3), tl.hovered_layer, false)
+                    } else {
+                        (0, None, false)
+                    }
+                } else {
+                    // After Effects–style Finder drop onto Timeline: imported tracks always start
+                    // at Frame 1 (`frame = 0`) without leading blank frames; reuse the sole
+                    // untouched empty `Layer 1` on a brand-new document, otherwise create
+                    // dedicated stem-named tracks above existing layers.
+                    let blank_sole = single_track
+                        .then(|| {
+                            candidate
+                                .symbol(&symbol_id)
+                                .and_then(|sym| sole_untouched_blank_layer(&sym.timeline))
+                        })
+                        .flatten();
+                    (0, blank_sole, blank_sole.is_some())
+                }
+            }
+        };
         let stage_shared_empty_layer = !is_timeline_drop
             && staged_videos.is_empty()
             && prepared.audio.len() == 1
@@ -1642,20 +1777,22 @@ impl Editor {
             && candidate_layer_idx.is_some_and(|idx| {
                 candidate.symbol(&symbol_id).is_some_and(|sym| {
                     let tl = &sym.timeline;
-                    tl.layers.get(idx).is_some_and(|l| {
-                        l.properties.role == LayerRole::Normal
-                            && l.properties.mask.is_none()
-                            && layer_effective_outline_color(tl, l).is_none()
-                            && layer_effectively_visible(tl, l)
-                            && !layer_effectively_locked(tl, l)
-                            && l.keyframes.iter().all(|k| {
-                                k.elements.is_empty() && k.video.is_none() && k.sound.is_none()
-                            })
-                    })
+                    !layer_is_dedicated_script_layer(tl, idx)
+                        && tl.layers.get(idx).is_some_and(|l| {
+                            l.properties.role == LayerRole::Normal
+                                && l.properties.mask.is_none()
+                                && layer_effective_outline_color(tl, l).is_none()
+                                && layer_effectively_visible(tl, l)
+                                && !layer_effectively_locked(tl, l)
+                                && l.keyframes.iter().all(|k| {
+                                    k.elements.is_empty() && k.video.is_none() && k.sound.is_none()
+                                })
+                        })
                 })
             });
 
         let mut final_layer: Option<usize> = None;
+        let mut resolved_frame: Option<u32> = None;
         let mut selection_targets: Vec<SelectionTarget> = Vec::new();
         let mut stops_playback = false;
         let mut last_symbol: Option<Id> = None;
@@ -1674,10 +1811,12 @@ impl Editor {
                         base_frame,
                         candidate_layer_idx,
                         false,
+                        false,
                     )?;
                     if let Some(layer) = staged.layer {
                         final_layer = Some(layer);
                     }
+                    resolved_frame = Some(staged.placed_frame);
                     if let Some(sel) = staged.selection {
                         selection_targets.extend(sel.targets);
                     }
@@ -1692,10 +1831,12 @@ impl Editor {
                         mode.stage_point(),
                         base_frame,
                         candidate_layer_idx,
+                        false,
                     )?;
                     if let Some(layer) = staged.layer {
                         final_layer = Some(layer);
                     }
+                    resolved_frame = Some(staged.placed_frame);
                     if let Some(sel) = staged.selection {
                         selection_targets.extend(sel.targets);
                     }
@@ -1719,16 +1860,19 @@ impl Editor {
             } else {
                 None
             };
-            let layer = stage_audio_attachment(
+            let place_at = resolved_frame.unwrap_or(base_frame);
+            let (layer, placed_frame) = stage_audio_attachment(
                 symbol,
                 existing_layer,
-                base_frame,
+                place_at,
                 fps,
                 audio_item.duration_sec,
                 audio_item.unit.id.clone(),
                 &audio_item.stem,
+                rename_blank_timeline_layer,
             );
             final_layer = Some(layer);
+            resolved_frame = Some(placed_frame);
             audio_attached_count += 1;
         }
 
@@ -1741,59 +1885,51 @@ impl Editor {
                     .symbol_mut(&symbol_id)
                     .ok_or("The current symbol was removed.")?
                     .timeline;
-                let reuse = single_track
-                    && candidate_layer_idx.is_some_and(|idx| {
-                        timeline.layers.get(idx).is_some_and(|l| {
-                            l.properties.role == LayerRole::Normal
-                                && l.properties.mask.is_none()
-                                && layer_effective_outline_color(timeline, l).is_none()
-                                && layer_effectively_visible(timeline, l)
-                                && !layer_effectively_locked(timeline, l)
-                                && l.keyframes
-                                    .iter()
-                                    .all(|k| k.sound.is_none() && k.video.is_none())
-                                && !l
-                                    .keyframes
-                                    .iter()
-                                    .flat_map(|k| &k.elements)
-                                    .any(|e| matches!(e.kind, ElementKind::Video { .. }))
-                        })
-                    });
-                let layer_idx = if reuse {
-                    candidate_layer_idx.unwrap()
+                let existing_layer = if single_track {
+                    compatible_video_layer(timeline, candidate_layer_idx)
                 } else {
-                    let mut keyframes = Vec::new();
-                    if base_frame > 0 {
-                        keyframes.push(Keyframe::default());
-                    }
+                    None
+                };
+                let place_frame = if existing_layer.is_some() {
+                    base_frame
+                } else {
+                    0
+                };
+                let layer_idx = existing_layer.unwrap_or_else(|| {
                     timeline.layers.push(Layer {
                         id: new_id("layer"),
                         name: video.stem.clone(),
                         visible: true,
                         locked: false,
                         properties: Default::default(),
-                        keyframes,
+                        keyframes: Vec::new(),
                     });
                     timeline.layers.len() - 1
-                };
+                });
                 let video_frames = ((video.duration_sec * fps).ceil() as u32).max(1);
                 let needed_end = if is_button {
-                    timeline.frame_count.max(base_frame + 1).min(4)
+                    timeline.frame_count.max(place_frame + 1).min(4)
                 } else {
-                    base_frame.saturating_add(video_frames)
+                    place_frame.saturating_add(video_frames)
                 };
                 timeline.frame_count = timeline.frame_count.max(needed_end);
                 let max_tl = timeline.frame_count;
                 let layer = &mut timeline.layers[layer_idx];
+                if rename_blank_timeline_layer
+                    && existing_layer == Some(0)
+                    && layer.name == "Layer 1"
+                {
+                    layer.name = video.stem.clone();
+                }
                 if let Some(end) = &mut layer.properties.end_frame
                     && *end < needed_end.min(max_tl)
                 {
                     *end = needed_end.min(max_tl);
                 }
-                if !layer.keyframes.iter().any(|k| k.frame == base_frame) {
-                    let elems = sample_layer_authored_pose_at_fps(layer, base_frame, fps);
+                if !layer.keyframes.iter().any(|k| k.frame == place_frame) {
+                    let elems = sample_layer_authored_pose_at_fps(layer, place_frame, fps);
                     layer.keyframes.push(Keyframe {
-                        frame: base_frame,
+                        frame: place_frame,
                         elements: elems,
                         ..Keyframe::default()
                     });
@@ -1803,7 +1939,7 @@ impl Editor {
                 let key = layer
                     .keyframes
                     .iter_mut()
-                    .find(|k| k.frame == base_frame)
+                    .find(|k| k.frame == place_frame)
                     .ok_or("Could not create a video import keyframe.")?;
                 key.keyed_properties = None;
                 key.motion_keys = None;
@@ -1845,6 +1981,7 @@ impl Editor {
                     element: el_id,
                 });
                 final_layer = Some(layer_idx);
+                resolved_frame = Some(place_frame);
                 stops_playback = true;
             }
         }
@@ -1866,10 +2003,12 @@ impl Editor {
                             None
                         },
                         separate_graphic_layers && !single_track,
+                        rename_blank_timeline_layer,
                     )?;
                     if let Some(layer) = staged.layer {
                         final_layer = Some(layer);
                     }
+                    resolved_frame = Some(staged.placed_frame);
                     if let Some(sel) = staged.selection {
                         selection_targets.extend(sel.targets);
                     }
@@ -1888,10 +2027,12 @@ impl Editor {
                         } else {
                             None
                         },
+                        rename_blank_timeline_layer,
                     )?;
                     if let Some(layer) = staged.layer {
                         final_layer = Some(layer);
                     }
+                    resolved_frame = Some(staged.placed_frame);
                     if let Some(sel) = staged.selection {
                         selection_targets.extend(sel.targets);
                     }
@@ -1906,8 +2047,13 @@ impl Editor {
             symbol: symbol_id,
             targets: selection_targets,
         });
-        let target_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(base_frame);
+        let target_frame = if is_timeline_drop {
+            Some(resolved_frame.unwrap_or(0))
+        } else {
+            resolved_frame.filter(|&f| f != self.frame)
+        };
 
+        candidate.pin_displaced_frame_script_layers(&before_timeline_plan);
         crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|error| error.to_string())?;
         let audio_source_paths = prepared
@@ -2056,6 +2202,7 @@ impl Editor {
         if unit.is_audio() {
             self.finish_edits();
             let mut candidate = self.project.clone();
+            let before_pin = candidate.clone();
             let symbol_id = self.symbol_id().to_owned();
             let is_button = candidate
                 .symbol(&symbol_id)
@@ -2087,7 +2234,7 @@ impl Editor {
                 .ok_or("The current symbol was removed.")?;
             let existing_layer =
                 compatible_audio_layer(&symbol.timeline, candidate_layer, target_frame);
-            let layer_idx = stage_audio_attachment(
+            let (layer_idx, placed_frame) = stage_audio_attachment(
                 symbol,
                 existing_layer,
                 target_frame,
@@ -2095,10 +2242,17 @@ impl Editor {
                 duration_sec,
                 unit.id.clone(),
                 &stem,
+                false,
             );
+            candidate.pin_displaced_frame_script_layers(&before_pin);
             crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
             candidate.validate().map_err(|e| e.to_string())?;
-            let set_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(target_frame);
+            let set_frame =
+                if matches!(mode, MediaPlacementMode::Timeline(_)) || existing_layer.is_none() {
+                    Some(placed_frame)
+                } else {
+                    None
+                };
             self.transact_named("Attach sound", |editor| {
                 editor.project = candidate;
                 editor.layer = layer_idx;
@@ -2111,7 +2265,7 @@ impl Editor {
             self.message(format!(
                 "Attached sound '{}' at frame {}.",
                 unit.path,
-                target_frame + 1
+                placed_frame + 1
             ));
             return Ok(());
         }
@@ -2120,6 +2274,7 @@ impl Editor {
             self.finish_edits();
             let (duration_sec, vid_w, vid_h, video_span) = self.inspect_existing_video_unit(&unit);
             let mut candidate = self.project.clone();
+            let before_pin = candidate.clone();
             let symbol_id = self.symbol_id().to_owned();
             let is_button = candidate
                 .symbol(&symbol_id)
@@ -2151,44 +2306,27 @@ impl Editor {
                 .symbol_mut(&symbol_id)
                 .ok_or("The current symbol was removed.")?
                 .timeline;
-            let reuse = candidate_layer.is_some_and(|idx| {
-                timeline.layers.get(idx).is_some_and(|l| {
-                    l.properties.role == LayerRole::Normal
-                        && l.properties.mask.is_none()
-                        && layer_effective_outline_color(timeline, l).is_none()
-                        && layer_effectively_visible(timeline, l)
-                        && !layer_effectively_locked(timeline, l)
-                        && l.keyframes
-                            .iter()
-                            .all(|k| k.sound.is_none() && k.video.is_none())
-                        && !l
-                            .keyframes
-                            .iter()
-                            .flat_map(|k| &k.elements)
-                            .any(|e| matches!(e.kind, ElementKind::Video { .. }))
-                })
-            });
-            let layer_idx = if reuse {
-                candidate_layer.unwrap()
+            let existing_layer = compatible_video_layer(timeline, candidate_layer);
+            let placed_frame = if existing_layer.is_some() {
+                target_frame
             } else {
-                let mut keyframes = Vec::new();
-                if target_frame > 0 {
-                    keyframes.push(Keyframe::default());
-                }
+                0
+            };
+            let layer_idx = existing_layer.unwrap_or_else(|| {
                 timeline.layers.push(Layer {
                     id: new_id("layer"),
                     name: stem.clone(),
                     visible: true,
                     locked: false,
                     properties: Default::default(),
-                    keyframes,
+                    keyframes: Vec::new(),
                 });
                 timeline.layers.len() - 1
-            };
+            });
             let needed_end = if is_button {
-                timeline.frame_count.max(target_frame + 1).min(4)
+                timeline.frame_count.max(placed_frame + 1).min(4)
             } else {
-                target_frame.saturating_add(video_frames)
+                placed_frame.saturating_add(video_frames)
             };
             timeline.frame_count = timeline.frame_count.max(needed_end);
             let max_tl = timeline.frame_count;
@@ -2198,10 +2336,10 @@ impl Editor {
             {
                 *end = needed_end.min(max_tl);
             }
-            if !layer.keyframes.iter().any(|k| k.frame == target_frame) {
-                let elems = sample_layer_authored_pose_at_fps(layer, target_frame, fps);
+            if !layer.keyframes.iter().any(|k| k.frame == placed_frame) {
+                let elems = sample_layer_authored_pose_at_fps(layer, placed_frame, fps);
                 layer.keyframes.push(Keyframe {
-                    frame: target_frame,
+                    frame: placed_frame,
                     elements: elems,
                     ..Keyframe::default()
                 });
@@ -2211,7 +2349,7 @@ impl Editor {
             let key = layer
                 .keyframes
                 .iter_mut()
-                .find(|k| k.frame == target_frame)
+                .find(|k| k.frame == placed_frame)
                 .ok_or("Could not create a video keyframe.")?;
             key.keyed_properties = None;
             key.motion_keys = None;
@@ -2238,6 +2376,7 @@ impl Editor {
                 ..Element::default()
             });
             layer.normalize_motion_keys();
+            candidate.pin_displaced_frame_script_layers(&before_pin);
             crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
             candidate.validate().map_err(|e| e.to_string())?;
             self.set_playing(false);
@@ -2248,7 +2387,12 @@ impl Editor {
                     element: el_id,
                 }],
             };
-            let set_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(target_frame);
+            let set_frame =
+                if matches!(mode, MediaPlacementMode::Timeline(_)) || existing_layer.is_none() {
+                    Some(placed_frame)
+                } else {
+                    None
+                };
             self.transact_named("Place video", |editor| {
                 editor.project = candidate;
                 editor.layer = layer_idx;
@@ -2261,7 +2405,7 @@ impl Editor {
             self.message(format!(
                 "Placed video '{}' at frame {}.",
                 unit.path,
-                target_frame + 1
+                placed_frame + 1
             ));
             return Ok(());
         }
@@ -2280,6 +2424,7 @@ impl Editor {
         let place_on_stage = mode.places_on_timeline_or_stage();
         self.finish_edits();
         let mut candidate = self.project.clone();
+        let before_pin = candidate.clone();
         candidate.format_version = candidate.format_version.max(3);
         if !swatches.is_empty() {
             Self::merge_swatches_into_project(&mut candidate, &swatches);
@@ -2311,7 +2456,9 @@ impl Editor {
             target_frame,
             candidate_layer,
             false,
+            false,
         )?;
+        candidate.pin_displaced_frame_script_layers(&before_pin);
         crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|error| error.to_string())?;
         if staged.stops_playback {
@@ -2319,6 +2466,7 @@ impl Editor {
         }
         let StagedGraphicPlacement {
             layer,
+            placed_frame,
             selection,
             library_selected,
             message,
@@ -2329,7 +2477,9 @@ impl Editor {
         } else {
             "Import to Library"
         };
-        let set_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(target_frame);
+        let set_frame = (matches!(mode, MediaPlacementMode::Timeline(_))
+            || (place_on_stage && placed_frame != self.frame))
+            .then_some(placed_frame);
         let clears_timeline_range = layer.is_some() || set_frame.is_some();
         self.transact_named(label, |editor| {
             editor.project = candidate;
@@ -2374,6 +2524,7 @@ impl Editor {
             target_frame,
             Some(self.layer),
             false,
+            false,
         )
     }
 
@@ -2387,6 +2538,7 @@ impl Editor {
         target_frame: u32,
         candidate_layer_idx: Option<usize>,
         one_layer_per_item: bool,
+        rename_default_layer: bool,
     ) -> Result<StagedGraphicPlacement, String> {
         candidate.format_version = candidate.format_version.max(3);
         let folder = self.library_panel.selected_folder.clone();
@@ -2545,6 +2697,7 @@ impl Editor {
             };
             return Ok(StagedGraphicPlacement {
                 layer: None,
+                placed_frame: 0,
                 selection: None,
                 library_selected: last_symbol,
                 message: format!("Imported symbol(s) into Library.{suffix}"),
@@ -2565,9 +2718,9 @@ impl Editor {
             let mut top_layer = 0usize;
             for (layer_name, span, element) in placed_tracks {
                 let needed_end = if is_button {
-                    timeline.frame_count.max(target_frame + 1).min(4)
+                    timeline.frame_count.clamp(1, 4)
                 } else {
-                    target_frame.saturating_add(span.max(1))
+                    span.max(1)
                 };
                 timeline.frame_count = timeline.frame_count.max(needed_end);
                 let layer_id = new_id("layer");
@@ -2575,15 +2728,11 @@ impl Editor {
                     layer: layer_id.clone(),
                     element: element.id.clone(),
                 });
-                let mut keyframes = Vec::new();
-                if target_frame > 0 {
-                    keyframes.push(Keyframe::default());
-                }
-                keyframes.push(Keyframe {
-                    frame: target_frame,
+                let keyframes = vec![Keyframe {
+                    frame: 0,
                     elements: vec![element],
                     ..Keyframe::default()
-                });
+                }];
                 timeline.layers.push(Layer {
                     id: layer_id,
                     name: layer_name,
@@ -2601,6 +2750,7 @@ impl Editor {
             };
             return Ok(StagedGraphicPlacement {
                 layer: Some(top_layer),
+                placed_frame: 0,
                 selection: Some(Selection {
                     symbol: symbol_id,
                     targets,
@@ -2625,6 +2775,7 @@ impl Editor {
             target_frame,
             candidate_layer_idx,
             &fallback_layer_name,
+            rename_default_layer,
         )
     }
 
@@ -2735,6 +2886,7 @@ impl Editor {
             ),
         };
         let mut candidate = self.project.clone();
+        let before_pin = candidate.clone();
         let staged = self.stage_graphic_placements_with_span_at(
             &mut candidate,
             vec![element],
@@ -2744,7 +2896,9 @@ impl Editor {
             target_frame,
             candidate_layer,
             &sym_name,
+            false,
         )?;
+        candidate.pin_displaced_frame_script_layers(&before_pin);
         crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|error| error.to_string())?;
         if staged.stops_playback {
@@ -2752,12 +2906,18 @@ impl Editor {
         }
         let StagedGraphicPlacement {
             layer,
+            placed_frame,
             selection,
             library_selected,
             message,
             ..
         } = staged;
-        let set_frame = matches!(mode, MediaPlacementMode::Timeline(_)).then_some(target_frame);
+        let set_frame =
+            if matches!(mode, MediaPlacementMode::Timeline(_)) || placed_frame != self.frame {
+                Some(placed_frame)
+            } else {
+                None
+            };
         let clears_timeline_range = layer.is_some() || set_frame.is_some();
         self.transact(|editor| {
             editor.project = candidate;
@@ -2798,6 +2958,7 @@ impl Editor {
         notices: Vec<String>,
         min_frame_span: u32,
     ) -> Result<(), String> {
+        let before_pin = candidate.clone();
         let staged = self.stage_graphic_placements_with_span(
             &mut candidate,
             placed,
@@ -2805,6 +2966,7 @@ impl Editor {
             notices,
             min_frame_span,
         )?;
+        candidate.pin_displaced_frame_script_layers(&before_pin);
         crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|error| error.to_string())?;
         if staged.stops_playback {
@@ -2812,6 +2974,7 @@ impl Editor {
         }
         let StagedGraphicPlacement {
             layer,
+            placed_frame,
             selection,
             library_selected,
             message,
@@ -2821,6 +2984,11 @@ impl Editor {
             editor.project = candidate;
             if let Some(layer) = layer {
                 editor.layer = layer;
+                editor.clear_timeline_frame_selection();
+            }
+            if placed_frame != editor.frame {
+                editor.frame =
+                    placed_frame.min(editor.symbol().timeline.frame_count.saturating_sub(1));
                 editor.clear_timeline_frame_selection();
             }
             if let Some(selection) = selection {
@@ -2855,6 +3023,7 @@ impl Editor {
             target_frame,
             Some(self.layer),
             "Imported graphics",
+            false,
         )
     }
 
@@ -2869,6 +3038,7 @@ impl Editor {
         target_frame: u32,
         candidate_layer_idx: Option<usize>,
         fallback_layer_name: &str,
+        rename_default_layer: bool,
     ) -> Result<StagedGraphicPlacement, String> {
         let count = placed.len();
         let symbol_id = self.symbol_id().to_owned();
@@ -2879,55 +3049,43 @@ impl Editor {
         let is_button = symbol.kind == SymbolKind::Button;
         let timeline = &mut symbol.timeline;
         // Import must remain visible even when a folder, mask, guide, hidden, locked,
-        // or sound/video layer is selected. Add a normal top layer without altering it.
-        let use_current = candidate_layer_idx.is_some_and(|idx| {
-            timeline.layers.get(idx).is_some_and(|layer| {
-                layer.properties.role == LayerRole::Normal
-                    && layer.properties.mask.is_none()
-                    && layer_effective_outline_color(timeline, layer).is_none()
-                    && layer_effectively_visible(timeline, layer)
-                    && !layer_effectively_locked(timeline, layer)
-                    && layer
-                        .keyframes
-                        .iter()
-                        .all(|k| k.sound.is_none() && k.video.is_none())
-            })
-        });
-        let target_layer = if use_current {
-            candidate_layer_idx.unwrap()
-        } else {
-            let mut keyframes = Vec::new();
-            if target_frame > 0 {
-                keyframes.push(Keyframe::default());
-            }
+        // dedicated script/Actions, or sound/video layer is selected. Add a normal top layer
+        // starting at Frame 1 (`frame = 0`) without altering the existing layer.
+        let existing_layer = compatible_graphic_layer(timeline, candidate_layer_idx);
+        let use_current = existing_layer.is_some();
+        let placed_frame = if use_current { target_frame } else { 0 };
+        let target_layer = existing_layer.unwrap_or_else(|| {
             timeline.layers.push(Layer {
                 id: new_id("layer"),
                 name: fallback_layer_name.into(),
                 visible: true,
                 locked: false,
                 properties: Default::default(),
-                keyframes,
+                keyframes: Vec::new(),
             });
             timeline.layers.len() - 1
-        };
+        });
         let needed_end = if is_button {
-            timeline.frame_count.max(target_frame + 1).min(4)
+            timeline.frame_count.max(placed_frame + 1).min(4)
         } else {
-            target_frame.saturating_add(min_frame_span.max(1))
+            placed_frame.saturating_add(min_frame_span.max(1))
         };
         timeline.frame_count = timeline.frame_count.max(needed_end);
         let max_tl = timeline.frame_count;
         let layer = &mut timeline.layers[target_layer];
+        if rename_default_layer && existing_layer == Some(0) && layer.name == "Layer 1" {
+            layer.name = fallback_layer_name.into();
+        }
         if let Some(end) = &mut layer.properties.end_frame
             && *end < needed_end.min(max_tl)
         {
             *end = needed_end.min(max_tl);
         }
         let layer_id = layer.id.clone();
-        if !layer.keyframes.iter().any(|key| key.frame == target_frame) {
-            let elems = sample_layer_authored_pose_at_fps(layer, target_frame, fps);
+        if !layer.keyframes.iter().any(|key| key.frame == placed_frame) {
+            let elems = sample_layer_authored_pose_at_fps(layer, placed_frame, fps);
             layer.keyframes.push(Keyframe {
-                frame: target_frame,
+                frame: placed_frame,
                 elements: elems,
                 ..Keyframe::default()
             });
@@ -2943,7 +3101,7 @@ impl Editor {
         let key = layer
             .keyframes
             .iter_mut()
-            .find(|k| k.frame == target_frame)
+            .find(|k| k.frame == placed_frame)
             .ok_or("Could not create an import keyframe.")?;
         key.keyed_properties = None;
         key.motion_keys = None;
@@ -2966,6 +3124,7 @@ impl Editor {
         };
         Ok(StagedGraphicPlacement {
             layer: Some(target_layer),
+            placed_frame,
             selection: Some(selection),
             library_selected: last_symbol,
             message: format!("Placed {count} graphic(s) on Stage.{target_note}{suffix}"),
@@ -2980,6 +3139,7 @@ impl Editor {
         point: Option<[f64; 2]>,
         base_frame: u32,
         candidate_layer_idx: Option<usize>,
+        rename_default_layer: bool,
     ) -> Result<StagedGraphicPlacement, String> {
         candidate.format_version = candidate.format_version.max(3);
         merge_import_graphic_resources(candidate, &mut seq_item)?;
@@ -3032,37 +3192,24 @@ impl Editor {
             .ok_or("The current symbol was removed.")?;
         let is_button = symbol.kind == SymbolKind::Button;
         let timeline = &mut symbol.timeline;
-        let use_current = candidate_layer_idx.is_some_and(|idx| {
-            timeline.layers.get(idx).is_some_and(|layer| {
-                layer.properties.role == LayerRole::Normal
-                    && layer.properties.mask.is_none()
-                    && layer_effective_outline_color(timeline, layer).is_none()
-                    && layer_effectively_visible(timeline, layer)
-                    && !layer_effectively_locked(timeline, layer)
-                    && layer
-                        .keyframes
-                        .iter()
-                        .all(|k| k.sound.is_none() && k.video.is_none())
-            })
-        });
-        let target_layer = if use_current {
-            candidate_layer_idx.unwrap()
+        let existing_layer = compatible_graphic_layer(timeline, candidate_layer_idx);
+        let placed_frame = if existing_layer.is_some() {
+            base_frame
         } else {
-            let mut keyframes = Vec::new();
-            if base_frame > 0 {
-                keyframes.push(Keyframe::default());
-            }
+            0
+        };
+        let target_layer = existing_layer.unwrap_or_else(|| {
             timeline.layers.push(Layer {
                 id: new_id("layer"),
                 name: seq_item.graphic.name.clone(),
                 visible: true,
                 locked: false,
                 properties: Default::default(),
-                keyframes,
+                keyframes: Vec::new(),
             });
             timeline.layers.len() - 1
-        };
-        let raw_needed_end = base_frame.saturating_add(seq_timeline.frame_count.max(1));
+        });
+        let raw_needed_end = placed_frame.saturating_add(seq_timeline.frame_count.max(1));
         let needed_end = if is_button {
             timeline.frame_count.max(raw_needed_end.min(4)).min(4)
         } else {
@@ -3071,6 +3218,9 @@ impl Editor {
         timeline.frame_count = timeline.frame_count.max(needed_end);
         let max_tl = timeline.frame_count;
         let layer = &mut timeline.layers[target_layer];
+        if rename_default_layer && existing_layer == Some(0) && layer.name == "Layer 1" {
+            layer.name = seq_item.graphic.name.clone();
+        }
         if let Some(end) = &mut layer.properties.end_frame
             && *end < needed_end.min(max_tl)
         {
@@ -3080,7 +3230,7 @@ impl Editor {
         let mut first_targets = Vec::new();
         let mut keyframe_count = 0usize;
         for (idx, mut kf) in seq_layer.keyframes.into_iter().enumerate() {
-            let dest_frame = base_frame.saturating_add(kf.frame);
+            let dest_frame = placed_frame.saturating_add(kf.frame);
             if is_button && dest_frame >= max_tl {
                 continue;
             }
@@ -3120,6 +3270,7 @@ impl Editor {
         let suffix = notice.map(|n| format!(" {n}")).unwrap_or_default();
         Ok(StagedGraphicPlacement {
             layer: Some(target_layer),
+            placed_frame,
             selection: Some(selection),
             library_selected: None,
             message: format!("Placed {keyframe_count} sequence keyframe(s) on timeline.{suffix}"),
@@ -3145,9 +3296,11 @@ impl Editor {
         let item = prepare_imported_figma_project(path, imported, report, &mut remaining)?;
         self.finish_edits();
         let mut candidate = self.project.clone();
+        let before_pin = candidate.clone();
         candidate.format_version = candidate.format_version.max(3);
         let staged =
             self.stage_prepared_import_graphics(&mut candidate, vec![item], point, place_on_stage)?;
+        candidate.pin_displaced_frame_script_layers(&before_pin);
         crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
         if staged.stops_playback {
@@ -3155,6 +3308,7 @@ impl Editor {
         }
         let StagedGraphicPlacement {
             layer,
+            placed_frame,
             selection,
             library_selected,
             message,
@@ -3169,6 +3323,11 @@ impl Editor {
             editor.project = candidate;
             if let Some(layer) = layer {
                 editor.layer = layer;
+                editor.clear_timeline_frame_selection();
+            }
+            if place_on_stage && placed_frame != editor.frame {
+                editor.frame =
+                    placed_frame.min(editor.symbol().timeline.frame_count.saturating_sub(1));
                 editor.clear_timeline_frame_selection();
             }
             if let Some(selection) = selection {
@@ -3251,8 +3410,10 @@ impl Editor {
 
         self.finish_edits();
         let mut candidate = self.project.clone();
+        let before_pin = candidate.clone();
         candidate.format_version = candidate.format_version.max(3);
         let staged = self.stage_prepared_import_graphics(&mut candidate, items, None, false)?;
+        candidate.pin_displaced_frame_script_layers(&before_pin);
         crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
         let StagedGraphicPlacement {
@@ -3289,6 +3450,7 @@ impl Editor {
 
         self.finish_edits();
         let mut candidate = self.project.clone();
+        let before_pin = candidate.clone();
         candidate.format_version = candidate.format_version.max(3);
         let folder = self.library_panel.selected_folder.clone();
         candidate.add_library_folder(&folder)?;
@@ -3377,24 +3539,38 @@ impl Editor {
         }
 
         let symbol_id = self.symbol_id().to_owned();
-        let base_frame = self.frame;
+        let is_button = candidate
+            .symbol(&symbol_id)
+            .is_some_and(|s| s.kind == SymbolKind::Button);
         let mut selection_targets = Vec::new();
         let mut prepared_layers = Vec::with_capacity(raw_layers.len());
+        let mut max_required_frames = 1u32;
 
         for mut page_layer in raw_layers {
+            if is_button {
+                page_layer.keyframes.retain(|kf| kf.frame < 4);
+                if let Some(end) = &mut page_layer.properties.end_frame {
+                    *end = (*end).min(4);
+                }
+                page_layer.normalize_motion_keys();
+            }
             let lid = page_layer.id.clone();
             for kf in &mut page_layer.keyframes {
-                kf.frame = base_frame.saturating_add(kf.frame);
+                max_required_frames = max_required_frames.max(kf.frame.saturating_add(1));
                 for el in &mut kf.elements {
                     el.transform.x = (el.transform.x + offset_x).clamp(-100_000.0, 100_000.0);
                     el.transform.y = (el.transform.y + offset_y).clamp(-100_000.0, 100_000.0);
-                    selection_targets.push(SelectionTarget {
-                        layer: lid.clone(),
-                        element: el.id.clone(),
-                    });
+                    if kf.frame == 0 {
+                        selection_targets.push(SelectionTarget {
+                            layer: lid.clone(),
+                            element: el.id.clone(),
+                        });
+                    }
                 }
             }
-            if base_frame > 0 && !page_layer.keyframes.iter().any(|k| k.frame == 0) {
+            if page_layer.properties.role != LayerRole::Folder
+                && !page_layer.keyframes.iter().any(|k| k.frame == 0)
+            {
                 page_layer.keyframes.insert(0, Keyframe::default());
             }
             page_layer.keyframes.sort_by_key(|k| k.frame);
@@ -3406,16 +3582,20 @@ impl Editor {
             .symbol_mut(&symbol_id)
             .ok_or_else(|| "The current symbol was removed.".to_owned())?
             .timeline;
-        timeline.frame_count = timeline.frame_count.max(base_frame.saturating_add(1));
+        if is_button {
+            timeline.frame_count = timeline.frame_count.max(max_required_frames).min(4);
+        } else {
+            timeline.frame_count = timeline.frame_count.max(max_required_frames);
+        }
 
-        if crate::panels::figma_import::active_timeline_is_single_blank_layer(timeline, base_frame)
-        {
+        if crate::panels::figma_import::active_timeline_is_single_blank_layer(timeline, 0) {
             timeline.layers = prepared_layers;
         } else {
             timeline.layers.extend(prepared_layers);
         }
         let target_layer_idx = timeline.layers.len().saturating_sub(1);
 
+        candidate.pin_displaced_frame_script_layers(&before_pin);
         crate::timeline_commands::upgrade_all_format_versions(&mut candidate);
         candidate.validate().map_err(|e| e.to_string())?;
 
@@ -3427,6 +3607,7 @@ impl Editor {
         self.transact_named("Import Figma", |editor| {
             editor.project = candidate;
             editor.layer = target_layer_idx;
+            editor.frame = 0;
             editor.clear_timeline_frame_selection();
             editor.selection = selection;
         });

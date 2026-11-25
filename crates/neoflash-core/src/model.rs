@@ -580,6 +580,19 @@ impl Project {
         }
     }
 
+    /// Pin legacy layerless (`layer: None`) frame scripts across symbols whenever an edit would
+    /// otherwise shift their inferred authoring row onto a newly added, reordered, unhidden, or
+    /// newly keyframed higher layer while the previous row still holds its ordinary keyframe.
+    pub fn pin_displaced_frame_script_layers(&mut self, before: &Project) {
+        for symbol in &mut self.symbols {
+            if let Some(old_symbol) = before.symbol(&symbol.id) {
+                symbol
+                    .timeline
+                    .pin_displaced_frame_script_layers(&old_symbol.timeline);
+            }
+        }
+    }
+
     /// Remove frame scripts whose explicitly owning layer was deleted or became a folder. This is
     /// layer content: it must never be silently reassigned to a neighboring row. A script may
     /// remain owned by an existing layer without an exact key, in which case its marker is shown

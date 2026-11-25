@@ -645,6 +645,7 @@ pub fn edit_frames(project: &mut Project, symbol: &str, edit: TimelineEdit) -> R
         layer.normalize_motion_keys();
     }
     candidate.prune_authoring_groups();
+    candidate.pin_displaced_frame_script_layers(project);
     candidate.prune_frame_script_layers();
     candidate.format_version = candidate.format_version.max(5);
     candidate.upgrade_format_for_features();
@@ -803,6 +804,130 @@ impl Timeline {
         self.scripts.iter().any(|script| {
             script.frame == frame && self.action_layer_for_script(script) == Some(layer_index)
         })
+    }
+
+    /// Returns true when `layer_index` owns any non-empty `FrameScript` on this timeline,
+    /// either explicitly (`script.layer == Some(layer.id)`) or as the resolved authoring row.
+    pub fn layer_owns_any_frame_script(&self, layer_index: usize) -> bool {
+        let Some(layer_id) = self.layers.get(layer_index).map(|l| l.id.as_str()) else {
+            return false;
+        };
+        self.scripts.iter().any(|script| {
+            !script.script.source.trim().is_empty()
+                && (script.layer.as_deref() == Some(layer_id)
+                    || self.action_layer_for_script(script) == Some(layer_index))
+        })
+    }
+
+    /// Pin legacy layerless (`layer: None`) frame scripts to their pre-edit inferred layer
+    /// whenever a timeline mutation (adding a top layer, reordering/unhiding layers, or
+    /// inserting an ordinary keyframe on a higher layer) would otherwise shift inferred
+    /// ownership onto a different row while the original row still owns its ordinary keyframe.
+    pub fn pin_displaced_frame_script_layers(&mut self, before: &Timeline) {
+        fn fallback_keyframed_layer(tl: &Timeline, frame: u32) -> Option<usize> {
+            (0..tl.layers.len()).rev().find(|&index| {
+                let layer = &tl.layers[index];
+                if layer.properties.role == LayerRole::Folder {
+                    return false;
+                }
+                let layer_end = layer
+                    .properties
+                    .end_frame
+                    .unwrap_or(tl.frame_count)
+                    .min(tl.frame_count);
+                frame < layer_end
+                    && layer
+                        .keyframes
+                        .iter()
+                        .any(|key| key.frame == frame && key.keyed_properties.is_none())
+            })
+        }
+
+        let mut idx = 0usize;
+        while idx < self.scripts.len() {
+            if self.scripts[idx].layer.is_some()
+                || self.scripts[idx].script.source.trim().is_empty()
+            {
+                idx += 1;
+                continue;
+            }
+            let script_frame = self.scripts[idx].frame;
+            let old_owner_id = before
+                .inferred_action_layer_for_frame(script_frame)
+                .or_else(|| fallback_keyframed_layer(before, script_frame))
+                .and_then(|layer_idx| before.layers.get(layer_idx))
+                .map(|layer| layer.id.clone());
+            let new_owner_id = self
+                .inferred_action_layer_for_frame(script_frame)
+                .and_then(|layer_idx| self.layers.get(layer_idx))
+                .map(|layer| &layer.id);
+            let Some(old_id) = old_owner_id else {
+                idx += 1;
+                continue;
+            };
+            if new_owner_id == Some(&old_id)
+                || !self.layers.iter().any(|layer| {
+                    layer.id == old_id
+                        && layer.properties.role != LayerRole::Folder
+                        && layer
+                            .keyframes
+                            .iter()
+                            .any(|key| key.frame == script_frame && key.keyed_properties.is_none())
+                })
+            {
+                idx += 1;
+                continue;
+            }
+
+            if let Some(existing_idx) = self.scripts.iter().enumerate().find_map(|(i, s)| {
+                (i != idx && s.frame == script_frame && s.layer.as_ref() == Some(&old_id))
+                    .then_some(i)
+            }) {
+                let cur_lang = self.scripts[idx].script.language;
+                let ex_lang = self.scripts[existing_idx].script.language;
+                if self.scripts[existing_idx].script.source.trim().is_empty() {
+                    self.scripts[existing_idx].script = self.scripts[idx].script.clone();
+                    self.scripts.remove(idx);
+                    continue;
+                } else if ex_lang == cur_lang {
+                    let cur_src = self.scripts[idx].script.source.clone();
+                    let ex_src = self.scripts[existing_idx].script.source.clone();
+                    let merged = if existing_idx < idx {
+                        format!("{}\n\n{}", ex_src.trim_end(), cur_src.trim_start())
+                    } else {
+                        format!("{}\n\n{}", cur_src.trim_end(), ex_src.trim_start())
+                    };
+                    self.scripts[existing_idx].script.source = merged;
+                    self.scripts.remove(idx);
+                    continue;
+                } else if let Some(alt_id) = (0..before.layers.len()).rev().find_map(|b_idx| {
+                    let b_layer = &before.layers[b_idx];
+                    if b_layer.properties.role == LayerRole::Folder {
+                        return None;
+                    }
+                    let cand_id = &b_layer.id;
+                    let valid_in_self = self.layers.iter().any(|layer| {
+                        &layer.id == cand_id
+                            && layer.properties.role != LayerRole::Folder
+                            && layer.keyframes.iter().any(|key| {
+                                key.frame == script_frame && key.keyed_properties.is_none()
+                            })
+                    });
+                    let already_owned = self
+                        .scripts
+                        .iter()
+                        .any(|s| s.frame == script_frame && s.layer.as_ref() == Some(cand_id));
+                    (valid_in_self && !already_owned).then(|| cand_id.clone())
+                }) {
+                    self.scripts[idx].layer = Some(alt_id);
+                }
+                idx += 1;
+                continue;
+            }
+
+            self.scripts[idx].layer = Some(old_id);
+            idx += 1;
+        }
     }
 }
 

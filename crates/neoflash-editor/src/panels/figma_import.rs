@@ -952,7 +952,10 @@ fn wrap_project_root_layers_in_movie_clip(project: &mut Project) -> Result<(), S
 }
 
 pub(crate) fn active_timeline_is_single_blank_layer(timeline: &Timeline, frame: u32) -> bool {
-    frame == 0 && timeline.layers.len() == 1 && is_untouched_blank_layer(&timeline.layers[0])
+    frame == 0
+        && timeline.layers.len() == 1
+        && !crate::graphic_import::layer_is_dedicated_script_layer(timeline, 0)
+        && is_untouched_blank_layer(&timeline.layers[0])
 }
 
 #[cfg(test)]

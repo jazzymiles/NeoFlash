@@ -961,6 +961,7 @@ fn execute_batch_op(
             } else {
                 vec![Keyframe::default()]
             };
+            let before_tl = sym.timeline.clone();
             sym.timeline.layers.push(Layer {
                 id: layer_id.clone(),
                 name: name.clone(),
@@ -974,6 +975,7 @@ fn execute_batch_op(
                     ..LayerProperties::default()
                 },
             });
+            sym.timeline.pin_displaced_frame_script_layers(&before_tl);
             upgrade_project_format_versions(project);
             Ok(json!({ "symbol_id": sym_id, "layer_id": layer_id, "name": name }))
         }
@@ -992,6 +994,7 @@ fn execute_batch_op(
                 None => project.root.clone(),
             };
             let sym = resolve_symbol_mut(project, &sym_id)?;
+            let before_tl = sym.timeline.clone();
             if frame >= sym.timeline.frame_count {
                 sym.timeline.frame_count = frame + 1;
             }
@@ -1037,6 +1040,7 @@ fn execute_batch_op(
                 layer_ref.keyframes.push(kf);
                 layer_ref.keyframes.sort_by_key(|k| k.frame);
             }
+            sym.timeline.pin_displaced_frame_script_layers(&before_tl);
             upgrade_project_format_versions(project);
             Ok(json!({ "symbol_id": sym_id, "frame": frame }))
         }
