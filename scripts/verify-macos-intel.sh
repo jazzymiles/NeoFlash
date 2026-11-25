@@ -60,7 +60,8 @@ project_root="${NEOFLASH_INTEL_PROJECT_ROOT:-$default_project_root}"
 cd "$project_root"
 
 export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-export MACOSX_DEPLOYMENT_TARGET="15.0"
+deployment_target="${NEOFLASH_INTEL_DEPLOYMENT_TARGET:-12.0}"
+export MACOSX_DEPLOYMENT_TARGET="$deployment_target"
 target_triple="x86_64-apple-darwin"
 
 arch_bin="${NEOFLASH_ARCH_BIN:-/usr/bin/arch}"
@@ -150,10 +151,10 @@ else
   fi
   case "$profile" in
     release)
-      cargo build --locked --release --target "$target_triple" -p neoflash-editor
+      cargo build --locked --release --target "$target_triple" --config "env.MACOSX_DEPLOYMENT_TARGET=\"$deployment_target\"" -p neoflash-editor
       ;;
     debug)
-      cargo build --locked --target "$target_triple" -p neoflash-editor
+      cargo build --locked --target "$target_triple" --config "env.MACOSX_DEPLOYMENT_TARGET=\"$deployment_target\"" -p neoflash-editor
       ;;
   esac
   built_binary="$project_root/target/$target_triple/$profile/neoflash-editor"
@@ -172,7 +173,7 @@ if [ "${NEOFLASH_INTEL_SKIP_ACTOOL:-0}" != "1" ] && xcrun --find actool >/dev/nu
   && [ -d "$icon_src/NeoFlash.icon" ]; then
   mkdir -p "$icon_car_dir"
   if xcrun actool "$icon_src/NeoFlash.icon" --compile "$icon_car_dir" --app-icon NeoFlash \
-      --platform macosx --minimum-deployment-target 15.0 \
+      --platform macosx --minimum-deployment-target "$deployment_target" \
       --output-partial-info-plist "$icon_car_dir/partial.plist" >/dev/null 2>&1 \
       && [ -f "$icon_car_dir/Assets.car" ]; then
     icon_plist_keys="$icon_plist_keys<key>CFBundleIconName</key><string>NeoFlash</string>"
@@ -249,7 +250,7 @@ $icon_plist_keys
 <key>NeoFlashGitCommit</key><string>$commit</string>
 <key>NeoFlashBuildProfile</key><string>$profile</string>
 <key>NeoFlashTargetTriple</key><string>$target_triple</string>
-<key>LSMinimumSystemVersion</key><string>15.0</string>
+<key>LSMinimumSystemVersion</key><string>$deployment_target</string>
 <key>LSArchitecturePriority</key>
 <array>
   <string>x86_64</string>
@@ -744,6 +745,7 @@ fi
   "$build_number" \
   "$profile" \
   "$target_triple" \
+  "$deployment_target" \
   "$host_arch" \
   "$execution_mode" \
   "$app_dir" \
@@ -764,6 +766,7 @@ from pathlib import Path
     build_number,
     profile,
     target_triple,
+    deployment_target,
     host_arch,
     execution_mode,
     app_dir,
@@ -787,7 +790,7 @@ receipt = {
     "build_number": int(build_number) if build_number.isdigit() else build_number,
     "profile": profile,
     "target_triple": target_triple,
-    "deployment_target": "15.0",
+    "deployment_target": deployment_target,
     "host_arch": host_arch,
     "execution_mode": execution_mode,
     "app_bundle_path": app_dir,

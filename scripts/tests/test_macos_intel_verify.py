@@ -44,9 +44,13 @@ class MacosIntelVerifyScriptTests(unittest.TestCase):
 
     def test_structural_invariants_and_info_plist(self):
         text = SCRIPT.read_text(encoding="utf-8")
-        self.assertIn('export MACOSX_DEPLOYMENT_TARGET="15.0"', text)
+        self.assertIn('deployment_target="${NEOFLASH_INTEL_DEPLOYMENT_TARGET:-12.0}"', text)
+        self.assertIn('export MACOSX_DEPLOYMENT_TARGET="$deployment_target"', text)
         self.assertIn('target_triple="x86_64-apple-darwin"', text)
-        self.assertIn('cargo build --locked --release --target "$target_triple" -p neoflash-editor', text)
+        self.assertIn(
+            'cargo build --locked --release --target "$target_triple" --config "env.MACOSX_DEPLOYMENT_TARGET=\\"$deployment_target\\"" -p neoflash-editor',
+            text,
+        )
         self.assertIn('target/artifacts/macos-x86_64', text)
         self.assertIn('PATH="/usr/bin:/bin:/usr/sbin:/sbin"', text)
         self.assertIn('--verify --deep --strict --verbose=2', text)
@@ -66,9 +70,10 @@ class MacosIntelVerifyScriptTests(unittest.TestCase):
             .replace("$commit", "deadbeef")
             .replace("$profile", "release")
             .replace("$target_triple", "x86_64-apple-darwin")
+            .replace("$deployment_target", "12.0")
         )
         plist = plistlib.loads(rendered.encode("utf-8"))
-        self.assertEqual(plist["LSMinimumSystemVersion"], "15.0")
+        self.assertEqual(plist["LSMinimumSystemVersion"], "12.0")
         self.assertEqual(plist["LSArchitecturePriority"], ["x86_64"])
         self.assertEqual(plist["NeoFlashTargetTriple"], "x86_64-apple-darwin")
         imported_utis = [u["UTTypeIdentifier"] for u in plist.get("UTImportedTypeDeclarations", [])]

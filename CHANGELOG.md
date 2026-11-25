@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed a startup crash on Intel Macs with Tier-1 Metal Argument Buffers running macOS 12 Monterey (`Intel Iris Pro` / `Metal GPUFamily macOS 1`, where `wgpu`'s default `VALIDATION_INDIRECT_CALL` internal compute shader aborted Apple's `MTLCompilerService` in `AirEmulateArgumentBuffers.cpp:997`), lowered the standalone `x86_64-apple-darwin` Intel bundle deployment target in `scripts/verify-macos-intel.sh` to macOS 12.0+, and physically certified live GUI launch, vector rendering, bundled `x86_64` `ffmpeg`/`ffprobe` media helpers, authoring and HTML5/SWF/MP4 publication on bare-metal Intel Mac hardware (`T-349`).
+
 - Fixed repeated macOS file drops and placement of media dropped alongside ActionScript files on the tab strip.
   Welcome opens document and script drops in order, and the tab strip recognizes SWF content without a `.swf` suffix.
   Audio clips with the same filename can be imported together. Reusing a Progressive video from Library keeps its

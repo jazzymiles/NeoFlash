@@ -144,6 +144,42 @@ fn t289_native_build_includes_metal_backend() {
 }
 
 #[test]
+#[cfg(target_os = "macos")]
+fn t349_macos_wgpu_options_disable_indirect_call_validation() {
+    let options = native_wgpu_options();
+    let eframe::egui_wgpu::WgpuSetup::CreateNew(create_new) = options.wgpu_setup else {
+        panic!("expected WgpuSetup::CreateNew");
+    };
+    assert!(
+        !create_new
+            .instance_descriptor
+            .flags
+            .contains(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL),
+        "VALIDATION_INDIRECT_CALL must stay disabled on macOS so Tier-1 Argument Buffer Intel GPUs (e.g. Intel Iris Pro on macOS 12 Monterey) do not crash MTLCompilerService in AirEmulateArgumentBuffers.cpp"
+    );
+}
+
+/// Native `wgpu` configuration shared by the editor and standalone UI Studio.
+///
+/// `egui-wgpu` never issues indirect draws or dispatches, yet `wgpu` enables
+/// [`wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL`] by default even in release builds. On Intel
+/// Macs with Tier-1 Metal Argument Buffers (such as Haswell `Intel Iris Pro` / `Metal GPUFamily
+/// macOS 1` on macOS 12 Monterey), `wgpu_core::indirect_validation`'s internal compute shader
+/// emits bare-array buffer references (`typedef uint type_3[1]`) that abort Apple's
+/// `MTLCompilerService` (`AirEmulateArgumentBuffers.cpp:997`), preventing the window from opening.
+fn native_wgpu_options() -> eframe::egui_wgpu::WgpuConfiguration {
+    let mut config = eframe::egui_wgpu::WgpuConfiguration::default();
+    #[cfg(target_os = "macos")]
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(ref mut create_new) = config.wgpu_setup {
+        create_new
+            .instance_descriptor
+            .flags
+            .remove(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL);
+    }
+    config
+}
+
+#[test]
 #[cfg(target_os = "windows")]
 fn t289_native_build_includes_windows_primary_backends() {
     let backends = wgpu::Instance::enabled_backend_features();
@@ -208,6 +244,7 @@ fn main() -> eframe::Result {
                 persist_window: fixed.is_none(),
                 persistence_path: std::env::var_os("NEOFLASH_SCREENSHOT")
                     .map(|path| std::path::PathBuf::from(path).with_extension("state.ron")),
+                wgpu_options: native_wgpu_options(),
                 ..Default::default()
             },
             Box::new(|cc| Ok(Box::new(panels::ui_studio::StandaloneUiStudioApp::new(cc)))),
@@ -228,6 +265,7 @@ fn main() -> eframe::Result {
             // Native acceptance must not replace the user's saved workspace.
             persistence_path: std::env::var_os("NEOFLASH_SCREENSHOT")
                 .map(|path| std::path::PathBuf::from(path).with_extension("state.ron")),
+            wgpu_options: native_wgpu_options(),
             ..Default::default()
         },
         Box::new(|cc| Ok(Box::new(app::Editor::new(cc)))),
