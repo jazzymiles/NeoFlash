@@ -282,7 +282,9 @@ test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapDat
     const ctx = vm.createContext({});
     vm.runInContext(fs.readFileSync(resolve(outDir, 'bundle.js'), 'utf8'), ctx);
     const bundle = vm.runInContext('globalThis.NeoFlashBundle', ctx);
-    assert.ok(typeof bundle.as_prelude === 'string' && bundle.as_prelude.length > 10000, 'exported bundle includes shared as_prelude');
+    assert.equal(bundle.as_prelude, undefined, 'standard HTML5 export externalizes as_prelude out of bundle.js');
+    const extIntrinsics = fs.readFileSync(resolve(outDir, 'as-intrinsics.js'), 'utf8');
+    assert.ok(extIntrinsics.length > 10000 && extIntrinsics.includes('__neoflashAsIntrinsics'), 'exported package ships shared as-intrinsics.js');
     assert.ok(bundle.scripts[0].code.includes('/*__NF_AS_PRELUDE__*/'), 'script code uses deduplicated prelude marker');
 
     player = new runtimeWasm.WebPlayer(JSON.stringify(bundle.project));

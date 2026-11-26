@@ -367,6 +367,7 @@ where
     if demo && source.is_some() {
         return Err("Choose a project or --demo".into());
     }
+    let source_path_for_guards = source.clone();
     let source_base_dir = source
         .as_ref()
         .and_then(|p| p.parent())
@@ -685,13 +686,18 @@ where
     };
 
     if let Some(ref profile_out_path) = export_profile_path {
-        let json = export_profile_json(&active_profile)?;
-        if let Some(parent) = profile_out_path.parent()
-            && !parent.as_os_str().is_empty()
+        if let Some(ref src_path) = source_path_for_guards
+            && cli_paths_refer_to_same_file(src_path, profile_out_path)
         {
-            fs::create_dir_all(parent)?;
+            return Err(format!(
+                "Refusing to overwrite source project '{}' with --export-profile '{}'",
+                src_path.display(),
+                profile_out_path.display()
+            )
+            .into());
         }
-        fs::write(profile_out_path, &json)?;
+        let json = export_profile_json(&active_profile)?;
+        write_profile_json_atomically(profile_out_path, json.as_bytes())?;
         println!("Publish profile JSON: {}", profile_out_path.display());
         cli_out.exported_profile_path = Some(profile_out_path.clone());
         if !has_output && simulate_network_preset.is_none() {
@@ -774,6 +780,89 @@ where
         eprintln!("Note: {warning}");
     }
     Ok(cli_out)
+}
+
+fn cli_paths_refer_to_same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if let (Ok(ma), Ok(mb)) = (fs::metadata(a), fs::metadata(b))
+            && ma.dev() == mb.dev()
+            && ma.ino() == mb.ino()
+        {
+            return true;
+        }
+    }
+    if let (Ok(ca), Ok(cb)) = (fs::canonicalize(a), fs::canonicalize(b))
+        && ca == cb
+    {
+        return true;
+    }
+    let resolve_parent_and_name = |p: &std::path::Path| -> Option<PathBuf> {
+        let name = p.file_name()?;
+        let parent = p.parent().filter(|par| !par.as_os_str().is_empty());
+        let canon_parent = match parent {
+            Some(par) => fs::canonicalize(par).ok()?,
+            None => env::current_dir().ok()?.canonicalize().ok()?,
+        };
+        Some(canon_parent.join(name))
+    };
+    if let (Some(ra), Some(rb)) = (resolve_parent_and_name(a), resolve_parent_and_name(b)) {
+        #[cfg(windows)]
+        {
+            return ra
+                .to_string_lossy()
+                .eq_ignore_ascii_case(&rb.to_string_lossy());
+        }
+        #[cfg(not(windows))]
+        {
+            return ra == rb;
+        }
+    }
+    false
+}
+
+fn write_profile_json_atomically(
+    dst: &std::path::Path,
+    bytes: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write as _;
+    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let parent = dst
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    fs::create_dir_all(parent)?;
+    let name = dst
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("profile.json");
+    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let staging = parent.join(format!(
+        ".{name}.neoflash-profile-tmp-{}-{seq}",
+        std::process::id()
+    ));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)?;
+    let write_res = (|| -> std::io::Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()
+    })();
+    drop(file);
+    if let Err(err) = write_res {
+        let _ = fs::remove_file(&staging);
+        return Err(err.into());
+    }
+    if let Err(err) = fs::rename(&staging, dst) {
+        let _ = fs::remove_file(&staging);
+        return Err(err.into());
+    }
+    Ok(())
 }
 
 fn main() {
@@ -1008,6 +1097,53 @@ mod tests {
         );
         assert!(out_dir.join("App/ContentView.swift").is_file());
         assert!(out_dir.join("App/AppSwiftHost.swift").is_file());
+        let _ = fs::remove_dir_all(tmp);
+    }
+
+    #[test]
+    fn cli_export_profile_rejects_overwriting_source_project_and_aliases() {
+        let tmp = env::temp_dir().join(format!(
+            "neoflash-cli-profile-guard-{}-{}",
+            std::process::id(),
+            new_id("cli-guard")
+        ));
+        fs::create_dir_all(&tmp).unwrap();
+        let proj_path = tmp.join("source.nflash");
+        let original_bytes = Project::demo().to_json().unwrap().into_bytes();
+        fs::write(&proj_path, &original_bytes).unwrap();
+
+        let err = run_with_args([
+            proj_path.to_str().unwrap(),
+            "--export-profile",
+            proj_path.to_str().unwrap(),
+        ])
+        .expect_err("identical input and --export-profile must be rejected");
+        assert!(err.to_string().contains("Refusing to overwrite"));
+        assert_eq!(fs::read(&proj_path).unwrap(), original_bytes);
+
+        #[cfg(unix)]
+        {
+            let link_path = tmp.join("alias-source.nflash");
+            std::os::unix::fs::symlink(&proj_path, &link_path).unwrap();
+            let alias_err = run_with_args([
+                proj_path.to_str().unwrap(),
+                "--export-profile",
+                link_path.to_str().unwrap(),
+            ])
+            .expect_err("symlink alias to source project must be rejected");
+            assert!(alias_err.to_string().contains("Refusing to overwrite"));
+            assert_eq!(fs::read(&proj_path).unwrap(), original_bytes);
+        }
+
+        let valid_profile_path = tmp.join("publish-profile.json");
+        run_with_args([
+            proj_path.to_str().unwrap(),
+            "--export-profile",
+            valid_profile_path.to_str().unwrap(),
+        ])
+        .expect("distinct JSON profile path succeeds");
+        assert!(valid_profile_path.is_file());
+        assert_eq!(fs::read(&proj_path).unwrap(), original_bytes);
         let _ = fs::remove_dir_all(tmp);
     }
 }

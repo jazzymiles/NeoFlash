@@ -9008,8 +9008,9 @@
             try {
               const bundleObj = JSON.parse(new TextDecoder().decode(rawBytes.subarray(i + 4, jsonEnd)));
               if (bundleObj && typeof bundleObj === 'object') {
-                if (!bundleObj.as_prelude && typeof global.NeoFlashBundle?.as_prelude === 'string') {
-                  bundleObj.as_prelude = global.NeoFlashBundle.as_prelude;
+                const sharedPrel = global.NeoFlashBundle?.as_prelude || global.__neoflashAsIntrinsics || globalThis.__neoflashAsIntrinsics;
+                if (!bundleObj.as_prelude && typeof sharedPrel === 'string') {
+                  bundleObj.as_prelude = sharedPrel;
                 }
                 return { kind: 'neoflash', bundle: bundleObj };
               }
@@ -9023,6 +9024,10 @@
         try {
           const parsed = JSON.parse(new TextDecoder().decode(rawBytes));
           if (parsed && typeof parsed === 'object' && (parsed.project || parsed.program || Array.isArray(parsed.scripts))) {
+            const sharedPrel = global.NeoFlashBundle?.as_prelude || global.__neoflashAsIntrinsics || globalThis.__neoflashAsIntrinsics;
+            if (!parsed.as_prelude && typeof sharedPrel === 'string') {
+              parsed.as_prelude = sharedPrel;
+            }
             return { kind: 'neoflash', bundle: parsed };
           }
         } catch (_) {}

@@ -160,21 +160,39 @@
     const match = String(stack || '').match(/neoflash-offset\.js:(\d+):\d+/);
     return match ? Number(match[1]) - 1 : null;
   }
+  function resolveSharedAsPrelude(explicitPrelude) {
+    if (typeof explicitPrelude === 'string' && explicitPrelude) return explicitPrelude;
+    if (typeof global?.__neoflashAsIntrinsics === 'string' && global.__neoflashAsIntrinsics) return global.__neoflashAsIntrinsics;
+    if (typeof globalThis !== 'undefined' && typeof globalThis.__neoflashAsIntrinsics === 'string' && globalThis.__neoflashAsIntrinsics) {
+      return globalThis.__neoflashAsIntrinsics;
+    }
+    if (typeof require === 'function') {
+      try {
+        require('./as-intrinsics.js');
+        if (typeof globalThis.__neoflashAsIntrinsics === 'string' && globalThis.__neoflashAsIntrinsics) {
+          return globalThis.__neoflashAsIntrinsics;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
   function hydrateAsPrelude(code, prelude) {
-    if (typeof code !== 'string' || typeof prelude !== 'string' || !prelude) return code;
+    if (typeof code !== 'string') return code;
     const marker = '/*__NF_AS_PRELUDE__*/';
     const idx = code.indexOf(marker);
     if (idx < 0) return code;
+    const resolvedPrelude = resolveSharedAsPrelude(prelude);
+    if (!resolvedPrelude) return code;
     let nlCount = 0;
-    for (let i = 0; i < prelude.length; i++) {
-      if (prelude.charCodeAt(i) === 10) nlCount++;
+    for (let i = 0; i < resolvedPrelude.length; i++) {
+      if (resolvedPrelude.charCodeAt(i) === 10) nlCount++;
     }
     let end = idx + marker.length;
     while (nlCount > 0 && code.charCodeAt(end) === 10) {
       end++;
       nlCount--;
     }
-    return code.slice(0, idx) + prelude + code.slice(end);
+    return code.slice(0, idx) + resolvedPrelude + code.slice(end);
   }
   function scriptFunction(script, bindings, prelude) {
     const resolvedCode = hydrateAsPrelude(script.code, prelude);
@@ -205,7 +223,7 @@
     return new Function('__nfBuiltins', resolvedCode + '\n//# sourceURL=' + url);
   }
   const runtimeInternalHostFiles = new Set([
-    'runtime.js', 'preview.js', 'neoflash_web.js', 'neoflash_wasm_fallback.js', 'display.js', 'stage.js', 'events.js',
+    'runtime.js', 'as-intrinsics.js', 'preview.js', 'neoflash_web.js', 'neoflash_wasm_fallback.js', 'display.js', 'stage.js', 'events.js',
     'text.js', 'text-input.js', 'audio.js', 'video.js', 'bitmap.js', 'path.js', 'filters.js',
     'geom.js', 'geom3d.js', 'net.js', 'xml.js', 'loader.js', 'storage.js', 'external.js',
     'air.js', 'legacy-input.js', 'dom-layout.js', 'accessibility.js', 'byte-array.js',
@@ -1386,15 +1404,8 @@
     }
   }
 
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, hydrateAsPrelude, scriptFunction, compileProgramUnit, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts, mount, sharedWasmModules };
-  if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
-  if (global && typeof global === 'object') {
-    try { Object.defineProperty(global, 'NeoFlashFormatTrace', { value: Object.freeze({ formatTraceValue, formatTraceArgs }), configurable: true }); } catch (_) {}
-  }
-  if (typeof document === 'undefined') return;
-  const nativeConsoleError = typeof console?.error === 'function' ? console.error.bind(console) : null;
-  global.NeoFlashPreview?.installOutputRelay?.(global);
-
+  const nativeConsoleError = typeof console !== 'undefined' && typeof console?.error === 'function' ? console.error.bind(console) : null;
+  let reportingFatalConsole = false;
   function setNeoflashDocState(docObj, stateValue) {
     const targets = [docObj?.documentElement, typeof document !== 'undefined' ? document?.documentElement : null];
     for (const rootEl of targets) {
@@ -1405,32 +1416,37 @@
       } catch (_) {}
     }
   }
-  let reportingFatalConsole = false;
   function emitFatalTelemetry(docObj, rawError) {
     setNeoflashDocState(docObj, 'failed');
-    const rawCause = rawError && typeof rawError === 'object' && 'cause' in rawError && rawError.cause !== undefined
-      ? rawError.cause
-      : rawError;
+    let rawCause = rawError;
+    try {
+      if (rawError !== null && (typeof rawError === 'object' || typeof rawError === 'function')) {
+        const desc = Object.getOwnPropertyDescriptor(rawError, 'cause');
+        if (desc && Object.prototype.hasOwnProperty.call(desc, 'value') && desc.value !== undefined) {
+          rawCause = desc.value;
+        }
+      }
+    } catch (_) {}
     const cause = unwrapScriptThrow(rawCause);
     const message = describeThrown(rawError);
     if (!reportingFatalConsole) {
       reportingFatalConsole = true;
-      const prevSuppress = global.__neoflashSuppressConsoleRelay;
-      global.__neoflashSuppressConsoleRelay = false;
+      const prevSuppress = global?.__neoflashSuppressConsoleRelay;
+      if (global) global.__neoflashSuppressConsoleRelay = false;
       try {
-        if (typeof console?.error === 'function') console.error(rawError);
+        if (typeof console !== 'undefined' && typeof console?.error === 'function') console.error(rawError);
         else nativeConsoleError?.(rawError);
       } catch (_) {
         try { nativeConsoleError?.(message, cause); } catch (__) {}
       } finally {
-        global.__neoflashSuppressConsoleRelay = prevSuppress;
+        if (global) global.__neoflashSuppressConsoleRelay = prevSuppress;
         reportingFatalConsole = false;
       }
     }
     try {
       const detail = { message, error: cause };
       let evt = null;
-      if (typeof global.CustomEvent === 'function') {
+      if (typeof global?.CustomEvent === 'function') {
         evt = new global.CustomEvent('neoflash-fatal-error', { cancelable: true, detail });
       } else if (typeof CustomEvent === 'function') {
         evt = new CustomEvent('neoflash-fatal-error', { cancelable: true, detail });
@@ -1438,11 +1454,19 @@
         evt = new Event('neoflash-fatal-error', { cancelable: true });
         evt.detail = detail;
       }
-      if (evt && typeof global.dispatchEvent === 'function') {
+      if (evt && typeof global?.dispatchEvent === 'function') {
         global.dispatchEvent(evt);
       }
     } catch (_) {}
   }
+
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, hydrateAsPrelude, scriptFunction, compileProgramUnit, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts, mount, sharedWasmModules };
+  if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
+  if (global && typeof global === 'object') {
+    try { Object.defineProperty(global, 'NeoFlashFormatTrace', { value: Object.freeze({ formatTraceValue, formatTraceArgs }), configurable: true }); } catch (_) {}
+  }
+  if (typeof document === 'undefined') return;
+  global.NeoFlashPreview?.installOutputRelay?.(global);
 
   const errorElement = document.getElementById('error');
   let failed = false;
@@ -1464,7 +1488,12 @@
     const frames = sourceFrames(error);
     const location = sourceLocationText(frames[0]);
     errorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
-    emitFatalTelemetry(document, error);
+    if (typeof emitFatalTelemetry === 'function') {
+      emitFatalTelemetry(document, error);
+    } else {
+      try { if (document?.documentElement?.dataset) document.documentElement.dataset.neoflashState = 'failed'; } catch (_) {}
+      try { console.error(error); } catch (_) {}
+    }
     global.__neoflashSuppressConsoleRelay = true;
     try {
       try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
@@ -2075,7 +2104,7 @@
     let lastTrace = '', lastTraceLocation = '';
     const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy', '__nfXML'];
     let compiledProgramFn = null;
-    const bundleAsPrelude = typeof bundle.as_prelude === 'string' ? bundle.as_prelude : null;
+    const bundleAsPrelude = resolveSharedAsPrelude(bundle?.as_prelude);
     try {
       compiledProgramFn = bundle.program ? (() => {
         try { return compileProgramUnit(bundle.program, bundleAsPrelude); }
@@ -3270,7 +3299,7 @@
                 project:typeof project!=='undefined'?project:null,
                 program:typeof bundle!=='undefined'&&bundle?.program?bundle.program:null,
                 scripts:typeof bundle!=='undefined'&&Array.isArray(bundle?.scripts)?bundle.scripts:(typeof scripts!=='undefined'&&Array.isArray(scripts)?scripts:[]),
-                as_prelude:typeof bundle!=='undefined'&&typeof bundle?.as_prelude==='string'?bundle.as_prelude:undefined,
+                as_prelude:resolveSharedAsPrelude(typeof bundle!=='undefined'?bundle?.as_prelude:undefined)||undefined,
               };
               const jsonBytes=new TextEncoder().encode('NFWK'+JSON.stringify(payloadObj));
               const totalLen=8+5+6+jsonBytes.length+2;
