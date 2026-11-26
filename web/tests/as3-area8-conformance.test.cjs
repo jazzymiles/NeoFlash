@@ -2108,6 +2108,7 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
 
   t.after(async () => {
     wsHub.destroyAll();
+    server.closeAllConnections?.();
     await new Promise(resolve => server.close(resolve));
   });
   await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
@@ -2342,16 +2343,28 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     cdpWs.addEventListener('message', ev => {
       const msg = JSON.parse(String(ev.data));
       if (msg.id && pendingCdp.has(msg.id)) {
-        const { resolve, reject } = pendingCdp.get(msg.id);
+        const { resolve, reject, timer } = pendingCdp.get(msg.id);
+        clearTimeout(timer);
         pendingCdp.delete(msg.id);
         if (msg.error) reject(new Error(JSON.stringify(msg.error)));
         else resolve(msg.result);
       }
     });
-    const sendCdp = (method, params = {}) =>
+    cdpWs.addEventListener('close', () => {
+      for (const [, entry] of pendingCdp) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error('CDP WebSocket closed'));
+      }
+      pendingCdp.clear();
+    });
+    const sendCdp = (method, params = {}, timeoutMs = 30000) =>
       new Promise((resolve, reject) => {
         const id = nextCdpId++;
-        pendingCdp.set(id, { resolve, reject });
+        const timer = setTimeout(() => {
+          if (pendingCdp.delete(id)) reject(new Error(`CDP ${method} timed out`));
+        }, timeoutMs);
+        timer.unref?.();
+        pendingCdp.set(id, { resolve, reject, timer });
         cdpWs.send(JSON.stringify({ id, method, params }));
       });
 
@@ -2411,13 +2424,17 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     assert.deepEqual(domCheck, { hasPanel: true, dismissed: true });
   } finally {
     try { cdpWs?.close(); } catch (_) {}
-    try { chromeProc.kill('SIGTERM'); } catch (_) {}
-    await new Promise(resolve => {
-      const t = setTimeout(() => {
-        try { chromeProc.kill('SIGKILL'); } catch (_) {}
-        resolve();
-      }, 2000);
-      chromeProc.once('exit', () => { clearTimeout(t); resolve(); });
-    });
+    try { chromeProc.stderr?.destroy(); } catch (_) {}
+    if (chromeProc.exitCode === null) {
+      try { chromeProc.kill('SIGTERM'); } catch (_) {}
+      await new Promise(resolve => {
+        const t = setTimeout(() => {
+          try { chromeProc.kill('SIGKILL'); } catch (_) {}
+          resolve();
+        }, 2000);
+        t.unref?.();
+        chromeProc.once('exit', () => { clearTimeout(t); resolve(); });
+      });
+    }
   }
 });

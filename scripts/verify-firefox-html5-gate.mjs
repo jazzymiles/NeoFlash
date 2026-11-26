@@ -1268,7 +1268,11 @@ function startStaticHttpServer(rootDir) {
         port: addr.port,
         baseUrl: `http://127.0.0.1:${addr.port}`,
         requests,
-        close: () => new Promise(r => server.close(() => r())),
+        close: () =>
+          new Promise(r => {
+            server.closeAllConnections?.();
+            server.close(() => r());
+          }),
       });
     });
   });
@@ -1370,6 +1374,9 @@ async function launchFirefoxBidi(firefoxBin) {
   const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'neoflash-firefox-gate-'));
   // Intentionally preserve Firefox's default `security.fileuri.strict_origin_policy = true`
   // so every `file://` scenario runs under genuine Firefox file origin isolation.
+  // `media.cubeb.force_mock_context = true` uses Gecko's built-in MockCubeb software audio
+  // clock so AudioContext.resume() works on headless CI VMs with zero CoreAudio/ALSA hardware
+  // devices while still enforcing Firefox's real user-gesture autoplay policy.
   const prefs = [
     'user_pref("remote.active-protocols", 1);',
     'user_pref("browser.shell.checkDefaultBrowser", false);',
@@ -1378,6 +1385,7 @@ async function launchFirefoxBidi(firefoxBin) {
     'user_pref("datareporting.policy.dataSubmissionEnabled", false);',
     'user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);',
     'user_pref("dom.disable_open_during_load", false);',
+    'user_pref("media.cubeb.force_mock_context", true);',
     'user_pref("no-remote", true);',
   ].join('\n');
   fs.writeFileSync(path.join(profileDir, 'user.js'), prefs, 'utf8');
@@ -1400,6 +1408,10 @@ async function launchFirefoxBidi(firefoxBin) {
   proc.stdout.on('data', parseEndpoint);
 
   const cleanup = () => {
+    try {
+      proc.stdout?.destroy();
+      proc.stderr?.destroy();
+    } catch (_) {}
     try {
       if (proc.exitCode === null) proc.kill('SIGKILL');
     } catch (_) {}
@@ -1437,21 +1449,44 @@ async function launchFirefoxBidi(firefoxBin) {
 
     const ws = new WebSocket(`${wsBase}/session`);
     await new Promise((resolve, reject) => {
-      ws.onopen = resolve;
-      ws.onerror = err => reject(new Error(`BiDi WebSocket connection failed: ${err?.message || err}`));
+      const openTimer = setTimeout(() => {
+        reject(new Error('Timed out opening Firefox BiDi WebSocket session'));
+      }, 10000);
+      openTimer.unref?.();
+      ws.onopen = () => {
+        clearTimeout(openTimer);
+        resolve();
+      };
+      ws.onerror = err => {
+        clearTimeout(openTimer);
+        reject(new Error(`BiDi WebSocket connection failed: ${err?.message || err}`));
+      };
     });
 
     let nextId = 1;
+    let wsClosed = false;
     const pending = new Map();
     const logEntries = [];
     const networkFailures = [];
     const unloadProofs = [];
+
+    const rejectAllPending = reason => {
+      wsClosed = true;
+      for (const [, entry] of pending) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error(reason));
+      }
+      pending.clear();
+    };
+    ws.onclose = () => rejectAllPending('Firefox BiDi WebSocket closed');
+    ws.onerror = err => rejectAllPending(`Firefox BiDi WebSocket error: ${err?.message || err}`);
 
     ws.onmessage = ev => {
       const msg = JSON.parse(String(ev.data));
       if (msg.id && pending.has(msg.id)) {
         const entry = pending.get(msg.id);
         pending.delete(msg.id);
+        clearTimeout(entry.timer);
         if (msg.type === 'error') {
           entry.reject(new Error(`BiDi ${entry.method} failed: ${msg.error} — ${msg.message}`));
         } else {
@@ -1483,11 +1518,27 @@ async function launchFirefoxBidi(firefoxBin) {
       }
     };
 
-    const send = (method, params = {}) =>
+    const send = (method, params = {}, timeoutMs = 30000) =>
       new Promise((resolve, reject) => {
+        if (wsClosed || ws.readyState !== 1) {
+          reject(new Error(`BiDi ${method} aborted: WebSocket is not open`));
+          return;
+        }
         const id = nextId++;
-        pending.set(id, { method, resolve, reject });
-        ws.send(JSON.stringify({ id, method, params }));
+        const timer = setTimeout(() => {
+          if (pending.delete(id)) {
+            reject(new Error(`BiDi ${method} timed out after ${timeoutMs}ms`));
+          }
+        }, timeoutMs);
+        timer.unref?.();
+        pending.set(id, { method, resolve, reject, timer });
+        try {
+          ws.send(JSON.stringify({ id, method, params }));
+        } catch (err) {
+          clearTimeout(timer);
+          pending.delete(id);
+          reject(err);
+        }
       });
 
     await send('session.new', {
@@ -1614,11 +1665,24 @@ async function launchFirefoxBidi(firefoxBin) {
       process.removeListener('SIGINT', onSignal);
       process.removeListener('SIGTERM', onSignal);
       try {
-        await send('session.end', {});
+        await send('session.end', {}, 2000);
       } catch (_) {}
       try {
         ws.close();
       } catch (_) {}
+      if (proc.exitCode === null) {
+        const exited = new Promise(resolve => proc.once('exit', resolve));
+        try {
+          proc.kill('SIGKILL');
+        } catch (_) {}
+        await Promise.race([
+          exited,
+          new Promise(resolve => {
+            const t = setTimeout(resolve, 1500);
+            t.unref?.();
+          }),
+        ]);
+      }
       cleanup();
     };
 

@@ -1924,7 +1924,7 @@ test('Clean-machine browser runtime loads embedded @font-face before Frame 0 lay
         '--no-default-browser-check',
         'about:blank',
       ],
-      { stdio: ['ignore', 'pipe', 'pipe'] }
+      { stdio: ['ignore', 'ignore', 'pipe'] }
     );
     const wsUrl = await new Promise((resolve, reject) => {
       let stderrBuf = '';
@@ -1978,18 +1978,60 @@ test('Clean-machine browser runtime loads embedded @font-face before Frame 0 lay
         else resolve(msg.result);
       }
     });
-    const cdpSend = (method, params = {}) =>
+    ws.addEventListener('close', () => {
+      if (loadResolve) {
+        const fn = loadResolve;
+        loadResolve = null;
+        fn(new Error('CDP WebSocket closed before Page.loadEventFired'));
+      }
+      for (const [, entry] of pending) {
+        clearTimeout(entry.timer);
+        entry.reject(new Error('CDP WebSocket closed'));
+      }
+      pending.clear();
+    });
+    const cdpSend = (method, params = {}, timeoutMs = 30000) =>
       new Promise((resolve, reject) => {
         const id = nextId++;
-        pending.set(id, { resolve, reject });
+        const timer = setTimeout(() => {
+          if (pending.delete(id)) reject(new Error(`CDP ${method} timed out`));
+        }, timeoutMs);
+        timer.unref?.();
+        pending.set(id, {
+          resolve: res => { clearTimeout(timer); resolve(res); },
+          reject: err => { clearTimeout(timer); reject(err); },
+          timer,
+        });
         ws.send(JSON.stringify({ id, method, params }));
       });
     await cdpSend('Page.enable');
     await cdpSend('Runtime.enable');
-    const loadedPromise = new Promise((resolve) => {
-      loadResolve = resolve;
+    let cancelLoadWait = null;
+    const loadedPromise = new Promise((resolve, reject) => {
+      const t = setTimeout(() => {
+        if (loadResolve) {
+          loadResolve = null;
+          reject(new Error('Timed out waiting for Page.loadEventFired'));
+        }
+      }, 15000);
+      t.unref?.();
+      cancelLoadWait = () => {
+        clearTimeout(t);
+        if (loadResolve) loadResolve = null;
+      };
+      loadResolve = (err) => {
+        clearTimeout(t);
+        if (err instanceof Error) reject(err);
+        else resolve();
+      };
     });
-    await cdpSend('Page.navigate', { url: `http://127.0.0.1:${port}/index.html` });
+    loadedPromise.catch(() => {});
+    try {
+      await cdpSend('Page.navigate', { url: `http://127.0.0.1:${port}/index.html` });
+    } catch (err) {
+      cancelLoadWait?.();
+      throw err;
+    }
     await loadedPromise;
     const evalJson = async (expression) => {
       const res = await cdpSend('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
@@ -2129,13 +2171,16 @@ test('Clean-machine browser runtime loads embedded @font-face before Frame 0 lay
     assert.ok(domM && domI && domM.glyphWidth > domI.glyphWidth * 3.0, `DOM overlay glyph layout must reflect loaded @font-face: ${JSON.stringify(report.domTexts)}`);
   } finally {
     try { ws?.close(); } catch {}
+    try { chromeProc?.stderr?.destroy(); } catch {}
     if (chromeProc && chromeProc.exitCode === null) {
       await new Promise((resolve) => {
-        chromeProc.once('exit', resolve);
+        const t = setTimeout(resolve, 1500);
+        t.unref?.();
+        chromeProc.once('exit', () => { clearTimeout(t); resolve(); });
         chromeProc.kill('SIGKILL');
-        setTimeout(resolve, 1500);
       });
     }
+    server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
     try {
       fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

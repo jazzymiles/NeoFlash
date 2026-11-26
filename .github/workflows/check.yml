@@ -42,8 +42,13 @@ jobs:
           p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "check.log"
           if p.is_file():
               lines = p.read_text(errors="replace").splitlines()
-              hits = [l for l in lines if ("FAILED" in l or "panicked at" in l or "✖ " in l or "Error:" in l or "error[" in l)]
-              snippet = " | ".join((hits[-20:] if hits else lines[-25:]))[-3500:]
+              hits = []
+              for i, l in enumerate(lines):
+                  if any(k in l for k in ("FAILED", "panicked at", "✖ ", "timed out", "[FAIL]", "Error:", "error[")):
+                      hits.append(l)
+                  elif l.startswith("not ok "):
+                      hits.extend(lines[i:i + 12])
+              snippet = " | ".join((hits[-30:] if hits else lines[-25:]))[-3500:]
               print(f"::error title=macOS check failure::{snippet}")
           PY
       - name: Compare HTML5 performance with the blessed source revision

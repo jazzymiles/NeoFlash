@@ -267,6 +267,11 @@ class CdpClient {
     this.closed = false;
 
     this.ready = new Promise((resolve, reject) => {
+      const openTimer = setTimeout(() => {
+        cleanup();
+        reject(new Error('CDP WebSocket open timed out after 10000ms'));
+      }, 10000);
+      openTimer.unref?.();
       const onOpen = () => {
         cleanup();
         resolve();
@@ -276,6 +281,7 @@ class CdpClient {
         reject(new Error(`CDP WebSocket error: ${ev?.message || 'connection failed'}`));
       };
       const cleanup = () => {
+        clearTimeout(openTimer);
         this.ws.removeEventListener('open', onOpen);
         this.ws.removeEventListener('error', onError);
       };
@@ -289,6 +295,7 @@ class CdpClient {
         const entry = this.pending.get(msg.id);
         if (!entry) return;
         this.pending.delete(msg.id);
+        clearTimeout(entry.timer);
         if (msg.error) {
           entry.reject(new Error(`CDP ${entry.method}: ${msg.error.message}`));
         } else {
@@ -304,21 +311,34 @@ class CdpClient {
     this.ws.addEventListener('close', () => {
       this.closed = true;
       for (const [, entry] of this.pending) {
+        clearTimeout(entry.timer);
         entry.reject(new Error(`CDP socket closed during ${entry.method}`));
       }
       this.pending.clear();
     });
   }
 
-  send(method, params = {}, sessionId = undefined) {
+  send(method, params = {}, sessionId = undefined, timeoutMs = 30000) {
     if (this.closed) {
       return Promise.reject(new Error(`CDP socket already closed for ${method}`));
     }
     const id = this.nextId++;
     const payload = sessionId ? { id, method, params, sessionId } : { id, method, params };
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { method, resolve, reject });
-      this.ws.send(JSON.stringify(payload));
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) {
+          reject(new Error(`CDP ${method} timed out after ${timeoutMs}ms`));
+        }
+      }, timeoutMs);
+      timer.unref?.();
+      this.pending.set(id, { method, resolve, reject, timer });
+      try {
+        this.ws.send(JSON.stringify(payload));
+      } catch (err) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(err);
+      }
     });
   }
 
@@ -383,15 +403,18 @@ async function launchChrome(chromeBin) {
     productVersion: versionInfo.product || 'unknown',
     async shutdown() {
       cdp.close();
-      proc.kill('SIGTERM');
-      await Promise.race([
-        new Promise((r) => proc.once('exit', r)),
-        sleep(2000).then(() => {
-          try {
-            proc.kill('SIGKILL');
-          } catch {}
-        }),
-      ]);
+      proc.stderr?.destroy();
+      if (proc.exitCode === null) {
+        proc.kill('SIGTERM');
+        await Promise.race([
+          new Promise((r) => proc.once('exit', r)),
+          sleep(2000).then(() => {
+            try {
+              proc.kill('SIGKILL');
+            } catch {}
+          }),
+        ]);
+      }
       fs.rmSync(userDataDir, { recursive: true, force: true });
     },
   };
@@ -905,7 +928,7 @@ async function probeAndRunSafari(baseUrl, smokeCases) {
 
   const port = await getFreePort();
   const proc = spawn(safariBin, ['-p', String(port)], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: 'ignore',
   });
 
   try {
@@ -1004,15 +1027,17 @@ async function probeAndRunSafari(baseUrl, smokeCases) {
       runs: [],
     };
   } finally {
-    proc.kill('SIGTERM');
-    await Promise.race([
-      new Promise((r) => proc.once('exit', r)),
-      sleep(1000).then(() => {
-        try {
-          proc.kill('SIGKILL');
-        } catch {}
-      }),
-    ]);
+    if (proc.exitCode === null) {
+      proc.kill('SIGTERM');
+      await Promise.race([
+        new Promise((r) => proc.once('exit', r)),
+        sleep(1000).then(() => {
+          try {
+            proc.kill('SIGKILL');
+          } catch {}
+        }),
+      ]);
+    }
   }
 }
 
@@ -1199,6 +1224,7 @@ async function main() {
     }
   } finally {
     await chrome.shutdown();
+    httpSrv.server.closeAllConnections?.();
     httpSrv.server.close();
   }
 }

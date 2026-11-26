@@ -239,7 +239,7 @@ async function launchCdpSession(chromeBin, userDataDir) {
       '--autoplay-policy=no-user-gesture-required',
       'about:blank',
     ],
-    { stdio: ['ignore', 'pipe', 'pipe'] }
+    { stdio: ['ignore', 'ignore', 'pipe'] }
   );
 
   const wsUrl = await new Promise((resolve, reject) => {
@@ -297,10 +297,31 @@ async function launchCdpSession(chromeBin, userDataDir) {
     }
   });
 
-  const send = (method, params = {}) =>
+  ws.addEventListener('close', () => {
+    if (loadResolve) {
+      const fn = loadResolve;
+      loadResolve = null;
+      fn(new Error('CDP WebSocket closed before Page.loadEventFired'));
+    }
+    for (const [, entry] of pending) {
+      clearTimeout(entry.timer);
+      entry.reject(new Error('CDP WebSocket closed'));
+    }
+    pending.clear();
+  });
+
+  const send = (method, params = {}, timeoutMs = 30000) =>
     new Promise((resolve, reject) => {
       const id = nextId++;
-      pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        if (pending.delete(id)) reject(new Error(`CDP ${method} timed out`));
+      }, timeoutMs);
+      timer.unref?.();
+      pending.set(id, {
+        resolve: res => { clearTimeout(timer); resolve(res); },
+        reject: err => { clearTimeout(timer); reject(err); },
+        timer,
+      });
       ws.send(JSON.stringify({ id, method, params }));
     });
 
@@ -387,10 +408,32 @@ async function launchCdpSession(chromeBin, userDataDir) {
   });
 
   const navigateAndWait = async (url) => {
-    const loaded = new Promise((resolve) => {
-      loadResolve = resolve;
+    let cancelWait = null;
+    const loaded = new Promise((resolve, reject) => {
+      const t = setTimeout(() => {
+        if (loadResolve) {
+          loadResolve = null;
+          reject(new Error(`Timed out waiting for Page.loadEventFired (${url})`));
+        }
+      }, 15000);
+      t.unref?.();
+      cancelWait = () => {
+        clearTimeout(t);
+        if (loadResolve) loadResolve = null;
+      };
+      loadResolve = (err) => {
+        clearTimeout(t);
+        if (err instanceof Error) reject(err);
+        else resolve();
+      };
     });
-    await send('Page.navigate', { url });
+    loaded.catch(() => {});
+    try {
+      await send('Page.navigate', { url });
+    } catch (err) {
+      cancelWait?.();
+      throw err;
+    }
     await loaded;
   };
 
@@ -436,14 +479,18 @@ async function launchCdpSession(chromeBin, userDataDir) {
 
   const close = async () => {
     try { ws.close(); } catch (_) {}
-    try { chromeProc.kill('SIGTERM'); } catch (_) {}
-    await new Promise((resolve) => {
-      const t = setTimeout(() => {
-        try { chromeProc.kill('SIGKILL'); } catch (_) {}
-        resolve();
-      }, 2000);
-      chromeProc.once('exit', () => { clearTimeout(t); resolve(); });
-    });
+    try { chromeProc.stderr?.destroy(); } catch (_) {}
+    if (chromeProc.exitCode === null) {
+      try { chromeProc.kill('SIGTERM'); } catch (_) {}
+      await new Promise((resolve) => {
+        const t = setTimeout(() => {
+          try { chromeProc.kill('SIGKILL'); } catch (_) {}
+          resolve();
+        }, 2000);
+        t.unref?.();
+        chromeProc.once('exit', () => { clearTimeout(t); resolve(); });
+      });
+    }
   };
 
   return { chromeProc, ws, send, navigateAndWait, evalJson, waitTrace, errors, close };
