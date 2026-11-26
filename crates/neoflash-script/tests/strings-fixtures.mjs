@@ -147,8 +147,10 @@ var pcreExec:Object = pcreNamed.exec("id=2026-11-2026!");
 var pcreYear:String = pcreExec.year;
 var pcreMonth:String = pcreExec.month;
 var pcreReplaced:String = "2026-11".replace(new RegExp("(?P<y>\\d{4})-(?<m>\\d{2})"), "$<m>/$<y>");
-var pcreInlineFlags:Boolean = new RegExp("(?i)abc(?-i)DEF").test("AbcDEF") && !new RegExp("(?i)abc(?-i)DEF").test("Abcdef");
-var pcreScopedFlags:Boolean = new RegExp("(?i:abc)DEF").test("aBcDEF") && !new RegExp("(?i:abc)DEF").test("aBcdef");
+var pcreInlineFlags:Boolean = new RegExp("(?i)abc(?-i)DEF").test("AbcDEF") && !new RegExp("(?i)abc(?-i)DEF").test("Abcdef") && new RegExp("(?i)a+").test("aAa") && new RegExp("(?i)foo|bar").test("BAR") && !new RegExp("(a(?i)b)|c").test("C") && new RegExp("(?# [ )(?i)abc").test("AbC") && new RegExp("(?i)\\cA").test("\x01") && new RegExp("(?i)[\\cA]").test("\x01") && new RegExp("(?i)[\\101]").test("a") && new RegExp("(?i)[a-\\d]+").test("A5-");
+var pcreBadClsErr:Boolean = false; try { new RegExp("(?i)[abc"); } catch (e:SyntaxError) { pcreBadClsErr = true; }
+var pcreBadParenErr:Boolean = false; try { new RegExp("(?i)abc)"); } catch (e:SyntaxError) { pcreBadParenErr = true; }
+var pcreScopedFlags:Boolean = pcreBadClsErr && pcreBadParenErr && new RegExp("(?i:abc)DEF").test("aBcDEF") && !new RegExp("(?i:abc)DEF").test("aBcdef") && new RegExp("^(?i:ab)+C$").test("aBAbC") && !new RegExp("^(?i:ab)+C$").test("aBAbc") && new RegExp("^(?i:a|b)C$").test("BC") && new RegExp("^(?i:[a-fX-c]+)$").test("FeZaxB") && new RegExp("(?m:^bar$)").test("foo\nbar\nbaz") && !new RegExp("(?-m:^bar$)", "m").test("foo\nbar\nbaz") && new RegExp("(?s:a.b)").test("a\nb") && !new RegExp("(?-s:a.b)", "s").test("a\nb");
 var pcreComment:Boolean = new RegExp("foo(?# inline comment )bar").test("foobar");
 var pcreCondNum:Array = [new RegExp("(a)?(?(1)yes|no)").exec("ayes")[0], new RegExp("(a)?(?(1)yes|no)").exec("no")[0]];
 var pcreCondNamed:Array = [new RegExp("(?P<k>@)?(?(k)at|plain)").exec("@at")[0], new RegExp("(?P<k>@)?(?(k)at|plain)").exec("plain")[0]];

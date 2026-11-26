@@ -48,17 +48,55 @@ function __nfApplyInlineFlags(baseFlags, spec) {
     }
     return next;
 }
-function __nfWrapScopedJsFlags(inner, prevFlags, curFlags) {
-    let on = '', off = '';
-    for (const f of ['i', 'm', 's']) {
-        if (curFlags[f] !== prevFlags[f]) {
-            if (curFlags[f]) on += f; else off += f;
-        }
-    }
-    if (!on && !off) return inner;
-    return '(?' + on + (off ? '-' + off : '') + ':' + inner + ')';
+const __nfNeedsLowerIms = Symbol('neoflash.regexp.lowerIms');
+function __nfEscClsChar(cp) {
+    if (cp === 0x5c) return '\\\\';
+    if (cp === 0x5d) return '\\]';
+    if (cp === 0x5b) return '\\[';
+    if (cp === 0x5e) return '\\^';
+    if (cp === 0x2d) return '\\-';
+    if (cp === 0x0a) return '\\n';
+    if (cp === 0x0d) return '\\r';
+    if (cp === 0x09) return '\\t';
+    if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return '\\x' + cp.toString(16).padStart(2, '0');
+    return String.fromCharCode(cp);
 }
-function __nfCompilePcre(source, initialFlags) {
+function __nfCaseFoldCodePoints(cp) {
+    const ch = String.fromCharCode(cp);
+    const up = ch.toUpperCase();
+    const lo = ch.toLowerCase();
+    const set = new Set([cp]);
+    if (up.length === 1) {
+        const ucp = up.charCodeAt(0);
+        if (!(cp >= 128 && ucp < 128)) set.add(ucp);
+    }
+    if (lo.length === 1) {
+        const lcp = lo.charCodeAt(0);
+        if (!(cp >= 128 && lcp < 128)) set.add(lcp);
+    }
+    if (cp === 0x03a3 || cp === 0x03c3 || cp === 0x03c2) {
+        set.add(0x03a3); set.add(0x03c3); set.add(0x03c2);
+    }
+    return [...set].sort((a, b) => a - b);
+}
+function __nfFoldEscapedCp(cp, ignoreCase) {
+    const ch = String.fromCharCode(cp);
+    if (!ignoreCase) {
+        if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return '\\x' + cp.toString(16).padStart(2, '0');
+        return /[\\^$.*+?()[\]{}|]/.test(ch) ? '\\' + ch : ch;
+    }
+    const folded = __nfCaseFoldCodePoints(cp);
+    if (folded.length <= 1) {
+        if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return '\\x' + cp.toString(16).padStart(2, '0');
+        return /[\\^$.*+?()[\]{}|]/.test(ch) ? '\\' + ch : ch;
+    }
+    return '[' + folded.map(__nfEscClsChar).join('') + ']';
+}
+function __nfFoldUnescapedChar(ch) {
+    const folded = __nfCaseFoldCodePoints(ch.charCodeAt(0));
+    return folded.length <= 1 ? ch : '[' + folded.map(__nfEscClsChar).join('') + ']';
+}
+function __nfCompilePcre(source, initialFlags, lowerIms = false) {
     const conditionals = [];
     const groupNames = new Map();
     let captureCount = 0;
@@ -100,29 +138,139 @@ function __nfCompilePcre(source, initialFlags) {
 
     function parseSequence(stopChar, activeFlags) {
         let currentFlags = { ...activeFlags };
-        const segments = [];
         let buf = '';
         let inClass = false;
 
-        function flushSegment() {
-            if (buf.length > 0 || segments.length > 0) {
-                segments.push({ text: buf, flags: { ...currentFlags } });
-                buf = '';
+        function parseLoweredCharClass(ignoreCase) {
+            pos++; // skip '['
+            let neg = '';
+            if (source[pos] === '^') { neg = '^'; pos++; }
+            const cps = new Set();
+            const rawParts = [];
+            let first = true;
+            let closed = false;
+
+            function readAtom() {
+                if (pos >= source.length) __nfRegExpSyntaxError('unterminated character class.');
+                const c = source[pos];
+                if (c === ']' && !first) return null;
+                first = false;
+                if (c !== '\\') {
+                    pos++;
+                    return { kind: 'cp', cp: c.charCodeAt(0) };
+                }
+                pos++; // skip '\'
+                if (pos >= source.length) __nfRegExpSyntaxError('unterminated escape in character class.');
+                const esc = source[pos++];
+                if (/[dDwWsS]/.test(esc)) return { kind: 'raw', raw: '\\' + esc };
+                if (esc === 'a') return { kind: 'cp', cp: 0x07 };
+                if (esc === 'e') return { kind: 'cp', cp: 0x1b };
+                if (esc === 'n') return { kind: 'cp', cp: 0x0a };
+                if (esc === 'r') return { kind: 'cp', cp: 0x0d };
+                if (esc === 't') return { kind: 'cp', cp: 0x09 };
+                if (esc === 'f') return { kind: 'cp', cp: 0x0c };
+                if (esc === 'v') return { kind: 'cp', cp: 0x0b };
+                if (esc === 'b') return { kind: 'cp', cp: 0x08 };
+                if (esc === 'c' && /[A-Za-z]/.test(source[pos] ?? '')) {
+                    return { kind: 'cp', cp: source[pos++].charCodeAt(0) & 0x1f };
+                }
+                if (/[0-7]/.test(esc)) {
+                    const extra = (esc <= '3' ? /^[0-7]{0,2}/ : /^[0-7]?/).exec(source.slice(pos))[0];
+                    pos += extra.length;
+                    return { kind: 'cp', cp: parseInt(esc + extra, 8) };
+                }
+                if (esc === 'x' && source[pos] === '{') {
+                    const close = source.indexOf('}', pos + 1);
+                    if (close < 0) __nfRegExpSyntaxError('unterminated \\x{...} escape.');
+                    const hex = source.slice(pos + 1, close);
+                    if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) __nfRegExpSyntaxError('invalid \\x{...} hex digits.');
+                    pos = close + 1;
+                    const cp = parseInt(hex, 16);
+                    if (cp > 0xffff) __nfRegExpUnsupported('astral \\x{...} inside character class requires u-mode.');
+                    return { kind: 'cp', cp };
+                }
+                if (esc === 'x' && /^[0-9a-fA-F]{2}/.test(source.slice(pos, pos + 2))) {
+                    const cp = parseInt(source.slice(pos, pos + 2), 16);
+                    pos += 2;
+                    return { kind: 'cp', cp };
+                }
+                if (esc === 'u' && /^[0-9a-fA-F]{4}/.test(source.slice(pos, pos + 4))) {
+                    const cp = parseInt(source.slice(pos, pos + 4), 16);
+                    pos += 4;
+                    return { kind: 'cp', cp };
+                }
+                if (/[gGhHKNoOpPQRX]/.test(esc) || (esc === 'u' && source[pos] === '{')) {
+                    __nfRegExpUnsupported('PCRE-only escape \\' + esc + ' is not available in the JavaScript pattern backend.');
+                }
+                return { kind: 'cp', cp: esc.charCodeAt(0) };
             }
+
+            while (pos < source.length) {
+                if (source[pos] === ']' && !first) { pos++; closed = true; break; }
+                const a1 = readAtom();
+                if (!a1) { pos++; closed = true; break; }
+                if (a1.kind === 'raw') {
+                    rawParts.push(a1.raw);
+                    continue;
+                }
+                if (source[pos] === '-' && pos + 1 < source.length && source[pos + 1] !== ']') {
+                    const dashPos = pos++;
+                    const a2 = readAtom();
+                    if (a2 && a2.kind === 'cp') {
+                        if (a1.cp > a2.cp) __nfRegExpSyntaxError('range out of order in character class.');
+                        if (!ignoreCase && a2.cp - a1.cp > 256) {
+                            rawParts.push(__nfEscClsChar(a1.cp) + '-' + __nfEscClsChar(a2.cp));
+                        } else {
+                            for (let cp = a1.cp; cp <= a2.cp; cp++) {
+                                if (ignoreCase) {
+                                    for (const fcp of __nfCaseFoldCodePoints(cp)) cps.add(fcp);
+                                } else {
+                                    cps.add(cp);
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    // `[a-\d]` or similar: rewind so `a2` is parsed on the next loop iteration
+                    pos = dashPos + 1;
+                    if (ignoreCase) for (const fcp of __nfCaseFoldCodePoints(a1.cp)) cps.add(fcp);
+                    else cps.add(a1.cp);
+                    cps.add(0x2d);
+                    continue;
+                }
+                if (ignoreCase) {
+                    for (const fcp of __nfCaseFoldCodePoints(a1.cp)) cps.add(fcp);
+                } else {
+                    cps.add(a1.cp);
+                }
+            }
+            if (!closed) __nfRegExpSyntaxError('unterminated character class.');
+
+            const sorted = [...cps].sort((a, b) => a - b);
+            let clsBody = rawParts.join('');
+            let i = 0;
+            while (i < sorted.length) {
+                let j = i;
+                while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+                if (j - i >= 2) clsBody += __nfEscClsChar(sorted[i]) + '-' + __nfEscClsChar(sorted[j]);
+                else for (let k = i; k <= j; k++) clsBody += __nfEscClsChar(sorted[k]);
+                i = j + 1;
+            }
+            if (!clsBody) return neg ? '[\\s\\S]' : '(?!)';
+            return '[' + neg + clsBody + ']';
         }
 
         while (pos < source.length) {
             const ch = source[pos];
+            if (!inClass && ch === ')') {
+                if (stopChar === ')') break;
+                __nfRegExpSyntaxError('unexpected closing parenthesis.');
+            }
             if (!inClass && stopChar && ch === stopChar) break;
             if (!inClass && ch === '|') {
-                flushSegment();
-                const wrappedBranch = segments.reduceRight((acc, seg, idx) => {
-                    const base = idx === 0 ? activeFlags : segments[idx - 1].flags;
-                    return __nfWrapScopedJsFlags(seg.text + acc, base, seg.flags);
-                }, '');
                 pos++;
-                const rest = parseSequence(stopChar, activeFlags);
-                return wrappedBranch + '|' + rest;
+                const rest = parseSequence(stopChar, currentFlags);
+                return buf + '|' + rest;
             }
             if (ch === '\\') {
                 const next = source[++pos];
@@ -133,13 +281,34 @@ function __nfCompilePcre(source, initialFlags) {
                 if (!inClass && next === 'A') { buf += '(?<![\\s\\S])'; continue; }
                 if (!inClass && next === 'z') { buf += '(?![\\s\\S])'; continue; }
                 if (!inClass && next === 'Z') { buf += '(?=\\n?(?![\\s\\S]))'; continue; }
+                if (!inClass && next === 'c' && /[A-Za-z]/.test(source[pos] ?? '')) {
+                    buf += '\\c' + source[pos++];
+                    continue;
+                }
                 if (next === 'x' && source[pos] === '{') {
                     const close = source.indexOf('}', pos + 1);
                     if (close < 0) __nfRegExpSyntaxError('unterminated \\x{...} escape.');
                     const hex = source.slice(pos + 1, close);
                     if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) __nfRegExpSyntaxError('invalid \\x{...} hex digits.');
                     pos = close + 1;
-                    buf += __nfEncodeCodePointEscape(parseInt(hex, 16), inClass);
+                    const cp = parseInt(hex, 16);
+                    if (!inClass && lowerIms && currentFlags.i && cp <= 0xffff) {
+                        buf += __nfFoldEscapedCp(cp, true);
+                    } else {
+                        buf += __nfEncodeCodePointEscape(cp, inClass);
+                    }
+                    continue;
+                }
+                if (!inClass && lowerIms && currentFlags.i && next === 'x' && /^[0-9a-fA-F]{2}/.test(source.slice(pos, pos + 2))) {
+                    const cp = parseInt(source.slice(pos, pos + 2), 16);
+                    pos += 2;
+                    buf += __nfFoldEscapedCp(cp, true);
+                    continue;
+                }
+                if (!inClass && lowerIms && currentFlags.i && next === 'u' && /^[0-9a-fA-F]{4}/.test(source.slice(pos, pos + 4))) {
+                    const cp = parseInt(source.slice(pos, pos + 4), 16);
+                    pos += 4;
+                    buf += __nfFoldEscapedCp(cp, true);
                     continue;
                 }
                 if (next === 'k' && source[pos] === '<') {
@@ -153,6 +322,10 @@ function __nfCompilePcre(source, initialFlags) {
                 if (/[gGhHKNoOpPQRX]/.test(next) || (next === 'u' && source[pos] === '{')) {
                     __nfRegExpUnsupported('PCRE-only escape \\' + next + ' is not available in the JavaScript pattern backend.');
                 }
+                if (!inClass && lowerIms && currentFlags.i && !/[dDwWsSbBtnrfv0-9cxu]/.test(next)) {
+                    buf += __nfFoldEscapedCp(next.charCodeAt(0), true);
+                    continue;
+                }
                 buf += '\\' + next;
                 continue;
             }
@@ -165,8 +338,19 @@ function __nfCompilePcre(source, initialFlags) {
             if (!inClass && ((ch === '*' || ch === '+' || ch === '?' || ch === '}') && source[pos + 1] === '+')) {
                 __nfRegExpUnsupported('possessive quantifiers are not supported by the JavaScript backend.');
             }
-            if (ch === '[' && !inClass) { inClass = true; buf += ch; pos++; continue; }
+            if (ch === '[' && !inClass) {
+                if (lowerIms) {
+                    buf += parseLoweredCharClass(currentFlags.i);
+                    continue;
+                }
+                inClass = true; buf += ch; pos++; continue;
+            }
             if (ch === ']' && inClass) { inClass = false; buf += ch; pos++; continue; }
+            if (!inClass && lowerIms) {
+                if (ch === '.') { buf += currentFlags.s ? '[\\s\\S]' : '.'; pos++; continue; }
+                if (ch === '^') { buf += currentFlags.m ? '(?:^|(?<=[\\r\\n\\u2028\\u2029]))' : '^'; pos++; continue; }
+                if (ch === '$') { buf += currentFlags.m ? '(?:$|(?=[\\r\\n\\u2028\\u2029]))' : '$'; pos++; continue; }
+            }
             if (!inClass && ch === '(') {
                 pos++;
                 if (source[pos] !== '?') {
@@ -287,29 +471,31 @@ function __nfCompilePcre(source, initialFlags) {
                     if (!spec) __nfRegExpSyntaxError('empty inline modifier group.');
                     pos += flagMatch[0].length;
                     const nextFlags = __nfApplyInlineFlags(currentFlags, spec);
+                    if (!lowerIms && (nextFlags.i !== currentFlags.i || nextFlags.m !== currentFlags.m || nextFlags.s !== currentFlags.s)) {
+                        throw __nfNeedsLowerIms;
+                    }
                     if (delim === ':') {
                         const inner = parseSequence(')', nextFlags);
                         if (source[pos] !== ')') __nfRegExpSyntaxError('unterminated inline flag group.');
                         pos++;
-                        buf += __nfWrapScopedJsFlags(inner, currentFlags, nextFlags);
+                        buf += '(?:' + inner + ')';
                     } else {
-                        flushSegment();
                         currentFlags = nextFlags;
                     }
                     continue;
                 }
                 __nfRegExpUnsupported('unsupported (?...) group extension in AS3 RegExp.');
             }
+            if (!inClass && lowerIms && currentFlags.i) {
+                buf += __nfFoldUnescapedChar(ch);
+                pos++;
+                continue;
+            }
             buf += ch;
             pos++;
         }
 
-        flushSegment();
-        if (segments.length === 0) return '';
-        return segments.reduceRight((acc, seg, idx) => {
-            const base = idx === 0 ? activeFlags : segments[idx - 1].flags;
-            return __nfWrapScopedJsFlags(seg.text + acc, base, seg.flags);
-        }, '');
+        return buf;
     }
 
     function __nfCompileSubpattern(sub, flagsObj) {
@@ -505,8 +691,21 @@ function __nfRegExpCreate(as3, args) {
     if (/[^gimsx]/.test(flags)) __nfRegExpUnsupported('flags must contain only g, i, m, s and x; unsupported flags are not silently ignored.');
     flags = [...new Set(flags)].join('');
     const initialFlags = { i: flags.includes('i'), m: flags.includes('m'), s: flags.includes('s'), x: flags.includes('x') };
-    const compiledInfo = __nfCompilePcre(source, initialFlags);
-    const nativeFlags = flags.replace(/x/g, '');
+    let lowerIms = false;
+    let compiledInfo;
+    try {
+        try {
+            compiledInfo = __nfCompilePcre(source, initialFlags, false);
+        } catch (err) {
+            if (err !== __nfNeedsLowerIms) throw err;
+            lowerIms = true;
+            compiledInfo = __nfCompilePcre(source, initialFlags, true);
+        }
+    } catch (error) {
+        if (error instanceof __nfErrorTypes.SyntaxError || error instanceof __nfTypeError) throw error;
+        __nfRegExpSyntaxError(error.message);
+    }
+    const nativeFlags = lowerIms ? (flags.includes('g') ? 'g' : '') : flags.replace(/x/g, '');
     let variants;
     try { variants = __nfBuildVariants(compiledInfo, nativeFlags); }
     catch (error) { __nfRegExpSyntaxError(error.message); }

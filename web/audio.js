@@ -309,7 +309,7 @@
       open();if(!isUserGesture())return Promise.reject(new Error('Audio needs an actual user gesture. Use Enable audio or an authored Play control.'));
       const ctx=ensureContext(),epoch=generation;used=true;lastError='';
       if(resuming)return resuming;
-      resuming=Promise.resolve(ctx.resume()).then(()=>{
+      resuming=Promise.resolve(typeof ctx.resume==='function'?ctx.resume():undefined).then(()=>{
         if(disposed||epoch!==generation||context!==ctx)return false;
         if(ctx.state!=='running')throw new Error('The browser has not enabled audio. Use the audio control again.');
         unlocked=true;muted=false;master.gain.value=1;flush();return true;

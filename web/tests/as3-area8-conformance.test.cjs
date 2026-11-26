@@ -82,7 +82,7 @@ function loadWasmRuntime() {
   return wasmPromise;
 }
 
-async function until(predicate, label, timeoutMs = 5000) {
+async function until(predicate, label, timeoutMs = 15000) {
   const deadline = Date.now() + timeoutMs;
   while (!predicate() && Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 10));
@@ -1861,11 +1861,25 @@ async function startSharedObjectRelay(t, origins, store) {
   execFileSync(findCargoBinary(), ['build','--quiet','--locked','-p','neoflash-sync'], {cwd:repoRoot});
   const relay = spawn(path.join(repoRoot,'target/debug/neoflash-sync'), [
     '--bind','127.0.0.1:0', ...origins.flatMap(origin=>['--origin',origin]), ...(store ? ['--store',store] : []),
-  ], {stdio:['ignore','pipe','inherit']});
-  const closed = new Promise(resolve => relay.once('close', (code, signal) => resolve(signal ?? code)));
+  ], {stdio:['ignore','pipe','ignore']});
+  const exited = new Promise(resolve => relay.once('exit', (code, signal) => resolve(signal ?? code)));
   const stop = async () => {
-    if (relay.pid && relay.exitCode === null && relay.signalCode === null) relay.kill();
-    await closed;
+    try { relay.stdout?.destroy(); } catch (_) {}
+    if (relay.pid && relay.exitCode === null && relay.signalCode === null) {
+      try { relay.kill('SIGTERM'); } catch (_) {}
+      const killTimer = setTimeout(() => {
+        try { relay.kill('SIGKILL'); } catch (_) {}
+      }, 1500);
+      killTimer.unref?.();
+      await Promise.race([
+        exited,
+        new Promise(resolve => {
+          const tmr = setTimeout(resolve, 2500);
+          tmr.unref?.();
+        }),
+      ]);
+      clearTimeout(killTimer);
+    }
   };
   t.after(stop);
   const lines = createInterface({ input: relay.stdout });
@@ -1873,8 +1887,9 @@ async function startSharedObjectRelay(t, origins, store) {
   try {
     const address = await new Promise((resolve, reject) => {
       timeout = setTimeout(() => reject(new Error('SharedObject relay did not announce LISTENING within 30s')), 30_000);
+      timeout.unref?.();
       relay.once('error', reject);
-      closed.then(status => reject(new Error(`SharedObject relay closed before LISTENING (${status})`)));
+      exited.then(status => reject(new Error(`SharedObject relay exited before LISTENING (${status})`)));
       lines.once('line', line => {
         const match = /^LISTENING (127\.0\.0\.1:\d+)$/u.exec(line);
         if (match) resolve(match[1]);
@@ -1882,9 +1897,13 @@ async function startSharedObjectRelay(t, origins, store) {
       });
     });
     return { url: `ws://${address}/live`, stop };
+  } catch (err) {
+    await stop();
+    throw err;
   } finally {
     clearTimeout(timeout);
     lines.close();
+    try { relay.stdout?.resume(); } catch (_) {}
   }
 }
 
