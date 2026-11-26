@@ -166,6 +166,11 @@ import {{ runtimeWasm }} from {rust_runtime_url:?};
 
 const root = {root_str:?};
 const bundles = {bundles_json};
+const PERF_MODE = process.env.NEOFLASH_PERF_MODE || 'absolute';
+assert.ok(['absolute', 'functional', 'report', 'prepare'].includes(PERF_MODE), `unknown performance mode ${{PERF_MODE}}`);
+const readCpuUsage = typeof process.threadCpuUsage === 'function'
+  ? process.threadCpuUsage.bind(process)
+  : process.cpuUsage.bind(process);
 
 function loadExportedGame(bundlePath) {{
   const text = fs.readFileSync(bundlePath, 'utf8');
@@ -174,6 +179,14 @@ function loadExportedGame(bundlePath) {{
   assert.ok(Array.isArray(bundle.scripts) && bundle.scripts.length > 0, `No compiled scripts in ${{bundlePath}}`);
 
   const player = new runtimeWasm.WebPlayer(JSON.stringify(bundle.project));
+  let snapshotCalls = 0;
+  if (typeof player.runtime_snapshot_json === 'function') {{
+    const origSnapshot = player.runtime_snapshot_json.bind(player);
+    player.runtime_snapshot_json = function(...args) {{
+      snapshotCalls++;
+      return origSnapshot(...args);
+    }};
+  }}
   const compiled = bundle.scripts.map((s, idx) => ({{
     script: {{ language: s.language, source: s.source }},
     code: s.code,
@@ -186,11 +199,17 @@ function loadExportedGame(bundlePath) {{
     context: {{ measureText: line => ({{ width: Array.from(String(line)).length * 8 }}) }},
   }});
   env.host.resetProject();
-  return {{ clip: env.host.proxyFor([]), env, player }};
+  return {{
+    clip: env.host.proxyFor([]),
+    env,
+    player,
+    getSnapshotCalls: () => snapshotCalls,
+    resetSnapshotCalls: () => {{ snapshotCalls = 0; }},
+  }};
 }}
 
 for (const [slug, bundlePath] of bundles) {{
-  const {{ clip, env }} = loadExportedGame(bundlePath);
+  const {{ clip, env, getSnapshotCalls, resetSnapshotCalls }} = loadExportedGame(bundlePath);
 
   if (slug.startsWith('snake-')) {{
     assert.equal(clip.score, 0, `${{slug}} initial score`);
@@ -254,14 +273,24 @@ for (const [slug, bundlePath] of bundles) {{
     assert.equal(clip.lives, 2, `${{slug}} life lost on bottom exit`);
     assert.equal(clip.livesText.text, 'LIVES: 2', `${{slug}} livesText updated`);
 
-    // Benchmark 120 full broadcast frames (5 seconds at 24fps) to guard against HTML5 runtime snapshot regressions.
+    // Run 120 full broadcast frames (5 seconds at 24fps) to guard against HTML5 runtime snapshot regressions.
+    // Hosted CI sets NEOFLASH_PERF_MODE=functional and enforces frame-time ratios via check-performance-ab.py.
     clip.resetGame();
-    const t0 = performance.now();
+    resetSnapshotCalls();
+    const cpuStart = readCpuUsage();
     for (let f = 0; f < 120; f++) {{
       env.host.broadcastFrame();
     }}
-    const elapsedMs = performance.now() - t0;
-    assert.ok(elapsedMs < 600, `${{slug}} 120 frames took ${{elapsedMs.toFixed(1)}} ms (must be < 600 ms)`);
+    const cpuElapsed = readCpuUsage(cpuStart);
+    const cpuMs = (cpuElapsed.user + cpuElapsed.system) / 1000;
+    const snapshotsPerFrame = getSnapshotCalls() / 120;
+    assert.ok(
+      snapshotsPerFrame <= 1.05,
+      `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
+    );
+    if (PERF_MODE === 'absolute') {{
+      assert.ok(cpuMs < 600, `${{slug}} 120 frames took ${{cpuMs.toFixed(1)}} CPU ms (must be < 600 ms)`);
+    }}
   }} else if (slug.startsWith('tetris-')) {{
     assert.equal(clip.score, 0, `${{slug}} initial score`);
     assert.equal(clip.lines, 0, `${{slug}} initial lines`);
@@ -847,7 +876,7 @@ function loadBundle(bundlePath) {{
 // separate same-machine A/B gate in `scripts/check-performance-ab.py`; no synthetic
 // scalar is portable across the JS, WASM, object and painter workload mix.
 const PERF_MODE = process.env.NEOFLASH_PERF_MODE || 'absolute';
-assert.ok(['absolute', 'functional', 'report'].includes(PERF_MODE), `unknown performance mode ${{PERF_MODE}}`);
+assert.ok(['absolute', 'functional', 'report', 'prepare'].includes(PERF_MODE), `unknown performance mode ${{PERF_MODE}}`);
 const FRAME_SAMPLE_COUNT = Number(process.env.NEOFLASH_PERF_SAMPLE_COUNT || (PERF_MODE === 'absolute' ? 3 : 1));
 const FRAMES_PER_SAMPLE = Number(process.env.NEOFLASH_PERF_FRAMES || 240);
 const WARMUP_FRAMES = Number(process.env.NEOFLASH_PERF_WARMUP_FRAMES || (PERF_MODE === 'report' ? 480 : 5));

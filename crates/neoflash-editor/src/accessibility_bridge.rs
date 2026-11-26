@@ -3293,9 +3293,16 @@ mod tests {
             "total AccessKit nodes on 1,000x1,000 timeline must stay O(visible), got {}",
             ak.nodes.len()
         );
+        let max_ms = if std::env::var_os("NEOFLASH_PERF_MODE").as_deref()
+            == Some(std::ffi::OsStr::new("functional"))
+        {
+            5_000
+        } else {
+            100
+        };
         assert!(
-            elapsed.as_millis() < 100,
-            "1,000x1,000 timeline pass with AccessKit stayed fast ({elapsed:?})"
+            elapsed.as_millis() < max_ms,
+            "1,000x1,000 timeline pass with AccessKit stayed fast ({elapsed:?}, limit {max_ms}ms)"
         );
     }
 
