@@ -356,8 +356,13 @@ const runtimeFailures = [];
 
 for (const spec of specs) {{
   const tag = `[${{spec.idx}}] ${{spec.rel_path}} -> ${{spec.target}}`;
+  let activeEnv = null;
+  let activePlayer = null;
   try {{
-    const {{ clip, env }} = loadBundle(spec.bundle_path);
+    const loaded = loadBundle(spec.bundle_path);
+    const {{ clip, env }} = loaded;
+    activeEnv = env;
+    activePlayer = loaded.player;
     const traces = () => env.traceCalls.map(args => args.map(String).join(' '));
 
     // Advance 16 frames across every single converted project to exercise enterFrame / timeline ticks.
@@ -404,6 +409,9 @@ for (const spec of specs) {{
     }}
   }} catch (err) {{
     runtimeFailures.push(`${{tag}}: ${{err && err.stack ? err.stack : err}}`);
+  }} finally {{
+    try {{ activeEnv?.host?.disposeFamily?.(); }} catch (_) {{}}
+    try {{ activePlayer?.free?.(); }} catch (_) {{}}
   }}
 }}
 

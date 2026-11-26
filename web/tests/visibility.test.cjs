@@ -111,7 +111,7 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
     const measureContext = { measureText: text => ({ width: Array.from(text).length * 8 }) };
     const { host, traceCalls } = createRuntimeHost(root, player, Array.from(bundle.scripts, item => ({
       script: { language: item.language, source: item.source }, code: item.code, location: item.location,
-    })), { context: measureContext });
+    })), { bundle, context: measureContext });
     const scene = () => JSON.parse(player.scene_json());
     const semantics = () => JSON.parse(player.accessibility_json());
     const activate = name => { player.click(JSON.stringify([name])); host.dispatchScripts([name]); };
@@ -210,7 +210,7 @@ async function withPublishedCoercionProject(name, verify) {
     player = new wasm.WebPlayer(JSON.stringify(bundle.project));
     const result = createRuntimeHost(root, player, Array.from(bundle.scripts, item => ({
       script: { language: item.language, source: item.source }, code: item.code, location: item.location,
-    })));
+    })), { bundle });
     const activate = name => { player.click(JSON.stringify([name])); result.host.dispatchScripts([name]); };
     result.host.dispatchScripts();
     verify({ ...result, player, activate });

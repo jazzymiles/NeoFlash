@@ -11,7 +11,33 @@ const require = createRequire(import.meta.url);
 export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const path = resolve(root, 'web/runtime.js');
   const runtime = readFileSync(path, 'utf8');
-  const { completeCleanup, createScenePainter, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, scriptFunction, functionBodyLineOffset, mappedErrorFrames, sourceLocationText, formatTraceValue, formatTraceArgs, emitScriptMessage } = require(path);
+  const runtimeExports = require(path);
+  const { completeCleanup, createScenePainter, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, scriptFunction, functionBodyLineOffset, mappedErrorFrames, sourceLocationText, formatTraceValue, formatTraceArgs, emitScriptMessage } = runtimeExports;
+  const hydrateAsPrelude = typeof runtimeExports.hydrateAsPrelude === 'function'
+    ? runtimeExports.hydrateAsPrelude
+    : function hydrateAsPreludeFallback(code, prelude) {
+        if (typeof code !== 'string' || typeof prelude !== 'string' || !prelude) return code;
+        const marker = '/*__NF_AS_PRELUDE__*/';
+        const idx = code.indexOf(marker);
+        if (idx < 0) return code;
+        let nlCount = 0;
+        for (let i = 0; i < prelude.length; i++) {
+          if (prelude.charCodeAt(i) === 10) nlCount++;
+        }
+        let end = idx + marker.length;
+        while (nlCount > 0 && code.charCodeAt(end) === 10) {
+          end++;
+          nlCount--;
+        }
+        return code.slice(0, idx) + prelude + code.slice(end);
+      };
+  const compileProgramUnit = typeof runtimeExports.compileProgramUnit === 'function'
+    ? runtimeExports.compileProgramUnit
+    : function compileProgramUnitFallback(programUnit, prelude) {
+        const resolvedCode = hydrateAsPrelude(programUnit.code, prelude);
+        const url = programUnit?.source_url || 'neoflash-project.js';
+        return new Function('__nfBuiltins', resolvedCode + '\n//# sourceURL=' + url);
+      };
   const start = runtime.indexOf('    const propertyMap =');
   const end = runtime.indexOf('    function resize()', start);
   assert.ok(start >= 0 && end > start, 'host implementation boundaries changed');
@@ -118,11 +144,11 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   if(options.keyTarget){globals.addEventListener=options.keyTarget.addEventListener.bind(options.keyTarget);globals.removeEventListener=options.keyTarget.removeEventListener.bind(options.keyTarget);}
   globals.CustomEvent = class { constructor(type, options) { this.type = type; this.detail = options.detail; } };
   globals.dispatchEvent = event => { scriptMessages.push(event.detail); return true; };
-  const host = new Function('completeCleanup', 'sourceFrames', 'sourceLocationText', 'formatTraceValue', 'formatTraceArgs', 'emitScriptMessage', 'createScenePainter', 'player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport', 'semanticLayer',
+  const host = new Function('completeCleanup', 'sourceFrames', 'sourceLocationText', 'formatTraceValue', 'formatTraceArgs', 'emitScriptMessage', 'createScenePainter', 'player', 'functions', 'console', 'sourceKey', 'oneBasedFrame', 'as2Frame', 'createAs2Methods', 'describeThrown', 'unwrapScriptThrow', 'hydrateAsPrelude', 'scriptFunction', 'compileProgramUnit', 'traceSpy', 'global', 'bundle', 'project', 'context', 'font', 'canvas', 'viewport', 'semanticLayer',
     'const proxies = new Map(); const render = () => {}; let lastTrace = "", lastTraceLocation = "";\n' + runtime.slice(start, end) +
     '\nconst originalTrace = trace; trace = (...args) => { traceSpy(...args); return originalTrace(...args); };\n' +
     'initializeFamily(); return { proxyFor, proxyForRef, activateSemantic, dispatchScripts, broadcastFrame, attachNewInstances, resetProject, disposeFamily, stopTimers, display:()=>display, stage:()=>stageHost, as2Stage:()=>as2StageHost, legacy:()=>legacyGlobals, timers:()=>timerHost, binary:()=>binaryHost, net:()=>netHost, bitmap:()=>bitmapHost, text:()=>textHost, filters:()=>filterHost, textInput:()=>textInputHost, audio:()=>audioHost, video:()=>videoHost, xml:()=>xmlHost, loader:()=>loaderHost, amf:()=>amfHost, storage:()=>storageHost, external:()=>externalHost, air:()=>airHost, netSys:()=>as3NetSysHost, fte3d:()=>fte3dHost, mediaEvents:()=>as3MediaEventsHost, program:()=>program, redrawRegions:()=>lastRedrawRects.slice(), computeRedrawRegions, lastTrace: () => lastTrace, lastTraceLocation: () => lastTraceLocation };'
-  )(completeCleanup, sourceFrames, sourceLocationText, formatTraceValue, formatTraceArgs, (kind, message, frames) => emitScriptMessage(kind, message, frames, globals), createScenePainter, player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, (...args) => traceCalls.push(args),
+  )(completeCleanup, sourceFrames, sourceLocationText, formatTraceValue, formatTraceArgs, (kind, message, frames) => emitScriptMessage(kind, message, frames, globals), createScenePainter, player, functions, { log: (...args) => hostConsole.push(args) }, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, hydrateAsPrelude, scriptFunction, compileProgramUnit, (...args) => traceCalls.push(args),
     globals, options.bundle, options.project || options.bundle?.project, options.context, kind=>`${kind.font_size}px ${JSON.stringify(kind.font_family)}, sans-serif`, options.canvas, options.keyboardTarget, options.semanticLayer);
   return { host, traceCalls, hostConsole, scriptConsole, scriptMessages };
 }

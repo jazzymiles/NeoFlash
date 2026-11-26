@@ -201,6 +201,43 @@ fn click_at(
     )
 }
 
+fn read_full_http_request(stream: &mut std::net::TcpStream) -> (String, Vec<u8>) {
+    let mut buf = Vec::new();
+    let mut header_end = None;
+    let mut content_length = 0usize;
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = stream.read(&mut chunk).expect("read request");
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if header_end.is_none()
+            && let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n")
+        {
+            let end = pos + 4;
+            header_end = Some(end);
+            let hdr = String::from_utf8_lossy(&buf[..end]);
+            for line in hdr.lines() {
+                if let Some((k, v)) = line.split_once(':')
+                    && k.trim().eq_ignore_ascii_case("content-length")
+                {
+                    content_length = v.trim().parse::<usize>().unwrap_or(0);
+                }
+            }
+        }
+        if let Some(end) = header_end
+            && buf.len() >= end + content_length
+        {
+            break;
+        }
+    }
+    let end = header_end.unwrap_or(buf.len());
+    let headers = String::from_utf8_lossy(&buf[..end]).into_owned();
+    let body = buf[end..].to_vec();
+    (headers, body)
+}
+
 fn spawn_loopback_feedback_server(
     status_line: &'static str,
     json_body: &'static str,
@@ -231,39 +268,7 @@ fn spawn_loopback_feedback_server(
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .expect("read timeout");
-        let mut buf = Vec::new();
-        let mut header_end = None;
-        let mut content_length = 0usize;
-        let mut chunk = [0u8; 4096];
-        loop {
-            let n = stream.read(&mut chunk).expect("read request");
-            if n == 0 {
-                break;
-            }
-            buf.extend_from_slice(&chunk[..n]);
-            if header_end.is_none()
-                && let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n")
-            {
-                let end = pos + 4;
-                header_end = Some(end);
-                let hdr = String::from_utf8_lossy(&buf[..end]);
-                for line in hdr.lines() {
-                    if let Some((k, v)) = line.split_once(':')
-                        && k.trim().eq_ignore_ascii_case("content-length")
-                    {
-                        content_length = v.trim().parse::<usize>().unwrap_or(0);
-                    }
-                }
-            }
-            if let Some(end) = header_end
-                && buf.len() >= end + content_length
-            {
-                break;
-            }
-        }
-        let end = header_end.unwrap_or(buf.len());
-        let headers = String::from_utf8_lossy(&buf[..end]).into_owned();
-        let body = buf[end..].to_vec();
+        let (headers, body) = read_full_http_request(&mut stream);
         let response = format!(
             "HTTP/1.1 {status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json_body}",
             json_body.len()
@@ -858,8 +863,7 @@ fn t311_closing_modal_during_in_flight_send_completes_cleanly_and_help_command_i
     let server = thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept feedback request");
         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-        let mut buf = [0u8; 4096];
-        let _ = std::io::Read::read(&mut stream, &mut buf);
+        let _ = read_full_http_request(&mut stream);
         server_gate.wait();
         let body = r#"{"success":"true"}"#;
         let reply = format!(
@@ -867,6 +871,7 @@ fn t311_closing_modal_during_in_flight_send_completes_cleanly_and_help_command_i
             body.len()
         );
         let _ = std::io::Write::write_all(&mut stream, reply.as_bytes());
+        let _ = std::io::Write::flush(&mut stream);
     });
 
     let ctx = egui::Context::default();
@@ -913,14 +918,22 @@ fn t311_closing_modal_during_in_flight_send_completes_cleanly_and_help_command_i
 
         release_gate.wait();
         let deadline = Instant::now() + Duration::from_secs(5);
+        let mut completed = false;
         while Instant::now() < deadline {
             t += 0.02;
             run_editor_frame(&mut editor, &ctx, t, Vec::new(), Vec::new());
             if !editor.beta_feedback.is_sending() {
+                // Run the scheduled `request_repaint()` pass after modal dismissal so
+                // `top_modal_layer()` clears even when the worker completes on the very first
+                // post-close frame, allowing `notification_host` to promote the pending Toast.
+                t += 0.02;
+                run_editor_frame(&mut editor, &ctx, t, Vec::new(), Vec::new());
+                completed = true;
                 break;
             }
             thread::sleep(Duration::from_millis(10));
         }
+        assert!(completed, "in-flight beta feedback send timed out");
         server.join().unwrap();
 
         assert!(editor.beta_feedback.text.is_empty());

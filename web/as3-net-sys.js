@@ -9008,6 +9008,9 @@
             try {
               const bundleObj = JSON.parse(new TextDecoder().decode(rawBytes.subarray(i + 4, jsonEnd)));
               if (bundleObj && typeof bundleObj === 'object') {
+                if (!bundleObj.as_prelude && typeof global.NeoFlashBundle?.as_prelude === 'string') {
+                  bundleObj.as_prelude = global.NeoFlashBundle.as_prelude;
+                }
                 return { kind: 'neoflash', bundle: bundleObj };
               }
             } catch (_) {}
@@ -9556,12 +9559,24 @@
       '      }',
       '    }',
       '  }',
+      '  function hydrateWorkerPrelude(code, prelude) {',
+      '    if (typeof code !== "string" || typeof prelude !== "string" || !prelude) return code;',
+      '    var marker = "/*__NF_AS_PRELUDE__*/";',
+      '    var idx = code.indexOf(marker);',
+      '    if (idx < 0) return code;',
+      '    var nl = 0;',
+      '    for (var k = 0; k < prelude.length; k++) { if (prelude.charCodeAt(k) === 10) nl++; }',
+      '    var end = idx + marker.length;',
+      '    while (nl > 0 && code.charCodeAt(end) === 10) { end++; nl--; }',
+      '    return code.slice(0, idx) + prelude + code.slice(end);',
+      '  }',
       '  function runNeoFlashWorkerPayload(payload) {',
       '    var bundle = payload.bundle || {};',
+      '    var prelude = typeof bundle.as_prelude === "string" ? bundle.as_prelude : null;',
       '    var wb = makeWorkerBuiltins();',
       '    var prog = null;',
       '    if (bundle.program && bundle.program.code) {',
-      '      prog = (new Function("__nfBuiltins", bundle.program.code))(wb);',
+      '      prog = (new Function("__nfBuiltins", hydrateWorkerPrelude(bundle.program.code, prelude)))(wb);',
       '    }',
       '    var rootInst = new wb["flash.display.MovieClip"]();',
       '    var docCls = (bundle.project && bundle.project.document_class) || "";',
@@ -9578,7 +9593,7 @@
       '    for (var i = 0; i < scriptList.length; i++) {',
       '      var s = scriptList[i];',
       '      if (!s || !s.code) continue;',
-      '      var fn = new Function("event","_root","_parent","trace","play","stop","gotoAndPlay","gotoAndStop","nextFrame","prevFrame","__nfAs2Method","__nfAs2Value","__nfProgram","__nfDisplay","__nfLegacy","__nfXML", s.code);',
+      '      var fn = new Function("event","_root","_parent","trace","play","stop","gotoAndPlay","gotoAndStop","nextFrame","prevFrame","__nfAs2Method","__nfAs2Value","__nfProgram","__nfDisplay","__nfLegacy","__nfXML", hydrateWorkerPrelude(s.code, prelude));',
       '      Reflect.apply(fn, rootInst, [null,rootInst,null,traceFn,noop,noop,noop,noop,noop,noop,noop,noop,prog,null,{},null]);',
       '    }',
       '  }',

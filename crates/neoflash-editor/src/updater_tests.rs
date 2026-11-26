@@ -225,13 +225,20 @@ fn handle_fixture_client(stream: TcpStream, routes: &Mutex<HashMap<String, Fixtu
     }
 }
 
-fn current_platform_asset_name(version: &str) -> String {
+fn test_platform_target() -> PlatformTarget {
     match PlatformTarget::current() {
+        PlatformTarget::Unsupported => PlatformTarget::LinuxX64,
+        supported => supported,
+    }
+}
+
+fn current_platform_asset_name(version: &str) -> String {
+    match test_platform_target() {
         PlatformTarget::MacosArm64 => format!("NeoFlash-{version}-macos-arm64.dmg"),
         PlatformTarget::MacosX64 => format!("NeoFlash-{version}-macos-x64.dmg"),
         PlatformTarget::WindowsX64 => format!("NeoFlash-{version}-windows-x64-preview.zip"),
         PlatformTarget::LinuxX64 => format!("NeoFlash-{version}-linux-x64-preview.tar.gz"),
-        PlatformTarget::Unsupported => format!("NeoFlash-{version}-macos-arm64.dmg"),
+        PlatformTarget::Unsupported => unreachable!(),
     }
 }
 
@@ -572,6 +579,7 @@ fn t298_channel_filtering_ignores_drafts_and_prereleases_on_stable() {
     let mut ctrl = UpdaterController::new(UpdaterConfig {
         api_base_override: Some(base.clone()),
         current_version: "0.1.0-beta.1".into(),
+        platform: test_platform_target(),
         ..Default::default()
     });
 
@@ -748,6 +756,7 @@ fn t298_download_verifies_sha256_fails_closed_on_mismatch_and_supports_cancel() 
     let mut ctrl = UpdaterController::new(UpdaterConfig {
         api_base_override: Some(base.clone()),
         current_version: "0.1.0-beta.1".into(),
+        platform: test_platform_target(),
         ..Default::default()
     });
     ctrl.start_check(UpdateChannel::Stable, &ctx);
@@ -994,6 +1003,7 @@ fn t298_preferences_updates_and_about_ui_remove_fake_data_and_verify_real_flows(
     d.editor.updater.config = UpdaterConfig {
         api_base_override: Some(base),
         current_version: "0.1.0-beta.1".into(),
+        platform: test_platform_target(),
         download_dest_override: Some(dest_path.clone()),
         ..Default::default()
     };

@@ -3440,7 +3440,13 @@ fn preference_defaults_reach_tweens_text_and_paste() {
         (element.transform.x, element.transform.y)
     );
 
-    // Default text size.
+    // Default text size (clear demo artwork on the active symbol so wider Linux/Windows system
+    // fonts never intercept the Stage click with 21pt demo text).
+    for layer in &mut d.editor.symbol_mut().timeline.layers {
+        for kf in &mut layer.keyframes {
+            kf.elements.clear();
+        }
+    }
     d.editor.workspace.text_size = 48.;
     d.editor.set_tool(crate::app::Tool::Text);
     d.editor.clear_selection();
@@ -4487,7 +4493,11 @@ fn preferences_shortcuts_records_detects_conflicts_manages_sets_and_rebinds_disp
     assert_eq!(d.editor.tool, crate::app::Tool::Pencil);
 
     // Dynamic shortcut strings update in the Tools rail and application menus.
-    assert!(d.find("Pencil (⇧Y)").is_some());
+    let expected_pencil = format!(
+        "Pencil ({})",
+        neoflash_ui::components::platform_shortcut("⇧Y")
+    );
+    assert!(d.find(&expected_pencil).is_some());
     d.click("Insert");
     assert!(d.find("Keyframe (⌥F6)").is_some());
 }

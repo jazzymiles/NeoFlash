@@ -1386,7 +1386,7 @@
     }
   }
 
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, scriptFunction, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts, mount, sharedWasmModules };
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, hydrateAsPrelude, scriptFunction, compileProgramUnit, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts, mount, sharedWasmModules };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (global && typeof global === 'object') {
     try { Object.defineProperty(global, 'NeoFlashFormatTrace', { value: Object.freeze({ formatTraceValue, formatTraceArgs }), configurable: true }); } catch (_) {}
@@ -3219,6 +3219,7 @@
                 project:typeof project!=='undefined'?project:null,
                 program:typeof bundle!=='undefined'&&bundle?.program?bundle.program:null,
                 scripts:typeof bundle!=='undefined'&&Array.isArray(bundle?.scripts)?bundle.scripts:(typeof scripts!=='undefined'&&Array.isArray(scripts)?scripts:[]),
+                as_prelude:typeof bundle!=='undefined'&&typeof bundle?.as_prelude==='string'?bundle.as_prelude:undefined,
               };
               const jsonBytes=new TextEncoder().encode('NFWK'+JSON.stringify(payloadObj));
               const totalLen=8+5+6+jsonBytes.length+2;

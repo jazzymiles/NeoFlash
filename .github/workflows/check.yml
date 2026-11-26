@@ -10,6 +10,10 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_PROFILE_DEV_CODEGEN_UNITS: '16'
+  CARGO_PROFILE_TEST_CODEGEN_UNITS: '16'
 
 jobs:
   macos:
@@ -26,7 +30,21 @@ jobs:
       - name: Validate Rust, WASM and HTML5
         env:
           NEOFLASH_PERF_MODE: functional
-        run: ./scripts/check.sh
+        run: |
+          set -euo pipefail
+          ./scripts/check.sh 2>&1 | tee "$RUNNER_TEMP/check.log"
+      - name: Surface failure summary
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "check.log"
+          if p.is_file():
+              lines = p.read_text(errors="replace").splitlines()
+              hits = [l for l in lines if ("FAILED" in l or "panicked at" in l or "✖ " in l or "Error:" in l or "error[" in l)]
+              snippet = " | ".join((hits[-20:] if hits else lines[-25:]))[-3500:]
+              print(f"::error title=macOS check failure::{snippet}")
+          PY
       - name: Compare HTML5 performance with the blessed source revision
         run: python3 scripts/check-performance-ab.py
 
@@ -108,8 +126,21 @@ jobs:
         env:
           NEOFLASH_PERF_MODE: functional
         run: |
-          cargo test --locked --workspace
+          set -euo pipefail
+          cargo test --locked --workspace 2>&1 | tee "$RUNNER_TEMP/check.log"
           python3 -B -m unittest scripts.tests.test_package_portable
+      - name: Surface failure summary
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "check.log"
+          if p.is_file():
+              lines = p.read_text(errors="replace").splitlines()
+              hits = [l for l in lines if ("FAILED" in l or "panicked at" in l or "error[" in l)]
+              snippet = " | ".join((hits[-20:] if hits else lines[-25:]))[-3500:]
+              print(f"::error title=Linux check failure::{snippet}")
+          PY
       - name: Compare HTML5 performance with the blessed source revision
         run: python3 scripts/check-performance-ab.py
       - name: Build Linux editor
