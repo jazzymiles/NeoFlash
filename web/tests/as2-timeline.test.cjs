@@ -318,6 +318,20 @@ test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapDat
       stg.handlePointer('mouseMove', { movementX: 7, movementY: -3 });
       assert.equal(moveArity, 0, 'Flash Player 8 Mouse.onMouseMove receives 0 arguments');
       assert.equal(leg.Mouse.movementX, 7);
+      // [T-493]: W3C Pointer Events §10.2 forbids setPointerCapture while Pointer Lock is active (throws InvalidStateError).
+      const mockCanvas = {
+        setPointerCapture() { const err = new Error("Failed to execute 'setPointerCapture' on 'Element'"); err.name = 'InvalidStateError'; throw err; },
+        hasPointerCapture() { return true; },
+        releasePointerCapture() { const err = new Error('InvalidStateError'); err.name = 'InvalidStateError'; throw err; },
+      };
+      const stgLocked = require('../stage.js').create({ events, canvas: mockCanvas, document: { pointerLockElement: mockCanvas }, width: 100, height: 100, alive: () => true, localPoint: (_t, x, y) => [x, y], parentOf: () => null, resolveInput: t => t, isInputEnabled: () => true });
+      const legLocked = require('../legacy-input.js').create({ stage: stgLocked.stage });
+      let downCount = 0;
+      legLocked.Mouse.addListener({ onMouseDown() { downCount++; } });
+      stgLocked.handlePointer('pointerdown', { target: mockCanvas, pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+      stgLocked.handlePointer('pointerup', { target: mockCanvas, pointerId: 1, button: 0, clientX: 20, clientY: 20 });
+      assert.equal(downCount, 1, 'pointerdown while Pointer Lock is active or setPointerCapture throws InvalidStateError must not crash Stage input');
+      legLocked.dispose();
       leg.dispose();
 
       // Run 1,500 consecutive frames (> 6,000 lifecycle phases, well past the old 4,096 cap at 34.1s!)

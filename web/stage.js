@@ -2257,7 +2257,7 @@
       if (!result && domEvent.cancelable !== false) domEvent.preventDefault?.();
       return result;
     }
-    function releaseCapture(){const id=captured;captured=null;if(id!==null&&options.canvas?.hasPointerCapture?.(id))options.canvas.releasePointerCapture(id);}
+    function releaseCapture(){const id=captured;captured=null;if(id!==null&&options.canvas?.hasPointerCapture?.(id)){try{options.canvas.releasePointerCapture(id);}catch{}}}
     function cancelPointer(){pressedTarget=null;clickTarget=null;hadPress=false;releaseCapture();over=null;return options.cancelPointer?.();}
     function chain(target){const result=[];while(target&&target!==stage&&alive(target)&&result.length<65){result.push(target);target=options.parentOf?options.parentOf(target):target.parent;}return result;}
     function hover(target,domEvent){
@@ -2297,7 +2297,7 @@
       if(type==='click'&&(!explicitTarget||physicalPick)&&hadPress&&clickTarget!==target)return false;
       if(type===MouseEvent.MOUSE_DOWN&&primary){
         pressedTarget=target;clickTarget=null;hadPress=true;
-        if(domEvent.target===options.canvas&&Number.isInteger(domEvent.pointerId)&&options.canvas?.setPointerCapture){options.canvas.setPointerCapture(domEvent.pointerId);captured=domEvent.pointerId;}
+        if(domEvent.target===options.canvas&&Number.isInteger(domEvent.pointerId)&&options.canvas?.setPointerCapture&&!doc()?.pointerLockElement){try{options.canvas.setPointerCapture(domEvent.pointerId);captured=domEvent.pointerId;}catch{}}
         const changed=changeFocus(target===stage?null:target,'mouse',domEvent);
         if(changed&&nativeFocus&&domEvent.target===options.canvas)domEvent.preventDefault?.();
       }

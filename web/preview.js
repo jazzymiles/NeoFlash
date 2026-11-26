@@ -27,19 +27,19 @@
     constructor(viewport,space,surface,canvas,project,onChange){
       Object.assign(this,{viewport,space,surface,canvas,project,onChange});this.mode='fit';this.panMode=false;this.suppressClick=false;this.view=null;this.drag=null;
       viewport.addEventListener('pointerdown',event=>{
-        if(!(this.panMode||event.button===1)||event.pointerType==='touch')return;
+        if(!(this.panMode||event.button===1)||event.pointerType==='touch'||viewport.ownerDocument?.pointerLockElement)return;
         this.drag={id:event.pointerId,x:event.clientX,y:event.clientY,left:viewport.scrollLeft,top:viewport.scrollTop};
-        viewport.setPointerCapture(event.pointerId);event.preventDefault();
+        try{viewport.setPointerCapture(event.pointerId);}catch{}event.preventDefault();
       });
       viewport.addEventListener('pointermove',event=>{if(this.drag&&event.pointerId===this.drag.id){viewport.scrollLeft=this.drag.left+this.drag.x-event.clientX;viewport.scrollTop=this.drag.top+this.drag.y-event.clientY;}});
-      const end=event=>{if(this.drag&&event.pointerId===this.drag.id){this.drag=null;this.suppressClick=true;setTimeout(()=>{this.suppressClick=false;},0);if(viewport.hasPointerCapture(event.pointerId))viewport.releasePointerCapture(event.pointerId);}};
+      const end=event=>{if(this.drag&&event.pointerId===this.drag.id){this.drag=null;this.suppressClick=true;setTimeout(()=>{this.suppressClick=false;},0);if(viewport.hasPointerCapture(event.pointerId)){try{viewport.releasePointerCapture(event.pointerId);}catch{}}}};
       viewport.addEventListener('pointerup',end);viewport.addEventListener('pointercancel',end);viewport.addEventListener('lostpointercapture',end);
     }
     setMode(mode){this.mode=mode;this.resize();this.onChange();}
     setStageLayout(provider){this.stageLayout=provider;this.resize();}
     setPan(enabled){this.panMode=enabled;this.viewport.classList.toggle('pan-mode',enabled);}
     resize(){
-      if(this.drag){const id=this.drag.id;this.drag=null;this.suppressClick=true;setTimeout(()=>{this.suppressClick=false;},0);if(this.viewport.hasPointerCapture(id))this.viewport.releasePointerCapture(id);}
+      if(this.drag){const id=this.drag.id;this.drag=null;this.suppressClick=true;setTimeout(()=>{this.suppressClick=false;},0);if(this.viewport.hasPointerCapture(id)){try{this.viewport.releasePointerCapture(id);}catch{}}}
       const v=this.viewport,old=this.view;
       const scrollable=!this.stageLayout&&this.mode!=='fit'&&this.mode!=='stretch';
       const nextOverflow=scrollable?'auto':'hidden';
