@@ -1652,3 +1652,501 @@ fn t472_loopback_github_releases_multi_mib_e2e_hardening() {
         "only the single SHA-256 verified archive may exist on disk"
     );
 }
+
+#[test]
+#[ignore = "live network GitHub Releases check + sandboxed notarized build-605 upgrade/rollback handoff (T-347)"]
+fn t347_live_github_release_and_sandboxed_build_605_handoff_verification() {
+    use neoflash_export::release_http::fetch_text_with_policy;
+    use serde_json::json;
+    use std::process::Command;
+
+    let artifact_root = std::env::var_os("NEOFLASH_T347_ARTIFACT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from("/Users/miles/Projects/NeoFlash/target/artifacts/t347-updater-live")
+        });
+    std::fs::create_dir_all(&artifact_root).expect("create t347 artifact dir");
+
+    let ctx = egui::Context::default();
+    let mut live_platforms = Vec::new();
+
+    // 1. Live GitHub Releases API check & live SHA256SUMS verification across all 4 targets
+    // from a simulated pre-beta.1 version (`0.1.0-alpha.9`) on Beta channel.
+    for platform in [
+        PlatformTarget::MacosArm64,
+        PlatformTarget::MacosX64,
+        PlatformTarget::WindowsX64,
+        PlatformTarget::LinuxX64,
+    ] {
+        let mut ctrl = UpdaterController::new(UpdaterConfig {
+            current_version: "0.1.0-alpha.9".into(),
+            platform,
+            check_timeout: Duration::from_secs(20),
+            ..Default::default()
+        });
+        ctrl.start_check(UpdateChannel::Beta, &ctx);
+        wait_until_idle(&mut ctrl, &ctx, Duration::from_secs(30));
+        let UpdateState::UpdateAvailable {
+            channel: UpdateChannel::Beta,
+            update,
+        } = &ctrl.state
+        else {
+            panic!(
+                "expected live Beta UpdateAvailable for {platform:?}, got {:?}",
+                ctrl.state
+            );
+        };
+        assert_eq!(
+            update.version, "0.1.0-beta.1",
+            "expected live GitHub release tag v0.1.0-beta.1 for {platform:?}"
+        );
+        assert!(
+            validate_release_url(&update.release_notes_url, None).is_ok(),
+            "release notes URL failed validation: {}",
+            update.release_notes_url
+        );
+        let target = update
+            .download
+            .as_ref()
+            .unwrap_or_else(|e| panic!("missing verified asset target for {platform:?}: {e}"));
+        assert!(validate_release_url(&target.asset_url, None).is_ok());
+        assert!(validate_release_url(&target.checksum_url, None).is_ok());
+
+        // Fetch the real published SHA256SUMS manifest from GitHub and verify checksum lookup.
+        let sums_manifest = fetch_text_with_policy(
+            &target.checksum_url,
+            "text/plain",
+            "NeoFlash/0.1.0-alpha.9",
+            256 * 1024,
+            Duration::from_secs(20),
+            None,
+        )
+        .unwrap_or_else(|e| panic!("failed fetching live SHA256SUMS for {platform:?}: {e}"));
+        let expected_sha = lookup_sha256_for_asset(&sums_manifest, &target.asset_name)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "live SHA256SUMS missing entry for {}: {e}",
+                    target.asset_name
+                )
+            });
+        assert_eq!(expected_sha.len(), 64);
+
+        live_platforms.push(json!({
+            "platform": format!("{platform:?}"),
+            "platform_label": platform.label(),
+            "simulated_from_version": "0.1.0-alpha.9",
+            "resolved_version": update.version,
+            "release_notes_url": update.release_notes_url,
+            "asset_name": target.asset_name,
+            "asset_url": target.asset_url,
+            "asset_size": target.asset_size,
+            "checksum_url": target.checksum_url,
+            "published_sha256": expected_sha,
+        }));
+    }
+
+    // Also verify live UpToDate behavior when current_version == "0.1.0-beta.1" on Beta & Stable.
+    let mut ctrl_beta_cur = UpdaterController::new(UpdaterConfig {
+        current_version: "0.1.0-beta.1".into(),
+        platform: PlatformTarget::MacosArm64,
+        check_timeout: Duration::from_secs(20),
+        ..Default::default()
+    });
+    ctrl_beta_cur.start_check(UpdateChannel::Beta, &ctx);
+    wait_until_idle(&mut ctrl_beta_cur, &ctx, Duration::from_secs(30));
+    assert!(
+        matches!(
+            &ctrl_beta_cur.state,
+            UpdateState::UpToDate {
+                channel: UpdateChannel::Beta,
+                latest_version: Some(v),
+                ..
+            } if v == "0.1.0-beta.1"
+        ),
+        "expected UpToDate at 0.1.0-beta.1 on Beta, got {:?}",
+        ctrl_beta_cur.state
+    );
+
+    let mut ctrl_stable_cur = UpdaterController::new(UpdaterConfig {
+        current_version: "0.1.0-beta.1".into(),
+        platform: PlatformTarget::MacosArm64,
+        check_timeout: Duration::from_secs(20),
+        ..Default::default()
+    });
+    ctrl_stable_cur.start_check(UpdateChannel::Stable, &ctx);
+    wait_until_idle(&mut ctrl_stable_cur, &ctx, Duration::from_secs(30));
+    assert!(
+        matches!(
+            &ctrl_stable_cur.state,
+            UpdateState::UpToDate {
+                channel: UpdateChannel::Stable,
+                latest_version: None,
+                ..
+            }
+        ),
+        "expected UpToDate (no stable release yet) on Stable, got {:?}",
+        ctrl_stable_cur.state
+    );
+
+    // 2. Sandboxed Build-605 -> Newer Build Upgrade & Rollback Handoff
+    let backup_605_app = PathBuf::from(
+        "/Users/miles/Projects/NeoFlash/target/artifacts/t488-stapled-arm64-605-backup/NeoFlash.app",
+    );
+    let newer_source_app = PathBuf::from("/Users/miles/Projects/NeoFlash/dist/NeoFlash.app");
+    assert!(
+        backup_605_app.is_dir(),
+        "missing stapled build-605 backup app at {}",
+        backup_605_app.display()
+    );
+    assert!(
+        newer_source_app.is_dir(),
+        "missing newer dist/NeoFlash.app at {}",
+        newer_source_app.display()
+    );
+
+    let sandbox_dir = artifact_root.join("sandbox");
+    let _ = std::fs::remove_dir_all(&sandbox_dir);
+    let sandbox_apps = sandbox_dir.join("Applications");
+    let sandbox_home = sandbox_dir.join("Home");
+    let app_support = sandbox_home.join("Library/Application Support/NeoFlash");
+    let recovery_dir = app_support.join("Recovery");
+    let downloads_dir = sandbox_dir.join("Downloads");
+    std::fs::create_dir_all(&sandbox_apps).unwrap();
+    std::fs::create_dir_all(&recovery_dir).unwrap();
+    std::fs::create_dir_all(&downloads_dir).unwrap();
+
+    // Populate user Application Support state (`workspace.json`, recent files, recovery snapshot)
+    // and record exact SHA-256 digests to prove zero mutation/loss across upgrade and rollback.
+    let mut prefs = WorkspacePrefs::default();
+    prefs.general.recent_files = vec![
+        "/Users/miles/Projects/NeoFlash/examples/fallout-as2.nflash".into(),
+        "/Users/miles/Projects/NeoFlash/examples/doom-as2.nflash".into(),
+    ];
+    let workspace_json_path = app_support.join("workspace.json");
+    let workspace_bytes = serde_json::to_vec_pretty(&prefs).unwrap();
+    std::fs::write(&workspace_json_path, &workspace_bytes).unwrap();
+    let recovery_proj_path = recovery_dir.join("session-live-t347.nflash");
+    let recovery_meta_path = recovery_dir.join("session-live-t347.json");
+    let recovery_proj_bytes = Project::blank().to_json().unwrap().into_bytes();
+    let recovery_meta_bytes =
+        br#"{"id":"session-live-t347","title":"Vault13_WIP","saved_unix":1795728000}"#.to_vec();
+    std::fs::write(&recovery_proj_path, &recovery_proj_bytes).unwrap();
+    std::fs::write(&recovery_meta_path, &recovery_meta_bytes).unwrap();
+
+    let snapshot_support_hashes = || -> serde_json::Map<String, serde_json::Value> {
+        let mut map = serde_json::Map::new();
+        for (rel, path) in [
+            ("workspace.json", &workspace_json_path),
+            ("Recovery/session-live-t347.nflash", &recovery_proj_path),
+            ("Recovery/session-live-t347.json", &recovery_meta_path),
+        ] {
+            let bytes = std::fs::read(path).expect("read support file");
+            map.insert(rel.into(), json!(Sha256::digest_hex(&bytes)));
+        }
+        map
+    };
+    let support_hashes_before = snapshot_support_hashes();
+
+    let installed_app = sandbox_apps.join("NeoFlash.app");
+    let status = Command::new("/usr/bin/ditto")
+        .arg(&backup_605_app)
+        .arg(&installed_app)
+        .status()
+        .expect("ditto build-605 into sandbox");
+    assert!(status.success(), "ditto copy of build-605 failed");
+
+    let inspect_app_bundle = |app_path: &std::path::Path| -> serde_json::Value {
+        let exe = app_path.join("Contents/MacOS/neoflash-editor");
+        let ver_out = Command::new(&exe)
+            .args(["--headless", "version"])
+            .env("HOME", &sandbox_home)
+            .output()
+            .expect("run --headless version");
+        assert!(
+            ver_out.status.success(),
+            "--headless version failed: {}",
+            String::from_utf8_lossy(&ver_out.stderr)
+        );
+        let ver_json: serde_json::Value =
+            serde_json::from_slice(&ver_out.stdout).expect("parse version json");
+
+        let cs_verify = Command::new("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(app_path)
+            .output()
+            .expect("codesign --verify");
+        let cs_info = Command::new("/usr/bin/codesign")
+            .args(["-dvvv"])
+            .arg(app_path)
+            .output()
+            .expect("codesign -dvvv");
+        let cs_stderr = String::from_utf8_lossy(&cs_info.stderr).into_owned();
+        let cdhash = cs_stderr
+            .lines()
+            .find_map(|line| line.strip_prefix("CDHash="))
+            .unwrap_or("")
+            .trim()
+            .to_owned();
+        json!({
+            "version_json": ver_json,
+            "codesign_strict_ok": cs_verify.status.success(),
+            "cdhash": cdhash,
+        })
+    };
+
+    let initial_605_info = inspect_app_bundle(&installed_app);
+    assert_eq!(initial_605_info["codesign_strict_ok"], json!(true));
+    assert_eq!(
+        initial_605_info["cdhash"],
+        json!("16ca314c9e6174cbb6c88f8d4da1a73282403989"),
+        "sandboxed build-605 must preserve notarized CDHash"
+    );
+    assert_eq!(
+        initial_605_info["version_json"]["build_number"],
+        json!(605),
+        "expected initial build_number 605, got {initial_605_info}"
+    );
+
+    // Stage simulated v0.1.0-beta.2 release ZIP from the newer dist/NeoFlash.app bundle.
+    let newer_stage_parent = sandbox_dir.join("release-stage");
+    std::fs::create_dir_all(&newer_stage_parent).unwrap();
+    let newer_staged_app = newer_stage_parent.join("NeoFlash.app");
+    assert!(
+        Command::new("/usr/bin/ditto")
+            .arg(&newer_source_app)
+            .arg(&newer_staged_app)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let release_zip_name = "NeoFlash-0.1.0-beta.2-macos-arm64.zip";
+    let release_zip_path = sandbox_dir.join(release_zip_name);
+    assert!(
+        Command::new("/usr/bin/ditto")
+            .args(["-c", "-k", "--sequesterRsrc", "--keepParent"])
+            .arg(&newer_staged_app)
+            .arg(&release_zip_path)
+            .status()
+            .unwrap()
+            .success(),
+        "failed creating v0.1.0-beta.2 release zip"
+    );
+    let zip_bytes = std::fs::read(&release_zip_path).unwrap();
+    let zip_bytes_len = zip_bytes.len();
+    let zip_sha256 = Sha256::digest_hex(&zip_bytes);
+
+    let server = FixtureServer::start();
+    let base = server.base_url.clone();
+    let release_json = json!([
+        {
+            "tag_name": "v0.1.0-beta.2",
+            "html_url": format!("{base}/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.2"),
+            "draft": false,
+            "prerelease": true,
+            "assets": [
+                {
+                    "name": release_zip_name,
+                    "browser_download_url": format!("{base}/dl/{release_zip_name}"),
+                    "size": zip_bytes.len() as u64
+                },
+                {
+                    "name": "NeoFlash-0.1.0-beta.2-SHA256SUMS.txt",
+                    "browser_download_url": format!("{base}/dl/NeoFlash-0.1.0-beta.2-SHA256SUMS.txt"),
+                    "size": 128
+                }
+            ]
+        }
+    ]);
+    server.set_route(
+        "/repos/jazzymiles/NeoFlash/releases?per_page=20",
+        FixtureResponse::Static {
+            status: 200,
+            headers: vec![("Content-Type".into(), "application/json".into())],
+            body: release_json.to_string().into_bytes(),
+        },
+    );
+    server.set_route(
+        &format!("/dl/{release_zip_name}"),
+        FixtureResponse::Static {
+            status: 200,
+            headers: vec![("Content-Type".into(), "application/zip".into())],
+            body: zip_bytes,
+        },
+    );
+
+    // 2a. Corrupted SHA-256 fail-closed check: tampered manifest MUST abort and delete partial output!
+    let wrong_sha = "0".repeat(64);
+    server.set_route(
+        "/dl/NeoFlash-0.1.0-beta.2-SHA256SUMS.txt",
+        FixtureResponse::Static {
+            status: 200,
+            headers: vec![("Content-Type".into(), "text/plain".into())],
+            body: format!("{wrong_sha}  {release_zip_name}\n").into_bytes(),
+        },
+    );
+
+    let mut handoff_ctrl = UpdaterController::new(UpdaterConfig {
+        api_base_override: Some(base.clone()),
+        current_version: "0.1.0-beta.1".into(),
+        platform: PlatformTarget::MacosArm64,
+        max_download_bytes: 512 * 1024 * 1024,
+        ..Default::default()
+    });
+    handoff_ctrl.start_check(UpdateChannel::Beta, &ctx);
+    wait_until_idle(&mut handoff_ctrl, &ctx, Duration::from_secs(10));
+    let available_beta2 = match &handoff_ctrl.state {
+        UpdateState::UpdateAvailable { update, .. } => update.clone(),
+        other => panic!("expected UpdateAvailable for v0.1.0-beta.2, got {other:?}"),
+    };
+
+    let tampered_dest = downloads_dir.join("tampered-beta2.zip");
+    handoff_ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        available_beta2.clone(),
+        tampered_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut handoff_ctrl, &ctx, Duration::from_secs(30));
+    let tampered_error_msg = match &handoff_ctrl.state {
+        UpdateState::Error { message, .. } => message.clone(),
+        other => panic!("expected fail-closed Error on SHA-256 mismatch, got {other:?}"),
+    };
+    assert!(
+        !tampered_dest.exists(),
+        "tampered download must not leave unverified archive at destination"
+    );
+    assert_eq!(
+        std::fs::read_dir(&downloads_dir).unwrap().count(),
+        0,
+        "downloads_dir must have zero .part leftovers after fail-closed rejection"
+    );
+
+    // 2b. Authentic SHA-256 verified download -> atomic bundle handoff (605 -> newer)
+    server.set_route(
+        "/dl/NeoFlash-0.1.0-beta.2-SHA256SUMS.txt",
+        FixtureResponse::Static {
+            status: 200,
+            headers: vec![("Content-Type".into(), "text/plain".into())],
+            body: format!("{zip_sha256}  {release_zip_name}\n").into_bytes(),
+        },
+    );
+    let verified_dest = downloads_dir.join(release_zip_name);
+    handoff_ctrl.start_download_to_path(
+        UpdateChannel::Beta,
+        available_beta2,
+        verified_dest.clone(),
+        &ctx,
+    );
+    wait_until_idle(&mut handoff_ctrl, &ctx, Duration::from_secs(30));
+    assert!(
+        matches!(
+            &handoff_ctrl.state,
+            UpdateState::VerifiedDownloaded { path, version, .. }
+                if path == &verified_dest && version == "0.1.0-beta.2"
+        ),
+        "expected VerifiedDownloaded, got {:?}",
+        handoff_ctrl.state
+    );
+    let downloaded_sha = Sha256::digest_hex(&std::fs::read(&verified_dest).unwrap());
+    assert_eq!(downloaded_sha, zip_sha256);
+
+    // Unpack verified archive into staging dir and atomically swap sandbox/Applications/NeoFlash.app
+    let unpack_dir = sandbox_dir.join("unpack-beta2");
+    std::fs::create_dir_all(&unpack_dir).unwrap();
+    assert!(
+        Command::new("/usr/bin/ditto")
+            .args(["-x", "-k"])
+            .arg(&verified_dest)
+            .arg(&unpack_dir)
+            .status()
+            .unwrap()
+            .success(),
+        "failed unpacking verified update zip"
+    );
+    let unpacked_app = unpack_dir.join("NeoFlash.app");
+    let rollback_backup_app = sandbox_apps.join("NeoFlash-605-rollback.app");
+    std::fs::rename(&installed_app, &rollback_backup_app).expect("stage 605 rollback bundle");
+    std::fs::rename(&unpacked_app, &installed_app).expect("activate upgraded bundle");
+
+    let upgraded_info = inspect_app_bundle(&installed_app);
+    assert_eq!(upgraded_info["codesign_strict_ok"], json!(true));
+    let upgraded_build = upgraded_info["version_json"]["build_number"]
+        .as_u64()
+        .expect("upgraded build_number");
+    assert!(
+        upgraded_build > 605,
+        "expected upgraded build_number > 605, got {upgraded_info}"
+    );
+    let support_hashes_after_upgrade = snapshot_support_hashes();
+    assert_eq!(
+        support_hashes_after_upgrade, support_hashes_before,
+        "Application Support preferences, recent files, and recovery snapshot must survive upgrade untouched"
+    );
+
+    // 2c. Atomic rollback (newer -> 605) & exact notarized CDHash restoration
+    let replaced_newer_app = sandbox_apps.join("NeoFlash-upgraded-prev.app");
+    std::fs::rename(&installed_app, &replaced_newer_app).expect("park newer bundle");
+    std::fs::rename(&rollback_backup_app, &installed_app).expect("restore build-605 bundle");
+    let rolled_back_info = inspect_app_bundle(&installed_app);
+    assert_eq!(rolled_back_info["codesign_strict_ok"], json!(true));
+    assert_eq!(
+        rolled_back_info["cdhash"],
+        json!("16ca314c9e6174cbb6c88f8d4da1a73282403989"),
+        "rolled-back bundle must match exact notarized build-605 CDHash"
+    );
+    assert_eq!(
+        rolled_back_info["version_json"]["build_number"],
+        json!(605),
+        "rolled-back bundle must report build 605"
+    );
+    let support_hashes_after_rollback = snapshot_support_hashes();
+    assert_eq!(
+        support_hashes_after_rollback, support_hashes_before,
+        "Application Support state must remain byte-identical after rollback"
+    );
+
+    // Clean up ~100+ MB temporary sandbox bundles while retaining compact JSON report evidence.
+    std::fs::remove_dir_all(&sandbox_dir).expect("remove temporary sandbox app copies");
+    assert!(!sandbox_dir.exists());
+
+    let report = json!({
+        "task": "T-347",
+        "verified_at_utc": "2026-11-26",
+        "github_repo": "jazzymiles/NeoFlash",
+        "live_github_releases_check": {
+            "endpoint": "https://api.github.com/repos/jazzymiles/NeoFlash/releases?per_page=20",
+            "beta_from_pre_beta1": live_platforms,
+            "beta_at_0_1_0_beta_1": "UpToDate (0.1.0-beta.1)",
+            "stable_at_0_1_0_beta_1": "UpToDate (none)",
+        },
+        "sandbox_upgrade_and_rollback": {
+            "initial_build_605": initial_605_info,
+            "simulated_release_archive": {
+                "name": release_zip_name,
+                "bytes": zip_bytes_len,
+                "sha256": zip_sha256,
+            },
+            "tampered_hash_fail_closed": {
+                "rejected": true,
+                "error_message": tampered_error_msg,
+                "leftover_files_in_downloads": 0,
+            },
+            "verified_download_sha256": downloaded_sha,
+            "upgraded_bundle": upgraded_info,
+            "rolled_back_build_605": rolled_back_info,
+            "application_support_preserved": {
+                "before_sha256": support_hashes_before,
+                "after_upgrade_sha256": support_hashes_after_upgrade,
+                "after_rollback_sha256": support_hashes_after_rollback,
+                "byte_identical": true,
+            },
+            "sandbox_temp_bundles_cleaned": true,
+        }
+    });
+    let report_path = artifact_root.join("verification-report.json");
+    std::fs::write(
+        &report_path,
+        serde_json::to_string_pretty(&report).unwrap() + "\n",
+    )
+    .expect("write verification-report.json");
+}

@@ -63,12 +63,44 @@ try {
     wasm-bindgen --target no-modules --no-modules-global NeoFlashWasm --out-name neoflash_web --out-dir target/web-runtime target/wasm32-unknown-unknown/release/neoflash_web.wasm
     if ($LASTEXITCODE -ne 0) { throw "wasm-bindgen generation failed." }
 
-    if ($Profile -eq "release") {
-        cargo build --locked --release -p neoflash-editor
-        if ($LASTEXITCODE -ne 0) { throw "Release editor build failed." }
-    } else {
-        cargo build --locked -p neoflash-editor
-        if ($LASTEXITCODE -ne 0) { throw "Debug editor build failed." }
+    $SavedRustFlags = $env:RUSTFLAGS
+    $HadRustFlags = Test-Path Env:\RUSTFLAGS
+    $SavedEncodedRustFlags = $env:CARGO_ENCODED_RUSTFLAGS
+    $HadEncodedRustFlags = Test-Path Env:\CARGO_ENCODED_RUSTFLAGS
+    try {
+        # Link the MSVC CRT statically for the native Windows executable so clean Windows 10/11
+        # installations without vcruntime140.dll launch without 0xC0000135 (STATUS_DLL_NOT_FOUND).
+        # Keep this scoped strictly to the native Windows build (never wasm32 or .cargo/config.toml).
+        if ($HadEncodedRustFlags -and -not [string]::IsNullOrEmpty($SavedEncodedRustFlags)) {
+            if ($SavedEncodedRustFlags -notmatch '(^|\x1f|,)\+crt-static($|\x1f|,)') {
+                $env:CARGO_ENCODED_RUSTFLAGS = "$SavedEncodedRustFlags`u{001f}-C`u{001f}target-feature=+crt-static"
+            }
+        } else {
+            Remove-Item Env:\CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue
+            if ([string]::IsNullOrWhiteSpace($SavedRustFlags)) {
+                $env:RUSTFLAGS = "-C target-feature=+crt-static"
+            } elseif ($SavedRustFlags -notmatch '(^|\s|,)\+crt-static($|\s|,)') {
+                $env:RUSTFLAGS = "$SavedRustFlags -C target-feature=+crt-static"
+            }
+        }
+        if ($Profile -eq "release") {
+            cargo build --locked --release -p neoflash-editor
+            if ($LASTEXITCODE -ne 0) { throw "Release editor build failed." }
+        } else {
+            cargo build --locked -p neoflash-editor
+            if ($LASTEXITCODE -ne 0) { throw "Debug editor build failed." }
+        }
+    } finally {
+        if ($HadRustFlags) {
+            $env:RUSTFLAGS = $SavedRustFlags
+        } else {
+            Remove-Item Env:\RUSTFLAGS -ErrorAction SilentlyContinue
+        }
+        if ($HadEncodedRustFlags) {
+            $env:CARGO_ENCODED_RUSTFLAGS = $SavedEncodedRustFlags
+        } else {
+            Remove-Item Env:\CARGO_ENCODED_RUSTFLAGS -ErrorAction SilentlyContinue
+        }
     }
     $ExeSource = Join-Path $ProjectRoot "target/$Profile/neoflash-editor.exe"
     if (-not (Test-Path -PathType Leaf $ExeSource)) {

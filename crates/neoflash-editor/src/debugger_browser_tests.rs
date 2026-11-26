@@ -148,11 +148,16 @@ fn real_browser_breakpoint_step_locals_restart_and_disconnect() {
     let headless = std::env::var_os("NEOFLASH_TEST_BROWSER_HEADED").is_none();
     let mut pipe = BrowserPipe::launch(&executable, headless).unwrap();
     let profile = pipe.profile().to_path_buf();
-    use std::os::unix::fs::PermissionsExt;
-    assert_eq!(
-        std::fs::metadata(&profile).unwrap().permissions().mode() & 0o777,
-        0o700
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&profile).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+    #[cfg(not(unix))]
+    assert!(profile.is_dir());
     protocol.start();
     let mut session = None;
     let mut probe_request = 1_000_000;

@@ -460,6 +460,142 @@ fn is_palette_ext(ext: &str) -> bool {
     matches!(ext, "act" | "clr" | "ase")
 }
 
+fn is_sequence_candidate_image_path(path: &std::path::Path) -> bool {
+    matches!(
+        path_ext_lower(path).as_str(),
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+    )
+}
+
+/// Reject numbered image sequences where two candidate files resolve to the same frame number
+/// (for example `walk_1.png` and `walk_01.png` alongside `walk_2.png`) BEFORE decoding bytes or
+/// mutating the destination [`Project`] (`T-496C`, Proposal #2).
+pub(crate) fn validate_unique_sequence_frame_numbers<P: AsRef<std::path::Path>>(
+    inputs: &[P],
+    expand_single_seed: bool,
+) -> Result<(), String> {
+    use std::collections::BTreeMap;
+
+    if inputs.is_empty() {
+        return Ok(());
+    }
+
+    let first = inputs[0].as_ref();
+    let explicit_directory = inputs.len() == 1 && first.is_dir();
+    let mut explicit_seed = false;
+
+    let candidates: Vec<PathBuf> = if explicit_directory {
+        let mut found = Vec::new();
+        let entries = std::fs::read_dir(first).map_err(|e| format!("{}: {e}", first.display()))?;
+        for entry in entries {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.is_file() && is_sequence_candidate_image_path(&path) {
+                found.push(path);
+            }
+        }
+        found.sort();
+        found
+    } else if inputs.len() == 1 && expand_single_seed && is_sequence_candidate_image_path(first) {
+        let Some(file_name) = first.file_name().and_then(|s| s.to_str()) else {
+            return Ok(());
+        };
+        let Some(seed) = neoflash_import::parse_numbered_image_filename(file_name, 0) else {
+            return Ok(());
+        };
+        explicit_seed = true;
+        let parent = first
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let mut found = Vec::new();
+        let entries =
+            std::fs::read_dir(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        for entry in entries {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if !path.is_file() || !is_sequence_candidate_image_path(&path) {
+                continue;
+            }
+            let Some(cand_name) = path.file_name().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if let Some(item) = neoflash_import::parse_numbered_image_filename(cand_name, 0)
+                && item.prefix.eq_ignore_ascii_case(&seed.prefix)
+                && item.extension.eq_ignore_ascii_case(&seed.extension)
+            {
+                found.push(path);
+            }
+        }
+        found.sort();
+        found
+    } else {
+        if inputs.len() < 2
+            || inputs
+                .iter()
+                .any(|p| !is_sequence_candidate_image_path(p.as_ref()))
+        {
+            return Ok(());
+        }
+        inputs.iter().map(|p| p.as_ref().to_path_buf()).collect()
+    };
+
+    if candidates.len() < 2 {
+        return Ok(());
+    }
+
+    let mut groups: BTreeMap<(String, String), Vec<(u32, PathBuf)>> = BTreeMap::new();
+    let mut unnumbered_count = 0usize;
+    for (idx, path) in candidates.iter().enumerate() {
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default();
+        if let Some(item) = neoflash_import::parse_numbered_image_filename(name, idx) {
+            groups
+                .entry((
+                    item.prefix.to_ascii_lowercase(),
+                    item.extension.to_ascii_lowercase(),
+                ))
+                .or_default()
+                .push((item.number, path.clone()));
+        } else {
+            unnumbered_count += 1;
+        }
+    }
+
+    if groups.is_empty() {
+        return Ok(());
+    }
+
+    // Multi-file explicit lists only form a sequence when all inputs belong to one numbered family
+    // (otherwise editor/CLI falls back to importing independent images such as `hero_1.png` + `villain_1.png`).
+    if !explicit_directory && !explicit_seed && (unnumbered_count > 0 || groups.len() > 1) {
+        return Ok(());
+    }
+
+    let Some((_, dominant)) = groups
+        .into_iter()
+        .max_by_key(|((p, e), items)| (items.len(), p.len(), e.len()))
+    else {
+        return Ok(());
+    };
+    if dominant.len() < 2 {
+        return Ok(());
+    }
+
+    let mut seen_by_number: BTreeMap<u32, PathBuf> = BTreeMap::new();
+    for (number, path) in dominant {
+        if let Some(existing) = seen_by_number.get(&number) {
+            return Err(format!(
+                "Duplicate image sequence frame number {number}: '{}' and '{}' both resolve to frame {number}. Rename or remove one of the conflicting files before importing.",
+                existing.display(),
+                path.display(),
+            ));
+        }
+        seen_by_number.insert(number, path);
+    }
+    Ok(())
+}
+
 fn format_import_diagnostics(report: &neoflash_import::ImportReport) -> Option<String> {
     let items: Vec<String> = report
         .diagnostics
@@ -1370,6 +1506,8 @@ impl Editor {
             let sequence_request =
                 graphic_paths.len() >= 2 || (graphic_paths.len() == 1 && graphic_paths[0].is_dir());
             let imported_sequence = if sequence_request {
+                validate_unique_sequence_frame_numbers(&graphic_paths, false)
+                    .map_err(|error| format!("Image sequence import failed: {error}"))?;
                 neoflash_import::import_numbered_image_sequence_paths_with_options(
                     &graphic_paths,
                     false,

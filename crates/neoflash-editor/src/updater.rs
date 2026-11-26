@@ -1275,7 +1275,17 @@ pub(crate) fn select_platform_asset(
                     && !lower.contains("aarch64")
                     && (lower.ends_with(".tar.gz") || lower.ends_with(".tgz"))
             };
-            find_matching(&matches_deb).or_else(|| find_matching(&matches_tarball))
+            let matches_appimage = |lower: &str| {
+                lower.ends_with(".appimage")
+                    && (lower.contains("x86_64")
+                        || lower.contains("x64")
+                        || lower.contains("amd64"))
+                    && !lower.contains("arm64")
+                    && !lower.contains("aarch64")
+            };
+            find_matching(&matches_deb)
+                .or_else(|| find_matching(&matches_tarball))
+                .or_else(|| find_matching(&matches_appimage))
         }
         PlatformTarget::Unsupported => None,
     }

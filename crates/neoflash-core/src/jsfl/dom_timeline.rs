@@ -643,6 +643,47 @@ impl<'a> JsflVm<'a> {
 }
 
 impl<'a> JsflVm<'a> {
+    const EXPLICIT_LAYER_SEL_KEY: &'static str = "\0__nf_explicit_layer_sel";
+    const AUTO_LAYER_INDEX_KEY: &'static str = "\0__nf_auto_layer_idx";
+
+    fn mark_explicit_layer_selection(&mut self) {
+        if let Some(root) = self.scopes.first_mut() {
+            root.insert(
+                Self::EXPLICIT_LAYER_SEL_KEY.to_owned(),
+                JsflValue::Bool(true),
+            );
+        }
+    }
+
+    fn record_auto_current_layer(&mut self) {
+        let cur = self.state.current_layer;
+        if let Some(root) = self.scopes.first_mut() {
+            root.insert(
+                Self::AUTO_LAYER_INDEX_KEY.to_owned(),
+                JsflValue::Number(cur as f64),
+            );
+        }
+    }
+
+    fn has_explicit_layer_selection(&self) -> bool {
+        let Some(root) = self.scopes.first() else {
+            return false;
+        };
+        if matches!(
+            root.get(Self::EXPLICIT_LAYER_SEL_KEY),
+            Some(JsflValue::Bool(true))
+        ) {
+            return true;
+        }
+        let expected_cur = root
+            .get(Self::AUTO_LAYER_INDEX_KEY)
+            .and_then(JsflValue::as_number)
+            .map_or(0usize, |n| n.max(0.0) as usize);
+        // Assigning `timeline.currentLayer = N` mutates `state.current_layer` directly without
+        // updating `AUTO_LAYER_INDEX_KEY`, allowing us to honor explicit single-layer targeting.
+        self.state.current_layer != expected_cur || self.state.selected_layers.len() > 1
+    }
+
     /// JSFL timeline methods are allowed to operate on hidden or locked rows. Reuse the shared
     /// atomic frame editor while temporarily bypassing its interactive-UI row guards, then restore
     /// every authored visibility/lock bit on both success and failure.
@@ -716,6 +757,7 @@ impl<'a> JsflVm<'a> {
                 } else if !self.state.selected_layers.contains(&idx) {
                     self.state.selected_layers.push(idx);
                 }
+                self.mark_explicit_layer_selection();
                 Ok(JsflValue::Undefined)
             }
             "getSelectedFrames" => {
@@ -742,8 +784,16 @@ impl<'a> JsflVm<'a> {
                     if let Some(&(l, s, _)) = spans.first() {
                         self.state.current_layer = l;
                         self.state.current_frame = s;
+                        let mut uniq = Vec::new();
+                        for &(li, _, _) in &spans {
+                            if !uniq.contains(&li) {
+                                uniq.push(li);
+                            }
+                        }
+                        self.state.selected_layers = uniq;
                     }
                     self.state.selected_frames = spans;
+                    self.mark_explicit_layer_selection();
                     return Ok(JsflValue::Undefined);
                 }
                 let start_f = args
@@ -764,6 +814,7 @@ impl<'a> JsflVm<'a> {
                 } else {
                     self.state.selected_frames.push((l, start_f, end_f));
                 }
+                self.mark_explicit_layer_selection();
                 Ok(JsflValue::Undefined)
             }
             "addNewLayer" => {
@@ -805,6 +856,7 @@ impl<'a> JsflVm<'a> {
                 let new_idx = sym.timeline.layers.len() - 1;
                 self.state.current_layer = new_idx;
                 self.state.selected_layers = vec![new_idx];
+                self.record_auto_current_layer();
                 Ok(JsflValue::Number(new_idx as f64))
             }
             "deleteLayer" => {
@@ -827,6 +879,7 @@ impl<'a> JsflVm<'a> {
                 let max_idx = sym.timeline.layers.len() - 1;
                 self.state.current_layer = self.state.current_layer.min(max_idx);
                 self.state.selected_layers = vec![self.state.current_layer];
+                self.record_auto_current_layer();
                 self.project.prune_motion_guides();
                 Ok(JsflValue::Undefined)
             }
@@ -857,6 +910,8 @@ impl<'a> JsflVm<'a> {
                     }
                     sym.timeline.layers.insert(target, layer);
                     self.state.current_layer = target;
+                    self.state.selected_layers = vec![target];
+                    self.record_auto_current_layer();
                 }
                 Ok(JsflValue::Undefined)
             }
@@ -905,35 +960,77 @@ impl<'a> JsflVm<'a> {
             }
             "removeFrames" => {
                 self.record_mutation(span)?;
-                let start_f = args
-                    .first()
-                    .and_then(JsflValue::as_number)
-                    .map(|n| n.max(0.0) as u32)
-                    .unwrap_or(self.state.current_frame);
-                let end_f = args
-                    .get(1)
-                    .and_then(JsflValue::as_number)
-                    .map(|n| n.max((start_f + 1) as f64) as u32)
-                    .unwrap_or(start_f + 1);
-                let cur_layer = self.state.current_layer;
-                let (frame_count, layer_id) = {
-                    let sym = self.symbol_ref(&tl.symbol_id, span)?;
-                    (
-                        sym.timeline.frame_count,
-                        sym.timeline.layers.get(cur_layer).and_then(|layer| {
-                            (layer.properties.role != LayerRole::Folder).then(|| layer.id.clone())
-                        }),
-                    )
-                };
-                if start_f < frame_count
-                    && let Some(layer_id) = layer_id
+                let explicit_sel = self.has_explicit_layer_selection();
+                let (start_f, end_f) = if args.is_empty()
+                    && explicit_sel
+                    && let Some(&(_, sf, ef)) = self.state.selected_frames.first()
                 {
+                    (sf, ef.max(sf + 1))
+                } else {
+                    let sf = args
+                        .first()
+                        .and_then(JsflValue::as_number)
+                        .map(|n| n.max(0.0) as u32)
+                        .unwrap_or(self.state.current_frame);
+                    let ef = args
+                        .get(1)
+                        .and_then(JsflValue::as_number)
+                        .map(|n| n.max((sf + 1) as f64) as u32)
+                        .unwrap_or(sf + 1);
+                    (sf, ef)
+                };
+                let cur_layer = self.state.current_layer;
+                let (frame_count, layer_ids) = {
+                    let sym = self.symbol_ref(&tl.symbol_id, span)?;
+                    let tl_ref = &sym.timeline;
+                    let ids = if explicit_sel {
+                        let indices: Vec<usize> = if self.state.selected_layers.is_empty() {
+                            vec![cur_layer]
+                        } else {
+                            self.state.selected_layers.clone()
+                        };
+                        let mut out = Vec::new();
+                        for idx in indices {
+                            if let Some(layer) = tl_ref.layers.get(idx)
+                                && layer.properties.role != LayerRole::Folder
+                                && !out.contains(&layer.id)
+                            {
+                                out.push(layer.id.clone());
+                            }
+                        }
+                        out
+                    } else {
+                        // Adobe Animate JSAPI: when no explicit layer selection restricts the
+                        // operation, `removeFrames(start, end)` applies across all unlocked
+                        // non-folder layers (falling back to a sole non-folder current layer if
+                        // every layer is locked).
+                        let mut unlocked: Vec<Id> = tl_ref
+                            .layers
+                            .iter()
+                            .filter(|layer| {
+                                layer.properties.role != LayerRole::Folder
+                                    && !crate::layer_effectively_locked(tl_ref, layer)
+                            })
+                            .map(|layer| layer.id.clone())
+                            .collect();
+                        if unlocked.is_empty()
+                            && tl_ref.layers.len() == 1
+                            && let Some(sole) = tl_ref.layers.get(cur_layer)
+                            && sole.properties.role != LayerRole::Folder
+                        {
+                            unlocked.push(sole.id.clone());
+                        }
+                        unlocked
+                    };
+                    (tl_ref.frame_count, ids)
+                };
+                if start_f < frame_count && !layer_ids.is_empty() {
                     let bounded_end = end_f.min(frame_count);
                     self.apply_jsfl_timeline_edit(
                         &tl.symbol_id,
                         crate::TimelineEdit::Delete {
                             range: crate::FrameRange {
-                                layers: vec![layer_id],
+                                layers: layer_ids,
                                 start: start_f,
                                 end: bounded_end - 1,
                             },

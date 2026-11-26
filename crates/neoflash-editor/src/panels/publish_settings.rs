@@ -179,9 +179,26 @@ impl PublishSettingsDraft {
         export_profile_json(&profile).map_err(|e| e.to_string())
     }
 
+    #[cfg(test)]
     pub(crate) fn export_active_profile_to_path(&self, path: &Path) -> Result<(), String> {
+        self.export_active_profile_to_path_protecting(path, None)
+    }
+
+    pub(crate) fn export_active_profile_to_path_protecting(
+        &self,
+        path: &Path,
+        protected_project_path: Option<&Path>,
+    ) -> Result<(), String> {
+        if let Some(proj_path) = protected_project_path
+            && crate::headless::paths_refer_to_same_file(proj_path, path)
+        {
+            return Err(format!(
+                "Refusing to overwrite source project '{}' with publish profile JSON. Choose a separate .json output path.",
+                proj_path.display()
+            ));
+        }
         let json = self.export_active_profile_json()?;
-        neoflash_export::atomic_write(path, json.as_bytes()).map_err(|e| e.to_string())
+        crate::windows_platform::atomic_replace_file(path, json.as_bytes())
     }
 
     pub(crate) fn import_profile_from_json(
@@ -1268,7 +1285,7 @@ impl Editor {
                 .add_filter("JSON Profile", &["json"])
                 .save_file()
         {
-            match draft.export_active_profile_to_path(&path) {
+            match draft.export_active_profile_to_path_protecting(&path, self.path.as_deref()) {
                 Ok(()) => self.message(format!("Exported publish profile: {}", path.display())),
                 Err(error) => draft.error = Some(error),
             }

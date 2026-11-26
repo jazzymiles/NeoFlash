@@ -2388,7 +2388,11 @@ impl Editor {
                 }
             });
         Self::runtime_dir_for(
-            std::env::var_os("NEOFLASH_RUNTIME_DIR").map(PathBuf::from),
+            std::env::var_os("NEOFLASH_RUNTIME_DIR")
+                .or_else(|| std::env::var_os("NEOFLASH_WEB_RUNTIME_DIR"))
+                .or_else(|| std::env::var_os("NEOFLASH_WEB_RUNTIME"))
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from),
             exe.as_deref(),
             development_dir,
         )

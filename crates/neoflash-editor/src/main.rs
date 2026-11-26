@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
+
 mod accessibility_bridge;
 #[allow(dead_code)]
 mod ai_connections;
@@ -12,7 +14,7 @@ mod clipboard;
 mod code_tools;
 mod commands;
 mod debugger;
-#[cfg(all(test, unix))]
+#[cfg(all(test, any(unix, windows)))]
 mod debugger_browser_tests;
 mod debugger_protocol;
 mod debugger_sources;
@@ -21,6 +23,8 @@ mod debugger_transport;
 #[cfg(windows)]
 #[path = "debugger_transport_windows.rs"]
 mod debugger_transport;
+#[cfg(all(test, not(windows)))]
+mod debugger_transport_windows;
 mod detached;
 mod dock_grid;
 mod document_chrome;
@@ -216,6 +220,11 @@ fn app_icon() -> std::sync::Arc<eframe::egui::IconData> {
 }
 
 fn main() -> eframe::Result {
+    // On Windows (`windows_subsystem = "windows"`), Explorer/Desktop launches open zero console
+    // windows while interactive `cmd.exe` / PowerShell CLI invocations attach cleanly to the
+    // parent console without disturbing already-redirected pipe/file handles (`T-496C`).
+    windows_platform::attach_parent_console_for_cli_if_needed();
+
     // Headless CLI, `NEOFLASH_HEADLESS=1`, `--help`/`-h`, and `--version`/`-V` MUST execute and
     // terminate here BEFORE any `eframe`/`winit`/`AppKit` (`NSApplication`) or macOS menu setup
     // so invoking `NeoFlash.app/Contents/MacOS/neoflash-editor --headless ...` from scripts or CI

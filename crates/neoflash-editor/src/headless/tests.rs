@@ -3690,3 +3690,445 @@ fn t488_headless_as2_default_lang_text_box_jsfl_media_and_swf_vm_eval() {
     assert_eq!(img_val["frame_index"], 0);
     assert_eq!(img_val["frame"], 1);
 }
+
+#[test]
+fn t496c_headless_frames_convert_image_counts_export_profile_protection_and_sequence_collision() {
+    let tmp = TempDirGuard::new("t496c_headless_slice");
+    let run_json = |args: &[&str]| -> (i32, Value, String) {
+        let (code, stdout, stderr) = run_args(args, "");
+        let parsed: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+        (code, parsed, stderr)
+    };
+
+    // 1. [FO-09]: --headless new --frames 1 & batch new / set_project frame_count
+    let single_frame_proj = tmp.path.join("vault_single_frame.nflash");
+    let (code, new_val, err) = run_json(&[
+        "--headless",
+        "new",
+        "--output",
+        single_frame_proj.to_str().unwrap(),
+        "--name",
+        "VaultSingle",
+        "--frames",
+        "1",
+        "--script",
+        "as2",
+    ]);
+    assert_eq!(code, 0, "new --frames 1 failed: {new_val} stderr={err}");
+    assert_eq!(new_val["frame_count"], 1);
+    let loaded_single = Project::from_nflash_bytes(&fs::read(&single_frame_proj).unwrap()).unwrap();
+    assert_eq!(
+        loaded_single
+            .symbol(&loaded_single.root)
+            .unwrap()
+            .timeline
+            .frame_count,
+        1
+    );
+
+    let (bad_frames_code, _, _) = run_json(&[
+        "--headless",
+        "new",
+        "--output",
+        tmp.path.join("zero.nflash").to_str().unwrap(),
+        "--frames",
+        "0",
+    ]);
+    assert_eq!(
+        bad_frames_code, 2,
+        "--frames 0 must be rejected with usage exit code 2"
+    );
+
+    // Batch `new` (frame_count: 3) + `set_project` (frame_count: 1) + `convert_script` (to: "as3")
+    let batch_out = tmp.path.join("batch_converted.nflash");
+    let batch_ops = json!([
+        {
+            "op": "new",
+            "name": "BatchConvertScene",
+            "width": 640,
+            "height": 480,
+            "fps": 30,
+            "frame_count": 3,
+            "script_language": "as2"
+        },
+        {
+            "op": "set_project",
+            "frame_count": 1
+        },
+        {
+            "op": "add_layer",
+            "name": "Overlay"
+        },
+        {
+            "op": "add_element",
+            "layer": "Layer 1",
+            "kind": "rectangle",
+            "width": 120.0,
+            "height": 60.0,
+            "fill": "#22AA66"
+        },
+        {
+            "op": "add_element",
+            "layer": "Overlay",
+            "kind": "text",
+            "text": "VAULT 13",
+            "font_size": 20.0,
+            "color": "#FFEE66"
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "source": "stop();\nvar vaultOpen:Boolean = true;\ntrace('vault:' + vaultOpen);\n"
+        },
+        {
+            "op": "convert_script",
+            "to": "as3",
+            "strict": true
+        },
+        {
+            "op": "validate",
+            "strict": true
+        }
+    ]);
+    let (code, batch_stdout, batch_stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--out",
+            batch_out.to_str().unwrap(),
+        ],
+        &serde_json::to_string(&batch_ops).unwrap(),
+    );
+    assert_eq!(
+        code, 0,
+        "batch frame_count + convert_script failed: stdout={batch_stdout} stderr={batch_stderr}"
+    );
+    let batch_val: Value = serde_json::from_str(&batch_stdout).unwrap();
+    assert_eq!(batch_val["results"][0]["result"]["frame_count"], 3);
+    assert_eq!(batch_val["results"][1]["result"]["frame_count"], 1);
+    assert_eq!(batch_val["results"][6]["result"]["ok"], true);
+    assert_eq!(batch_val["results"][6]["result"]["from_language"], "as2");
+    assert_eq!(batch_val["results"][6]["result"]["to_language"], "as3");
+    assert_eq!(batch_val["results"][6]["result"]["converted_scripts"], 1);
+    assert_eq!(batch_val["results"][6]["result"]["error_count"], 0);
+
+    // 2. [FO-14]: --headless export --target image reports real visible layer_count, path_count, and element_count
+    let stage_png = tmp.path.join("vault_stage.png");
+    let (code, img_val, err) = run_json(&[
+        "--headless",
+        "export",
+        "--project",
+        batch_out.to_str().unwrap(),
+        "--target",
+        "image",
+        "--out",
+        stage_png.to_str().unwrap(),
+    ]);
+    assert_eq!(code, 0, "target image failed: {img_val} stderr={err}");
+    assert_eq!(img_val["layer_count"], 2);
+    assert_eq!(img_val["path_count"], 2);
+    assert_eq!(img_val["element_count"], 2);
+
+    // Also verify [FO-14] on examples/fallout-as2.nflash if present in repo
+    let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap();
+    let fallout_example = repo_root.join("examples/fallout-as2.nflash");
+    if fallout_example.is_file() {
+        let fallout_png = tmp.path.join("fallout_stage.png");
+        let (fc, fval, ferr) = run_json(&[
+            "--headless",
+            "export",
+            "--project",
+            fallout_example.to_str().unwrap(),
+            "--target",
+            "image",
+            "--out",
+            fallout_png.to_str().unwrap(),
+        ]);
+        assert_eq!(fc, 0, "fallout image export failed: {fval} stderr={ferr}");
+        assert!(
+            fval["layer_count"].as_u64().unwrap_or(0) >= 5,
+            "expected >= 5 visible layers in fallout-as2, got {fval}"
+        );
+        assert!(
+            fval["path_count"].as_u64().unwrap_or(0) > 0,
+            "expected > 0 vector paths in fallout-as2, got {fval}"
+        );
+        assert!(
+            fval["element_count"].as_u64().unwrap_or(0) >= 20,
+            "expected >= 20 elements in fallout-as2, got {fval}"
+        );
+    }
+
+    // 3. [FO-11]: --headless capabilities lists "convert", and --headless convert converts
+    // examples/tetris-as2.nflash -> as3 and js while refusing identical/aliased --out!
+    let (cap_code, cap_val, _) = run_json(&["--headless", "capabilities"]);
+    assert_eq!(cap_code, 0);
+    assert!(
+        cap_val["subcommands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["name"] == "convert"),
+        "capabilities must advertise 'convert' subcommand"
+    );
+    assert!(
+        cap_val["batch_schema"]["operations"]
+            .as_object()
+            .unwrap()
+            .contains_key("convert_script")
+    );
+
+    let tetris_as2 = repo_root.join("examples/tetris-as2.nflash");
+    let tetris_copy = tmp.path.join("tetris-source.nflash");
+    fs::copy(&tetris_as2, &tetris_copy).unwrap();
+    let tetris_orig_bytes = fs::read(&tetris_copy).unwrap();
+
+    // Identical --project and --out refused with source byte-identical
+    let (same_code, same_val, _) = run_json(&[
+        "--headless",
+        "convert",
+        "--project",
+        tetris_copy.to_str().unwrap(),
+        "--to",
+        "as3",
+        "--out",
+        tetris_copy.to_str().unwrap(),
+    ]);
+    assert_eq!(same_code, 1);
+    assert_eq!(same_val["error"]["code"], "source_overwrite_refused");
+    assert_eq!(fs::read(&tetris_copy).unwrap(), tetris_orig_bytes);
+
+    let tetris_as3_out = tmp.path.join("tetris-converted-as3.nflash");
+    let (c_as3, v_as3, e_as3) = run_json(&[
+        "--headless",
+        "convert",
+        "--project",
+        tetris_copy.to_str().unwrap(),
+        "--to",
+        "as3",
+        "--out",
+        tetris_as3_out.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        c_as3, 0,
+        "convert tetris -> as3 failed: {v_as3} stderr={e_as3}"
+    );
+    assert_eq!(v_as3["ok"], true);
+    assert_eq!(v_as3["from_language"], "as2");
+    assert_eq!(v_as3["to_language"], "as3");
+    assert!(v_as3["converted_scripts"].as_u64().unwrap_or(0) >= 1);
+    assert_eq!(v_as3["error_count"], 0);
+
+    let tetris_js_out = tmp.path.join("tetris-converted-js.nflash");
+    let (c_js, v_js, e_js) = run_json(&[
+        "--headless",
+        "convert",
+        "--project",
+        tetris_copy.to_str().unwrap(),
+        "--to",
+        "js",
+        "--out",
+        tetris_js_out.to_str().unwrap(),
+    ]);
+    assert_eq!(c_js, 0, "convert tetris -> js failed: {v_js} stderr={e_js}");
+    assert_eq!(v_js["ok"], true);
+    assert_eq!(v_js["from_language"], "as2");
+    assert_eq!(v_js["to_language"], "js");
+    assert_eq!(v_js["error_count"], 0);
+
+    // 4. Proposal #1: --export-profile protects source project (identical, hardlink, symlink)
+    // and preserves previous profile JSON on failed write!
+    let orig_single_bytes = fs::read(&single_frame_proj).unwrap();
+    let hardlink_alias = tmp.path.join("vault_hardlink.json");
+    fs::hard_link(&single_frame_proj, &hardlink_alias).unwrap();
+    #[cfg(unix)]
+    let symlink_alias = {
+        let link = tmp.path.join("vault_symlink.json");
+        std::os::unix::fs::symlink(&single_frame_proj, &link).unwrap();
+        Some(link)
+    };
+    #[cfg(not(unix))]
+    let symlink_alias: Option<std::path::PathBuf> = None;
+
+    for bad_out in std::iter::once(&single_frame_proj)
+        .chain(std::iter::once(&hardlink_alias))
+        .chain(symlink_alias.iter())
+    {
+        let (p_code, p_val, _) = run_json(&[
+            "--headless",
+            "export",
+            "--project",
+            single_frame_proj.to_str().unwrap(),
+            "--export-profile",
+            bad_out.to_str().unwrap(),
+        ]);
+        assert_eq!(
+            p_code,
+            1,
+            "expected --export-profile alias {} to be rejected: {p_val}",
+            bad_out.display()
+        );
+        assert_eq!(p_val["error"]["code"], "source_overwrite_refused");
+        assert_eq!(
+            fs::read(&single_frame_proj).unwrap(),
+            orig_single_bytes,
+            "source project must remain byte-identical after rejected --export-profile"
+        );
+    }
+
+    // Separate --export-profile JSON succeeds
+    let profile_json_path = tmp.path.join("exported-profile.json");
+    let (ok_prof_code, ok_prof_val, ok_prof_err) = run_json(&[
+        "--headless",
+        "export",
+        "--project",
+        single_frame_proj.to_str().unwrap(),
+        "--profile",
+        "Compact",
+        "--export-profile",
+        profile_json_path.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        ok_prof_code, 0,
+        "valid --export-profile failed: {ok_prof_val} stderr={ok_prof_err}"
+    );
+    let saved_profile_bytes = fs::read(&profile_json_path).unwrap();
+    assert!(!saved_profile_bytes.is_empty());
+
+    // Failed write (e.g. parent path is a regular file, or read-only directory on Unix) preserves existing profile!
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let locked_dir = tmp.path.join("locked_profiles");
+        fs::create_dir_all(&locked_dir).unwrap();
+        let protected_prev = locked_dir.join("current-profile.json");
+        fs::write(&protected_prev, &saved_profile_bytes).unwrap();
+        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let (fail_code, _, _) = run_json(&[
+            "--headless",
+            "export",
+            "--project",
+            single_frame_proj.to_str().unwrap(),
+            "--profile",
+            "Full",
+            "--export-profile",
+            protected_prev.to_str().unwrap(),
+        ]);
+        fs::set_permissions(&locked_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            fail_code, 1,
+            "expected write into read-only directory to fail"
+        );
+        assert_eq!(
+            fs::read(&protected_prev).unwrap(),
+            saved_profile_bytes,
+            "previous profile JSON must be preserved byte-identical when atomic write fails"
+        );
+    }
+
+    // 5. Proposal #2: Repeated image-sequence frame numbers (`walk_1.png`, `walk_01.png`, `walk_2.png`)
+    // rejected with actionable diagnostic naming frame 1 and BOTH conflicting paths before changing project!
+    let seq_dir = tmp.path.join("seq_collision");
+    fs::create_dir_all(&seq_dir).unwrap();
+    // Minimal valid 1x1 PNG
+    let mut tiny_png = Vec::new();
+    image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+        1,
+        1,
+        image::Rgba([255, 0, 0, 255]),
+    ))
+    .write_to(
+        &mut std::io::Cursor::new(&mut tiny_png),
+        image::ImageFormat::Png,
+    )
+    .unwrap();
+    let walk_1 = seq_dir.join("walk_1.png");
+    let walk_01 = seq_dir.join("walk_01.png");
+    let walk_2 = seq_dir.join("walk_2.png");
+    fs::write(&walk_1, &tiny_png).unwrap();
+    fs::write(&walk_01, &tiny_png).unwrap();
+    fs::write(&walk_2, &tiny_png).unwrap();
+
+    // CLI `--headless import --into ... --in-place` leaves destination project byte-identical
+    let (seq_code, seq_val, _) = run_json(&[
+        "--headless",
+        "import",
+        "--input",
+        walk_1.to_str().unwrap(),
+        walk_01.to_str().unwrap(),
+        walk_2.to_str().unwrap(),
+        "--into",
+        single_frame_proj.to_str().unwrap(),
+        "--in-place",
+    ]);
+    assert_eq!(
+        seq_code, 1,
+        "expected duplicate sequence frame error: {seq_val}"
+    );
+    assert_eq!(seq_val["error"]["code"], "duplicate_sequence_frame");
+    let err_msg = seq_val["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        err_msg.contains("frame number 1")
+            && err_msg.contains("walk_1.png")
+            && err_msg.contains("walk_01.png"),
+        "expected diagnostic naming frame 1 and both paths, got: {err_msg}"
+    );
+    assert_eq!(
+        fs::read(&single_frame_proj).unwrap(),
+        orig_single_bytes,
+        "destination project must stay byte-identical when sequence collision is rejected"
+    );
+
+    // GUI Editor `import_graphics_paths` also rejects colliding sequence before mutating project
+    let ctx = eframe::egui::Context::default();
+    let mut editor = crate::app::Editor::from_project(&ctx, Project::blank());
+    let before_json = editor.project.to_json().unwrap();
+    let gui_err = editor
+        .import_graphics_paths(&[walk_1.clone(), walk_01.clone(), walk_2.clone()], None)
+        .expect_err("GUI sequence import must reject colliding frame number 1");
+    assert!(
+        gui_err.contains("frame number 1")
+            && gui_err.contains("walk_1.png")
+            && gui_err.contains("walk_01.png"),
+        "got GUI error: {gui_err}"
+    );
+    assert_eq!(editor.project.to_json().unwrap(), before_json);
+
+    // Removing the duplicate (`walk_01.png`) allows valid numeric sequence (`walk_1.png`, `walk_2.png`, `walk_10.png`)
+    // to preserve numeric order and gap-hold timing!
+    fs::remove_file(&walk_01).unwrap();
+    let walk_10 = seq_dir.join("walk_10.png");
+    fs::write(&walk_10, tiny_png).unwrap();
+    let valid_seq_out = tmp.path.join("valid_walk_seq.nflash");
+    let (v_code, v_seq, v_err) = run_json(&[
+        "--headless",
+        "import",
+        "--input",
+        walk_10.to_str().unwrap(),
+        walk_1.to_str().unwrap(),
+        walk_2.to_str().unwrap(),
+        "--out",
+        valid_seq_out.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        v_code, 0,
+        "valid sequence import failed: {v_seq} stderr={v_err}"
+    );
+    let seq_proj = Project::from_nflash_bytes(&fs::read(&valid_seq_out).unwrap()).unwrap();
+    let seq_root = seq_proj.symbol(&seq_proj.root).unwrap();
+    assert_eq!(
+        seq_root.timeline.frame_count, 10,
+        "frames 1, 2, 10 with default gap holds must span 10 timeline frames (0..=9)"
+    );
+    let kf_frames: Vec<u32> = seq_root.timeline.layers[0]
+        .keyframes
+        .iter()
+        .map(|k| k.frame)
+        .collect();
+    assert_eq!(kf_frames, vec![0, 1, 9]);
+}

@@ -21,14 +21,14 @@ use neoflash_core::{
     sample_layer_in_at_fps, scene_ranges, validate as validate_project_model,
 };
 use neoflash_export::{embedded_font_families, load_profiles_from_project};
-use neoflash_script::DiagnosticSeverity;
+use neoflash_script::{ConversionTarget, DiagnosticSeverity};
 use serde_json::{Value, json};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OutputFormat {
@@ -310,6 +310,7 @@ pub(crate) fn run_cli_with_io<R: Read, W1: Write, W2: Write>(
             emit_version(parsed.format, parsed.pretty, stdout, stderr)
         }
         "new" => cmd_new(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
+        "convert" => cmd_convert(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
         "inspect" => cmd_inspect(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
         "validate" => cmd_validate(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
         "compile" => cmd_compile(&parsed.rest, parsed.format, parsed.pretty, stdout, stderr),
@@ -797,6 +798,74 @@ pub(crate) fn save_project_atomic(project: &mut Project, path: &Path) -> Result<
     })
 }
 
+fn normalize_lexical_abs(path: &Path) -> PathBuf {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(path)
+    };
+    let mut out = PathBuf::new();
+    for comp in abs.components() {
+        match comp {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push(comp.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let _ = out.pop();
+            }
+            Component::Normal(seg) => out.push(seg),
+        }
+    }
+    out
+}
+
+/// Returns `true` when `a` and `b` refer to the same file or filesystem alias (identical path,
+/// relative `./` alias, symlink, hardlink, or canonical parent + filename match).
+pub(crate) fn paths_refer_to_same_file(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    if same_file::is_same_file(a, b).unwrap_or(false) {
+        return true;
+    }
+    if let (Ok(ca), Ok(cb)) = (fs::canonicalize(a), fs::canonicalize(b))
+        && ca == cb
+    {
+        return true;
+    }
+    // Check symlink target when `b` is a symlink whose target matches `a` (even if broken or relative).
+    if let Ok(link_target) = fs::read_link(b) {
+        let resolved_link = if link_target.is_absolute() {
+            link_target
+        } else {
+            b.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .join(link_target)
+        };
+        if same_file::is_same_file(a, &resolved_link).unwrap_or(false)
+            || normalize_lexical_abs(a) == normalize_lexical_abs(&resolved_link)
+        {
+            return true;
+        }
+    }
+    let na = normalize_lexical_abs(a);
+    let nb = normalize_lexical_abs(b);
+    if na == nb {
+        return true;
+    }
+    if let (Some(pa), Some(pb), Some(fa), Some(fb)) =
+        (na.parent(), nb.parent(), na.file_name(), nb.file_name())
+        && fa == fb
+        && same_file::is_same_file(pa, pb).unwrap_or(false)
+    {
+        return true;
+    }
+    false
+}
+
 pub(crate) fn parse_color(raw: &str) -> Result<Color, CliError> {
     let s = raw.trim();
     if let Some(hex) = s.strip_prefix('#') {
@@ -858,6 +927,18 @@ pub(crate) fn parse_language(raw: &str) -> Result<ScriptLanguage, CliError> {
         other => Err(CliError::usage(
             "invalid_language",
             format!("Unsupported script language '{other}' (expected as1|as2|as3|js|ts)"),
+        )),
+    }
+}
+
+pub(crate) fn parse_conversion_target(raw: &str) -> Result<ConversionTarget, CliError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "as2" | "actionscript2" | "actionscript_2" => Ok(ConversionTarget::ActionScript2),
+        "as3" | "actionscript3" | "actionscript_3" => Ok(ConversionTarget::ActionScript3),
+        "js" | "javascript" => Ok(ConversionTarget::JavaScript),
+        other => Err(CliError::usage(
+            "invalid_language",
+            format!("Unsupported conversion target '{other}' (expected as2|as3|js)"),
         )),
     }
 }
@@ -1050,11 +1131,13 @@ fn color_hex(c: Color) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_new_project(
     name: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
     fps: Option<u32>,
+    frame_count: Option<u32>,
     bg: Option<Color>,
     language: Option<ScriptLanguage>,
     demo: bool,
@@ -1084,6 +1167,26 @@ pub(crate) fn build_new_project(
             return Err(CliError::usage("invalid_argument", "--fps must be > 0"));
         }
         project.fps = f;
+    }
+    if let Some(fc) = frame_count {
+        if fc == 0 {
+            return Err(CliError::usage(
+                "invalid_argument",
+                "--frames / frame_count must be >= 1",
+            ));
+        }
+        let root_id = project.root.clone();
+        if let Some(root) = project.symbol_mut(&root_id) {
+            let old_fc = root.timeline.frame_count;
+            root.timeline.frame_count = fc;
+            for layer in &mut root.timeline.layers {
+                if layer.properties.end_frame == Some(old_fc)
+                    || layer.properties.end_frame.is_some_and(|end| end > fc)
+                {
+                    layer.properties.end_frame = Some(fc);
+                }
+            }
+        }
     }
     if let Some(color) = bg {
         project.background = color;
@@ -1158,7 +1261,10 @@ fn subcommand_help_text(topic: &str) -> Option<&'static str> {
             Some("Usage: neoflash-editor --headless capabilities [--format json|text] [--pretty]")
         }
         "new" => Some(
-            "Usage: neoflash-editor --headless new --output <file.nflash> [--name STR] [--width N] [--height N] [--fps F] [--bg #RRGGBB[AA]] [--script as3|as2|as1|ts|js] [--language as1|as2|as3|js|ts] [--demo]",
+            "Usage: neoflash-editor --headless new --output <file.nflash> [--name STR] [--width N] [--height N] [--fps F] [--frames N] [--bg #RRGGBB[AA]] [--script as3|as2|as1|ts|js] [--language as1|as2|as3|js|ts] [--demo]",
+        ),
+        "convert" => Some(
+            "Usage: neoflash-editor --headless convert --project <in.nflash> --to <as2|as3|js> --out <out.nflash> [--strict]",
         ),
         "inspect" => Some(
             "Usage: neoflash-editor --headless inspect --project <file.nflash> [--symbol ID|NAME] [--frame N] [--no-elements] [--no-scripts] [--no-resources]",
@@ -1182,7 +1288,7 @@ fn subcommand_help_text(topic: &str) -> Option<&'static str> {
             "Usage: neoflash-editor --headless import --input <path...> [--into <project.nflash>] (--out <project.nflash> | --in-place) [--library-only] [--symbol ID|NAME] [--layer ID|NAME] [--frame N] [--folder STR] [--swc-conflict prefer-newer|prefer-existing|error] [--sequence-placement single-layer|separate-layers|graphic|movieclip] [--frame-step N]",
         ),
         "export" => Some(
-            "Usage: neoflash-editor --headless export --project <file.nflash> --target html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop --out <path> [--profile NAME|ID] [--render-mode canvas|dom] [--swf-target fp8|fp9|fp10|fp10-scriptless] [--image-format png|jpeg|webp|gif|bmp|psd|pdf|ai|svg] [--frame N (image: 1-based; sequence/svg/lottie: 0-based)] [--scale F] [--symbol ID|NAME] ...",
+            "Usage: neoflash-editor --headless export --project <file.nflash> [--target html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop --out <path>] [--export-profile <file.json>] [--import-profile <file.json>] [--profile NAME|ID] [--render-mode canvas|dom] [--swf-target fp8|fp9|fp10|fp10-scriptless] [--image-format png|jpeg|webp|gif|bmp|psd|pdf|ai|svg] [--frame N (image: 1-based; sequence/svg/lottie: 0-based)] [--scale F] [--symbol ID|NAME] ...",
         ),
         "help" => Some("Usage: neoflash-editor --headless help [<subcommand>]"),
         "version" => {
@@ -1203,6 +1309,7 @@ fn global_help_text() -> &'static str {
         "Subcommands:\n",
         "  capabilities | schema   Print machine-readable capabilities, build identity, and batch schema\n",
         "  new                     Create and validate a new .nflash project\n",
+        "  convert                 Convert project scripts deterministically (AS1/AS2 <-> AS3, AS1/AS2/AS3 -> JS)\n",
         "  inspect                 Inspect metadata, scenes, symbols, elements, scripts, resources, and fonts\n",
         "  validate                Validate document model invariants and compile project scripts\n",
         "  compile                 Compile/check project scripts with R-102 language policy and located diagnostics\n",
@@ -1275,7 +1382,12 @@ fn subcommands_schema() -> Value {
         {
             "name": "new",
             "summary": "Create, validate, and atomically write a new .nflash document",
-            "flags": ["--output <file.nflash>", "--name <str>", "--width <u32>", "--height <u32>", "--fps <u32>", "--bg <#RRGGBB[AA]>", "--script <as3|as2|as1|ts|js>", "--language <as1|as2|as3|js|ts>", "--demo", "-h", "--help"]
+            "flags": ["--output <file.nflash>", "--name <str>", "--width <u32>", "--height <u32>", "--fps <u32>", "--frames <u32>", "--bg <#RRGGBB[AA]>", "--script <as3|as2|as1|ts|js>", "--language <as1|as2|as3|js|ts>", "--demo", "-h", "--help"]
+        },
+        {
+            "name": "convert",
+            "summary": "Deterministically convert all project scripts (AS1/AS2 <-> AS3, AS1/AS2/AS3 -> JS), validate/compile the result, and atomically write --out",
+            "flags": ["--project <in.nflash>", "--to <as2|as3|js>", "--out <out.nflash>", "--strict", "-h", "--help"]
         },
         {
             "name": "inspect",
@@ -1314,8 +1426,8 @@ fn subcommands_schema() -> Value {
         },
         {
             "name": "export",
-            "summary": "Publish or export HTML5, SWF, Image (PNG/JPEG/WebP/GIF/BMP/PSD/PDF/AI), PNG/Image Sequence, After Effects (AEP), FLA, XFL, SVG, Lottie/dotLottie, Atlas, Video, Audio, Banner, or Desktop targets",
-            "flags": ["--project <file.nflash>", "--target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>", "--out <path>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--audio-policy <original|preserve|strip|disabled|wav16|mp3-64|mp3-96|mp3-128|mp3-160|mp3-192|mp3-256|mp3-320>", "--render-mode <canvas|dom>", "--clean", "--sprite-sheets", "--no-sprite-sheets", "--assets-folder", "--scale-mode <show-all|no-scale|exact-fit|no-border>", "--stage-align <str>", "--fullscreen", "--fla-profile <...>", "--swf-target <fp8|fp9|fp10|fp10-scriptless>", "--swf-profile <fp8|fp9|fp10>", "--scriptless", "--outline-text", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--scale <f32>", "--width <u32>", "--height <u32>", "--transparent", "--jpeg-quality <1..=100>", "--text-as-outlines", "--pretty", "--atlas-format <...>", "--atlas-extrude <u32>", "--audio-format <wav|mp3|ogg|flac|aac>", "--banner-max-gzip <usize>", "--banner-max-zip <bytes>", "--image-format <original|png|jpeg|webp|gif|bmp|psd|pdf|ai|svg>", "--html-preview", "--no-aepx", "--no-jsx", "--no-translate-scripts", "--shape-morph-step <u32>", "-h", "--help"]
+            "summary": "Publish or export HTML5, SWF, Image (PNG/JPEG/WebP/GIF/BMP/PSD/PDF/AI), PNG/Image Sequence, After Effects (AEP), FLA, XFL, SVG, Lottie/dotLottie, Atlas, Video, Audio, Banner, Desktop, or Publish Profile JSON targets",
+            "flags": ["--project <file.nflash>", "--target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>", "--out <path>", "--export-profile <file.json>", "--import-profile <file.json>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--audio-policy <original|preserve|strip|disabled|wav16|mp3-64|mp3-96|mp3-128|mp3-160|mp3-192|mp3-256|mp3-320>", "--render-mode <canvas|dom>", "--clean", "--sprite-sheets", "--no-sprite-sheets", "--assets-folder", "--scale-mode <show-all|no-scale|exact-fit|no-border>", "--stage-align <str>", "--fullscreen", "--fla-profile <...>", "--swf-target <fp8|fp9|fp10|fp10-scriptless>", "--swf-profile <fp8|fp9|fp10>", "--scriptless", "--outline-text", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--scale <f32>", "--width <u32>", "--height <u32>", "--transparent", "--jpeg-quality <1..=100>", "--text-as-outlines", "--pretty", "--atlas-format <...>", "--atlas-extrude <u32>", "--audio-format <wav|mp3|ogg|flac|aac>", "--banner-max-gzip <usize>", "--banner-max-zip <bytes>", "--image-format <original|png|jpeg|webp|gif|bmp|psd|pdf|ai|svg>", "--html-preview", "--no-aepx", "--no-jsx", "--no-translate-scripts", "--shape-morph-step <u32>", "-h", "--help"]
         }
     ])
 }
@@ -1329,6 +1441,7 @@ fn batch_operations_schema() -> Value {
             "width?",
             "height?",
             "fps?",
+            "frame_count?",
             "bg?",
             "language?",
             "script_language?",
@@ -1344,11 +1457,13 @@ fn batch_operations_schema() -> Value {
             "width?",
             "height?",
             "fps?",
+            "frame_count?",
             "bg?",
             "script_language?",
             "also_compile_compatible_scripts?"
         ]),
     );
+    ops.insert("convert_script".into(), json!(["to", "strict?"]));
     ops.insert(
         "add_symbol".into(),
         json!([
@@ -1492,8 +1607,10 @@ fn batch_operations_schema() -> Value {
     ops.insert(
         "export".into(),
         json!([
-            "target",
-            "out",
+            "target?",
+            "out?",
+            "export_profile?",
+            "import_profile?",
             "profile?",
             "size_level?",
             "runtime?",
@@ -1711,7 +1828,7 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         OutputFormat::Text => {
             let _ = writeln!(
                 stdout,
-                "NeoFlash {} ({}) headless CLI: capabilities, new, inspect, validate, compile, eval, jsfl, batch, import, export | import_formats=nflash,fla,xfl,swf,swc,fig,svg,psd,pdf,ai,eps,fxg,png,jpg,gif,webp,bmp,mp3,wav,ogg,flac,aac,m4a,mp4,webm,mov,avi,ttf,otf,ttc,otc,woff,woff2,act,clr,ase | export_targets=html5,swf,image,png-sequence,aep,fla,xfl,svg,lottie,dotlottie,atlas,video,audio,banner,desktop | exit_codes=0,1,2",
+                "NeoFlash {} ({}) headless CLI: capabilities, new, convert, inspect, validate, compile, eval, jsfl, batch, import, export | import_formats=nflash,fla,xfl,swf,swc,fig,svg,psd,pdf,ai,eps,fxg,png,jpg,gif,webp,bmp,mp3,wav,ogg,flac,aac,m4a,mp4,webm,mov,avi,ttf,otf,ttc,otc,woff,woff2,act,clr,ase | export_targets=html5,swf,image,png-sequence,aep,fla,xfl,svg,lottie,dotlottie,atlas,video,audio,banner,desktop | exit_codes=0,1,2",
                 id.version,
                 id.commit_short()
             );
@@ -1747,6 +1864,7 @@ fn run_cmd_new<W1: Write>(
     let mut width: Option<u32> = None;
     let mut height: Option<u32> = None;
     let mut fps: Option<u32> = None;
+    let mut frame_count: Option<u32> = None;
     let mut bg: Option<Color> = None;
     let mut script: Option<ScriptLanguage> = None;
     let mut language: Option<ScriptLanguage> = None;
@@ -1781,6 +1899,16 @@ fn run_cmd_new<W1: Write>(
                 }
                 fps = Some(parsed.round() as u32);
             }
+            "--frames" | "--frame-count" => {
+                let raw = take_flag_value(args, &mut i, "--frames")?;
+                let parsed = raw.parse::<u32>().map_err(|_| {
+                    CliError::usage("invalid_argument", format!("Invalid --frames '{raw}'"))
+                })?;
+                if parsed == 0 {
+                    return Err(CliError::usage("invalid_argument", "--frames must be >= 1"));
+                }
+                frame_count = Some(parsed);
+            }
             "--bg" => {
                 let raw = take_flag_value(args, &mut i, "--bg")?;
                 bg = Some(parse_color(&raw)?);
@@ -1807,7 +1935,7 @@ fn run_cmd_new<W1: Write>(
     let out_str = output
         .ok_or_else(|| CliError::usage("missing_flag", "'new' requires --output <file.nflash>"))?;
     let out_path = Path::new(&out_str);
-    let mut project = build_new_project(name, width, height, fps, bg, language, demo)?;
+    let mut project = build_new_project(name, width, height, fps, frame_count, bg, language, demo)?;
     let resolved_script = if demo {
         script
             .or(language)
@@ -1822,6 +1950,9 @@ fn run_cmd_new<W1: Write>(
         .validate()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
     save_project_atomic(&mut project, out_path)?;
+    let root_fc = project
+        .symbol(&project.root)
+        .map_or(1, |s| s.timeline.frame_count);
 
     match format {
         OutputFormat::Json => {
@@ -1833,6 +1964,7 @@ fn run_cmd_new<W1: Write>(
                 "width": project.width,
                 "height": project.height,
                 "fps": project.fps,
+                "frame_count": root_fc,
                 "background": color_hex(project.background),
                 "background_rgba": project.background,
                 "root_symbol": project.root,
@@ -1851,17 +1983,211 @@ fn run_cmd_new<W1: Write>(
         OutputFormat::Text => {
             writeln!(
                 stdout,
-                "Created {} ({}x{} @ {}fps, {} symbol(s))",
+                "Created {} ({}x{} @ {}fps, {} frame(s), {} symbol(s))",
                 out_path.display(),
                 project.width,
                 project.height,
                 project.fps,
+                root_fc,
                 project.symbols.len()
             )
             .map_err(|e| CliError::runtime("io_error", format!("Failed writing stdout: {e}")))?;
         }
     }
     Ok(())
+}
+
+fn cmd_convert<W1: Write, W2: Write>(
+    args: &[String],
+    format: OutputFormat,
+    pretty: bool,
+    stdout: &mut W1,
+    stderr: &mut W2,
+) -> i32 {
+    match run_cmd_convert(args, format, pretty, stdout) {
+        Ok(()) => 0,
+        Err(err) => {
+            write_json_error(&err, format, pretty, stdout, stderr);
+            err.exit_code
+        }
+    }
+}
+
+fn run_cmd_convert<W1: Write>(
+    args: &[String],
+    format: OutputFormat,
+    pretty: bool,
+    stdout: &mut W1,
+) -> Result<(), CliError> {
+    let mut project_str: Option<String> = None;
+    let mut to_str: Option<String> = None;
+    let mut out_str: Option<String> = None;
+    let mut strict = false;
+
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--project" => project_str = Some(take_flag_value(args, &mut i, "--project")?),
+            "--to" | "--target" => to_str = Some(take_flag_value(args, &mut i, "--to")?),
+            "--out" | "--output" | "-o" => {
+                out_str = Some(take_flag_value(args, &mut i, "--out")?);
+            }
+            "--strict" => strict = true,
+            other => {
+                return Err(CliError::usage(
+                    "unknown_flag",
+                    format!("Unknown flag '{other}' for 'convert'"),
+                ));
+            }
+        }
+        i += 1;
+    }
+
+    let in_raw = project_str.ok_or_else(|| {
+        CliError::usage("missing_flag", "'convert' requires --project <in.nflash>")
+    })?;
+    let to_raw = to_str
+        .ok_or_else(|| CliError::usage("missing_flag", "'convert' requires --to <as2|as3|js>"))?;
+    let out_raw = out_str
+        .ok_or_else(|| CliError::usage("missing_flag", "'convert' requires --out <out.nflash>"))?;
+
+    let target = parse_conversion_target(&to_raw)?;
+    let in_path = Path::new(&in_raw);
+    let out_path = Path::new(&out_raw);
+
+    if paths_refer_to_same_file(in_path, out_path) {
+        return Err(CliError::runtime(
+            "source_overwrite_refused",
+            format!(
+                "Refusing to overwrite source project '{}' in 'convert'. Choose a distinct --out <out.nflash> path.",
+                in_path.display()
+            ),
+        ));
+    }
+
+    let base_dir = in_path.parent().filter(|p| !p.as_os_str().is_empty());
+    let project = load_project_valid(in_path)?;
+    let (mut converted_project, report) =
+        convert_loaded_project(&project, base_dir, target, strict)?;
+    save_project_atomic(&mut converted_project, out_path)?;
+
+    match format {
+        OutputFormat::Json => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("ok".into(), Value::Bool(true));
+            obj.insert("command".into(), Value::String("convert".into()));
+            obj.insert("project_path".into(), Value::String(in_raw));
+            obj.insert("output_path".into(), Value::String(out_raw));
+            if let Value::Object(map) = report {
+                obj.extend(map);
+            }
+            let text = serialize_json_value(&Value::Object(obj), pretty)?;
+            writeln!(stdout, "{text}").map_err(|e| {
+                CliError::runtime("io_error", format!("Failed writing stdout: {e}"))
+            })?;
+        }
+        OutputFormat::Text => {
+            writeln!(
+                stdout,
+                "Converted {} -> {} ({} -> {}, {} script(s))",
+                in_path.display(),
+                out_path.display(),
+                report["from_language"].as_str().unwrap_or("?"),
+                report["to_language"].as_str().unwrap_or("?"),
+                report["converted_scripts"].as_u64().unwrap_or(0),
+            )
+            .map_err(|e| CliError::runtime("io_error", format!("Failed writing stdout: {e}")))?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn convert_loaded_project(
+    project: &Project,
+    base_dir: Option<&Path>,
+    target: ConversionTarget,
+    strict: bool,
+) -> Result<(Project, Value), CliError> {
+    let hydrated =
+        crate::app::standalone_script::hydrate_project_includes_from_disk(project, base_dir);
+    let (mut converted, conv_report) = neoflash_script::convert_project_scripts(&hydrated, target)
+        .map_err(|err| CliError::runtime("conversion_failed", err))?;
+
+    upgrade_project_format_versions(&mut converted);
+    converted
+        .validate()
+        .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
+
+    let compile_report = compile_loaded_project_scripts(&converted, base_dir);
+    let error_count = compile_report["error_count"].as_u64().unwrap_or(0);
+    let warning_count = compile_report["warning_count"].as_u64().unwrap_or(0);
+
+    let conversion_issues: Vec<Value> = conv_report
+        .issues
+        .iter()
+        .map(|issue| {
+            let kind = match issue.kind {
+                neoflash_script::ConversionIssueKind::ShimInjected => "shim_injected",
+                neoflash_script::ConversionIssueKind::Approximated => "approximated",
+                neoflash_script::ConversionIssueKind::ManualAttention => "manual_attention",
+            };
+            let severity = match issue.kind {
+                neoflash_script::ConversionIssueKind::ShimInjected => "info",
+                neoflash_script::ConversionIssueKind::Approximated
+                | neoflash_script::ConversionIssueKind::ManualAttention => "warning",
+            };
+            json!({
+                "source": "converter",
+                "severity": severity,
+                "kind": kind,
+                "location": issue.location,
+                "line": issue.line,
+                "column": issue.column,
+                "message": issue.message,
+            })
+        })
+        .collect();
+
+    let compile_diags = compile_report["diagnostics"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let mut combined_diags = Vec::with_capacity(conversion_issues.len() + compile_diags.len());
+    combined_diags.extend(conversion_issues.iter().cloned());
+    combined_diags.extend(compile_diags.iter().cloned());
+
+    let converted_scripts = conv_report.converted_frame_scripts
+        + conv_report.converted_object_scripts
+        + conv_report.converted_source_units;
+
+    let summary = json!({
+        "from_language": conv_report.source_language.short_slug(),
+        "to_language": conv_report.target_language.short_slug(),
+        "converted_scripts": converted_scripts,
+        "converted_frame_scripts": conv_report.converted_frame_scripts,
+        "converted_object_scripts": conv_report.converted_object_scripts,
+        "converted_source_units": conv_report.converted_source_units,
+        "auto_named_instances": conv_report.auto_named_instances,
+        "conversion_issue_count": conversion_issues.len(),
+        "conversion_issues": conversion_issues,
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "compile_diagnostics": compile_diags,
+        "diagnostics": combined_diags,
+    });
+
+    if error_count > 0 || (strict && warning_count > 0) {
+        return Err(CliError::runtime_with_details(
+            "conversion_compile_failed",
+            format!(
+                "Converted {} project failed compilation check ({error_count} error(s), {warning_count} warning(s))",
+                conv_report.target_language.display_label()
+            ),
+            summary,
+        ));
+    }
+
+    Ok((converted, summary))
 }
 
 fn cmd_inspect<W1: Write, W2: Write>(

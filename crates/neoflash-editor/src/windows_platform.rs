@@ -23,6 +23,170 @@ static ATOMIC_TMP_SEQ: AtomicU64 = AtomicU64::new(1);
 /// extended-length `\\?\` or `\\?\UNC\` namespace (`T-280`).
 pub const WINDOWS_EXTENDED_PATH_THRESHOLD: usize = 248;
 
+/// Planned console-attachment action for a `windows_subsystem = "windows"` launch (`T-496C`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsoleAttachmentPlan {
+    /// GUI launch with no CLI flags, or both stdout and stderr are already redirected pipes/files.
+    Skip,
+    /// Attach to the parent console (`cmd.exe` / PowerShell) while preserving any redirected stream.
+    AttachParent {
+        preserve_stdout: bool,
+        preserve_stderr: bool,
+        bind_stdout_conout: bool,
+        bind_stderr_conout: bool,
+    },
+}
+
+/// Returns `true` when CLI arguments or `NEOFLASH_HEADLESS` are present so interactive terminal
+/// commands (`--version`, `--help`, `--headless ...`) attach to the parent console on Windows.
+pub fn should_attach_windows_console(
+    has_cli_args: bool,
+    headless_env: Option<&std::ffi::OsStr>,
+) -> bool {
+    let env_active = headless_env.is_some_and(|v| {
+        let s = v.to_string_lossy();
+        let trimmed = s.trim();
+        !trimmed.is_empty()
+            && trimmed != "0"
+            && !trimmed.eq_ignore_ascii_case("false")
+            && !trimmed.eq_ignore_ascii_case("no")
+    });
+    has_cli_args || env_active
+}
+
+/// Pure decision helper determining how `windows_subsystem = "windows"` should wire stdio handles.
+pub fn plan_console_attachment(
+    should_attach: bool,
+    stdout_redirected: bool,
+    stderr_redirected: bool,
+) -> ConsoleAttachmentPlan {
+    if !should_attach || (stdout_redirected && stderr_redirected) {
+        return ConsoleAttachmentPlan::Skip;
+    }
+    ConsoleAttachmentPlan::AttachParent {
+        preserve_stdout: stdout_redirected,
+        preserve_stderr: stderr_redirected,
+        bind_stdout_conout: !stdout_redirected,
+        bind_stderr_conout: !stderr_redirected,
+    }
+}
+
+/// Attach to the parent Windows console when launched with CLI arguments or `NEOFLASH_HEADLESS`,
+/// while keeping redirected pipe/file `STD_OUTPUT_HANDLE` and `STD_ERROR_HANDLE` 100% intact for
+/// Node `spawnSync`, PowerShell pipelines, and CI (`T-496C`).
+pub fn attach_parent_console_for_cli_if_needed() {
+    #[cfg(target_os = "windows")]
+    {
+        use std::ffi::c_void;
+
+        const STD_OUTPUT_HANDLE: u32 = (-11_i32) as u32;
+        const STD_ERROR_HANDLE: u32 = (-12_i32) as u32;
+        const ATTACH_PARENT_PROCESS: u32 = 0xFFFF_FFFF;
+        const FILE_TYPE_UNKNOWN: u32 = 0x0000;
+        const GENERIC_READ: u32 = 0x8000_0000;
+        const GENERIC_WRITE: u32 = 0x4000_0000;
+        const FILE_SHARE_READ: u32 = 0x0000_0001;
+        const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+        const OPEN_EXISTING: u32 = 3;
+        const ERROR_ACCESS_DENIED: i32 = 5;
+        const INVALID_HANDLE_VALUE: *mut c_void = (-1_isize) as *mut c_void;
+
+        unsafe extern "system" {
+            fn GetStdHandle(nStdHandle: u32) -> *mut c_void;
+            fn SetStdHandle(nStdHandle: u32, hHandle: *mut c_void) -> i32;
+            fn GetFileType(hFile: *mut c_void) -> u32;
+            fn AttachConsole(dwProcessId: u32) -> i32;
+            fn CreateFileW(
+                lpFileName: *const u16,
+                dwDesiredAccess: u32,
+                dwShareMode: u32,
+                lpSecurityAttributes: *const c_void,
+                dwCreationDisposition: u32,
+                dwFlagsAndAttributes: u32,
+                hTemplateFile: *mut c_void,
+            ) -> *mut c_void;
+        }
+
+        fn is_valid_redirected_handle(handle: *mut c_void) -> bool {
+            !handle.is_null()
+                && handle != INVALID_HANDLE_VALUE
+                && unsafe { GetFileType(handle) } != FILE_TYPE_UNKNOWN
+        }
+
+        fn open_conout() -> Option<*mut c_void> {
+            // UTF-16 NUL-terminated `"CONOUT$"`
+            const CONOUT_WIDE: [u16; 8] = [
+                b'C' as u16,
+                b'O' as u16,
+                b'N' as u16,
+                b'O' as u16,
+                b'U' as u16,
+                b'T' as u16,
+                b'$' as u16,
+                0,
+            ];
+            let handle = unsafe {
+                CreateFileW(
+                    CONOUT_WIDE.as_ptr(),
+                    GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    std::ptr::null(),
+                    OPEN_EXISTING,
+                    0,
+                    std::ptr::null_mut(),
+                )
+            };
+            (!handle.is_null() && handle != INVALID_HANDLE_VALUE).then_some(handle)
+        }
+
+        let has_cli_args = std::env::args_os().nth(1).is_some();
+        let headless_env = std::env::var_os("NEOFLASH_HEADLESS");
+        let should_attach = should_attach_windows_console(has_cli_args, headless_env.as_deref());
+        let orig_stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+        let orig_stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+        let plan = plan_console_attachment(
+            should_attach,
+            is_valid_redirected_handle(orig_stdout),
+            is_valid_redirected_handle(orig_stderr),
+        );
+        let ConsoleAttachmentPlan::AttachParent {
+            preserve_stdout,
+            preserve_stderr,
+            bind_stdout_conout,
+            bind_stderr_conout,
+        } = plan
+        else {
+            return;
+        };
+
+        let attached = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) } != 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(ERROR_ACCESS_DENIED);
+        if !attached {
+            return;
+        }
+
+        // Restore any handle that was already redirected before AttachConsole ran.
+        if preserve_stdout {
+            let _ = unsafe { SetStdHandle(STD_OUTPUT_HANDLE, orig_stdout) };
+        }
+        if preserve_stderr {
+            let _ = unsafe { SetStdHandle(STD_ERROR_HANDLE, orig_stderr) };
+        }
+        if bind_stdout_conout
+            && !is_valid_redirected_handle(unsafe { GetStdHandle(STD_OUTPUT_HANDLE) })
+            && let Some(conout) = open_conout()
+        {
+            let _ = unsafe { SetStdHandle(STD_OUTPUT_HANDLE, conout) };
+        }
+        if bind_stderr_conout
+            && !is_valid_redirected_handle(unsafe { GetStdHandle(STD_ERROR_HANDLE) })
+            && let Some(conout) = open_conout()
+        {
+            let _ = unsafe { SetStdHandle(STD_ERROR_HANDLE, conout) };
+        }
+    }
+}
+
 /// Primary wgpu graphics backends for Windows 11 x64 (`DX12` primary, `VULKAN` secondary).
 pub fn preferred_windows_wgpu_backends() -> wgpu::Backends {
     wgpu::Backends::DX12 | wgpu::Backends::VULKAN
@@ -341,14 +505,15 @@ pub fn discover_windows_chromium_browsers_in(
 ) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let roots: [Option<&Path>; 3] = [program_files, program_files_x86, local_app_data];
-    let relative_candidates = [
-        ["Google", "Chrome", "Application", "chrome.exe"],
-        ["Microsoft", "Edge", "Application", "msedge.exe"],
+    let relative_candidates: [&[&str]; 3] = [
+        &["Google", "Chrome", "Application", "chrome.exe"],
+        &["Chromium", "Application", "chrome.exe"],
+        &["Microsoft", "Edge", "Application", "msedge.exe"],
     ];
     for rel in &relative_candidates {
         for root in roots.into_iter().flatten() {
             let mut candidate = root.to_path_buf();
-            for part in rel {
+            for part in *rel {
                 candidate.push(part);
             }
             if candidate.is_file() && !found.contains(&candidate) {
@@ -1107,6 +1272,7 @@ mod tests {
         let pkg_ps1 =
             std::fs::read_to_string(repo_root.join("scripts/package-windows.ps1")).unwrap();
         assert!(pkg_ps1.contains("NeoFlash-$Version-windows-x64-preview"));
+        assert!(pkg_ps1.contains("+crt-static"));
         assert!(pkg_ps1.contains("neoflash-editor.exe"));
         assert!(pkg_ps1.contains("scripts/package-portable.py"));
         assert!(pkg_ps1.contains("scripts/stage-rust-dependency-licenses.py"));
@@ -1149,6 +1315,48 @@ mod tests {
         assert!(appx_xml.contains("ProcessorArchitecture=\"x64\""));
         assert!(appx_xml.contains("Executable=\"neoflash-editor.exe\""));
         assert!(appx_xml.contains(".nflash"));
+
+        // 7. T-496C: Console attachment preserves redirected pipes while attaching terminal launches.
+        assert!(!should_attach_windows_console(false, None));
+        assert!(!should_attach_windows_console(
+            false,
+            Some(std::ffi::OsStr::new("0"))
+        ));
+        assert!(!should_attach_windows_console(
+            false,
+            Some(std::ffi::OsStr::new("false"))
+        ));
+        assert!(should_attach_windows_console(true, None));
+        assert!(should_attach_windows_console(
+            false,
+            Some(std::ffi::OsStr::new("1"))
+        ));
+        assert_eq!(
+            plan_console_attachment(false, false, false),
+            ConsoleAttachmentPlan::Skip
+        );
+        assert_eq!(
+            plan_console_attachment(true, true, true),
+            ConsoleAttachmentPlan::Skip
+        );
+        assert_eq!(
+            plan_console_attachment(true, false, false),
+            ConsoleAttachmentPlan::AttachParent {
+                preserve_stdout: false,
+                preserve_stderr: false,
+                bind_stdout_conout: true,
+                bind_stderr_conout: true,
+            }
+        );
+        assert_eq!(
+            plan_console_attachment(true, true, false),
+            ConsoleAttachmentPlan::AttachParent {
+                preserve_stdout: true,
+                preserve_stderr: false,
+                bind_stdout_conout: false,
+                bind_stderr_conout: true,
+            }
+        );
 
         let _ = std::fs::remove_dir_all(&tmp_root);
     }

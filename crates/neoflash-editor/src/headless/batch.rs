@@ -10,11 +10,12 @@ use super::jsfl_fs::{
 };
 use super::{
     CliError, EvalOptions, InspectOptions, OutputFormat, build_inspect_value, build_new_project,
-    compile_loaded_project_scripts, evaluate_loaded_project_frame, load_project_valid, parse_color,
-    parse_easing, parse_frame_range_str, parse_language, parse_object_event, parse_symbol_kind,
-    parse_tween_kind, resolve_layer_index, resolve_layer_index_mut, resolve_symbol,
-    resolve_symbol_mut, save_project_atomic, serialize_json_value, take_flag_value,
-    upgrade_project_format_versions, validate_loaded_project, write_json_error,
+    compile_loaded_project_scripts, convert_loaded_project, evaluate_loaded_project_frame,
+    load_project_valid, parse_color, parse_conversion_target, parse_easing, parse_frame_range_str,
+    parse_language, parse_object_event, parse_symbol_kind, parse_tween_kind, resolve_layer_index,
+    resolve_layer_index_mut, resolve_symbol, resolve_symbol_mut, save_project_atomic,
+    serialize_json_value, take_flag_value, upgrade_project_format_versions,
+    validate_loaded_project, write_json_error,
 };
 use neoflash_core::{
     AuthoringCommandStep, Color, Element, ElementKind, FillRule, FrameScript, InstancePlayback,
@@ -331,6 +332,8 @@ enum BatchOp {
         width: Option<u32>,
         height: Option<u32>,
         fps: Option<u32>,
+        #[serde(alias = "frames")]
+        frame_count: Option<u32>,
         bg: Option<String>,
         language: Option<String>,
         script_language: Option<String>,
@@ -346,9 +349,18 @@ enum BatchOp {
         width: Option<u32>,
         height: Option<u32>,
         fps: Option<u32>,
+        #[serde(alias = "frames")]
+        frame_count: Option<u32>,
         bg: Option<String>,
         script_language: Option<String>,
         also_compile_compatible_scripts: Option<bool>,
+    },
+    #[serde(alias = "convert")]
+    ConvertScript {
+        #[serde(alias = "target")]
+        to: String,
+        #[serde(default)]
+        strict: bool,
     },
     AddSymbol {
         id: Option<String>,
@@ -465,6 +477,8 @@ enum BatchOp {
 struct BatchContext<'a> {
     /// Directory against which external project media is resolved for exporters such as AEP.
     project_base_dir: Option<PathBuf>,
+    /// Source `.nflash` path opened via `--project` or `open`, protected from accidental export overwrite.
+    project_source_path: Option<PathBuf>,
     effects: &'a HeadlessEffectTransaction,
 }
 
@@ -584,6 +598,7 @@ fn run_cmd_batch<R: Read, W1: Write>(
     let effects = HeadlessEffectTransaction::default();
     let mut context = BatchContext {
         project_base_dir: project_path.as_deref().map(project_base_dir),
+        project_source_path: project_path.clone(),
         effects: &effects,
     };
     for op in &ops {
@@ -721,6 +736,7 @@ impl BatchOp {
             Self::New { .. } => "new",
             Self::Open { .. } => "open",
             Self::SetProject { .. } => "set_project",
+            Self::ConvertScript { .. } => "convert_script",
             Self::AddSymbol { .. } => "add_symbol",
             Self::AddLayer { .. } => "add_layer",
             Self::AddKeyframe { .. } => "add_keyframe",
@@ -752,6 +768,7 @@ fn execute_batch_op(
             width,
             height,
             fps,
+            frame_count,
             bg,
             language,
             script_language,
@@ -762,8 +779,10 @@ fn execute_batch_op(
             let explicit_script_lang =
                 script_language.as_deref().map(parse_language).transpose()?;
             let bg_color = bg.as_deref().map(parse_color).transpose()?;
-            *project = build_new_project(name, width, height, fps, bg_color, lang, demo)?;
+            *project =
+                build_new_project(name, width, height, fps, frame_count, bg_color, lang, demo)?;
             context.project_base_dir = None;
+            context.project_source_path = None;
             if let Some(sl) = explicit_script_lang.or(lang) {
                 project.script_language = Some(sl);
             }
@@ -776,11 +795,15 @@ fn execute_batch_op(
                     .validate()
                     .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
             }
+            let root_fc = project
+                .symbol(&project.root)
+                .map_or(1, |s| s.timeline.frame_count);
             Ok(json!({
                 "name": project.name,
                 "width": project.width,
                 "height": project.height,
                 "fps": project.fps,
+                "frame_count": root_fc,
                 "root_symbol": project.root,
                 "script_language": project.script_language.map(|l| l.short_slug()),
                 "also_compile_compatible_scripts": project.also_compile_compatible_scripts,
@@ -789,6 +812,7 @@ fn execute_batch_op(
         BatchOp::Open { path } => {
             *project = load_project_valid(&path)?;
             context.project_base_dir = Some(project_base_dir(&path));
+            context.project_source_path = Some(path.clone());
             Ok(json!({
                 "path": path.display().to_string(),
                 "name": project.name,
@@ -800,6 +824,7 @@ fn execute_batch_op(
             width,
             height,
             fps,
+            frame_count,
             bg,
             script_language,
             also_compile_compatible_scripts,
@@ -825,6 +850,26 @@ fn execute_batch_op(
                 }
                 project.fps = f;
             }
+            if let Some(fc) = frame_count {
+                if fc == 0 {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "frame_count must be >= 1",
+                    ));
+                }
+                let root_id = project.root.clone();
+                if let Some(root) = project.symbol_mut(&root_id) {
+                    let old_fc = root.timeline.frame_count;
+                    root.timeline.frame_count = fc;
+                    for layer in &mut root.timeline.layers {
+                        if layer.properties.end_frame == Some(old_fc)
+                            || layer.properties.end_frame.is_some_and(|end| end > fc)
+                        {
+                            layer.properties.end_frame = Some(fc);
+                        }
+                    }
+                }
+            }
             if let Some(ref bg_str) = bg {
                 project.background = parse_color(bg_str)?;
             }
@@ -834,17 +879,41 @@ fn execute_batch_op(
             if let Some(compat) = also_compile_compatible_scripts {
                 project.also_compile_compatible_scripts = compat;
             }
-            if script_language.is_some() || also_compile_compatible_scripts.is_some() {
+            if script_language.is_some()
+                || also_compile_compatible_scripts.is_some()
+                || frame_count.is_some()
+            {
                 upgrade_project_format_versions(project);
+                project
+                    .validate()
+                    .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
             }
+            let root_fc = project
+                .symbol(&project.root)
+                .map_or(1, |s| s.timeline.frame_count);
             Ok(json!({
                 "name": project.name,
                 "width": project.width,
                 "height": project.height,
                 "fps": project.fps,
+                "frame_count": root_fc,
                 "script_language": project.script_language.map(|l| l.short_slug()),
                 "also_compile_compatible_scripts": project.also_compile_compatible_scripts,
             }))
+        }
+        BatchOp::ConvertScript { to, strict } => {
+            let target = parse_conversion_target(&to)?;
+            let (converted, mut report) = convert_loaded_project(
+                project,
+                context.project_base_dir.as_deref(),
+                target,
+                strict,
+            )?;
+            *project = converted;
+            if let Some(obj) = report.as_object_mut() {
+                obj.insert("ok".to_owned(), Value::Bool(true));
+            }
+            Ok(report)
         }
         BatchOp::AddSymbol {
             id,
@@ -1832,6 +1901,10 @@ fn execute_batch_op(
         BatchOp::Export(mut spec) => {
             if spec.project_base_dir.is_none() {
                 spec.project_base_dir.clone_from(&context.project_base_dir);
+            }
+            if spec.project_source_path.is_none() {
+                spec.project_source_path
+                    .clone_from(&context.project_source_path);
             }
             plan_export_effects(project, &spec, context.effects)?;
             context.effects.activate()?;

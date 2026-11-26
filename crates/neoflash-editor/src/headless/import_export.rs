@@ -115,8 +115,14 @@ impl ExportTarget {
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ExportSpec {
+    #[serde(default)]
     pub(crate) target: String,
+    #[serde(default)]
     pub(crate) out: PathBuf,
+    #[serde(default)]
+    pub(crate) export_profile: Option<PathBuf>,
+    #[serde(default)]
+    pub(crate) import_profile: Option<PathBuf>,
     #[serde(default)]
     pub(crate) profile: Option<String>,
     #[serde(default)]
@@ -201,6 +207,40 @@ pub(crate) struct ExportSpec {
     pub(crate) shape_morph_step: Option<u32>,
     #[serde(skip)]
     pub(crate) project_base_dir: Option<PathBuf>,
+    #[serde(skip)]
+    pub(crate) project_source_path: Option<PathBuf>,
+}
+
+fn check_export_profile_does_not_alias_source(
+    source_project: Option<&Path>,
+    spec: &ExportSpec,
+) -> Result<(), CliError> {
+    if let Some(proj_path) = source_project {
+        if let Some(ref prof_out) = spec.export_profile
+            && super::paths_refer_to_same_file(proj_path, prof_out)
+        {
+            return Err(CliError::runtime(
+                "source_overwrite_refused",
+                format!(
+                    "Refusing to overwrite source project '{}' with --export-profile '{}'. Choose a separate .json output path.",
+                    proj_path.display(),
+                    prof_out.display(),
+                ),
+            ));
+        }
+        if !spec.out.as_os_str().is_empty() && super::paths_refer_to_same_file(proj_path, &spec.out)
+        {
+            return Err(CliError::runtime(
+                "source_overwrite_refused",
+                format!(
+                    "Refusing to overwrite source project '{}' with export output '{}'. Choose a separate --out path.",
+                    proj_path.display(),
+                    spec.out.display(),
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Register the exact files or owned output trees that one batch export may mutate.
@@ -209,7 +249,20 @@ pub(crate) fn plan_export_effects(
     spec: &ExportSpec,
     effects: &HeadlessEffectTransaction,
 ) -> Result<(), CliError> {
+    check_export_profile_does_not_alias_source(spec.project_source_path.as_deref(), spec)?;
+    if let Some(ref prof_out) = spec.export_profile {
+        effects.plan_path(prof_out)?;
+    }
+    if spec.target.trim().is_empty() && spec.export_profile.is_some() {
+        return Ok(());
+    }
     let target = ExportTarget::parse(&spec.target)?;
+    if spec.out.as_os_str().is_empty() {
+        return Err(CliError::usage(
+            "missing_flag",
+            "'export' requires 'out' / --out <path> when 'target' is specified",
+        ));
+    }
     let parent = || output_parent(&spec.out);
     match target {
         ExportTarget::Html5 => {
@@ -603,7 +656,11 @@ pub(crate) fn resolve_web_runtime(explicit: Option<&Path>) -> Result<PathBuf, Cl
     }
 
     let mut candidates: Vec<PathBuf> = Vec::new();
-    for env_key in ["NEOFLASH_WEB_RUNTIME", "NEOFLASH_RUNTIME_DIR"] {
+    for env_key in [
+        "NEOFLASH_WEB_RUNTIME_DIR",
+        "NEOFLASH_WEB_RUNTIME",
+        "NEOFLASH_RUNTIME_DIR",
+    ] {
         if let Some(val) = std::env::var_os(env_key)
             && !val.is_empty()
         {
@@ -2014,6 +2071,11 @@ fn import_document_format_standalone(
     opts: &ImportTargetOptions,
 ) -> Result<(Project, ImportReport), CliError> {
     if path.is_dir() && !path.join("DOMDocument.xml").exists() {
+        crate::graphic_import::validate_unique_sequence_frame_numbers(
+            std::slice::from_ref(&path),
+            true,
+        )
+        .map_err(|msg| CliError::runtime("duplicate_sequence_frame", msg))?;
         let seq_opts = sequence_options_from_target(opts);
         let imported = import_numbered_image_sequence_paths_with_options(
             std::slice::from_ref(&path),
@@ -2406,6 +2468,11 @@ fn import_single_input_into_project(
         if is_single_raster_ext(&ext) {
             // Check numbered sequence first when >= 2 numbered frames exist in the directory.
             if is_sequence_image_ext(&ext) {
+                crate::graphic_import::validate_unique_sequence_frame_numbers(
+                    std::slice::from_ref(&path),
+                    true,
+                )
+                .map_err(|msg| CliError::runtime("duplicate_sequence_frame", msg))?;
                 let seq_opts = sequence_options_from_target(opts);
                 if let Some(imported_seq) = import_numbered_image_sequence_paths_with_options(
                     std::slice::from_ref(&path),
@@ -2485,6 +2552,8 @@ fn import_inputs_standalone(
             .iter()
             .all(|p| ext_lower(p).as_deref().is_some_and(is_sequence_image_ext));
         if all_seq_candidates {
+            crate::graphic_import::validate_unique_sequence_frame_numbers(inputs, true)
+                .map_err(|msg| CliError::runtime("duplicate_sequence_frame", msg))?;
             let seq_opts = sequence_options_from_target(opts);
             if let Some(imported) =
                 import_numbered_image_sequence_paths_with_options(inputs, true, &seq_opts)
@@ -2517,6 +2586,8 @@ fn import_inputs_into_project(
             .iter()
             .all(|p| ext_lower(p).as_deref().is_some_and(is_sequence_image_ext));
         if all_seq_candidates {
+            crate::graphic_import::validate_unique_sequence_frame_numbers(inputs, true)
+                .map_err(|msg| CliError::runtime("duplicate_sequence_frame", msg))?;
             let seq_opts = sequence_options_from_target(opts);
             if let Some(imported) =
                 import_numbered_image_sequence_paths_with_options(inputs, true, &seq_opts)
@@ -2608,6 +2679,26 @@ fn run_cmd_export<W1: Write>(
             "--out" | "--output" | "-o" => {
                 spec.out = PathBuf::from(take_flag_value(args, &mut i, "--out")?);
                 has_out = true;
+            }
+            "--export-profile" => {
+                let raw = take_flag_value(args, &mut i, "--export-profile")?;
+                if raw.trim().is_empty() {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--export-profile requires a non-empty .json output path",
+                    ));
+                }
+                spec.export_profile = Some(PathBuf::from(raw));
+            }
+            "--import-profile" => {
+                let raw = take_flag_value(args, &mut i, "--import-profile")?;
+                if raw.trim().is_empty() {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--import-profile requires a non-empty .json input path",
+                    ));
+                }
+                spec.import_profile = Some(PathBuf::from(raw));
             }
             "--profile" => spec.profile = Some(take_flag_value(args, &mut i, "--profile")?),
             "--size-level" => {
@@ -2776,18 +2867,21 @@ fn run_cmd_export<W1: Write>(
     let project_path = project_path.ok_or_else(|| {
         CliError::usage("missing_flag", "'export' requires --project <file.nflash>")
     })?;
-    if !has_target {
+    if !has_target && spec.export_profile.is_none() {
         return Err(CliError::usage(
             "missing_flag",
-            "'export' requires --target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>",
+            "'export' requires --target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop> (or --export-profile <file.json>)",
         ));
     }
-    if !has_out || spec.out.as_os_str().is_empty() {
+    if has_target && (!has_out || spec.out.as_os_str().is_empty()) {
         return Err(CliError::usage(
             "missing_flag",
             "'export' requires --out <path>",
         ));
     }
+
+    spec.project_source_path = Some(project_path.clone());
+    check_export_profile_does_not_alias_source(Some(&project_path), &spec)?;
 
     spec.project_base_dir = project_path
         .parent()
@@ -3068,7 +3162,22 @@ fn resolve_publish_profile_and_options(
     let (stored_profiles, active_id) = load_profiles_from_project(project)
         .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
 
-    let (mut profile, has_stored_or_preset, route) = if let Some(ref selector) = spec.profile {
+    let (mut profile, has_stored_or_preset, route) = if let Some(ref import_path) =
+        spec.import_profile
+    {
+        let raw_json = fs::read_to_string(import_path).map_err(|e| {
+            CliError::runtime(
+                "io_error",
+                format!(
+                    "Failed reading --import-profile '{}': {e}",
+                    import_path.display()
+                ),
+            )
+        })?;
+        let imported = neoflash_export::import_profile_json(&raw_json)
+            .map_err(|e| CliError::runtime("invalid_profile_json", e.to_string()))?;
+        (imported, true, BuiltinHtmlRoute::Standard)
+    } else if let Some(ref selector) = spec.profile {
         if let Some(found) = stored_profiles
             .into_iter()
             .find(|p| p.id == *selector || p.name.eq_ignore_ascii_case(selector))
@@ -3391,6 +3500,7 @@ pub(crate) fn export_project_with_spec(
     project: &Project,
     spec: &ExportSpec,
 ) -> Result<Value, CliError> {
+    check_export_profile_does_not_alias_source(spec.project_source_path.as_deref(), spec)?;
     project
         .validate()
         .map_err(|e| CliError::runtime("validation_failed", e.to_string()))?;
@@ -3400,7 +3510,60 @@ pub(crate) fn export_project_with_spec(
     );
     let resolved_project = hydrated.with_resolved_script_language();
     let project = resolved_project.as_ref();
+
+    let exported_profile_summary = if let Some(ref prof_out) = spec.export_profile {
+        let (profile, _, _) = resolve_publish_profile_and_options(project, spec)?;
+        let json_str = neoflash_export::export_profile_json(&profile)
+            .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+        crate::windows_platform::atomic_replace_file(prof_out, json_str.as_bytes()).map_err(
+            |e| {
+                CliError::runtime(
+                    "io_error",
+                    format!(
+                        "Failed writing --export-profile '{}': {e}",
+                        prof_out.display()
+                    ),
+                )
+            },
+        )?;
+        Some((prof_out.display().to_string(), profile.name, profile.id))
+    } else {
+        None
+    };
+
+    if spec.target.trim().is_empty()
+        && let Some((out_str, prof_name, prof_id)) = exported_profile_summary
+    {
+        return Ok(json!({
+            "target": "publish-profile",
+            "output_path": out_str,
+            "exported_profile_path": out_str,
+            "profile": prof_name,
+            "profile_id": prof_id,
+        }));
+    }
+
     let target = ExportTarget::parse(&spec.target)?;
+    if spec.out.as_os_str().is_empty() {
+        return Err(CliError::usage(
+            "missing_flag",
+            "'export' requires --out <path>",
+        ));
+    }
+    let mut target_summary = export_target_with_spec_inner(project, spec, target)?;
+    if let (Some((prof_path, _, _)), Some(obj)) =
+        (exported_profile_summary, target_summary.as_object_mut())
+    {
+        obj.insert("exported_profile_path".into(), Value::String(prof_path));
+    }
+    Ok(target_summary)
+}
+
+fn export_target_with_spec_inner(
+    project: &Project,
+    spec: &ExportSpec,
+    target: ExportTarget,
+) -> Result<Value, CliError> {
     let symbol_id = match spec.symbol.as_deref() {
         Some(sel) => Some(resolve_symbol(project, sel)?.id.clone()),
         None => None,
@@ -3783,6 +3946,70 @@ pub(crate) fn export_project_with_spec(
                 .first()
                 .cloned()
                 .unwrap_or_else(|| spec.out.clone());
+
+            // Evaluate visible non-folder/non-guide layers and rendered elements/paths on the
+            // exported frame so raster formats (`png`/`jpeg`/`webp`/`gif`/`bmp`) never report
+            // hardcoded `layer_count: 1, path_count: 0` (`[FO-14]`).
+            let eval_proj_cow: std::borrow::Cow<'_, Project> =
+                if opts.symbol_id.is_none() && !project.scenes.is_empty() {
+                    std::borrow::Cow::Owned(flatten_scenes_with_ranges(project).0)
+                } else {
+                    std::borrow::Cow::Borrowed(project)
+                };
+            let eval_sym_id = opts
+                .symbol_id
+                .as_deref()
+                .unwrap_or(eval_proj_cow.root.as_str());
+            let evaluated_layer_count = eval_proj_cow.symbol(eval_sym_id).map_or(1, |sym| {
+                sym.timeline
+                    .layers
+                    .iter()
+                    .filter(|layer| {
+                        !matches!(
+                            layer.properties.role,
+                            neoflash_core::LayerRole::Folder | neoflash_core::LayerRole::Guide
+                        ) && neoflash_core::layer_effectively_visible(&sym.timeline, layer)
+                    })
+                    .count()
+            });
+            let evaluated_scene = neoflash_core::evaluate_scene(
+                eval_proj_cow.as_ref(),
+                eval_sym_id,
+                frame_zero_based,
+                false,
+                true,
+            );
+            let element_count = evaluated_scene.draws.len();
+            let outline_text_active = opts.svg_text_as_outlines || opts.ai_text_as_outlines;
+            let evaluated_path_count = evaluated_scene
+                .draws
+                .iter()
+                .filter(|draw| {
+                    matches!(
+                        draw.item.kind,
+                        ElementKind::Rectangle { .. }
+                            | ElementKind::Ellipse { .. }
+                            | ElementKind::Path { .. }
+                            | ElementKind::PaintedPath { .. }
+                    ) || (outline_text_active
+                        && matches!(
+                            draw.item.kind,
+                            ElementKind::Text { .. } | ElementKind::TextBox { .. }
+                        ))
+                })
+                .count();
+            let effective_layer_count = match img_fmt {
+                ImageExportFormat::Svg | ImageExportFormat::Ai | ImageExportFormat::Psd => {
+                    report.layer_count.max(evaluated_layer_count)
+                }
+                _ => evaluated_layer_count,
+            };
+            let effective_path_count = if report.path_count > 0 {
+                report.path_count
+            } else {
+                evaluated_path_count
+            };
+
             Ok(json!({
                 "target": target.as_str(),
                 "output_path": primary_path.display().to_string(),
@@ -3792,8 +4019,9 @@ pub(crate) fn export_project_with_spec(
                 "total_bytes": report.total_bytes,
                 "width": report.width,
                 "height": report.height,
-                "layer_count": report.layer_count,
-                "path_count": report.path_count,
+                "layer_count": effective_layer_count,
+                "path_count": effective_path_count,
+                "element_count": element_count,
                 "format": report.format.label(),
             }))
         }

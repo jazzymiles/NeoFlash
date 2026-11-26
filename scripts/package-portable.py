@@ -12,6 +12,7 @@ bundled-media corresponding-source archive.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import gzip
 import hashlib
 import json
@@ -19,6 +20,7 @@ import os
 import re
 import shutil
 import stat
+import struct
 import tarfile
 import tempfile
 import zipfile
@@ -106,6 +108,15 @@ def require_file(path: Path, label: str) -> None:
         raise PortablePackageError(f"missing or empty {label}: {path}")
 
 
+FORBIDDEN_WINDOWS_CRT_DLL_PATTERNS = (
+    "vcruntime*",
+    "msvcp*",
+    "ucrtbase_d*",
+    "api-ms-win-crt-*",
+    "concrt*",
+)
+
+
 def check_binary_magic(path: Path, platform: str, label: str) -> None:
     require_file(path, label)
     with path.open("rb") as handle:
@@ -114,6 +125,168 @@ def check_binary_magic(path: Path, platform: str, label: str) -> None:
         raise PortablePackageError(f"{label} is not a Windows PE executable: {path}")
     if platform == "linux-x64" and magic != b"\x7fELF":
         raise PortablePackageError(f"{label} is not a Linux ELF executable: {path}")
+
+
+def _pe_rva_to_offset(
+    rva: int,
+    sections: list[tuple[int, int, int, int]],
+    size_of_headers: int,
+    file_len: int,
+) -> int | None:
+    if rva < 0:
+        return None
+    for va, vsize, raw_ptr, raw_size in sections:
+        mapped_span = max(vsize, raw_size) if vsize > 0 else raw_size
+        if va <= rva < va + mapped_span:
+            delta = rva - va
+            if delta >= raw_size:
+                return None
+            offset = raw_ptr + delta
+            return offset if 0 <= offset < file_len else None
+    if 0 <= rva < min(size_of_headers, file_len):
+        return rva
+    return None
+
+
+def _read_pe_cstring(data: bytes, offset: int, label: str) -> str:
+    end = data.find(b"\x00", offset, min(len(data), offset + 260))
+    if end == -1:
+        raise PortablePackageError(f"{label} contains an unterminated PE import DLL name")
+    raw = data[offset:end]
+    if not raw:
+        raise PortablePackageError(f"{label} contains an empty PE import DLL name")
+    try:
+        return raw.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise PortablePackageError(f"{label} contains a non-ASCII PE import DLL name") from error
+
+
+def parse_pe64_imported_dlls(path: Path, label: str = "Windows PE executable") -> list[str]:
+    """Parse ``IMAGE_DOS_HEADER`` -> ``IMAGE_NT_HEADERS64`` -> import table DLL names."""
+    require_file(path, label)
+    data = path.read_bytes()
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        raise PortablePackageError(f"{label} lacks a valid IMAGE_DOS_HEADER: {path}")
+    (e_lfanew,) = struct.unpack_from("<I", data, 0x3C)
+    if e_lfanew < 0x40 or e_lfanew + 24 > len(data):
+        raise PortablePackageError(f"{label} has an out-of-bounds PE e_lfanew offset: {path}")
+    if data[e_lfanew : e_lfanew + 4] != b"PE\x00\x00":
+        raise PortablePackageError(f"{label} lacks an IMAGE_NT_HEADERS64 PE signature: {path}")
+
+    (
+        machine,
+        num_sections,
+        _timestamp,
+        _sym_ptr,
+        _num_syms,
+        size_of_optional_header,
+        _characteristics,
+    ) = struct.unpack_from("<HHIIIHH", data, e_lfanew + 4)
+    if machine != 0x8664:
+        raise PortablePackageError(
+            f"{label} is not an x86_64 PE32+ image (machine=0x{machine:04x}): {path}"
+        )
+    opt_offset = e_lfanew + 24
+    if size_of_optional_header < 112 or opt_offset + size_of_optional_header > len(data):
+        raise PortablePackageError(f"{label} has a truncated IMAGE_OPTIONAL_HEADER64: {path}")
+    (opt_magic,) = struct.unpack_from("<H", data, opt_offset)
+    if opt_magic != 0x020B:
+        raise PortablePackageError(
+            f"{label} is not a PE32+ executable (optional magic=0x{opt_magic:04x}): {path}"
+        )
+
+    (size_of_headers,) = struct.unpack_from("<I", data, opt_offset + 60)
+    (num_rva_and_sizes,) = struct.unpack_from("<I", data, opt_offset + 108)
+    max_dirs = min(num_rva_and_sizes, (size_of_optional_header - 112) // 8)
+
+    sec_table_offset = opt_offset + size_of_optional_header
+    if num_sections == 0 or sec_table_offset + num_sections * 40 > len(data):
+        raise PortablePackageError(f"{label} has an invalid PE section table: {path}")
+    sections: list[tuple[int, int, int, int]] = []
+    for index in range(num_sections):
+        entry_off = sec_table_offset + index * 40
+        vsize, va, raw_size, raw_ptr = struct.unpack_from("<IIII", data, entry_off + 8)
+        if raw_size > 0 and raw_ptr + raw_size > len(data):
+            raise PortablePackageError(
+                f"{label} section {index} exceeds file size ({raw_ptr + raw_size} > {len(data)}): {path}"
+            )
+        sections.append((va, vsize, raw_ptr, raw_size))
+
+    imported_dlls: list[str] = []
+
+    # IMAGE_DIRECTORY_ENTRY_IMPORT (index 1)
+    if max_dirs > 1:
+        import_rva, import_size = struct.unpack_from("<II", data, opt_offset + 112 + 8)
+        if import_rva != 0 and import_size != 0:
+            cursor_rva = import_rva
+            for _ in range(4096):
+                desc_off = _pe_rva_to_offset(cursor_rva, sections, size_of_headers, len(data))
+                if desc_off is None or desc_off + 20 > len(data):
+                    raise PortablePackageError(
+                        f"{label} has an unmappable IMAGE_IMPORT_DESCRIPTOR at RVA 0x{cursor_rva:x}: {path}"
+                    )
+                orig_thunk, ts, fwd, name_rva, first_thunk = struct.unpack_from(
+                    "<IIIII", data, desc_off
+                )
+                if (orig_thunk, ts, fwd, name_rva, first_thunk) == (0, 0, 0, 0, 0):
+                    break
+                name_off = _pe_rva_to_offset(name_rva, sections, size_of_headers, len(data))
+                if name_off is None:
+                    raise PortablePackageError(
+                        f"{label} has an unmappable import DLL name RVA 0x{name_rva:x}: {path}"
+                    )
+                imported_dlls.append(_read_pe_cstring(data, name_off, label))
+                cursor_rva += 20
+            else:
+                raise PortablePackageError(
+                    f"{label} import descriptor table exceeds 4096 entries: {path}"
+                )
+
+    # IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT (index 13, ImgDelayDescr = 32 bytes, rvaDLLName at +4)
+    if max_dirs > 13:
+        delay_rva, delay_size = struct.unpack_from("<II", data, opt_offset + 112 + 13 * 8)
+        if delay_rva != 0 and delay_size != 0:
+            cursor_rva = delay_rva
+            for _ in range(4096):
+                desc_off = _pe_rva_to_offset(cursor_rva, sections, size_of_headers, len(data))
+                if desc_off is None or desc_off + 32 > len(data):
+                    raise PortablePackageError(
+                        f"{label} has an unmappable delay-import descriptor at RVA 0x{cursor_rva:x}: {path}"
+                    )
+                fields = struct.unpack_from("<8I", data, desc_off)
+                if all(v == 0 for v in fields):
+                    break
+                name_rva = fields[1]
+                name_off = _pe_rva_to_offset(name_rva, sections, size_of_headers, len(data))
+                if name_off is None:
+                    raise PortablePackageError(
+                        f"{label} has an unmappable delay-import DLL name RVA 0x{name_rva:x}: {path}"
+                    )
+                imported_dlls.append(_read_pe_cstring(data, name_off, label))
+                cursor_rva += 32
+
+    return imported_dlls
+
+
+def audit_windows_pe_imports(path: Path, label: str = "NeoFlash executable") -> list[str]:
+    """Fail closed if a Windows x64 PE32+ executable links dynamic MSVC/UCRT redistributables."""
+    dlls = parse_pe64_imported_dlls(path, label)
+    forbidden = [
+        dll
+        for dll in dlls
+        if any(
+            fnmatch.fnmatchcase(dll.lower(), pattern)
+            for pattern in FORBIDDEN_WINDOWS_CRT_DLL_PATTERNS
+        )
+    ]
+    if forbidden:
+        joined = ", ".join(forbidden)
+        raise PortablePackageError(
+            f"{label} dynamically imports forbidden MSVC/UCRT runtime DLL(s) [{joined}]; "
+            "build Windows releases with RUSTFLAGS='-C target-feature=+crt-static' so clean "
+            f"Windows installations do not fail with STATUS_DLL_NOT_FOUND: {path}"
+        )
+    return dlls
 
 
 def load_json(path: Path, label: str) -> dict[str, Any]:
@@ -669,6 +842,8 @@ def stage_package(args: argparse.Namespace) -> None:
     args.stage_dir.mkdir(parents=True)
 
     check_binary_magic(args.executable, args.platform, "NeoFlash executable")
+    if args.platform == "windows-x64":
+        audit_windows_pe_imports(args.executable, "NeoFlash executable")
     require_file(args.runtime_dir / "neoflash_web.js", "web runtime JavaScript")
     require_file(args.runtime_dir / "neoflash_web_bg.wasm", "web runtime WebAssembly")
     validate_media_root(args.media_root, args.platform)
@@ -733,10 +908,11 @@ Run neoflash-editor.exe directly; no installer is required. This preview ZIP
 is unsigned unless its checksum set also lists a signed MSIX, so Windows
 SmartScreen may ask you to confirm that you trust the file.
 
-Ordinary Test Movie works. The private-pipe interactive script debugger is not
-available in this first Windows preview and reports that boundary explicitly.
-The compatible build is produced on Windows Server 2022; final acceptance on
-an actual Windows 11 x64 machine remains part of the preview test.
+Ordinary Test Movie and the private-pipe interactive script debugger (using an
+installed Chrome, Chromium, or Microsoft Edge browser without opening any TCP
+port) are included. The compatible build is produced on Windows Server 2022;
+final acceptance on an actual Windows 11 x64 machine remains part of the preview
+test.
 
 All application and media license texts are already included. The complete
 media corresponding-source archive and {args.checksum_file.name} are supplied
@@ -780,6 +956,8 @@ def iter_stage_files(stage_dir: Path) -> Iterable[Path]:
 def validate_staged_package(stage_dir: Path, platform: str) -> dict[str, Any]:
     executable_name = "neoflash-editor.exe" if platform == "windows-x64" else "neoflash-editor"
     check_binary_magic(stage_dir / executable_name, platform, "staged NeoFlash executable")
+    if platform == "windows-x64":
+        audit_windows_pe_imports(stage_dir / executable_name, "staged NeoFlash executable")
     require_file(stage_dir / "runtime" / "neoflash_web.js", "staged runtime JavaScript")
     require_file(stage_dir / "runtime" / "neoflash_web_bg.wasm", "staged runtime WebAssembly")
     media_info = validate_media_root(stage_dir / "media", platform)

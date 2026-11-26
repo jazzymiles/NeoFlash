@@ -8,6 +8,8 @@ import json
 import os
 import shutil
 import stat
+import struct
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -38,6 +40,120 @@ def digest_bytes(data: bytes) -> str:
 
 def digest_file(path: Path) -> str:
     return package_portable.sha256_file(path)
+
+
+def build_synthetic_pe64(
+    dll_names: list[str],
+    *,
+    delay_dll_names: list[str] | None = None,
+    machine: int = 0x8664,
+    opt_magic: int = 0x020B,
+) -> bytes:
+    """Build a minimal valid PE32+ image carrying an .idata import directory."""
+    e_lfanew = 0x80
+    size_of_optional_header = 240  # Standard 112-byte PE32+ header + 16 data directories
+    num_sections = 1
+    sec_table_off = e_lfanew + 24 + size_of_optional_header
+    size_of_headers = 0x200
+    section_va = 0x1000
+    section_raw_ptr = size_of_headers
+
+    idata = bytearray()
+    import_table_rva = section_va
+    if dll_names:
+        desc_table_len = (len(dll_names) + 1) * 20
+        idata.extend(b"\x00" * desc_table_len)
+        for index, dll in enumerate(dll_names):
+            name_rva = section_va + len(idata)
+            idata.extend(dll.encode("ascii") + b"\x00")
+            if len(idata) % 2:
+                idata.append(0)
+            thunk_rva = section_va + len(idata)
+            idata.extend(b"\x00" * 16)
+            struct.pack_into(
+                "<IIIII",
+                idata,
+                index * 20,
+                thunk_rva,
+                0,
+                0,
+                name_rva,
+                thunk_rva,
+            )
+        import_size = desc_table_len
+    else:
+        import_table_rva = 0
+        import_size = 0
+
+    delay_rva = 0
+    delay_size = 0
+    if delay_dll_names:
+        while len(idata) % 4:
+            idata.append(0)
+        delay_offset = len(idata)
+        delay_rva = section_va + delay_offset
+        delay_size = (len(delay_dll_names) + 1) * 32
+        idata.extend(b"\x00" * delay_size)
+        for index, dll in enumerate(delay_dll_names):
+            name_rva = section_va + len(idata)
+            idata.extend(dll.encode("ascii") + b"\x00")
+            struct.pack_into(
+                "<8I",
+                idata,
+                delay_offset + index * 32,
+                1,
+                name_rva,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            )
+
+    raw_size = max(0x200, ((len(idata) + 0x1FF) // 0x200) * 0x200)
+    idata.extend(b"\x00" * (raw_size - len(idata)))
+
+    image = bytearray(size_of_headers)
+    image[0:2] = b"MZ"
+    struct.pack_into("<I", image, 0x3C, e_lfanew)
+    image[e_lfanew : e_lfanew + 4] = b"PE\x00\x00"
+    struct.pack_into(
+        "<HHIIIHH",
+        image,
+        e_lfanew + 4,
+        machine,
+        num_sections,
+        0,
+        0,
+        0,
+        size_of_optional_header,
+        0x0022,
+    )
+    opt_off = e_lfanew + 24
+    struct.pack_into("<H", image, opt_off, opt_magic)
+    struct.pack_into("<I", image, opt_off + 56, section_va + raw_size)  # SizeOfImage
+    struct.pack_into("<I", image, opt_off + 60, size_of_headers)  # SizeOfHeaders
+    struct.pack_into("<H", image, opt_off + 68, 2)  # Subsystem = WINDOWS_GUI
+    struct.pack_into("<I", image, opt_off + 108, 16)  # NumberOfRvaAndSizes
+    if import_size:
+        struct.pack_into("<II", image, opt_off + 112 + 8, import_table_rva, import_size)
+    if delay_size:
+        struct.pack_into("<II", image, opt_off + 112 + 13 * 8, delay_rva, delay_size)
+
+    image[sec_table_off : sec_table_off + 8] = b".idata\x00\x00"
+    struct.pack_into(
+        "<IIII",
+        image,
+        sec_table_off + 8,
+        len(idata),
+        section_va,
+        raw_size,
+        section_raw_ptr,
+    )
+    struct.pack_into("<I", image, sec_table_off + 36, 0x40000040)
+    image.extend(idata)
+    return bytes(image)
 
 
 class PortablePackageTests(unittest.TestCase):
@@ -377,7 +493,11 @@ class PortablePackageTests(unittest.TestCase):
         self.write(project, "LICENSE-MIT", b"MIT\n")
         self.write(project, "LICENSE-APACHE", b"Apache\n")
         self.write(project, "THIRD_PARTY_NOTICES.txt", b"third-party\n")
-        executable = self.write(project, "target/release/neoflash-editor.exe", b"MZeditor")
+        executable = self.write(
+            project,
+            "target/release/neoflash-editor.exe",
+            build_synthetic_pe64(["KERNEL32.dll", "USER32.dll", "ntdll.dll", "bcrypt.dll"]),
+        )
         runtime = project / "target/web-runtime"
         self.write(runtime, "neoflash_web.js", b"runtime")
         self.write(runtime, "neoflash_web_bg.wasm", b"wasm")
@@ -458,6 +578,232 @@ class PortablePackageTests(unittest.TestCase):
             package_portable.require_output_child(
                 self.root / "elsewhere", self.root / "target", "fixture stage"
             )
+
+    def test_windows_pe64_import_audit_accepts_system_dlls_and_rejects_dynamic_crt(self):
+        clean_pe = self.write(
+            self.root,
+            "pe/clean-editor.exe",
+            build_synthetic_pe64(["KERNEL32.dll", "USER32.dll", "ntdll.dll", "GDI32.dll"]),
+        )
+        self.assertEqual(
+            package_portable.audit_windows_pe_imports(clean_pe),
+            ["KERNEL32.dll", "USER32.dll", "ntdll.dll", "GDI32.dll"],
+        )
+
+        for bad_dll in (
+            "VCRUNTIME140.dll",
+            "vcruntime140_1.dll",
+            "MSVCP140.dll",
+            "ucrtbase_d.dll",
+            "api-ms-win-crt-runtime-l1-1-0.dll",
+            "concrt140.dll",
+        ):
+            bad_pe = self.write(
+                self.root,
+                f"pe/bad-{bad_dll}.exe",
+                build_synthetic_pe64(["KERNEL32.dll", bad_dll, "USER32.dll"]),
+            )
+            with self.assertRaisesRegex(
+                package_portable.PortablePackageError,
+                rf"forbidden MSVC/UCRT runtime DLL.*{bad_dll}",
+            ):
+                package_portable.audit_windows_pe_imports(bad_pe)
+
+        delay_bad = self.write(
+            self.root,
+            "pe/delay-vcruntime.exe",
+            build_synthetic_pe64(
+                ["KERNEL32.dll"],
+                delay_dll_names=["VCRUNTIME140_1.dll"],
+            ),
+        )
+        with self.assertRaisesRegex(
+            package_portable.PortablePackageError, "VCRUNTIME140_1.dll"
+        ):
+            package_portable.audit_windows_pe_imports(delay_bad)
+
+        stub_mz = self.write(self.root, "pe/stub.exe", b"MZnot-a-real-pe64")
+        with self.assertRaisesRegex(
+            package_portable.PortablePackageError, "IMAGE_DOS_HEADER"
+        ):
+            package_portable.audit_windows_pe_imports(stub_mz)
+
+    def test_linux_appimage_packager_stages_complete_appdir_and_emits_verified_appimage(self):
+        source_root, _ = self.source_tree()
+        source_archive = self.archive_tree(source_root, "linux-source.tar.xz")
+        linux_ffmpeg = b"\x7fELF" + b"linux-ffmpeg"
+        linux_ffprobe = b"\x7fELF" + b"linux-ffprobe"
+        self.pins["assets"]["linux-x64"]["ffmpeg_sha256"] = digest_bytes(linux_ffmpeg)
+        self.pins["assets"]["linux-x64"]["ffprobe_sha256"] = digest_bytes(linux_ffprobe)
+
+        media = self.root / "linux-media"
+        ffmpeg = self.write(media, "bin/ffmpeg", linux_ffmpeg)
+        ffprobe = self.write(media, "bin/ffprobe", linux_ffprobe)
+        ffmpeg.chmod(0o755)
+        ffprobe.chmod(0o755)
+        self.write(media, "licenses/FFmpeg-COPYING.GPLv3.txt", self.ffmpeg_license)
+        self.write(media, "licenses/BtbN-FFmpeg-Builds-LICENSE.txt", self.btbn_license)
+        self.write(media, "licenses/README-CORRESPONDING-SOURCE.txt", b"source beside package")
+        shutil.copytree(source_root / "component-licenses", media / "licenses/components")
+        asset = self.pins["assets"]["linux-x64"]
+        repo = self.pins["btbn_build_repository"]
+        sbom = {
+            "binary_asset": {
+                "name": asset["name"],
+                "sha256": asset["sha256"],
+                "url": f"https://github.com/BtbN/FFmpeg-Builds/releases/download/{repo['release_tag']}/{asset['name']}",
+            },
+            "build_repository": {
+                "commit": repo["commit"],
+                "sha256": repo["archive_sha256"],
+                "url": f"https://github.com/BtbN/FFmpeg-Builds/archive/{repo['commit']}.tar.gz",
+            },
+            "build_variant": self.pins["build_variant"],
+            "ffmpeg_commit": self.ffmpeg_commit,
+            "libraries": [],
+            "platform": "linux-x64",
+            "executables": [
+                {
+                    "license": "GPL-3.0-or-later",
+                    "name": name,
+                    "relative_path": f"bin/{name}",
+                    "sha256": digest_file(path),
+                    "source_commit": self.ffmpeg_commit,
+                    "version": self.pins["ffmpeg"]["version"],
+                }
+                for name, path in (("ffmpeg", ffmpeg), ("ffprobe", ffprobe))
+            ],
+        }
+        self.write(
+            media,
+            "provenance/media-sbom.json",
+            (json.dumps(sbom, indent=2, sort_keys=True) + "\n").encode(),
+        )
+        self.write(
+            media,
+            "provenance/SHA256SUMS.txt",
+            (f"{digest_file(ffmpeg)}  bin/ffmpeg\n{digest_file(ffprobe)}  bin/ffprobe\n").encode(),
+        )
+
+        project = self.root / "linux-project"
+        self.write(project, "LICENSE-MIT", b"MIT\n")
+        self.write(project, "LICENSE-APACHE", b"Apache\n")
+        self.write(project, "THIRD_PARTY_NOTICES.txt", b"third-party\n")
+        executable = self.write(
+            project, "target/release/neoflash-editor", b"\x7fELF" + b"linux-editor"
+        )
+        executable.chmod(0o755)
+        runtime = project / "target/web-runtime"
+        self.write(runtime, "neoflash_web.js", b"runtime")
+        self.write(runtime, "neoflash_web_bg.wasm", b"wasm")
+        rust_licenses = project / "target/rust-licenses"
+        evidence = self.write(rust_licenses, "evidence/fixture-LICENSE", b"license")
+        self.write(rust_licenses, "rust-dependency-licenses.md", b"fixture summary")
+        rust_manifest = {
+            "package_count": 1,
+            "packages": [
+                {
+                    "license_evidence": [
+                        {
+                            "bytes": evidence.stat().st_size,
+                            "bundle_path": "evidence/fixture-LICENSE",
+                            "sha256": digest_file(evidence),
+                        }
+                    ],
+                    "name": "fixture",
+                    "version": "1.0.0",
+                }
+            ],
+        }
+        self.write(
+            rust_licenses,
+            "rust-dependency-licenses.json",
+            (json.dumps(rust_manifest) + "\n").encode(),
+        )
+
+        version = "0.1.0-beta.1"
+        package_name = f"NeoFlash-{version}-linux-x64-preview"
+        dist_dir = project / "dist"
+        checksum_file = dist_dir / f"NeoFlash-{version}-linux-x64-SHA256SUMS.txt"
+        args = SimpleNamespace(
+            archive=dist_dir / f"{package_name}.tar.gz",
+            build_number=629,
+            checksum_file=checksum_file,
+            commit="a" * 40,
+            executable=executable,
+            media_root=media,
+            media_source_archive=source_archive,
+            package_name=package_name,
+            platform="linux-x64",
+            profile="release",
+            project_root=project,
+            runtime_dir=runtime,
+            rust_licenses=rust_licenses,
+            source_output=dist_dir / f"NeoFlash-{version}-portable-media-corresponding-source.tar.xz",
+            stage_dir=project / "target/package" / package_name,
+            version=version,
+        )
+        package_portable.stage_package(args)
+        package_portable.finalize_package(args)
+
+        script = ROOT / "scripts/package-linux-appimage.sh"
+        appdir_out = self.root / "appdir-stage"
+        appdir_out.mkdir()
+        res = subprocess.run(
+            ["bash", str(script), "--stage-only", str(args.stage_dir), str(appdir_out)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        appdir = Path(res.stdout.strip())
+        self.assertEqual(appdir, appdir_out / "NeoFlash.AppDir")
+        self.assertTrue((appdir / "AppRun").is_file())
+        self.assertTrue((appdir / "AppRun").stat().st_mode & stat.S_IXUSR)
+        apprun_text = (appdir / "AppRun").read_text(encoding="utf-8")
+        self.assertIn("NEOFLASH_WEB_RUNTIME_DIR", apprun_text)
+        self.assertIn("NEOFLASH_FFMPEG", apprun_text)
+        self.assertIn("NEOFLASH_FFPROBE", apprun_text)
+        self.assertNotIn("LD_LIBRARY_PATH", apprun_text)
+        self.assertTrue((appdir / "neoflash.desktop").is_file())
+        self.assertIn(
+            f"X-AppImage-Version={version}",
+            (appdir / "neoflash.desktop").read_text(encoding="utf-8"),
+        )
+        self.assertTrue((appdir / "neoflash.png").is_file())
+        self.assertTrue((appdir / ".DirIcon").is_file())
+        self.assertTrue((appdir / "usr/share/mime/packages/neoflash.xml").is_file())
+        self.assertTrue((appdir / "usr/lib/neoflash/neoflash-editor").is_file())
+        self.assertTrue((appdir / "usr/lib/neoflash/runtime/neoflash_web.js").is_file())
+        self.assertTrue((appdir / "usr/lib/neoflash/media/bin/ffmpeg").is_file())
+        self.assertTrue(
+            (appdir / "usr/lib/neoflash/licenses/rust/rust-dependency-licenses.json").is_file()
+        )
+        self.assertTrue(
+            (appdir / "usr/lib/neoflash/media/licenses/FFmpeg-COPYING.GPLv3.txt").is_file()
+        )
+
+        mock_tool = self.write(
+            self.root,
+            "mock-appimagetool.sh",
+            b'#!/bin/sh\nset -eu\n[ "$1" = "--no-appstream" ]\n[ -x "$2/AppRun" ]\nprintf "APPIMAGE-MOCK:%s\\n" "$ARCH" > "$3"\n',
+        )
+        mock_tool.chmod(0o755)
+        env = os.environ.copy()
+        env["NEOFLASH_APPIMAGETOOL"] = str(mock_tool)
+        res_pkg = subprocess.run(
+            ["bash", str(script), str(args.stage_dir), str(dist_dir), str(checksum_file)],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        appimage_path = Path(res_pkg.stdout.strip())
+        self.assertEqual(appimage_path.name, f"NeoFlash-{version}-linux-x86_64.AppImage")
+        self.assertTrue(appimage_path.is_file())
+        sums = package_portable.parse_sha_manifest(
+            checksum_file.read_text(encoding="utf-8"), "linux sums with AppImage"
+        )
+        self.assertEqual(sums[appimage_path.name], digest_file(appimage_path))
 
 
 if __name__ == "__main__":
