@@ -27,6 +27,7 @@ BASELINE_REVISION = "d1d529a1e72983917e8ce318ec842ca531954033"
 EXPECTED_NODE = "v22.23.5"
 PERF_TEST = "exported_games_and_stress_suites_meet_html5_frame_time_budgets"
 PAIR_COUNT = 6
+MAX_DISPERSION_ATTEMPTS = 3
 EXPECTED_SAMPLE_COUNT = 1
 EXPECTED_FRAMES = 480
 EXPECTED_WARMUP_FRAMES = 480
@@ -215,6 +216,27 @@ def _suite_map(report: dict[str, Any], path: Path) -> dict[str, dict[str, Any]]:
     return suites
 
 
+def _suite_dispersion_stats(
+    current_results: list[dict[str, Any]], baseline_results: list[dict[str, Any]]
+) -> tuple[float, float, float, list[float]]:
+    ratios = [
+        current_result["rawCpuMsPerFrame"] / baseline_result["rawCpuMsPerFrame"]
+        for current_result, baseline_result in zip(current_results, baseline_results)
+    ]
+    logs = [math.log(ratio) for ratio in ratios]
+    mean_log = sum(logs) / len(logs)
+    geometric_mean = math.exp(mean_log)
+    geometric_stddev = math.exp(
+        math.sqrt(sum((value - mean_log) ** 2 for value in logs) / len(logs))
+    )
+    spread = max(ratios) / min(ratios)
+    return geometric_mean, geometric_stddev, spread, ratios
+
+
+def _is_inconclusive_dispersion(geometric_stddev: float, spread: float) -> bool:
+    return geometric_stddev > GEOMETRIC_STDDEV_LIMIT or spread > RATIO_SPREAD_LIMIT
+
+
 def compare_reports(
     current_paths: list[Path], baseline_paths: list[Path]
 ) -> dict[str, Any]:
@@ -272,18 +294,10 @@ def compare_reports(
                 raise PerformanceGateError(
                     f"{name}: snapshot coverage changed in pair {index + 1}"
                 )
-        ratios = [
-            current_suites[index][name]["rawCpuMsPerFrame"]
-            / baseline_suites[index][name]["rawCpuMsPerFrame"]
-            for index in range(PAIR_COUNT)
-        ]
-        logs = [math.log(ratio) for ratio in ratios]
-        mean_log = sum(logs) / len(logs)
-        geometric_mean = math.exp(mean_log)
-        geometric_stddev = math.exp(
-            math.sqrt(sum((value - mean_log) ** 2 for value in logs) / len(logs))
+        geometric_mean, geometric_stddev, spread, ratios = _suite_dispersion_stats(
+            [current_suites[index][name] for index in range(PAIR_COUNT)],
+            [baseline_suites[index][name] for index in range(PAIR_COUNT)],
         )
-        spread = max(ratios) / min(ratios)
         row = {
             "suite": name,
             "ratios": ratios,
@@ -292,7 +306,7 @@ def compare_reports(
             "spread": spread,
         }
         rows.append(row)
-        if geometric_stddev > GEOMETRIC_STDDEV_LIMIT or spread > RATIO_SPREAD_LIMIT:
+        if _is_inconclusive_dispersion(geometric_stddev, spread):
             failures.append(
                 f"{name}: inconclusive dispersion (gstd={geometric_stddev:.3f}, "
                 f"spread={spread:.3f}, ratios={','.join(f'{ratio:.3f}' for ratio in ratios)})"
@@ -513,30 +527,56 @@ def run_gate(root: Path) -> dict[str, Any]:
             for pair_index in range(PAIR_COUNT)
         }
         for slug in sorted(EXPECTED_SUITES):
-            for label, pair_index in PAIR_SEQUENCE:
-                suite_report_path = per_suite_dir / f"{slug}-p{pair_index + 1}-{label}.json"
-                runner = current_runner if label == "current" else baseline_runner
-                run_env = current_env.copy()
-                run_env.update(
-                    {
-                        "NEOFLASH_PERF_MODE": "report",
-                        "NEOFLASH_PERF_REPORT": str(suite_report_path),
-                        "NEOFLASH_PERF_LABEL": f"{label}-pair-{pair_index + 1}-{slug}",
-                        "NEOFLASH_PERF_SAMPLE_COUNT": str(EXPECTED_SAMPLE_COUNT),
-                        "NEOFLASH_PERF_FRAMES": str(EXPECTED_FRAMES),
-                        "NEOFLASH_PERF_WARMUP_FRAMES": str(EXPECTED_WARMUP_FRAMES),
-                        "NEOFLASH_PERF_SUITES": slug,
-                    }
+            accepted_pairs: dict[tuple[str, int], dict[str, Any]] | None = None
+            for attempt in range(1, MAX_DISPERSION_ATTEMPTS + 1):
+                attempt_pairs: dict[tuple[str, int], dict[str, Any]] = {}
+                for label, pair_index in PAIR_SEQUENCE:
+                    attempt_suffix = "" if attempt == 1 else f"-retry{attempt - 1}"
+                    suite_report_path = (
+                        per_suite_dir
+                        / f"{slug}-p{pair_index + 1}-{label}{attempt_suffix}.json"
+                    )
+                    runner = current_runner if label == "current" else baseline_runner
+                    run_env = current_env.copy()
+                    run_env.update(
+                        {
+                            "NEOFLASH_PERF_MODE": "report",
+                            "NEOFLASH_PERF_REPORT": str(suite_report_path),
+                            "NEOFLASH_PERF_LABEL": f"{label}-pair-{pair_index + 1}-{slug}{attempt_suffix}",
+                            "NEOFLASH_PERF_SAMPLE_COUNT": str(EXPECTED_SAMPLE_COUNT),
+                            "NEOFLASH_PERF_FRAMES": str(EXPECTED_FRAMES),
+                            "NEOFLASH_PERF_WARMUP_FRAMES": str(EXPECTED_WARMUP_FRAMES),
+                            "NEOFLASH_PERF_SUITES": slug,
+                        }
+                    )
+                    _run(
+                        [node, "--expose-gc", str(runner)],
+                        cwd=root if label == "current" else baseline_root,
+                        env=run_env,
+                        log_path=per_suite_dir
+                        / f"{slug}-p{pair_index + 1}-{label}{attempt_suffix}.log",
+                    )
+                    suite_report = _load_report(
+                        suite_report_path, expected_suites=frozenset({slug})
+                    )
+                    attempt_pairs[(label, pair_index)] = suite_report
+
+                _, gstd, spread, ratios = _suite_dispersion_stats(
+                    [attempt_pairs[("current", i)]["results"][0] for i in range(PAIR_COUNT)],
+                    [attempt_pairs[("baseline", i)]["results"][0] for i in range(PAIR_COUNT)],
                 )
-                _run(
-                    [node, "--expose-gc", str(runner)],
-                    cwd=root if label == "current" else baseline_root,
-                    env=run_env,
-                    log_path=per_suite_dir / f"{slug}-p{pair_index + 1}-{label}.log",
+                if not _is_inconclusive_dispersion(gstd, spread) or attempt == MAX_DISPERSION_ATTEMPTS:
+                    accepted_pairs = attempt_pairs
+                    break
+                print(
+                    f"{slug}: transient host dispersion on attempt {attempt}/{MAX_DISPERSION_ATTEMPTS} "
+                    f"(gstd={gstd:.3f}, spread={spread:.3f}, "
+                    f"ratios={','.join(f'{r:.3f}' for r in ratios)}); re-running full ABBA sequence",
+                    file=sys.stderr,
                 )
-                suite_report = _load_report(
-                    suite_report_path, expected_suites=frozenset({slug})
-                )
+
+            assert accepted_pairs is not None
+            for (label, pair_index), suite_report in accepted_pairs.items():
                 assembled[(label, pair_index)].append(suite_report)
 
         for pair_index in range(PAIR_COUNT):
@@ -621,6 +661,14 @@ def main() -> int:
             run_gate(args.project_root.resolve())
     except PerformanceGateError as error:
         print(error, file=sys.stderr)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            escaped = (
+                str(error)
+                .replace("%", "%25")
+                .replace("\r", "%0D")
+                .replace("\n", " | ")
+            )
+            print(f"::error title=Performance A/B failure::{escaped[-3500:]}")
         return 1
     return 0
 

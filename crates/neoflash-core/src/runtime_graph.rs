@@ -118,7 +118,7 @@ pub struct MutationResult {
     pub events: Vec<DisplayEvent>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RuntimeObject {
     #[serde(flatten)]
     pub display: DisplayNode,
@@ -156,6 +156,77 @@ pub struct RuntimeObject {
     pub concatenated_color_transform: ColorTransform,
     #[serde(skip)]
     pub(crate) authored_mask_source: bool,
+}
+
+impl Serialize for RuntimeObject {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let field_count = 35
+            + usize::from(self.display.symbol_id.is_some())
+            + usize::from(!self.display.blend_mode.is_normal())
+            + usize::from(self.display.cache_as_bitmap)
+            + usize::from(!self.button_hits.is_empty())
+            + usize::from(self.button_hit_authoritative)
+            + usize::from(!self.fte_draws.is_empty());
+        let mut s = serializer.serialize_struct("RuntimeObject", field_count)?;
+        s.serialize_field("path", &self.display.path)?;
+        s.serialize_field("lifetime_id", &self.display.lifetime_id)?;
+        s.serialize_field("name", &self.display.name)?;
+        s.serialize_field("owner", &self.display.owner)?;
+        if self.display.symbol_id.is_some() {
+            s.serialize_field("symbol_id", &self.display.symbol_id)?;
+        }
+        s.serialize_field("class_name", &self.display.class_name)?;
+        s.serialize_field("transform", &self.display.transform)?;
+        s.serialize_field("world", &self.display.world)?;
+        s.serialize_field("visible", &self.display.visible)?;
+        s.serialize_field("effective_visible", &self.display.effective_visible)?;
+        s.serialize_field("frame", &self.display.frame)?;
+        s.serialize_field("total_frames", &self.display.total_frames)?;
+        s.serialize_field("independent", &self.display.independent)?;
+        if !self.display.blend_mode.is_normal() {
+            s.serialize_field("blend_mode", &self.display.blend_mode)?;
+        }
+        if self.display.cache_as_bitmap {
+            s.serialize_field("cache_as_bitmap", &self.display.cache_as_bitmap)?;
+        }
+        s.serialize_field("kind", &self.display.kind)?;
+        s.serialize_field("object_ref", &self.object_ref)?;
+        s.serialize_field("parent_ref", &self.parent_ref)?;
+        s.serialize_field("children", &self.children)?;
+        s.serialize_field("on_stage", &self.on_stage)?;
+        s.serialize_field("authored_path", &self.authored_path)?;
+        s.serialize_field("namespace_ref", &self.namespace_ref)?;
+        s.serialize_field("source_path", &self.source_path)?;
+        s.serialize_field("graphics", &self.graphics)?;
+        if !self.button_hits.is_empty() {
+            s.serialize_field("button_hits", &self.button_hits)?;
+        }
+        if self.button_hit_authoritative {
+            s.serialize_field("button_hit_authoritative", &self.button_hit_authoritative)?;
+        }
+        if !self.fte_draws.is_empty() {
+            s.serialize_field("fte_draws", &self.fte_draws)?;
+        }
+        s.serialize_field("text", &self.text)?;
+        s.serialize_field("video", &self.video)?;
+        s.serialize_field("input", &self.input)?;
+        s.serialize_field("bitmap", &self.bitmap)?;
+        s.serialize_field("smoothing", &self.smoothing)?;
+        s.serialize_field("pixel_snapping", &self.pixel_snapping)?;
+        s.serialize_field("local_matrix", &self.local_matrix)?;
+        s.serialize_field("content_local_matrix", &self.content_local_matrix)?;
+        s.serialize_field("mask_ref", &self.mask_ref)?;
+        s.serialize_field("scroll_rect", &self.scroll_rect)?;
+        s.serialize_field("clip_ids", &self.clip_ids)?;
+        s.serialize_field("filters", &self.filters)?;
+        s.serialize_field("color_transform", &self.color_transform)?;
+        s.serialize_field(
+            "concatenated_color_transform",
+            &self.concatenated_color_transform,
+        )?;
+        s.end()
+    }
 }
 
 /// Runtime pixels have their own identity; authoring resource IDs remain immutable.
@@ -223,7 +294,7 @@ impl PartialEq<ElementKind> for RuntimeDrawKind {
         }
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct RuntimeDrawItem {
     #[serde(flatten)]
     pub item: DrawItem<RuntimeDrawKind>,
@@ -234,6 +305,37 @@ pub struct RuntimeDrawItem {
     /// True when emitted by runtime `MovieClip`/`Shape` `Graphics` drawing commands.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub procedural_graphics: bool,
+}
+
+impl Serialize for RuntimeDrawItem {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let field_count = 10
+            + usize::from(!self.item.color_transform.is_identity())
+            + usize::from(self.item.bitmap_fill.is_some())
+            + usize::from(self.procedural_graphics);
+        let mut s = serializer.serialize_struct("RuntimeDrawItem", field_count)?;
+        s.serialize_field("element_id", &self.item.element_id)?;
+        s.serialize_field("name", &self.item.name)?;
+        s.serialize_field("instance_path", &self.item.instance_path)?;
+        s.serialize_field("layer_id", &self.item.layer_id)?;
+        s.serialize_field("transform", &self.item.transform)?;
+        s.serialize_field("alpha", &self.item.alpha)?;
+        if !self.item.color_transform.is_identity() {
+            s.serialize_field("color_transform", &self.item.color_transform)?;
+        }
+        if self.item.bitmap_fill.is_some() {
+            s.serialize_field("bitmap_fill", &self.item.bitmap_fill)?;
+        }
+        s.serialize_field("kind", &self.item.kind)?;
+        s.serialize_field("owner_ref", &self.owner_ref)?;
+        s.serialize_field("clip_ids", &self.clip_ids)?;
+        s.serialize_field("filter_id", &self.filter_id)?;
+        if self.procedural_graphics {
+            s.serialize_field("procedural_graphics", &self.procedural_graphics)?;
+        }
+        s.end()
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeAccessibleNode {
@@ -866,5 +968,130 @@ impl Player {
             return Some(node.name.clone());
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streaming_runtime_snapshot_serialize_matches_flattened_wire_contract_and_roundtrips() {
+        #[derive(Serialize)]
+        struct RefDraw<'a> {
+            #[serde(flatten)]
+            item: &'a DrawItem<RuntimeDrawKind>,
+            owner_ref: &'a ObjectRef,
+            clip_ids: &'a [String],
+            filter_id: &'a Option<String>,
+            #[serde(skip_serializing_if = "std::ops::Not::not")]
+            procedural_graphics: bool,
+        }
+
+        let owner = ObjectRef {
+            id: "d1".into(),
+            generation: "0".into(),
+        };
+        let draw = RuntimeDrawItem {
+            item: DrawItem {
+                element_id: "e1".into(),
+                name: "box".into(),
+                instance_path: vec!["e1".into()],
+                layer_id: "l1".into(),
+                transform: [1.0, 0.0, 0.0, 1.0, 10.0, 20.0],
+                alpha: 0.75,
+                color_transform: ColorTransform::default(),
+                bitmap_fill: None,
+                path_fingerprint: None,
+                kind: RuntimeDrawKind::Element(ElementKind::Rectangle {
+                    width: 32.0,
+                    height: 16.0,
+                    fill: [255, 0, 128, 255],
+                    stroke: [0, 0, 0, 0],
+                    stroke_width: 0.0,
+                }),
+            },
+            owner_ref: owner.clone(),
+            clip_ids: vec![],
+            filter_id: None,
+            procedural_graphics: true,
+        };
+        let expected_draw = serde_json::to_value(RefDraw {
+            item: &draw.item,
+            owner_ref: &draw.owner_ref,
+            clip_ids: &draw.clip_ids,
+            filter_id: &draw.filter_id,
+            procedural_graphics: draw.procedural_graphics,
+        })
+        .expect("serialize reference draw");
+        let actual_draw = serde_json::to_value(&draw).expect("serialize streaming draw");
+        assert_eq!(actual_draw, expected_draw);
+
+        let filter = FilterSpec::Blur {
+            blur_x: 4.0,
+            blur_y: 4.0,
+            quality: 1,
+        };
+        let obj = RuntimeObject {
+            display: DisplayNode {
+                path: vec![],
+                lifetime_id: "d1".into(),
+                name: "sprite".into(),
+                owner: "sprite".into(),
+                symbol_id: Some("sym1".into()),
+                class_name: None,
+                transform: Transform::default(),
+                world: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                visible: true,
+                effective_visible: true,
+                frame: 0,
+                total_frames: 0,
+                independent: false,
+                blend_mode: BlendMode::Multiply,
+                cache_as_bitmap: true,
+                filters: vec![filter.clone()],
+                kind: None,
+            },
+            object_ref: owner.clone(),
+            parent_ref: None,
+            children: vec![],
+            on_stage: true,
+            authored_path: None,
+            namespace_ref: None,
+            source_path: None,
+            graphics: vec![],
+            button_hits: vec![],
+            button_hit_authoritative: false,
+            fte_draws: vec![],
+            text: None,
+            video: None,
+            input: None,
+            bitmap: None,
+            smoothing: false,
+            pixel_snapping: PixelSnapping::Auto,
+            local_matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            content_local_matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            mask_ref: None,
+            scroll_rect: None,
+            clip_ids: vec![],
+            filters: vec![filter],
+            color_transform: ColorTransform::default(),
+            concatenated_color_transform: ColorTransform::default(),
+            authored_mask_source: false,
+        };
+        let snap = RuntimeSnapshot {
+            objects: vec![obj],
+            draws: vec![draw],
+            semantics: vec![],
+            clips: vec![],
+            filter_groups: vec![],
+        };
+        let json = serde_json::to_string(&snap).expect("serialize snapshot");
+        let decoded: RuntimeSnapshot =
+            serde_json::from_str(&json).expect("roundtrip snapshot without duplicate filters");
+        assert_eq!(decoded.objects.len(), 1);
+        assert_eq!(decoded.objects[0].filters.len(), 1);
+        assert_eq!(decoded.draws.len(), 1);
+        assert!(decoded.draws[0].procedural_graphics);
     }
 }

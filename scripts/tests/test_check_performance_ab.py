@@ -184,6 +184,23 @@ class PerformanceAbTests(unittest.TestCase):
                     root / "bad.json", label="current-pair-1", suite_reports=bad_reports
                 )
 
+    def test_dispersion_predicate_distinguishes_noisy_host_from_sustained_regression(self):
+        # Clean sustained regression (e.g. 1.08x across all 6 pairs) is NOT inconclusive dispersion
+        # and therefore never triggers a dispersion re-run.
+        gmean, gstd, spread, _ = MODULE._suite_dispersion_stats(
+            [{"rawCpuMsPerFrame": 1.08}] * MODULE.PAIR_COUNT,
+            [{"rawCpuMsPerFrame": 1.00}] * MODULE.PAIR_COUNT,
+        )
+        self.assertAlmostEqual(gmean, 1.08)
+        self.assertFalse(MODULE._is_inconclusive_dispersion(gstd, spread))
+
+        # Single hosted-VM co-tenant / E-core spike (1.42x on one pair) IS inconclusive dispersion.
+        _, noisy_gstd, noisy_spread, _ = MODULE._suite_dispersion_stats(
+            [{"rawCpuMsPerFrame": v} for v in (1.00, 0.99, 1.42, 1.01, 1.00, 1.00)],
+            [{"rawCpuMsPerFrame": 1.00}] * MODULE.PAIR_COUNT,
+        )
+        self.assertTrue(MODULE._is_inconclusive_dispersion(noisy_gstd, noisy_spread))
+
 
 if __name__ == "__main__":
     unittest.main()
