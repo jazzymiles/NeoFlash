@@ -974,9 +974,9 @@ async function probeAndRunSafari(baseUrl, smokeCases) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url }),
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.timeout(15000),
         });
-        const deadline = Date.now() + 6000;
+        const deadline = Date.now() + 15000;
         let passed = false;
         let lastErr = '';
         while (Date.now() < deadline) {

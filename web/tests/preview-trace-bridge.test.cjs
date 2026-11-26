@@ -652,13 +652,16 @@ test('T-356: preview HTML relays Frame-1 trace, onEnterFrame, button click, mapp
     for (const dialect of ['as2', 'as3']) {
       const upper = dialect.toUpperCase();
       const expectedErrorLine = dialect === 'as2' ? 15 : 17;
+      const runId = `t356-${dialect}`;
 
+      await cdp.navigateAndWait('about:blank');
       serverInfo.state.clear();
+      serverInfo.state.activeRunId = runId;
       serverInfo.state.rejectOutput = false;
       cdp.consoleErrors.length = 0;
       cdp.uncaughtExceptions.length = 0;
 
-      await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-${dialect}/index.html`);
+      await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-${dialect}/index.html?nf_run=${runId}`);
 
       // Wait for Frame 1 trace + all 3 onEnterFrame traces to arrive on the HTTP server.
       await waitForCondition(
@@ -746,12 +749,14 @@ test('T-356: preview HTML relays Frame-1 trace, onEnterFrame, button click, mapp
     // C. Burst >5,000 lines/sec caps gracefully with `[trace] ... suppressed N lines ...`
     //    AND closing `/__neoflash/output` causes 0 console/page errors!
     // =========================================================================
+    await cdp.navigateAndWait('about:blank');
     serverInfo.state.clear();
+    serverInfo.state.activeRunId = 't356-burst';
     serverInfo.state.rejectOutput = false;
     cdp.consoleErrors.length = 0;
     cdp.uncaughtExceptions.length = 0;
 
-    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-burst/index.html`);
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-burst/index.html?nf_run=t356-burst`);
     await waitForCondition(
       () => serverInfo.state.events.some(e => e.message === 'AFTER_BURST'),
       'burst cap + AFTER_BURST recovery',
@@ -1070,9 +1075,10 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
 
     // Verify AS2 structured output:
     serverInfo.state.clear();
+    serverInfo.state.activeRunId = 't368-as2';
     cdp.consoleErrors.length = 0;
     cdp.uncaughtExceptions.length = 0;
-    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as2/index.html`);
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as2/index.html?nf_run=t368-as2`);
     await waitForCondition(() => serverInfo.state.events.length >= 8, 'AS2 structured traces');
     assert.deepEqual(
       serverInfo.state.events.map(e => e.message),
@@ -1091,8 +1097,10 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
     assert.deepEqual(cdp.uncaughtExceptions, []);
 
     // Verify AS3 structured output:
+    await cdp.navigateAndWait('about:blank');
     serverInfo.state.clear();
-    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as3/index.html`);
+    serverInfo.state.activeRunId = 't368-as3';
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-as3/index.html?nf_run=t368-as3`);
     await waitForCondition(() => serverInfo.state.events.length >= 7, 'AS3 structured traces');
     assert.deepEqual(
       serverInfo.state.events.map(e => e.message),
@@ -1110,8 +1118,10 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
     assert.deepEqual(cdp.uncaughtExceptions, []);
 
     // Verify JS console.log / console.warn structured output + mapped source locations:
+    await cdp.navigateAndWait('about:blank');
     serverInfo.state.clear();
-    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-js/index.html`);
+    serverInfo.state.activeRunId = 't368-js';
+    await cdp.navigateAndWait(`http://127.0.0.1:${serverInfo.port}/preview-js/index.html?nf_run=t368-js`);
     await waitForCondition(() => serverInfo.state.events.length >= 2, 'JS console structured events');
     assert.deepEqual(
       serverInfo.state.events.map(e => ({ kind: e.kind, message: e.message, sourcePath: e.sourcePath, line: e.line })),

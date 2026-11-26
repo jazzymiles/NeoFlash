@@ -1159,17 +1159,30 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
     // Type via real browser input -> updates AS3 state + dynamic status text while keeping the exact same DOM node!
     await cdp.send('Input.insertText', { text: 'Grace Hopper' });
     const afterTyping = await cdp.evalJson(`new Promise((resolve) => {
-      setTimeout(() => {
+      const deadline = Date.now() + 5000;
+      const poll = () => {
         const inp = document.querySelector('#stage-dom-root input.nf-dom-input');
         const texts = Array.from(document.querySelectorAll('#stage-dom-root .nf-dom-text')).map((e) => e.textContent);
-        resolve({
+        const trace = document.getElementById('trace')?.textContent || '';
+        const snap = {
           sameNodeAcrossTicks: inp === window.__nfSavedInput,
           stillFocused: document.activeElement === window.__nfSavedInput,
-          inputValue: inp.value,
+          inputValue: inp?.value ?? '',
           texts,
-          trace: document.getElementById('trace')?.textContent || '',
-        });
-      }, 120);
+          trace,
+        };
+        if (
+          (snap.inputValue === 'Grace Hopper' &&
+            texts.includes('Typed: Grace Hopper') &&
+            trace.includes('AS3_CHANGE=Grace Hopper')) ||
+          Date.now() >= deadline
+        ) {
+          resolve(snap);
+          return;
+        }
+        setTimeout(poll, 20);
+      };
+      poll();
     })`);
     assert.equal(afterTyping.sameNodeAcrossTicks, true, 'Keyed reconciliation must preserve the live <input> node across ticks');
     assert.equal(afterTyping.stillFocused, true, 'Focused <input> must retain focus across animation ticks');
@@ -1250,16 +1263,25 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
       deviceScaleFactor: 1,
       mobile: true,
     });
-    const mobileBp = await cdp.evalJson(`new Promise((resolve) => setTimeout(() => {
-      const s = document.getElementById('stage-dom-root');
-      const surf = document.getElementById('stage-surface');
-      resolve({
-        breakpoint: s.dataset.breakpoint,
-        logicalWidth: s.dataset.logicalWidth,
-        logicalHeight: s.dataset.logicalHeight,
-        surfaceWidth: parseFloat(surf.style.width),
-      });
-    }, 80))`);
+    const mobileBp = await cdp.evalJson(`new Promise((resolve) => {
+      const deadline = Date.now() + 5000;
+      const poll = () => {
+        const s = document.getElementById('stage-dom-root');
+        const surf = document.getElementById('stage-surface');
+        const snap = {
+          breakpoint: s.dataset.breakpoint,
+          logicalWidth: s.dataset.logicalWidth,
+          logicalHeight: s.dataset.logicalHeight,
+          surfaceWidth: parseFloat(surf.style.width),
+        };
+        if ((snap.breakpoint === 'mobile' && snap.surfaceWidth > 0) || Date.now() >= deadline) {
+          resolve(snap);
+          return;
+        }
+        setTimeout(poll, 20);
+      };
+      poll();
+    })`);
     assert.equal(mobileBp.breakpoint, 'mobile');
     assert.equal(mobileBp.logicalWidth, '360');
     assert.equal(mobileBp.logicalHeight, '540');
@@ -1271,14 +1293,23 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
       deviceScaleFactor: 1,
       mobile: false,
     });
-    const desktopBp = await cdp.evalJson(`new Promise((resolve) => setTimeout(() => {
-      const s = document.getElementById('stage-dom-root');
-      resolve({
-        breakpoint: s.dataset.breakpoint,
-        logicalWidth: s.dataset.logicalWidth,
-        logicalHeight: s.dataset.logicalHeight,
-      });
-    }, 80))`);
+    const desktopBp = await cdp.evalJson(`new Promise((resolve) => {
+      const deadline = Date.now() + 5000;
+      const poll = () => {
+        const s = document.getElementById('stage-dom-root');
+        const snap = {
+          breakpoint: s.dataset.breakpoint,
+          logicalWidth: s.dataset.logicalWidth,
+          logicalHeight: s.dataset.logicalHeight,
+        };
+        if (snap.breakpoint === 'desktop' || Date.now() >= deadline) {
+          resolve(snap);
+          return;
+        }
+        setTimeout(poll, 20);
+      };
+      poll();
+    })`);
     assert.equal(desktopBp.breakpoint, 'desktop');
     assert.equal(desktopBp.logicalWidth, '800');
     assert.equal(desktopBp.logicalHeight, '500');
@@ -1290,16 +1321,25 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
       return document.activeElement === btn;
     })()`);
     await cdp.pressKey('Enter', 'Enter', 13);
-    const frame2State = await cdp.evalJson(`new Promise((resolve) => setTimeout(() => {
-      const s = document.getElementById('stage-dom-root');
-      resolve({
-        status: document.getElementById('status')?.textContent || '',
-        inputCount: s.querySelectorAll('input.nf-dom-input').length,
-        islandCount: s.querySelectorAll('canvas.nf-dom-canvas-island').length,
-        texts: Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent),
-        backBtnLabel: s.querySelector('button.nf-dom-button')?.getAttribute('aria-label') || null,
-      });
-    }, 60))`);
+    const frame2State = await cdp.evalJson(`new Promise((resolve) => {
+      const deadline = Date.now() + 5000;
+      const poll = () => {
+        const s = document.getElementById('stage-dom-root');
+        const snap = {
+          status: document.getElementById('status')?.textContent || '',
+          inputCount: s.querySelectorAll('input.nf-dom-input').length,
+          islandCount: s.querySelectorAll('canvas.nf-dom-canvas-island').length,
+          texts: Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent),
+          backBtnLabel: s.querySelector('button.nf-dom-button')?.getAttribute('aria-label') || null,
+        };
+        if (snap.status.startsWith('2 / 2') || Date.now() >= deadline) {
+          resolve(snap);
+          return;
+        }
+        setTimeout(poll, 20);
+      };
+      poll();
+    })`);
     assert.ok(frame2State.status.startsWith('2 / 2'), `Expected frame 2 / 2, got ${frame2State.status}`);
     assert.equal(frame2State.inputCount, 0, 'Frame 1 <input> must unmount cleanly on Frame 2');
     assert.equal(frame2State.islandCount, 0, 'Frame 1 <canvas> island must unmount cleanly on Frame 2');
@@ -1382,20 +1422,28 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
         return true;
       })()`);
       await cdp.send('Input.insertText', { text: `User_${label}` });
-      const check = await cdp.evalJson(`new Promise((resolve) => setTimeout(() => {
-        const s = document.getElementById('stage-dom-root');
-        const typedTrace = document.getElementById('trace')?.textContent || '';
-        s.querySelector('button[aria-label="Submit & Next"]').click();
-        const frame2Texts = Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent);
-        document.getElementById('restart').click();
-        resolve({
-          mountCount: s.mountCount,
-          disposeCount: s.disposeCount,
-          typedTrace,
-          frame2Texts,
-          postRestartInput: s.querySelector('input.nf-dom-input')?.value || '',
-        });
-      }, 60))`);
+      const check = await cdp.evalJson(`new Promise((resolve) => {
+        const deadline = Date.now() + 5000;
+        const poll = () => {
+          const s = document.getElementById('stage-dom-root');
+          const typedTrace = document.getElementById('trace')?.textContent || '';
+          if (!typedTrace.includes(${JSON.stringify(`AS3_CHANGE=User_${label}`)}) && Date.now() < deadline) {
+            setTimeout(poll, 20);
+            return;
+          }
+          s.querySelector('button[aria-label="Submit & Next"]').click();
+          const frame2Texts = Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent);
+          document.getElementById('restart').click();
+          resolve({
+            mountCount: s.mountCount,
+            disposeCount: s.disposeCount,
+            typedTrace,
+            frame2Texts,
+            postRestartInput: s.querySelector('input.nf-dom-input')?.value || '',
+          });
+        };
+        poll();
+      })`);
       assert.equal(check.mountCount, 1, `${label}: mountCount must be 1`);
       assert.equal(check.disposeCount, 0, `${label}: disposeCount must stay 0 after Restart`);
       assert.ok(check.typedTrace.includes(`AS3_CHANGE=User_${label}`), `${label}: input change trace missing: ${check.typedTrace}`);
@@ -1424,13 +1472,21 @@ test('DOM publish mode (T-307): Full/Compact/Shared across HTTP & file://, forms
       return true;
     })()`);
     await cdp.send('Input.insertText', { text: 'miles_as2' });
-    const as2Result = await cdp.evalJson(`new Promise((resolve) => setTimeout(() => {
-      const s = document.getElementById('stage-dom-root');
-      const afterType = Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent);
-      s.querySelector('button[aria-label="Apply Handle"]').click();
-      const afterClick = Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent);
-      resolve({ afterType, afterClick, trace: document.getElementById('trace')?.textContent || '' });
-    }, 60))`);
+    const as2Result = await cdp.evalJson(`new Promise((resolve) => {
+      const deadline = Date.now() + 5000;
+      const poll = () => {
+        const s = document.getElementById('stage-dom-root');
+        const afterType = Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent);
+        if (!afterType.includes('AS2Changed: miles_as2') && Date.now() < deadline) {
+          setTimeout(poll, 20);
+          return;
+        }
+        s.querySelector('button[aria-label="Apply Handle"]').click();
+        const afterClick = Array.from(s.querySelectorAll('.nf-dom-text')).map((e) => e.textContent);
+        resolve({ afterType, afterClick, trace: document.getElementById('trace')?.textContent || '' });
+      };
+      poll();
+    })`);
     assert.ok(as2Result.afterType.includes('AS2Changed: miles_as2'), `AS2 onChanged + variable sync failed: ${JSON.stringify(as2Result)}`);
     assert.ok(as2Result.afterClick.includes('AS2Submitted: miles_as2'), `AS2 button onRelease failed: ${JSON.stringify(as2Result)}`);
 
