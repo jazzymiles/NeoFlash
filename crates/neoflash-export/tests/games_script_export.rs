@@ -180,7 +180,11 @@ function loadExportedGame(bundlePath) {{
     location: s.location || `script-${{idx}}`,
   }}));
 
-  const env = createRuntimeHost(root, player, compiled, {{ bundle, project: bundle.project }});
+  const env = createRuntimeHost(root, player, compiled, {{
+    bundle,
+    project: bundle.project,
+    context: {{ measureText: line => ({{ width: Array.from(String(line)).length * 8 }}) }},
+  }});
   env.host.resetProject();
   return {{ clip: env.host.proxyFor([]), env, player }};
 }}
@@ -2091,6 +2095,140 @@ for (const [slug, bundlePath] of bundles) {{
     if !output.status.success() {
         panic!(
             "Eight imported FLA behavioral HTML5 test failed:\nSTDOUT:\n{}\nSTDERR:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let _ = fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn doom_and_fallout_as2_examples_validate_compile_export_and_boot_in_runtime() {
+    let root = workspace_root();
+    let temp_dir = temp_test_dir("doom-fallout-as2");
+    let runtime_dir = temp_dir.join("runtime");
+    write_mock_wasm_runtime(&runtime_dir);
+
+    let retro_games = ["examples/doom-as2.nflash", "examples/fallout-as2.nflash"];
+    let mut exported_bundles = Vec::new();
+
+    for rel_path in retro_games {
+        let full_path = root.join(rel_path);
+        let raw = fs::read_to_string(&full_path)
+            .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
+        let project: Project = serde_json::from_str(&raw)
+            .unwrap_or_else(|e| panic!("failed to parse {rel_path} as Project: {e}"));
+
+        project
+            .validate()
+            .unwrap_or_else(|e| panic!("{rel_path} failed project.validate(): {e}"));
+
+        let program = neoflash_script::check_project(&project).unwrap_or_else(|diags| {
+            let formatted: Vec<String> = diags.iter().map(ToString::to_string).collect();
+            panic!("{rel_path} failed check_project:\n{}", formatted.join("\n"));
+        });
+        assert!(
+            !program.class_names.is_empty() && !program.code.is_empty(),
+            "{rel_path} should compile AS2 package classes"
+        );
+
+        let warnings = neoflash_script::check_project_warnings(&project);
+        let unsupported: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == "unsupported-feature")
+            .collect();
+        assert!(
+            unsupported.is_empty(),
+            "{rel_path} reported unsupported-feature warnings: {unsupported:?}"
+        );
+
+        let slug = Path::new(rel_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("retro");
+        let out_dir = temp_dir.join(slug);
+        let options = PublishOptions {
+            fonts: FontExportPolicy::Device,
+            size: SizeLevel::Full,
+            audio: AudioExportPolicy::Original,
+        };
+        let index_path = export_project_with_options(&project, &out_dir, &runtime_dir, &options)
+            .unwrap_or_else(|e| panic!("{rel_path} failed HTML5 export: {e}"));
+        assert!(index_path.exists(), "{rel_path} missing index.html");
+        exported_bundles.push((slug.to_string(), out_dir.join("bundle.js")));
+    }
+
+    let runner_path = temp_dir.join("run-retro-as2-check.mjs");
+    let host_integration_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/host-integration.mjs"));
+    let rust_runtime_url =
+        node_module_url(&root.join("crates/neoflash-script/tests/rust-runtime-host.mjs"));
+
+    let runner_source = format!(
+        r#"import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {{ createRuntimeHost }} from {host_integration_url:?};
+import {{ runtimeWasm }} from {rust_runtime_url:?};
+
+const root = {root_str:?};
+const bundles = {bundles_json};
+
+for (const [slug, bundlePath] of bundles) {{
+  const text = fs.readFileSync(bundlePath, 'utf8');
+  const jsonText = text.replace(/^globalThis\.NeoFlashBundle\s*=\s*/, '').replace(/;\s*$/, '');
+  const bundle = JSON.parse(jsonText);
+  assert.ok(bundle.program && bundle.program.code.length > 0, `${{slug}} missing compiled class program`);
+  assert.ok(Array.isArray(bundle.scripts) && bundle.scripts.length > 0, `${{slug}} missing frame scripts`);
+
+  const player = new runtimeWasm.WebPlayer(JSON.stringify(bundle.project));
+  const compiled = bundle.scripts.map((s, idx) => ({{
+    script: {{ language: s.language, source: s.source }},
+    code: s.code,
+    location: s.location || `script-${{idx}}`,
+  }}));
+
+  const env = createRuntimeHost(root, player, compiled, {{
+    bundle,
+    project: bundle.project,
+    context: {{ measureText: line => ({{ width: Array.from(String(line)).length * 8 }}) }},
+  }});
+  env.host.resetProject();
+  const clip = env.host.proxyFor([]);
+
+  if (slug === 'doom-as2') {{
+    assert.equal(clip.health, 100, 'doom-as2 initial marine health');
+    assert.equal(clip.gameOver, false, 'doom-as2 initial gameOver');
+    assert.ok(Array.isArray(clip.enemies) && clip.enemies.length >= 6, 'doom-as2 enemies spawned');
+  }} else if (slug === 'fallout-as2') {{
+    assert.equal(clip.hp, 36, 'fallout-as2 initial Vault Dweller HP');
+    assert.equal(clip.ap, 9, 'fallout-as2 initial Action Points');
+    assert.equal(clip.inCombat, false, 'fallout-as2 starts in exploration mode');
+    assert.equal(clip.catalog.weapons.pistol10mm.name, '10mm Colt 6520', 'fallout-as2 XML catalog parsed');
+    assert.equal(clip.enemies.length, 8, 'fallout-as2 cavern enemies spawned');
+  }}
+
+  env.host.display().enterFrame();
+  player.tick();
+  env.host.dispatchScripts();
+}}
+"#,
+        host_integration_url = host_integration_url,
+        rust_runtime_url = rust_runtime_url,
+        root_str = root.display().to_string(),
+        bundles_json = serde_json::to_string(&exported_bundles).unwrap(),
+    );
+
+    fs::write(&runner_path, runner_source).expect("write retro-as2 runner");
+    let output = Command::new(node_binary())
+        .arg(&runner_path)
+        .current_dir(&root)
+        .output()
+        .expect("run node retro-as2 check");
+
+    if !output.status.success() {
+        panic!(
+            "Doom & Fallout AS2 runtime test failed:\nSTDOUT:\n{}\nSTDERR:\n{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );

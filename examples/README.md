@@ -32,6 +32,13 @@ This folder contains structured reference projects demonstrating NeoFlash author
 | `07-sound-video-loadpublish.nflash` | `Sound`/`SoundChannel`/`SoundTransform` (`WAV`), `Video`/`NetStream` (`AVI`), and `flash.display.Loader` mounting a published NeoFlash bundle (`loadPublish`). |
 | `08-interactive-arcade-miniapp.nflash` | *Neon Defender* — playable AS3 arcade mini-game with `KeyboardEvent` & auto-pilot modes, `Sprite` starfield, collision scoring, and `R`-key restart. |
 
+## Headless-Authored ActionScript 2 Retro Games (`T-487`, `T-490`)
+
+| File | Capabilities Covered |
+| --- | --- |
+| `doom-as2.nflash` | *DOOM: E1M1 Hangar (AS2)* — authored 100% via `neoflash-editor --headless` (`batch` + `import` + `jsfl`). 320-column DDA raycaster (`MovieClip.beginBitmapFill` over `ColorTransform`-lit `BitmapData` textures), 1D Z-buffered billboards, hitscan Pistol & Pump Shotgun, synthesized PCM `WAV` SFX (`Sound.attachSound`), reactive HUD, and `M`/`Tab` wireframe Automap. |
+| `fallout-as2.nflash` | *FALLOUT: Vault 13 Cavern Exit (AS2)* — authored 100% via `neoflash-editor --headless` (`batch` + `import` + `jsfl`). 20×20 isometric diamond cavern with Bresenham LoS & Fog of War, 8-way A\* pathfinding, real-time exploration + Action-Point turn-based combat, V.A.T.S. wireframe called-shot modal (`EYES`/`HEAD`/`TORSO`/`GROIN`/`LEGS`), Inventory, S.P.E.C.I.A.L. character sheet, Pip-Boy 2000 Automap, `GlowFilter` radiation pools, `XML` catalog parsing, `SharedObject` quick-save/load (`F5`/`F9`), and 10 synthesized PCM `WAV` SFX. |
+
 ## Animated Series — *Midnight Express*
 
 - `midnight-express.nflash` — Episode 1
