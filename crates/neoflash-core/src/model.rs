@@ -3803,6 +3803,23 @@ impl Project {
     pub const DOCUMENT_ACCESSIBILITY_RESOURCE_PATH: &'static str = "accessibility/document.json";
     pub const SHARED_LIBRARIES_RESOURCE_PATH: &'static str = "library/shared_libraries.json";
     pub const PUBLISH_SETTINGS_RESOURCE_PATH: &'static str = "publish/settings.json";
+    pub const FONTS_METADATA_RESOURCE_PATH: &'static str = "neoflash/fonts.json";
+    pub const FONT_EMBEDDING_RESOURCE_PATH: &'static str = "fonts/embedding.json";
+
+    /// Returns `true` when `res` is an internal NeoFlash document metadata or provenance
+    /// sidecar rather than a user-imported media/data asset.
+    pub fn is_internal_metadata_resource(res: &crate::ResourceUnit) -> bool {
+        let p = res.path.trim();
+        p.eq_ignore_ascii_case(Self::SWATCHES_RESOURCE_PATH)
+            || p.eq_ignore_ascii_case(Self::GLOBAL_SWATCHES_RESOURCE_PATH)
+            || p.eq_ignore_ascii_case(Self::VECTOR_STYLES_RESOURCE_PATH)
+            || p.eq_ignore_ascii_case(Self::DOCUMENT_ACCESSIBILITY_RESOURCE_PATH)
+            || p.eq_ignore_ascii_case(Self::SHARED_LIBRARIES_RESOURCE_PATH)
+            || p.eq_ignore_ascii_case(Self::PUBLISH_SETTINGS_RESOURCE_PATH)
+            || p.eq_ignore_ascii_case(Self::FONTS_METADATA_RESOURCE_PATH)
+            || p.eq_ignore_ascii_case(Self::FONT_EMBEDDING_RESOURCE_PATH)
+            || p.starts_with("neoflash/")
+    }
 
     /// Shared Library linkage entries stored portably in the project (`T-128`).
     pub fn shared_libraries(&self) -> Vec<SharedLibraryLinkage> {

@@ -849,6 +849,7 @@ pub struct SwfBytecodePlayer {
     frame_audio_events: Vec<SwfAudioEvent>,
     unsupported_diagnostics: Vec<String>,
     frame_unsupported_diagnostics: Vec<String>,
+    max_steps_per_frame: usize,
     stream_sound_active: bool,
     stop_all_sounds_pending: bool,
 
@@ -895,6 +896,10 @@ impl SwfBytecodePlayer {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ImportError> {
         let container = read_container_from_bytes(bytes.to_vec())?;
         Self::from_container(&container)
+    }
+
+    pub fn set_max_steps_per_frame(&mut self, limit: usize) {
+        self.max_steps_per_frame = limit.clamp(1_000, 100_000_000);
     }
 
     pub(crate) fn from_container(container: &SwfContainer) -> Result<Self, ImportError> {
@@ -1163,6 +1168,7 @@ impl SwfBytecodePlayer {
             frame_audio_events: Vec::new(),
             unsupported_diagnostics: Vec::new(),
             frame_unsupported_diagnostics: Vec::new(),
+            max_steps_per_frame: MAX_VM_STEPS_PER_FRAME,
             stream_sound_active: false,
             stop_all_sounds_pending: false,
             avm1_init_actions_executed: false,

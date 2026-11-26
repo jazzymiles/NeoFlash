@@ -91,7 +91,7 @@
   function create({player,geometry,createCanvas,getBinary,getFilters,getFte3D,displayRef,buildDisplayDrawSnapshot,paintScene,onInvalidate,as2,maxCacheBytes=128*1024*1024,maxCacheEntries=256}={}){
     if(!player||!geometry?.Rectangle)throw new TypeError('BitmapData requires the shared Rust Player and Rectangle type.');
     if(!Number.isSafeInteger(maxCacheBytes)||maxCacheBytes<0||!Number.isSafeInteger(maxCacheEntries)||maxCacheEntries<0)throw new RangeError('Bitmap cache budgets must be nonnegative safe integers.');
-    const references=new WeakMap(),facades=new Map(),uploads=new Map(),locks=new Map(),partialDisplay=new Map();
+    const references=new WeakMap(),metaByKey=new Map(),facades=new Map(),uploads=new Map(),locks=new Map(),partialDisplay=new Map();
     let generation=1,disposed=false,used=new Set(),cacheBytes=0,invalidationFlushes=0;
     let uintVector=values=>Array.from(values,v=>v>>>0),hasUintVector=false;
     let histogramVector=channels=>channels.map(ch=>Array.from(ch,Number));
@@ -109,39 +109,84 @@
     function components(value,names){if(value===null||typeof value!=='object')throw new TypeError('Expected a geometry value object.');const result=names.map(name=>value[name]);if(!result.every(value=>typeof value==='number'&&Number.isFinite(value)))throw new RangeError('BitmapData geometry values must be finite.');return result;}
     function colorTransform(value){if(value===null)return identityColor;const values=components(value,['redMultiplier','greenMultiplier','blueMultiplier','alphaMultiplier','redOffset','greenOffset','blueOffset','alphaOffset']);return {multipliers:values.slice(0,4),offsets:values.slice(4)};}
     function active(){if(disposed)throw new Error('This bitmap service has been disposed.');}
-    function recordOf(value){active();const record=references.get(value);if(!record)throw new TypeError('Expected BitmapData from this publication.');if(record.generation!==generation)throw new Error('This BitmapData belongs to a previous publication session.');if(record.disposed)throw new Error('This BitmapData has been disposed.');return record;}
-    function reference(value){active();const record=references.get(value);if(!record)throw new TypeError('Expected BitmapData from this publication.');if(record.generation!==generation)throw new Error('This BitmapData belongs to a previous publication session.');return record.ref;}
+    function parseU32Field(s){if(typeof s!=='string'||!/^\d+$/.test(s))return null;const n=Number(s);return Number.isSafeInteger(n)&&n>=0&&n<=0xffffffff?n:null;}
+    function ensureMetaRecord(ref,id,meta=null){
+      let rec=metaByKey.get(id);
+      if(!rec){
+        rec={ref,id,idU32:parseU32Field(ref.id),genU32:parseU32Field(ref.generation),disposed:false,width:meta?meta.width:0,height:meta?meta.height:0,transparent:meta?meta.transparent:true,hasMeta:Boolean(meta)};
+        metaByKey.set(id,rec);
+      }else if(meta&&!rec.hasMeta){
+        rec.width=meta.width;rec.height=meta.height;rec.transparent=meta.transparent;rec.hasMeta=true;
+      }
+      return rec;
+    }
+    function recordOf(value){
+      active();
+      const bind=references.get(value);
+      if(!bind)throw new TypeError('Expected BitmapData from this publication.');
+      if(bind.generation!==generation)throw new Error('This BitmapData belongs to a previous publication session.');
+      const rec=ensureMetaRecord(bind.ref,bind.id);
+      if(rec.disposed)throw new Error('This BitmapData has been disposed.');
+      return rec;
+    }
+    function reference(value){active();const bind=references.get(value);if(!bind)throw new TypeError('Expected BitmapData from this publication.');if(bind.generation!==generation)throw new Error('This BitmapData belongs to a previous publication session.');return bind.ref;}
     function descriptor(value){const record=recordOf(value);const result=JSON.parse(native('bitmap_info',record.id));if(result.disposed){record.disposed=true;throw new Error('This BitmapData has been disposed.');}record.width=result.width;record.height=result.height;record.transparent=result.transparent;record.hasMeta=true;return result;}
     function metaOf(value){const record=recordOf(value);if(!record.hasMeta)descriptor(value);return record;}
     function refOf(value){return metaOf(value).ref;}
     function idOf(value){return metaOf(value).id;}
+    function getPix(rec,x,y,alpha){return (rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_get_pixel_u32==='function')?player.bitmap_get_pixel_u32(rec.idU32,rec.genU32,x,y,alpha):player.bitmap_get_pixel(rec.id,x,y,alpha);}
+    function setPix(rec,x,y,c,alpha){if(rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_set_pixel_u32==='function')player.bitmap_set_pixel_u32(rec.idU32,rec.genU32,x,y,c,alpha);else player.bitmap_set_pixel(rec.id,x,y,c,alpha);}
+    function fillRectFast(rec,x,y,w,h,c){if(rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_fill_rect_u32==='function')player.bitmap_fill_rect_u32(rec.idU32,rec.genU32,x,y,w,h,c);else player.bitmap_fill_rect(rec.id,x,y,w,h,c);}
+    function copyPixFast(dst,src,sx,sy,w,h,dx,dy,merge){if(dst.idU32!==null&&dst.genU32!==null&&src.idU32!==null&&src.genU32!==null&&typeof player.bitmap_copy_pixels_u32==='function')player.bitmap_copy_pixels_u32(dst.idU32,dst.genU32,src.idU32,src.genU32,sx,sy,w,h,dx,dy,merge);else player.bitmap_copy_pixels(dst.id,src.id,sx,sy,w,h,dx,dy,merge);}
+    function scrollFast(rec,dx,dy){if(rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_scroll_u32==='function')player.bitmap_scroll_u32(rec.idU32,rec.genU32,dx,dy);else player.bitmap_scroll(rec.id,dx,dy);}
+    function ensureLockBytes(id){
+      const st=locks.get(id);
+      if(!st)return null;
+      if(st.bytes===null){
+        const partial=partialDisplay.get(id);
+        if(partial&&partial.revision===st.lockedRevision){
+          st.bytes=new Uint8Array(partial.bytes);
+        }else if(typeof player.bitmap_locked_pixels==='function'){
+          st.bytes=new Uint8Array(native('bitmap_locked_pixels',id));
+        }else{
+          st.bytes=new Uint8Array(native('bitmap_pixels',id));
+        }
+      }
+      return st.bytes;
+    }
     function fromRef(ref,meta=null){
-      active();const id=key(ref);if(facades.has(id))return facades.get(id);
+      active();const id=key(ref);
+      ensureMetaRecord(ref,id,meta);
+      if(facades.has(id))return facades.get(id);
       const facade=Object.create(BitmapData.prototype);
-      references.set(facade,{ref,id,generation,disposed:false,width:meta?meta.width:0,height:meta?meta.height:0,transparent:meta?meta.transparent:true,hasMeta:Boolean(meta)});
+      references.set(facade,{ref,id,generation});
       if(as2){
         for(const name of ['copyChannel','floodFill','getColorBoundsRect','compare','merge','paletteMap','threshold','hitTest','noise','pixelDissolve','perlinNoise']){
           const method=BitmapData.prototype[name].bind(facade);Object.defineProperty(facade,name,{value:method});
           as2.register(method,facade,name,(...args)=>legacyPixels(facade,name,args));
         }
         {const method=BitmapData.prototype.getPixel.bind(facade);Object.defineProperty(facade,'getPixel',{value:method});
-          as2.register(method,facade,'getPixel',(x,y)=>player.bitmap_get_pixel(idOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),false));}
+          as2.register(method,facade,'getPixel',(x,y)=>getPix(metaOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),false));}
         {const method=BitmapData.prototype.getPixel32.bind(facade);Object.defineProperty(facade,'getPixel32',{value:method});
-          as2.register(method,facade,'getPixel32',(x,y)=>player.bitmap_get_pixel(idOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),true));}
+          as2.register(method,facade,'getPixel32',(x,y)=>getPix(metaOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),true));}
         {const method=BitmapData.prototype.setPixel.bind(facade);Object.defineProperty(facade,'setPixel',{value:method});
-          as2.register(method,facade,'setPixel',(x,y,v)=>{player.bitmap_set_pixel(idOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),as2Color(v),false);});}
+          as2.register(method,facade,'setPixel',(x,y,v)=>{setPix(metaOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),as2Color(v),false);});}
         {const method=BitmapData.prototype.setPixel32.bind(facade);Object.defineProperty(facade,'setPixel32',{value:method});
-          as2.register(method,facade,'setPixel32',(x,y,v)=>{player.bitmap_set_pixel(idOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),as2Color(v),true);});}
+          as2.register(method,facade,'setPixel32',(x,y,v)=>{setPix(metaOf(facade),as2Int(x,'Pixel x'),as2Int(y,'Pixel y'),as2Color(v),true);});}
         {const method=BitmapData.prototype.fillRect.bind(facade);Object.defineProperty(facade,'fillRect',{value:method});
-          as2.register(method,facade,'fillRect',(r,v)=>{player.bitmap_fill_rect(idOf(facade),...as2Rectangle(r),as2Color(v));});}
+          as2.register(method,facade,'fillRect',(r,v)=>{fillRectFast(metaOf(facade),...as2Rectangle(r),as2Color(v));});}
         {const method=BitmapData.prototype.scroll.bind(facade);Object.defineProperty(facade,'scroll',{value:method});
-          as2.register(method,facade,'scroll',(x,y)=>{player.bitmap_scroll(idOf(facade),as2Int(x,'Scroll x'),as2Int(y,'Scroll y'));});}
+          as2.register(method,facade,'scroll',(x,y)=>{scrollFast(metaOf(facade),as2Int(x,'Scroll x'),as2Int(y,'Scroll y'));});}
+        {const method=BitmapData.prototype.lock.bind(facade);Object.defineProperty(facade,'lock',{value:method});
+          as2.register(method,facade,'lock',()=>method());}
+        {const method=BitmapData.prototype.unlock.bind(facade);Object.defineProperty(facade,'unlock',{value:method});
+          as2.register(method,facade,'unlock',(changeRect=null)=>unlockImpl(facade,changeRect===null||changeRect===undefined?null:as2Rectangle(changeRect)));}
         {const method=BitmapData.prototype.copyPixels.bind(facade);Object.defineProperty(facade,'copyPixels',{value:method});
           as2.register(method,facade,'copyPixels',(source,sourceRect,destPoint,alphaBitmap=null,alphaPoint=null,mergeAlpha=false)=>{
             if(alphaBitmap===null){
               if(typeof mergeAlpha!=='boolean')throw new TypeError('copyPixels mergeAlpha requires a Boolean.');
               if(alphaPoint!==null)as2Point(alphaPoint);
-              player.bitmap_copy_pixels(idOf(facade),idOf(source),...as2Rectangle(sourceRect),...as2Point(destPoint),mergeAlpha);
+              copyPixFast(metaOf(facade),metaOf(source),...as2Rectangle(sourceRect),...as2Point(destPoint),mergeAlpha);
               return;
             }
             if(typeof mergeAlpha!=='boolean')throw new TypeError('copyPixels mergeAlpha requires a Boolean.');
@@ -217,6 +262,45 @@
       if(name==='compare'&&result&&typeof result==='object')return fromRef({id:result.id,generation:result.generation});
       return result===null?undefined:result;
     }
+    function unlockImpl(receiver,rect){
+      const rec=metaOf(receiver),id=rec.id;
+      const st=locks.get(id);
+      if(!st){
+        if(rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_unlock_u32==='function')native('bitmap_unlock_u32',rec.idU32,rec.genU32);
+        return;
+      }
+      st.depth--;
+      if(st.depth>0){
+        if(rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_unlock_u32==='function')native('bitmap_unlock_u32',rec.idU32,rec.genU32);
+        return;
+      }
+      const preUnlockBase=rect!==null?ensureLockBytes(id):null;
+      const currentRev=(rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_unlock_u32==='function')
+        ?String(native('bitmap_unlock_u32',rec.idU32,rec.genU32))
+        :String(descriptor(receiver).revision);
+      locks.delete(id);
+      if(currentRev===st.lockedRevision&&!partialDisplay.has(id))return;
+      for(const [entry,record] of uploads)if(record.pixelKey===id)drop(entry);
+      let dirtyRect={x:0,y:0,width:rec.width,height:rec.height};
+      if(rect!==null){
+        const x0=Math.max(0,Math.min(rec.width,rect[0])),y0=Math.max(0,Math.min(rec.height,rect[1]));
+        const x1=Math.max(0,Math.min(rec.width,rect[0]+Math.max(0,rect[2]))),y1=Math.max(0,Math.min(rec.height,rect[1]+Math.max(0,rect[3])));
+        dirtyRect={x:x0,y:y0,width:x1-x0,height:y1-y0};
+        const merged=new Uint8Array(preUnlockBase);
+        if(x1>x0&&y1>y0){
+          const live=native('bitmap_pixels',id);
+          for(let py=y0;py<y1;py++){
+            const rowStart=(py*rec.width+x0)*4,rowEnd=(py*rec.width+x1)*4;
+            merged.set(live.subarray(rowStart,rowEnd),rowStart);
+          }
+        }
+        partialDisplay.set(id,{revision:currentRev,bytes:merged,token:(partialDisplay.get(id)?.token||0)+1});
+      }else{
+        partialDisplay.delete(id);
+      }
+      invalidationFlushes++;
+      onInvalidate?.(id,dirtyRect);
+    }
     class BitmapData {
       constructor(width,height,transparent=true,fillColor=0xffffffff){
         active();
@@ -231,11 +315,11 @@
       get transparent(){return metaOf(this).transparent;}
       get rect(){const info=metaOf(this);return new geometry.Rectangle(0,0,info.width,info.height);}
       get rectangle(){return this.rect;}
-      getPixel(x,y){return player.bitmap_get_pixel(idOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),false);}
-      getPixel32(x,y){return player.bitmap_get_pixel(idOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),true);}
-      setPixel(x,y,value){player.bitmap_set_pixel(idOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),color(value),false);}
-      setPixel32(x,y,value){player.bitmap_set_pixel(idOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),color(value),true);}
-      fillRect(rect,value){player.bitmap_fill_rect(idOf(this),...rectangle(rect),color(value));}
+      getPixel(x,y){return getPix(metaOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),false);}
+      getPixel32(x,y){return getPix(metaOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),true);}
+      setPixel(x,y,value){setPix(metaOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),color(value),false);}
+      setPixel32(x,y,value){setPix(metaOf(this),integer(x,'Pixel x'),integer(y,'Pixel y'),color(value),true);}
+      fillRect(rect,value){fillRectFast(metaOf(this),...rectangle(rect),color(value));}
       copyPixels(source,sourceRect,destPoint,alphaBitmapData=null,alphaPoint=null,mergeAlpha=false){
         if(typeof mergeAlpha!=='boolean')throw new TypeError('copyPixels mergeAlpha requires a Boolean.');
         if(alphaBitmapData!==null){
@@ -244,7 +328,7 @@
           return;
         }
         if(alphaPoint!==null)point(alphaPoint);
-        player.bitmap_copy_pixels(idOf(this),idOf(source),...rectangle(sourceRect),...point(destPoint),mergeAlpha);
+        copyPixFast(metaOf(this),metaOf(source),...rectangle(sourceRect),...point(destPoint),mergeAlpha);
       }
       copyChannel(...args){return legacyPixels(this,'copyChannel',args);}
       floodFill(...args){return legacyPixels(this,'floodFill',args);}
@@ -258,42 +342,22 @@
       perlinNoise(...args){return legacyPixels(this,'perlinNoise',args);}
       pixelDissolve(...args){return legacyPixels(this,'pixelDissolve',args);}
       lock(){
-        const info=descriptor(this),id=key(reference(this));
+        const rec=metaOf(this),id=rec.id;
+        const lockedRevision=(rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_lock_u32==='function')
+          ?String(native('bitmap_lock_u32',rec.idU32,rec.genU32))
+          :String(descriptor(this).revision);
         const existing=locks.get(id);
         if(existing){existing.depth++;return;}
-        const partial=partialDisplay.get(id);
-        const snapBytes=(partial&&partial.revision===info.revision)?new Uint8Array(partial.bytes):new Uint8Array(native('bitmap_pixels',id));
-        locks.set(id,{depth:1,lockedRevision:info.revision,bytes:snapBytes,width:info.width,height:info.height});
+        const canLazyCow=rec.idU32!==null&&rec.genU32!==null&&typeof player.bitmap_lock_u32==='function'&&typeof player.bitmap_locked_pixels==='function';
+        let snapBytes=null;
+        if(!canLazyCow){
+          const partial=partialDisplay.get(id);
+          snapBytes=(partial&&partial.revision===lockedRevision)?new Uint8Array(partial.bytes):new Uint8Array(native('bitmap_pixels',id));
+        }
+        locks.set(id,{depth:1,lockedRevision,bytes:snapBytes,width:rec.width,height:rec.height});
       }
       unlock(changeRect=null){
-        const info=descriptor(this),id=key(reference(this));
-        const rect=changeRect===null?null:rectangle(changeRect);
-        const st=locks.get(id);
-        if(!st)return;
-        st.depth--;
-        if(st.depth>0)return;
-        locks.delete(id);
-        if(info.revision===st.lockedRevision&&!partialDisplay.has(id))return;
-        for(const [entry,record] of uploads)if(record.pixelKey===id)drop(entry);
-        let dirtyRect={x:0,y:0,width:info.width,height:info.height};
-        if(rect!==null){
-          const x0=Math.max(0,Math.min(info.width,rect[0])),y0=Math.max(0,Math.min(info.height,rect[1]));
-          const x1=Math.max(0,Math.min(info.width,rect[0]+Math.max(0,rect[2]))),y1=Math.max(0,Math.min(info.height,rect[1]+Math.max(0,rect[3])));
-          dirtyRect={x:x0,y:y0,width:x1-x0,height:y1-y0};
-          const merged=new Uint8Array(st.bytes);
-          if(x1>x0&&y1>y0){
-            const live=native('bitmap_pixels',id);
-            for(let py=y0;py<y1;py++){
-              const rowStart=(py*info.width+x0)*4,rowEnd=(py*info.width+x1)*4;
-              merged.set(live.subarray(rowStart,rowEnd),rowStart);
-            }
-          }
-          partialDisplay.set(id,{revision:info.revision,bytes:merged,token:(partialDisplay.get(id)?.token||0)+1});
-        }else{
-          partialDisplay.delete(id);
-        }
-        invalidationFlushes++;
-        onInvalidate?.(id,dirtyRect);
+        unlockImpl(this,changeRect===null?null:rectangle(changeRect));
       }
       getVector(rect){
         const ref=key(refOf(this)),area=rectangle(rect),bytes=native('bitmap_get_pixels',ref,...area,false);
@@ -315,8 +379,8 @@
         for(let i=0;i<count;i++)view.setUint32(i*4,values[i]>>>0,false);
         native('bitmap_set_pixels',ref,rx,ry,rw,rh,bytes,false);
       }
-      clone(){return fromRef(JSON.parse(player.bitmap_clone(key(refOf(this)))));}
-      scroll(x,y){player.bitmap_scroll(key(refOf(this)),integer(x,'Scroll x'),integer(y,'Scroll y'));}
+      clone(){const info=metaOf(this);return fromRef(JSON.parse(player.bitmap_clone(info.id)),{width:info.width,height:info.height,transparent:info.transparent});}
+      scroll(x,y){scrollFast(metaOf(this),integer(x,'Scroll x'),integer(y,'Scroll y'));}
       getPixels(rect){const ref=key(refOf(this)),area=rectangle(rect),result=binary().fromBytes(native('bitmap_get_pixels',ref,...area,false));result.position=result.length;return result;}
       copyPixelsToByteArray(rect,bytes){const ref=key(refOf(this)),area=rectangle(rect);binary().writeFromHost(bytes,little=>native('bitmap_get_pixels',ref,...area,little));}
       setPixels(rect,bytes){
@@ -746,11 +810,11 @@
         }
         this.draw(source,matrix,transform,blendMode,clipRect,smoothing,quality);
       }
-      dispose(){const record=references.get(this);const ref=reference(this),id=record?record.id:key(ref);if(record)record.disposed=true;locks.delete(id);partialDisplay.delete(id);player.bitmap_dispose(id);for(const [entry,uRec]of uploads)if(uRec.pixelKey===id)drop(entry);}
+      dispose(){const bind=references.get(this);const ref=reference(this),id=bind?bind.id:key(ref);const rec=metaByKey.get(id);if(rec)rec.disposed=true;locks.delete(id);partialDisplay.delete(id);player.bitmap_dispose(id);for(const [entry,uRec]of uploads)if(uRec.pixelKey===id)drop(entry);}
     }
     Object.defineProperties(BitmapData,{__nfIs:{value:value=>references.has(value)},__nfInitialize:{value:()=>unsupported('native subclassing')},loadBitmap:{value:()=>unsupported('loadBitmap library linkage')}});
     Object.defineProperty(BitmapData,Symbol.hasInstance,{value:BitmapData.__nfIs});
-    if(as2)as2.register(BitmapData.loadBitmap,BitmapData,'loadBitmap',id=>{if(typeof id!=='string')throw new TypeError('BitmapData.loadBitmap requires a linkage or image resource identifier string.');const reference=JSON.parse(native('as2_bitmap_load',id));return reference===null?null:fromRef({id:reference.id,generation:reference.generation});});
+    if(as2)as2.register(BitmapData.loadBitmap,BitmapData,'loadBitmap',id=>{if(typeof id!=='string')throw new TypeError('BitmapData.loadBitmap requires a linkage or image resource identifier string.');const reference=JSON.parse(native('as2_bitmap_load',id));if(reference===null)return null;const facade=fromRef({id:reference.id,generation:reference.generation});descriptor(facade);return facade;});
     function release(record){record.canvas.width=0;record.canvas.height=0;}
     function drop(id){const record=uploads.get(id);if(!record)return;release(record);cacheBytes-=record.cost;uploads.delete(id);}
     function canvas(width,height){
@@ -792,7 +856,7 @@
       }
       if(cost<=maxCacheBytes&&maxCacheEntries>0)while(uploads.size&&(cacheBytes+cost>maxCacheBytes||uploads.size>=maxCacheEntries))drop(uploads.keys().next().value);
       const identity=colorTransform.multipliers.every(value=>value===1)&&colorTransform.offsets.every(value=>value===0);
-      const bytes=lockState?applyColorTransformRgba(lockState.bytes,colorTransform)
+      const bytes=lockState?applyColorTransformRgba(ensureLockBytes(pixelKey),colorTransform)
         :activePartial?applyColorTransformRgba(activePartial.bytes,colorTransform)
         :(identity?native('bitmap_pixels',pixelKey):native('bitmap_pixels_transformed',pixelKey,colorKey));
       if(bytes.length!==kind.width*kind.height*4)throw new Error('Rust bitmap dimensions do not match its RGBA buffer.');
@@ -840,7 +904,7 @@
       isLocked(bmd){const id=key(reference(bmd));return locks.has(id);},
       effectivePixels(pixelKey,colorTransform=identityColor){
         const lockState=locks.get(pixelKey);
-        if(lockState)return applyColorTransformRgba(lockState.bytes,colorTransform);
+        if(lockState)return applyColorTransformRgba(ensureLockBytes(pixelKey),colorTransform);
         const partial=partialDisplay.get(pixelKey);
         if(partial)return applyColorTransformRgba(partial.bytes,colorTransform);
         const identity=colorTransform.multipliers.every(v=>v===1)&&colorTransform.offsets.every(v=>v===0);
@@ -849,7 +913,7 @@
       endFrame(){for(const id of uploads.keys())if(!used.has(id))drop(id);},
       clear(){for(const id of [...uploads.keys()])drop(id);used.clear();},
     });
-    function reset(){active();cache.clear();facades.clear();locks.clear();partialDisplay.clear();invalidationFlushes=0;generation++;}
+    function reset(){active();cache.clear();metaByKey.clear();facades.clear();locks.clear();partialDisplay.clear();invalidationFlushes=0;generation++;}
     function dispose(){if(disposed)return;reset();disposed=true;}
     return Object.freeze({BitmapData,BitmapDataChannel,BitmapEncodingColorSpace,PixelSnapping,PNGEncoderOptions,JPEGEncoderOptions,JPEGXREncoderOptions,setUintVectorFactory,setHistogramVectorFactory,fromRef,refOf,cache,createCanvas:canvas,reset,dispose});
   }

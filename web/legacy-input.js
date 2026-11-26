@@ -26,7 +26,7 @@
     }
     const keyListeners = new Set(), mouseListeners = new Set(), stageListeners = new Set();
     const pressed = new Set(), subscriptions = [];
-    let disposed = false, generation = 0, code = 0, ascii = 0, visible = true, lastMovementX = 0, lastMovementY = 0;
+    let disposed = false, generation = 0, code = 0, ascii = 0, visible = true, lastMovementX = 0, lastMovementY = 0, keyUsed = false;
     const listenerLimit = 1024;
     function active() { if (disposed) throw new Error('This legacy input adapter has been disposed.'); }
     function add(listeners, listener) {
@@ -85,7 +85,7 @@
       subscribe('mouseMove', event => {
         lastMovementX = Number(event?.movementX) || 0;
         lastMovementY = Number(event?.movementY) || 0;
-        broadcast(mouseListeners, 'onMouseMove', [lastMovementX, lastMovementY]);
+        broadcast(mouseListeners, 'onMouseMove');
       });
       subscribe('mouseWheel', event => broadcast(mouseListeners, 'onMouseWheel', [event.delta, event.target]));
       subscribe('resize', () => broadcast(stageListeners, 'onResize'));
@@ -101,16 +101,16 @@
     function clear() {
       generation++;
       keyListeners.clear(); mouseListeners.clear(); stageListeners.clear();
-      pressed.clear(); code = 0; ascii = 0; lastMovementX = 0; lastMovementY = 0;
+      pressed.clear(); code = 0; ascii = 0; lastMovementX = 0; lastMovementY = 0; keyUsed = false;
     }
     function blur() { pressed.clear(); }
     const Key = Object.freeze({ ...constants,
       get _listeners() { return Object.freeze([...keyListeners]); },
       isAccessible() { active(); return true; },
       isToggled(value) { active(); if (!options.platform) throw new Error('Key.isToggled requires the Rust AS2 platform adapter.'); return options.platform.isToggled(value); },
-      isDown(value) { return pressed.has(Number(value) | 0); },
-      getCode() { return code; }, getAscii() { return ascii; },
-      addListener(listener) { add(keyListeners, listener); },
+      isDown(value) { keyUsed = true; return pressed.has(Number(value) | 0); },
+      getCode() { keyUsed = true; return code; }, getAscii() { keyUsed = true; return ascii; },
+      addListener(listener) { keyUsed = true; add(keyListeners, listener); },
       removeListener(listener) { return keyListeners.delete(listener); },
     });
     const Mouse = Object.freeze({
@@ -146,7 +146,7 @@
     bind(); options.keyTarget?.addEventListener?.('blur', blur);
     options.keyTarget?.addEventListener?.('keydown', observeKey, true);
     options.keyTarget?.addEventListener?.('keyup', observeKey, true);
-    return Object.freeze({ Key, Mouse, Stage, reset, dispose, hasKeyListeners: () => keyListeners.size > 0 || pressed.size > 0, broadcastStage:(name,args=[])=>{active();broadcast(stageListeners,name,args);} });
+    return Object.freeze({ Key, Mouse, Stage, reset, dispose, hasKeyListeners: () => keyListeners.size > 0 || keyUsed, broadcastStage:(name,args=[])=>{active();broadcast(stageListeners,name,args);} });
   }
   const api = Object.freeze({ create });
   global.NeoFlashLegacyInput = api;

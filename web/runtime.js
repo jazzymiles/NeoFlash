@@ -106,7 +106,6 @@
   // In browser DOM hosts we compile user scripts via disjoint-line `<script>` elements so
   // Safari, Chrome, and Firefox all report exact 1-based line & column numbers; non-DOM
   // hosts (Node/VM tests) transparently fall back to calibrated `new Function`.
-  const MAX_DOM_SCRIPT_LINE_BASE = 8192;
   let nextDomScriptLineBase = 200;
   function tryCompileDomScriptUnit(unit, paramList, headerLines, bodyCode, footerCode, url) {
     if (typeof document === 'undefined' || !document?.head || typeof document.createElement !== 'function' || typeof document.head.appendChild !== 'function') {
@@ -114,9 +113,6 @@
     }
     if (!unit?.source_map && !(Array.isArray(unit?.source_locations) && unit.source_locations.length > 0)) {
       return null;
-    }
-    if (nextDomScriptLineBase > MAX_DOM_SCRIPT_LINE_BASE) {
-      nextDomScriptLineBase = 200;
     }
     const lineBase = nextDomScriptLineBase;
     const padding = '\n'.repeat(lineBase - 1);
@@ -1789,6 +1785,9 @@
         if (typeof bundle.wasm === 'string') {
           compiledModule = await compileWasmBase64Once(bundle.wasm);
         } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+          if (bundle.publish?.omit_file_fallback || bundle.player_config?.omit_file_fallback) {
+            throw new Error('This HTML5 export was published with --no-file-fallback for HTTP(S) hosting and cannot load WebAssembly from file://. Serve the folder over HTTP(S) or republish without --no-file-fallback.');
+          }
           const fallbackB64 = await ensureFallbackBase64Wasm();
           if (typeof fallbackB64 === 'string') {
             compiledModule = await compileWasmBase64Once(fallbackB64);
@@ -1819,6 +1818,9 @@
       } else if (typeof bundle.wasm === 'string') {
         await instanceWasm({ module_or_path: Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0)) });
       } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+        if (bundle.publish?.omit_file_fallback || bundle.player_config?.omit_file_fallback) {
+          throw new Error('This HTML5 export was published with --no-file-fallback for HTTP(S) hosting and cannot load WebAssembly from file://. Serve the folder over HTTP(S) or republish without --no-file-fallback.');
+        }
         const fallbackB64 = await ensureFallbackBase64Wasm();
         if (typeof fallbackB64 === 'string') {
           await instanceWasm({ module_or_path: Uint8Array.from(atob(fallbackB64), character => character.charCodeAt(0)) });
@@ -2416,7 +2418,7 @@
           getStage3Ds:()=>fte3dHost?.getStage3Ds()||[],getStageVideos:()=>as3MediaEventsHost?as3MediaEventsHost.getStageVideos():(fte3dHost?.getStageVideos()||[]),getSoftKeyboardRect:()=>fte3dHost?fte3dHost.getSoftKeyboardRect():new geometryHost.Rectangle(0,0,0,0),
           numChildren:()=>{if(!display||(typeof player.runtime_snapshot_json!=='function'&&typeof player.display_nodes_json!=='function'))return 1;return graphMode?display.stageContainer.numChildren():(display.nodes().filter(node=>node.on_stage!==false&&node.path.length===0).length||1);},
           frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
-          canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
+          canvas:typeof canvas==='undefined'?null:canvas,pointerLockTarget:(typeof isDomModeBundle!=='undefined'&&isDomModeBundle)?(typeof stageSurface!=='undefined'&&stageSurface?stageSurface:(typeof viewport==='undefined'?null:viewport)):(typeof canvas==='undefined'?null:canvas),keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
           fallbackWindowKeys:typeof isStandaloneInstance!=='undefined'&&Boolean(isStandaloneInstance),
           hasLegacyKeyListeners:()=>Boolean(legacyHost?.hasKeyListeners?.()),
           parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
@@ -3734,7 +3736,8 @@
         }
         return null;
       };
-      program=typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program,bundle.as_prelude):new Function('__nfBuiltins', (typeof bundle.as_prelude==='string'&&bundle.as_prelude?String(bundle.program.code||'').replace('/*__NF_AS_PRELUDE__*/',()=>bundle.as_prelude):bundle.program.code) + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : {
+      const resolveProgramCode=(code,prelude)=>{if(typeof hydrateAsPrelude==='function')return hydrateAsPrelude(code,prelude);if(typeof code!=='string'||typeof prelude!=='string'||!prelude)return code;const marker='/*__NF_AS_PRELUDE__*/',idx=code.indexOf(marker);if(idx<0)return code;let nl=0;for(let i=0;i<prelude.length;i++)if(prelude.charCodeAt(i)===10)nl++;let end=idx+marker.length;while(nl>0&&code.charCodeAt(end)===10){end++;nl--;}return code.slice(0,idx)+prelude+code.slice(end);};
+      program=typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program,bundle.as_prelude):new Function('__nfBuiltins', resolveProgramCode(bundle.program.code, bundle.as_prelude) + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
@@ -5123,13 +5126,18 @@
     canvas.addEventListener('pointermove',guardHostCallback(event=>{const hit=hitAt(event);pointerOverContent=Boolean(hit&&display.handCursor(graphMode?proxyForRef(hit):proxyFor(hit)));updateCursor();}));
     canvas.addEventListener('pointerleave', guardHostCallback(() => { pointerOverContent=false;updateCursor(); }));
     function restoreStageFocus(fromControl = null) {
-      if (familyDisposed || (typeof runtimeDisposed !== 'undefined' && runtimeDisposed) || !canvas || typeof canvas.focus !== 'function') return;
+      if (familyDisposed || (typeof runtimeDisposed !== 'undefined' && runtimeDisposed)) return;
+      const canvasHidden = !canvas || (typeof global.getComputedStyle === 'function' && global.getComputedStyle(canvas)?.visibility === 'hidden');
+      const targetEl = (!canvasHidden && typeof canvas?.focus === 'function')
+        ? canvas
+        : (typeof viewport !== 'undefined' && typeof viewport?.focus === 'function' ? viewport : null);
+      if (!targetEl) return;
       const active = instanceDoc?.activeElement || null;
-      if (active && textInputHost?.owns?.(active)) return;
+      if (active && (domStageHost || textInputHost)?.owns?.(active)) return;
       if (fromControl && active === fromControl && typeof fromControl.blur === 'function') {
         try { fromControl.blur(); } catch (_) {}
       }
-      try { canvas.focus({ preventScroll: true }); } catch (_) { try { canvas.focus(); } catch (_) {} }
+      try { targetEl.focus({ preventScroll: true }); } catch (_) { try { targetEl.focus(); } catch (_) {} }
     }
     toggle?.addEventListener('click', guardHostCallback(() => {
       player.set_playing(!player.is_playing());

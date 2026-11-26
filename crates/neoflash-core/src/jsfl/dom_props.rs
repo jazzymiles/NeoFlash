@@ -641,7 +641,21 @@ impl<'a> JsflVm<'a> {
                         Ok(())
                     }
                     "currentTimeline" => {
-                        let idx = val.as_number().unwrap_or(0.0) as usize;
+                        let Some(raw_idx) = val.as_number() else {
+                            return Err(self.err(
+                                span,
+                                "Document.currentTimeline must be a non-negative integer scene index.",
+                            ));
+                        };
+                        if !raw_idx.is_finite() || raw_idx < 0.0 || raw_idx.fract() != 0.0 {
+                            return Err(self.err(
+                                span,
+                                format!(
+                                    "Invalid scene index {raw_idx} for Document.currentTimeline."
+                                ),
+                            ));
+                        }
+                        let idx = raw_idx as usize;
                         let scenes = self.project.scene_ids();
                         let Some(target) = scenes.get(idx) else {
                             return Err(self.err(

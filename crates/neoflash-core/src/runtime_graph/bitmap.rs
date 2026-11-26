@@ -532,6 +532,15 @@ impl Player {
     pub fn bitmap_dispose(&mut self, reference: &PixelRef) -> Result<(), BitmapError> {
         self.graph.pixels.dispose(reference)
     }
+    pub fn bitmap_lock(&mut self, reference: &PixelRef) -> Result<String, BitmapError> {
+        self.graph.pixels.lock(reference)
+    }
+    pub fn bitmap_unlock(&mut self, reference: &PixelRef) -> Result<String, BitmapError> {
+        self.graph.pixels.unlock(reference)
+    }
+    pub fn bitmap_locked_pixels(&self, reference: &PixelRef) -> Result<Vec<u8>, BitmapError> {
+        self.graph.pixels.locked_pixels(reference)
+    }
     fn bitmap_object(
         &self,
         project: &Project,

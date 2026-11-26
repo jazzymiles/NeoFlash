@@ -98,9 +98,10 @@ impl SwfBytecodePlayer {
             return None;
         }
         let outcome = self.run_avm1_range(code, 0, code.len(), stack, locals, steps, depth);
-        if *steps >= MAX_VM_STEPS_PER_FRAME {
+        if *steps >= self.max_steps_per_frame {
             self.record_unsupported_diagnostic(format!(
-                "AVM1 execution reached bounded per-frame step limit ({MAX_VM_STEPS_PER_FRAME})"
+                "AVM1 execution reached bounded per-frame step limit ({})",
+                self.max_steps_per_frame
             ));
         }
         match outcome {
@@ -126,7 +127,7 @@ impl SwfBytecodePlayer {
         let mut pc = start_pc.min(limit);
         while pc >= start_pc
             && pc < limit
-            && *steps < MAX_VM_STEPS_PER_FRAME
+            && *steps < self.max_steps_per_frame
             && self.avm1_thrown.is_none()
         {
             *steps += 1;
@@ -1259,7 +1260,7 @@ impl SwfBytecodePlayer {
                         && let Some(thrown_val) = self.avm1_thrown.take()
                     {
                         stack.truncate(saved_stack_len);
-                        if has_catch && *steps < MAX_VM_STEPS_PER_FRAME {
+                        if has_catch && *steps < self.max_steps_per_frame {
                             if let Some(reg) = catch_reg {
                                 self.avm1_registers[usize::from(reg)] = thrown_val;
                             } else if let Some(var_name) = catch_var
@@ -1301,7 +1302,7 @@ impl SwfBytecodePlayer {
 
                     let should_run_finally = has_finally
                         && finally_size > 0
-                        && *steps < MAX_VM_STEPS_PER_FRAME
+                        && *steps < self.max_steps_per_frame
                         && matches!(
                             body_outcome,
                             Avm1RangeOutcome::NormalEnd

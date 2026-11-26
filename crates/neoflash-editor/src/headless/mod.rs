@@ -102,6 +102,7 @@ pub(crate) struct EvalOptions {
     pub(crate) scripts: bool,
     pub(crate) strict: bool,
     pub(crate) vm: EvalVmMode,
+    pub(crate) max_steps: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1169,7 +1170,7 @@ fn subcommand_help_text(topic: &str) -> Option<&'static str> {
             Some("Usage: neoflash-editor --headless compile --project <file.nflash> [--strict]")
         }
         "eval" => Some(
-            "Usage: neoflash-editor --headless eval --project <file.nflash> [--scene ID|NAME] [--symbol ID|NAME] [--frame N | --frames START..=END] [--scripts]",
+            "Usage: neoflash-editor --headless eval --project <file.nflash> [--scene ID|NAME] [--symbol ID|NAME] [--frame N | --frames START..=END] [--scripts] [--vm preview|swf] [--strict] [--max-steps N]",
         ),
         "jsfl" => Some(
             "Usage: neoflash-editor --headless jsfl --project <file.nflash> (--script FILE | --eval CODE | --stdin) [--out FILE | --in-place] [--symbol ID|NAME] [--frame N] [--flfile-root DIR] [--allow-read DIR] [--allow-write DIR] [--allow-delete]",
@@ -2583,6 +2584,7 @@ fn run_cmd_eval<W1: Write>(
     let mut scripts = false;
     let mut strict = false;
     let mut vm = EvalVmMode::Preview;
+    let mut max_steps: Option<usize> = None;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -2602,6 +2604,19 @@ fn run_cmd_eval<W1: Write>(
             }
             "--scripts" => scripts = true,
             "--strict" => strict = true,
+            "--max-steps" => {
+                let raw = take_flag_value(args, &mut i, "--max-steps")?;
+                let parsed = raw.parse::<usize>().map_err(|_| {
+                    CliError::usage("invalid_argument", format!("Invalid --max-steps '{raw}'"))
+                })?;
+                if parsed == 0 {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--max-steps must be greater than 0",
+                    ));
+                }
+                max_steps = Some(parsed);
+            }
             "--vm" => {
                 let raw = take_flag_value(args, &mut i, "--vm")?;
                 vm = match raw.trim().to_ascii_lowercase().as_str() {
@@ -2657,6 +2672,7 @@ fn run_cmd_eval<W1: Write>(
             scripts,
             strict,
             vm,
+            max_steps,
         },
     )?;
 
@@ -2740,8 +2756,12 @@ pub(crate) fn evaluate_loaded_project_frame(
         ));
     }
 
-    let mut playback =
-        AuthoredPlayback::with_live_scripts(&eval_project, &sym_id, opts.start_frame, opts.scripts);
+    let mut playback = AuthoredPlayback::with_live_scripts_for_cli(
+        &eval_project,
+        &sym_id,
+        opts.start_frame,
+        opts.scripts,
+    );
     playback.set_looping(false);
 
     let mut all_traces: Vec<String> = Vec::new();
@@ -2761,16 +2781,7 @@ pub(crate) fn evaluate_loaded_project_frame(
         let actual_frame = playback.frame();
         let halted = playback.is_root_halted_by_script();
         let step_traces = playback.drain_traces();
-        let step_diags: Vec<String> = playback
-            .drain_diagnostics()
-            .into_iter()
-            .map(|d| {
-                d.replace(
-                    " — use Test Movie (Cmd+Return) for full runtime execution.",
-                    " — use `--headless eval --vm swf` or HTML5 export for full runtime execution.",
-                )
-            })
-            .collect();
+        let step_diags: Vec<String> = playback.drain_diagnostics();
         all_traces.extend(step_traces.iter().cloned());
         all_diagnostics.extend(step_diags.iter().cloned());
 
@@ -2847,28 +2858,19 @@ fn evaluate_loaded_project_swf_vm(
             ));
         }
     };
-    static EVAL_SWF_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let seq = EVAL_SWF_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp_swf =
-        std::env::temp_dir().join(format!("neoflash-eval-vm-{}-{seq}.swf", std::process::id()));
     let swf_opts = neoflash_export::SwfPublishOptions {
         profile,
         scriptless_mode: false,
         outline_text: false,
         ..neoflash_export::SwfPublishOptions::default()
     };
-    let compile_res = neoflash_export::publish_swf(&resolved, &tmp_swf, &swf_opts);
-    if let Err(err) = compile_res {
-        let _ = fs::remove_file(&tmp_swf);
-        return Err(CliError::runtime(
-            "eval_swf_compile_failed",
-            err.to_string(),
-        ));
+    let (swf_bytes, _) = neoflash_export::publish_swf_bytes(&resolved, &swf_opts)
+        .map_err(|err| CliError::runtime("eval_swf_compile_failed", err.to_string()))?;
+    let mut player = neoflash_import::SwfBytecodePlayer::from_bytes(&swf_bytes)
+        .map_err(|e| CliError::runtime("eval_swf_load_failed", e.to_string()))?;
+    if let Some(limit) = opts.max_steps {
+        player.set_max_steps_per_frame(limit);
     }
-    let player_res = neoflash_import::SwfBytecodePlayer::from_path(&tmp_swf);
-    let _ = fs::remove_file(&tmp_swf);
-    let mut player =
-        player_res.map_err(|e| CliError::runtime("eval_swf_load_failed", e.to_string()))?;
 
     let root_sym = resolved
         .symbol(&resolved.root)

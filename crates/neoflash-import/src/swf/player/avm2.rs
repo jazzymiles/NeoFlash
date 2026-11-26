@@ -605,7 +605,7 @@ impl SwfBytecodePlayer {
         let mut scope_stack: Vec<Avm1Value> = Vec::new();
         let mut r = AbcReader::new(&code);
 
-        while r.pos < code.len() && *steps < MAX_VM_STEPS_PER_FRAME {
+        while r.pos < code.len() && *steps < self.max_steps_per_frame {
             *steps += 1;
             let insn_start = r.pos;
             let Some(op) = r.u8() else { break };
@@ -859,9 +859,10 @@ impl SwfBytecodePlayer {
                 return Avm1Value::Undefined;
             }
         }
-        if *steps >= MAX_VM_STEPS_PER_FRAME {
+        if *steps >= self.max_steps_per_frame {
             self.record_unsupported_diagnostic(format!(
-                "AVM2 execution reached bounded per-frame step limit ({MAX_VM_STEPS_PER_FRAME})"
+                "AVM2 execution reached bounded per-frame step limit ({})",
+                self.max_steps_per_frame
             ));
         }
         Avm1Value::Undefined

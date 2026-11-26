@@ -307,6 +307,20 @@ impl Geometry2dValue {
     pub fn snapshot(&self) -> Value {
         json!(self.values())
     }
+    pub fn values_slice(&self) -> &[f64] {
+        self.values()
+    }
+    pub fn sync_slots(&mut self, slots: &[f64]) -> Result<(), String> {
+        let expected = self.values().len();
+        if slots.len() != expected {
+            return Err(format!("Geometry argument requires {expected} coordinates"));
+        }
+        for &v in slots {
+            finite(v)?;
+        }
+        self.values_mut().copy_from_slice(slots);
+        Ok(())
+    }
     /// A rejected result never partially mutates the stored value.
     pub fn call(&mut self, operation: &str, arguments: &Value) -> Result<Value, String> {
         let args = arguments

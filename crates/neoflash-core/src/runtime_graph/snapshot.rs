@@ -537,6 +537,7 @@ impl Player {
                     owner_ref: reference.clone(),
                     clip_ids: vec![],
                     filter_id: None,
+                    procedural_graphics: false,
                 });
             }
         } else if let Some(mut kind) = self
@@ -557,6 +558,7 @@ impl Player {
                 owner_ref: reference.clone(),
                 clip_ids: vec![],
                 filter_id: None,
+                procedural_graphics: false,
                 item: DrawItem {
                     element_id: format!("runtime-{}-authored", reference.id),
                     name: display.name.clone(),
@@ -576,6 +578,7 @@ impl Player {
                 owner_ref: reference.clone(),
                 clip_ids: vec![],
                 filter_id: None,
+                procedural_graphics: false,
                 item: DrawItem {
                     element_id: format!("runtime-{}-video", reference.id),
                     name: display.name.clone(),
@@ -614,6 +617,7 @@ impl Player {
                     owner_ref: reference.clone(),
                     clip_ids: vec![],
                     filter_id: None,
+                    procedural_graphics: false,
                     item: DrawItem {
                         element_id: format!("as2-selection-{}-{index}", reference.id),
                         name: display.name.clone(),
@@ -632,6 +636,7 @@ impl Player {
                 owner_ref: reference.clone(),
                 clip_ids: vec![],
                 filter_id: None,
+                procedural_graphics: false,
                 item: DrawItem {
                     element_id: ctx.items.get(reference).map_or_else(
                         || format!("runtime-{}-text", reference.id),
@@ -658,6 +663,7 @@ impl Player {
                 owner_ref: reference.clone(),
                 clip_ids: vec![],
                 filter_id: None,
+                procedural_graphics: false,
                 item: DrawItem {
                     element_id: ctx.items.get(reference).map_or_else(
                         || format!("runtime-{}-bitmap", reference.id),
@@ -697,6 +703,7 @@ impl Player {
                 owner_ref: reference.clone(),
                 clip_ids: vec![],
                 filter_id: None,
+                procedural_graphics: true,
                 item: DrawItem {
                     element_id: format!("runtime-{}-{index}", reference.id),
                     name: display.name.clone(),
@@ -732,6 +739,7 @@ impl Player {
                         owner_ref: reference.clone(),
                         clip_ids: vec![],
                         filter_id: None,
+                        procedural_graphics: false,
                         item: DrawItem {
                             element_id: format!("runtime-{}-fte-{index}", reference.id),
                             name: display.name.clone(),

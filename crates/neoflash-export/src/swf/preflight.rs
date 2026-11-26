@@ -1819,6 +1819,20 @@ pub(super) fn preflight_swf_publish_inner(
         }
     }
 
+    if has_avm1_scripts && !options.scriptless_mode {
+        let stripped = strip_script_comments(&crate::publish::script_corpus(project));
+        if avm1_calls_mouse_pointer_lock(&stripped) {
+            report.push(
+                "swf_avm1_html5_pointer_lock_ignored",
+                FlaCompatibilityCategory::Scripts,
+                FlaCompatibilityStatus::Approximated,
+                "project",
+                "Mouse.lock()/Mouse.unlock() is an HTML5 Pointer Lock host extension; standalone Flash Player 8 AVM1 evaluates it as a no-op."
+                    .to_owned(),
+            );
+        }
+    }
+
     if has_avm1_scripts && has_avm2_scripts && !options.scriptless_mode {
         report.push(
             "swf_mixed_avm1_avm2_scripts",
@@ -1831,4 +1845,86 @@ pub(super) fn preflight_swf_publish_inner(
     }
 
     report
+}
+
+fn strip_script_comments(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'/' && i + 1 < bytes.len() {
+            if bytes[i + 1] == b'/' {
+                i += 2;
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if bytes[i + 1] == b'*' {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i = (i + 2).min(bytes.len());
+                out.push(' ');
+                continue;
+            }
+        }
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            out.push(b as char);
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    if let Some(ch) = src[i..].chars().next() {
+                        out.push(ch);
+                        i += ch.len_utf8();
+                    }
+                    if i < bytes.len()
+                        && let Some(ch2) = src[i..].chars().next()
+                    {
+                        out.push(ch2);
+                        i += ch2.len_utf8();
+                    }
+                    continue;
+                }
+                let c = bytes[i];
+                if let Some(ch) = src[i..].chars().next() {
+                    out.push(ch);
+                    i += ch.len_utf8();
+                } else {
+                    i += 1;
+                }
+                if c == quote || c == b'\n' || c == b'\r' {
+                    break;
+                }
+            }
+            continue;
+        }
+        if let Some(ch) = src[i..].chars().next() {
+            out.push(ch);
+            i += ch.len_utf8();
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+fn avm1_calls_mouse_pointer_lock(code_no_comments: &str) -> bool {
+    let compact: String = code_no_comments
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    [
+        "Mouse.lock(",
+        "Mouse.unlock(",
+        "Mouse[\"lock\"](",
+        "Mouse['lock'](",
+        "Mouse[\"unlock\"](",
+        "Mouse['unlock'](",
+    ]
+    .iter()
+    .any(|pat| compact.contains(pat))
 }

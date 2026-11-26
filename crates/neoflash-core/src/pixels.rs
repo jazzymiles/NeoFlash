@@ -52,6 +52,8 @@ struct Buffer {
     transparent: bool,
     revision: u64,
     pixels: Option<Vec<u8>>,
+    lock_depth: u32,
+    locked_premul: Option<Vec<u8>>,
     // Render-only brush handles can retain encoded Library data when the live pixel arena is full.
     encoded_paint: Option<crate::ResourceUnit>,
 }
@@ -126,6 +128,9 @@ impl PixelArena {
         if let Some(pixels) = buffer.pixels {
             self.bytes -= pixels.len();
         }
+        if let Some(snap) = buffer.locked_premul {
+            self.bytes -= snap.len();
+        }
         Ok(())
     }
     pub(crate) fn create(
@@ -155,6 +160,8 @@ impl PixelArena {
             transparent,
             revision: 1,
             pixels: Some(pixels),
+            lock_depth: 0,
+            locked_premul: None,
             encoded_paint: None,
         }))
     }
@@ -179,12 +186,64 @@ impl PixelArena {
         Ok(b)
     }
     fn live_mut(&mut self, r: &PixelRef) -> Result<&mut Buffer, BitmapError> {
+        let Self { bytes, buffers, .. } = self;
+        let b = buffers
+            .get_mut(r)
+            .ok_or_else(|| error("stale or foreign buffer reference"))?;
+        b.require_pixels()?;
+        if b.lock_depth > 0
+            && b.locked_premul.is_none()
+            && let Some(px) = &b.pixels
+        {
+            if *bytes + px.len() > MAX_BITMAP_BYTES {
+                return Err(error(
+                    "buffer budget exceeded (256 records / 128 MiB live pixels)",
+                ));
+            }
+            *bytes += px.len();
+            b.locked_premul = Some(px.clone());
+        }
+        Ok(b)
+    }
+    pub(crate) fn lock(&mut self, r: &PixelRef) -> Result<String, BitmapError> {
         let b = self
             .buffers
             .get_mut(r)
             .ok_or_else(|| error("stale or foreign buffer reference"))?;
-        b.require_pixels()?;
-        Ok(b)
+        if b.pixels.is_none() && b.encoded_paint.is_none() {
+            return Err(error("buffer is disposed"));
+        }
+        b.lock_depth = b.lock_depth.saturating_add(1);
+        Ok(b.revision.to_string())
+    }
+    pub(crate) fn unlock(&mut self, r: &PixelRef) -> Result<String, BitmapError> {
+        let Self { bytes, buffers, .. } = self;
+        let b = buffers
+            .get_mut(r)
+            .ok_or_else(|| error("stale or foreign buffer reference"))?;
+        if b.pixels.is_none() && b.encoded_paint.is_none() {
+            return Err(error("buffer is disposed"));
+        }
+        if b.lock_depth > 0 {
+            b.lock_depth -= 1;
+            if b.lock_depth == 0
+                && let Some(snap) = b.locked_premul.take()
+            {
+                *bytes -= snap.len();
+            }
+        }
+        Ok(b.revision.to_string())
+    }
+    pub(crate) fn locked_pixels(&self, r: &PixelRef) -> Result<Vec<u8>, BitmapError> {
+        let b = self.buffer(r)?;
+        if let Some(premul_snap) = &b.locked_premul {
+            let mut result = Vec::with_capacity(premul_snap.len());
+            for pixel in premul_snap.as_chunks::<4>().0 {
+                result.extend_from_slice(&straight(pixel));
+            }
+            return Ok(result);
+        }
+        self.pixels(r)
     }
     pub(crate) fn info(&self, r: &PixelRef) -> Result<PixelDescriptor, BitmapError> {
         let b = self.buffer(r)?;
@@ -235,6 +294,8 @@ impl PixelArena {
                 transparent: true,
                 revision: 1,
                 pixels: None,
+                lock_depth: 0,
+                locked_premul: None,
                 encoded_paint: Some(resource.clone()),
             }));
         }
@@ -406,6 +467,8 @@ impl PixelArena {
             transparent: b.transparent,
             revision: 1,
             pixels: b.pixels.clone(),
+            lock_depth: 0,
+            locked_premul: None,
             encoded_paint: None,
         }))
     }
@@ -415,15 +478,19 @@ impl PixelArena {
         self.copy(r, r, 0, 0, w, h, dx, dy, false)
     }
     pub(crate) fn dispose(&mut self, r: &PixelRef) -> Result<(), BitmapError> {
-        let b = self
-            .buffers
+        let Self { bytes, buffers, .. } = self;
+        let b = buffers
             .get_mut(r)
             .ok_or_else(|| error("stale or foreign buffer reference"))?;
+        b.lock_depth = 0;
+        if let Some(snap) = b.locked_premul.take() {
+            *bytes -= snap.len();
+        }
         if b.encoded_paint.take().is_some() {
             b.revision += 1;
         }
         if let Some(p) = b.pixels.take() {
-            self.bytes -= p.len();
+            *bytes -= p.len();
             b.revision += 1;
         }
         Ok(())

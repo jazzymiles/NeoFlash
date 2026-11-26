@@ -2827,18 +2827,51 @@ fn t488_as_prelude_dedup_omit_file_fallback_and_script_linked_resource_warnings(
         )
         .unwrap(),
     );
+    project.resources.push(
+        neoflash_core::ResourceUnit::from_bytes(
+            "res_fonts_meta",
+            "neoflash/fonts.json",
+            "application/json",
+            b"{}",
+        )
+        .unwrap(),
+    );
     project.upgrade_format_for_features();
 
-    // [DM-16]: attachSound("shotgun") marks audio/shotgun.wav as referenced -> 0 unused warnings
+    // [DM-16] + [AUD-08]: attachSound("shotgun") marks audio/shotgun.wav as referenced and
+    // internal neoflash/fonts.json is excluded -> 0 unused warnings.
     let warnings = crate::export_warnings(&project);
     assert!(
         warnings
             .iter()
             .all(|w| !w.contains("available by their relative paths")),
-        "script-referenced attachSound resource should not trigger unused-resource warning: {warnings:?}"
+        "script-referenced attachSound resource and internal neoflash/fonts.json should not trigger unused-resource warning: {warnings:?}"
     );
 
-    // [DM-07] + [DM-08] + [DM-10]: Compact + omit_file_fallback omits neoflash_wasm_fallback.js and deduplicates AS prelude
+    // [AUD-08]: an unreferenced asset named `a.png` must NOT be suppressed merely because
+    // identifiers or comments contain the letter `a` (`// a.png`).
+    project.symbols[0].timeline.scripts[1].script.source =
+        "var a:Number = 1; // comment mentioning a.png\ntrace(\"frame2\");".into();
+    project.resources.push(
+        neoflash_core::ResourceUnit::from_bytes(
+            "res_unused_short",
+            "images/a.png",
+            "image/png",
+            b"\x89PNG\r\n\x1a\n",
+        )
+        .unwrap(),
+    );
+    let warnings_with_unused = crate::export_warnings(&project);
+    assert!(
+        warnings_with_unused
+            .iter()
+            .any(|w| w.contains("1 project resource(s) are embedded")),
+        "unreferenced images/a.png must still emit 1 unused-resource warning despite variable/comment 'a': {warnings_with_unused:?}"
+    );
+    project.resources.retain(|r| r.id != "res_unused_short");
+
+    // [DM-07] + [DM-08] + [DM-10] + [AUD-11]: Compact + omit_file_fallback omits neoflash_wasm_fallback.js,
+    // records omit_file_fallback in bundle.publish, and deduplicates AS prelude
     let out = dir.join("compact-http");
     let options = PublishOptions {
         fonts: FontExportPolicy::Embed,
@@ -2861,6 +2894,10 @@ fn t488_as_prelude_dedup_omit_file_fallback_and_script_linked_resource_warnings(
     assert!(
         bundle_text.contains("\"as_prelude\":"),
         "bundle.js emits single shared as_prelude field"
+    );
+    assert!(
+        bundle_text.contains("\"omit_file_fallback\":true"),
+        "bundle.js publish metadata records omit_file_fallback=true"
     );
     let marker_hits = bundle_text.matches("/*__NF_AS_PRELUDE__*/").count();
     assert_eq!(

@@ -1641,9 +1641,122 @@ impl WebPlayer {
             .bitmap_scroll(&pixel_ref(target)?, dx, dy)
             .map_err(display_error)
     }
+    pub fn bitmap_get_pixel_u32(
+        &self,
+        id: u32,
+        generation: u32,
+        x: i32,
+        y: i32,
+        with_alpha: bool,
+    ) -> Result<u32, JsValue> {
+        let reference = PixelRef {
+            id: id.to_string(),
+            generation: generation.to_string(),
+        };
+        self.player
+            .bitmap_get_pixel(&reference, x, y, with_alpha)
+            .map_err(display_error)
+    }
+    pub fn bitmap_set_pixel_u32(
+        &mut self,
+        id: u32,
+        generation: u32,
+        x: i32,
+        y: i32,
+        color: u32,
+        with_alpha: bool,
+    ) -> Result<(), JsValue> {
+        let reference = PixelRef {
+            id: id.to_string(),
+            generation: generation.to_string(),
+        };
+        self.player
+            .bitmap_set_pixel(&reference, x, y, color, with_alpha)
+            .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_fill_rect_u32(
+        &mut self,
+        id: u32,
+        generation: u32,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        color: u32,
+    ) -> Result<(), JsValue> {
+        let reference = PixelRef {
+            id: id.to_string(),
+            generation: generation.to_string(),
+        };
+        self.player
+            .bitmap_fill_rect(&reference, x, y, width, height, color)
+            .map_err(display_error)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn bitmap_copy_pixels_u32(
+        &mut self,
+        dst_id: u32,
+        dst_generation: u32,
+        src_id: u32,
+        src_generation: u32,
+        sx: i32,
+        sy: i32,
+        width: i32,
+        height: i32,
+        dx: i32,
+        dy: i32,
+        merge_alpha: bool,
+    ) -> Result<(), JsValue> {
+        let dst = PixelRef {
+            id: dst_id.to_string(),
+            generation: dst_generation.to_string(),
+        };
+        let src = PixelRef {
+            id: src_id.to_string(),
+            generation: src_generation.to_string(),
+        };
+        self.player
+            .bitmap_copy_pixels(&dst, &src, sx, sy, width, height, dx, dy, merge_alpha)
+            .map_err(display_error)
+    }
+    pub fn bitmap_scroll_u32(
+        &mut self,
+        id: u32,
+        generation: u32,
+        dx: i32,
+        dy: i32,
+    ) -> Result<(), JsValue> {
+        let reference = PixelRef {
+            id: id.to_string(),
+            generation: generation.to_string(),
+        };
+        self.player
+            .bitmap_scroll(&reference, dx, dy)
+            .map_err(display_error)
+    }
     pub fn bitmap_dispose(&mut self, target: &str) -> Result<(), JsValue> {
         self.player
             .bitmap_dispose(&pixel_ref(target)?)
+            .map_err(display_error)
+    }
+    pub fn bitmap_lock_u32(&mut self, id: u32, generation: u32) -> Result<String, JsValue> {
+        let reference = PixelRef {
+            id: id.to_string(),
+            generation: generation.to_string(),
+        };
+        self.player.bitmap_lock(&reference).map_err(display_error)
+    }
+    pub fn bitmap_unlock_u32(&mut self, id: u32, generation: u32) -> Result<String, JsValue> {
+        let reference = PixelRef {
+            id: id.to_string(),
+            generation: generation.to_string(),
+        };
+        self.player.bitmap_unlock(&reference).map_err(display_error)
+    }
+    pub fn bitmap_locked_pixels(&self, target: &str) -> Result<Vec<u8>, JsValue> {
+        self.player
+            .bitmap_locked_pixels(&pixel_ref(target)?)
             .map_err(display_error)
     }
     pub fn object_video_info(&self, target: &str) -> Result<String, JsValue> {

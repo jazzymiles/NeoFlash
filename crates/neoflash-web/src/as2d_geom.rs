@@ -26,6 +26,17 @@ impl Geom2dValue {
     pub fn snapshot(&self) -> String {
         self.inner.snapshot().to_string()
     }
+    pub fn sync_slots(&mut self, slots: &[f64]) -> Result<(), JsValue> {
+        self.inner.sync_slots(slots).map_err(error)
+    }
+    pub fn read_slots(&self, out: &mut [f64]) -> Result<(), JsValue> {
+        let src = self.inner.values_slice();
+        if out.len() < src.len() {
+            return Err(error("Geometry output buffer is smaller than value arity"));
+        }
+        out[..src.len()].copy_from_slice(src);
+        Ok(())
+    }
     pub fn call(&mut self, operation: &str, args_json: &str) -> Result<String, JsValue> {
         Ok(self
             .inner

@@ -192,15 +192,41 @@ test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapDat
   const as2Src = `
     import flash.display.BitmapData;
     import flash.geom.Matrix;
+    import flash.geom.Point;
     import flash.geom.Rectangle;
     stop();
     var bmp:BitmapData = new BitmapData(16.9, 16.2, true, (0xFF << 24) | 0x112233);
     bmp.lock();
     bmp.setPixel32(2.7, 3.9, (0xFF << 24) | 0xCC5511);
+    bmp["setPixel"](1, 1, 0xABCDEF);
     bmp.fillRect(new Rectangle(4.2, 4.8, 4.6, 4.1), (0xFF << 24) | 0x22AA44);
     bmp.unlock();
+    Mouse.unlock();
     var px:Number = bmp.getPixel(2, 3);
+    var pxBracket:Number = bmp.getPixel(1, 1);
     var pxRect:Number = bmp.getPixel(5, 5);
+
+    // [AUD-02]: same-frame BitmapData.draw(mc) + duplicateMovieClip() must flush pendingGraphicsOps!
+    var srcClip:MovieClip = createEmptyMovieClip("srcClip", 5);
+    srcClip.beginFill(0xDD2244, 100);
+    srcClip.moveTo(0, 0);
+    srcClip.lineTo(8, 0);
+    srcClip.lineTo(8, 8);
+    srcClip.lineTo(0, 8);
+    srcClip.endFill();
+    var snapBmp:BitmapData = new BitmapData(8, 8, false, 0x000000);
+    snapBmp.draw(srcClip);
+    var drawnPx:Number = snapBmp.getPixel(4, 4);
+    var dupClip:MovieClip = srcClip.duplicateMovieClip("dupClip", 6);
+    var dupSnapBmp:BitmapData = new BitmapData(8, 8, false, 0x000000);
+    dupSnapBmp.draw(dupClip);
+    var dupPx:Number = dupSnapBmp.getPixel(4, 4);
+
+    // [AUD-07]: Matrix dirty slots sync into WASM rotate() without losing tx
+    var syncMat:Matrix = new Matrix();
+    syncMat.tx = 42;
+    syncMat.rotate(0);
+
     var view:MovieClip = createEmptyMovieClip("view", 10);
     var mat:Matrix = new Matrix();
     var ticks:Number = 0;
@@ -220,7 +246,7 @@ test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapDat
       view.lineTo(8, 8);
       view.endFill();
     };
-    trace("init:" + px.toString(16) + ":" + pxRect.toString(16));
+    trace("init:" + px.toString(16) + ":" + pxBracket.toString(16) + ":" + pxRect.toString(16) + ":" + drawnPx.toString(16) + ":" + dupPx.toString(16) + ":" + syncMat.tx);
   `;
   const project = {
     format_version: 6,
@@ -270,7 +296,29 @@ test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapDat
       const created = createRuntimeHost(root, player, scripts, { bundle });
       runtimeHost = created.host;
       runtimeHost.dispatchScripts();
-      assert.deepEqual(created.traceCalls, [['init:cc5511:22aa44']]);
+      assert.deepEqual(created.traceCalls, [['init:cc5511:abcdef:22aa44:dd2244:dd2244:42']]);
+
+      // [AUD-07]: Point.offset overflow must roll back atomically without mutating x!
+      const geom = require('../geom.js').create(runtimeWasm);
+      const pt = new geom.Point(5, 1e308);
+      assert.throws(() => pt.offset(10, 1e308), RangeError);
+      assert.equal(pt.x, 5, 'Point.offset atomic rollback keeps x unchanged on y overflow');
+
+      // [AUD-03]: LegacyInput hasKeyListeners stays false until Key is actually used, and Mouse.onMouseMove is 0-arg
+      const events = require('../events.js').create({ alive: () => true, parentOf: () => null, localPoint: (_t, x, y) => [x, y], globalPoint: (_t, x, y) => [x, y] });
+      const stg = require('../stage.js').create({ events, width: 100, height: 100, alive: () => true, localPoint: (_t, x, y) => [x, y], parentOf: () => null, resolveInput: t => t, isInputEnabled: () => true });
+      const leg = require('../legacy-input.js').create({ stage: stg.stage });
+      stg.handleKey('keyDown', { keyCode: 32, charCode: 32 });
+      assert.equal(leg.hasKeyListeners(), false, 'scriptless keyDown must not mark hasKeyListeners true');
+      assert.equal(leg.Key.isDown(32), true);
+      assert.equal(leg.hasKeyListeners(), true, 'polling Key.isDown marks hasKeyListeners true');
+      let moveArity = -1;
+      leg.Mouse.addListener({ onMouseMove() { moveArity = arguments.length; } });
+      stg.requestOptInPointerLock();
+      stg.handlePointer('mouseMove', { movementX: 7, movementY: -3 });
+      assert.equal(moveArity, 0, 'Flash Player 8 Mouse.onMouseMove receives 0 arguments');
+      assert.equal(leg.Mouse.movementX, 7);
+      leg.dispose();
 
       // Run 1,500 consecutive frames (> 6,000 lifecycle phases, well past the old 4,096 cap at 34.1s!)
       for (let f = 0; f < 1500; f++) {

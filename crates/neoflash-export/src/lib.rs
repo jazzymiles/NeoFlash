@@ -353,6 +353,8 @@ struct PublishInfo {
     omitted_modules: Vec<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "renderMode")]
     render_mode: Option<&'static str>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    omit_file_fallback: bool,
 }
 
 /// Inspects a project for graphics features that cannot be represented as pure semantic HTML/SVG
@@ -504,8 +506,9 @@ pub fn export_warnings_without_foreign_scripts(project: &Project) -> Vec<String>
     }
     let script_corpus = publish::script_corpus(project);
     if !script_corpus.trim().is_empty() {
+        let script_literals = extract_script_string_literals(&script_corpus);
         for res in &project.resources {
-            if is_font_resource(res) {
+            if is_font_resource(res) || Project::is_internal_metadata_resource(res) {
                 continue;
             }
             let normalized = res
@@ -520,10 +523,17 @@ pub fn export_warnings_without_foreign_scripts(project: &Project) -> Vec<String>
                 .rsplit_once('.')
                 .map(|(s, _)| s)
                 .unwrap_or(basename);
-            let referenced = [&res.id, normalized.as_str(), basename, stem]
-                .into_iter()
-                .filter(|cand| !cand.is_empty())
-                .any(|cand| script_corpus.contains(cand));
+            let first_dot_stem = basename.split_once('.').map(|(s, _)| s).unwrap_or(basename);
+            let referenced = [
+                res.id.as_str(),
+                normalized.as_str(),
+                basename,
+                stem,
+                first_dot_stem,
+            ]
+            .into_iter()
+            .filter(|cand| !cand.is_empty())
+            .any(|cand| script_literals.contains(cand));
             if referenced {
                 placed_or_linked_resources.insert(res.id.clone());
             }
@@ -534,9 +544,7 @@ pub fn export_warnings_without_foreign_scripts(project: &Project) -> Vec<String>
         .iter()
         .filter(|res| {
             !is_font_resource(res)
-                && !res
-                    .path
-                    .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
+                && !Project::is_internal_metadata_resource(res)
                 && !placed_or_linked_resources.contains(&res.id)
         })
         .count();
@@ -547,6 +555,90 @@ pub fn export_warnings_without_foreign_scripts(project: &Project) -> Vec<String>
         warnings.extend(dom_publish_diagnostics(project));
     }
     warnings
+}
+
+fn extract_script_string_literals(corpus: &str) -> BTreeSet<String> {
+    let mut literals = BTreeSet::new();
+    let bytes = corpus.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'/' && i + 1 < bytes.len() {
+            if bytes[i + 1] == b'/' {
+                i += 2;
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            if bytes[i + 1] == b'*' {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i = (i + 2).min(bytes.len());
+                continue;
+            }
+        }
+        if b == b'"' || b == b'\'' {
+            let quote = b;
+            i += 1;
+            let start = i;
+            let mut out = String::new();
+            let mut has_escape = false;
+            let mut closed = false;
+            while i < bytes.len() {
+                let c = bytes[i];
+                if c == b'\\' && i + 1 < bytes.len() {
+                    if !has_escape {
+                        out.push_str(&corpus[start..i]);
+                        has_escape = true;
+                    }
+                    let esc = bytes[i + 1];
+                    match esc {
+                        b'n' => out.push('\n'),
+                        b'r' => out.push('\r'),
+                        b't' => out.push('\t'),
+                        b'\\' => out.push('\\'),
+                        b'"' => out.push('"'),
+                        b'\'' => out.push('\''),
+                        _ => {
+                            if let Some(ch) = corpus[i + 1..].chars().next() {
+                                out.push(ch);
+                                i += 1 + ch.len_utf8();
+                                continue;
+                            }
+                        }
+                    }
+                    i += 2;
+                    continue;
+                }
+                if c == quote {
+                    if !has_escape {
+                        out.push_str(&corpus[start..i]);
+                    }
+                    closed = true;
+                    i += 1;
+                    break;
+                }
+                if c == b'\n' || c == b'\r' {
+                    break;
+                }
+                if has_escape && let Some(ch) = corpus[i..].chars().next() {
+                    out.push(ch);
+                    i += ch.len_utf8();
+                    continue;
+                }
+                i += 1;
+            }
+            if closed && !out.is_empty() {
+                literals.insert(out);
+            }
+            continue;
+        }
+        i += 1;
+    }
+    literals
 }
 
 /// Reports current publish limitations before the user exports their work.
@@ -2186,6 +2278,7 @@ pub(crate) fn assemble_with_config(
             level: level.name(),
             omitted_modules: omitted_titles.clone(),
             render_mode: is_dom_mode.then_some("dom"),
+            omit_file_fallback: config.is_some_and(|c| c.omit_file_fallback),
         },
         warnings: warnings.clone(),
         load_summary,

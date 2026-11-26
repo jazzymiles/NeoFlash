@@ -1808,6 +1808,7 @@ fn execute_batch_op(
                     scripts,
                     strict: false,
                     vm: super::EvalVmMode::Preview,
+                    max_steps: None,
                 },
             )
         }

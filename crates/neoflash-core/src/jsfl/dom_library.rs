@@ -24,11 +24,7 @@ impl<'a> JsflVm<'a> {
             }));
         }
         for res in &self.project.resources {
-            if res
-                .path
-                .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
-                || res.path.eq_ignore_ascii_case("neoflash/fonts.json")
-            {
+            if Project::is_internal_metadata_resource(res) {
                 continue;
             }
             items.push(JsflValue::Item(ItemHandle {
@@ -44,11 +40,7 @@ impl<'a> JsflVm<'a> {
     pub(super) fn find_library_resource_by_path(&self, name_path: &str) -> Option<Id> {
         let trimmed = name_path.trim().trim_matches('/');
         for res in &self.project.resources {
-            if res
-                .path
-                .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
-                || res.path.eq_ignore_ascii_case("neoflash/fonts.json")
-            {
+            if Project::is_internal_metadata_resource(res) {
                 continue;
             }
             let norm = res.path.replace('\\', "/");

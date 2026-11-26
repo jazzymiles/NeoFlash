@@ -231,6 +231,9 @@ pub struct RuntimeDrawItem {
     pub clip_ids: Vec<String>,
     /// Innermost filtered subtree. Parent links live once in filter_groups.
     pub filter_id: Option<String>,
+    /// True when emitted by runtime `MovieClip`/`Shape` `Graphics` drawing commands.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub procedural_graphics: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeAccessibleNode {

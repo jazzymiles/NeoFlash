@@ -173,14 +173,20 @@
     let snapshotCache=null,nodesCache=null,childMapCache=null,as2SettingsCache=null;
     const extMasks=new Map(),explicitBitmapCache=new Map(),pendingGraphicsOps=new Map();
     const ownerCache=new Map(),descriptorCache=new Map();
+    let flushingGraphics=false;
     function flushGraphics(){
-      if(pendingGraphicsOps.size===0)return;
-      const entries=[...pendingGraphicsOps.entries()];
-      pendingGraphicsOps.clear();
-      for(const [k,ops] of entries){
-        if(!ops.length)continue;
-        if(typeof player.object_alive==='function'&&!player.object_alive(k))continue;
-        player.graphics_apply(k,JSON.stringify(ops));
+      if(flushingGraphics||pendingGraphicsOps.size===0)return;
+      flushingGraphics=true;
+      try{
+        const entries=[...pendingGraphicsOps.entries()];
+        pendingGraphicsOps.clear();
+        for(const [k,ops] of entries){
+          if(!ops.length)continue;
+          if(typeof player.object_alive==='function'&&!player.object_alive(k))continue;
+          player.graphics_apply(k,JSON.stringify(ops));
+        }
+      }finally{
+        flushingGraphics=false;
       }
     }
     const readOnlyPlayerMethods=new Set([
@@ -199,14 +205,18 @@
       'object_mask','object_scroll_rect','object_filters','object_matrix',
       'object_color_transform','as2_get_depth','as2_next_depth','as2_child_at_depth',
       'as2_target_path','as2_resolve_target','as2_resolve_target_case','as2_root',
-      'as2_is_frame_loaded','bitmap_info','bitmap_pixels','bitmap_pixels_transformed',
-      'bitmap_get_pixels','bitmap_get_pixel','bitmap_histogram_json','bitmap_encode_png',
+      'as2_is_frame_loaded','bitmap_info','bitmap_pixels','bitmap_locked_pixels','bitmap_pixels_transformed',
+      'bitmap_get_pixels','bitmap_get_pixel','bitmap_get_pixel_u32','bitmap_histogram_json','bitmap_encode_png',
       'bitmap_encode_jpeg','bitmap_generate_filter_rect','bitmap_draw_snapshot','bitmap_render_snapshot','bitmap_render_runtime_snapshot',
       'filter_padding','filter_rgba','amf_encode','amf_decode','sol_encode','sol_decode',
       'text_layout_json','text_query_json','portable_measure_text_json',
       'parse_html_text_json','serialize_html_text_json','text_to_outlines_json',
       'loader_content','scripts_json','sound_commands_json','video_commands_json','display_events_json',
       'object_button_sound_transform_json',
+    ]);
+    const graphicsFlushReadMethods=new Set([
+      'scene_json','display_nodes_json','accessibility_json',
+      'bitmap_draw_snapshot','bitmap_render_snapshot','bitmap_render_runtime_snapshot',
     ]);
     const visualOnlyPlayerMethods=new Set([
       'set_property','object_set_property','set_visible','object_set_visible',
@@ -218,8 +228,8 @@
       'graphics_apply','graphics_copy_from','set_morph_shape_ops','set_text_line_draws',
       'stop_all_sounds','object_set_button_sound_transform',
       'bitmap_create','bitmap_set_pixels','bitmap_color_transform','bitmap_apply_filter',
-      'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_draw_rgba_shader','bitmap_set_pixel','bitmap_fill_rect',
-      'bitmap_copy_pixels','bitmap_clone','bitmap_scroll','bitmap_dispose','pixel_decode','pixel_release',
+      'bitmap_draw_rgba','bitmap_draw_rgba_blended','bitmap_draw_rgba_shader','bitmap_set_pixel','bitmap_set_pixel_u32','bitmap_fill_rect','bitmap_fill_rect_u32',
+      'bitmap_copy_pixels','bitmap_copy_pixels_u32','bitmap_clone','bitmap_scroll','bitmap_scroll_u32','bitmap_lock_u32','bitmap_unlock_u32','bitmap_dispose','pixel_decode','pixel_release',
     ]);
     if(!player.__nfInvalidators){
       player.__nfInvalidators=[];
@@ -248,7 +258,7 @@
           });
           continue;
         }
-        if(methodName==='scene_json'||methodName==='display_nodes_json'){
+        if(graphicsFlushReadMethods.has(methodName)){
           const orig=player[methodName];
           Object.defineProperty(player,methodName,{
             configurable:true,writable:true,
@@ -280,6 +290,9 @@
         Object.defineProperty(player,methodName,{
           configurable:true,writable:true,
           value:function(...args){
+            if(methodName==='as2_duplicate'||methodName==='graphics_copy_from'||methodName==='as2_render_command'){
+              for(const fl of (player.__nfGraphicsFlushers||[]))fl();
+            }
             let isReadOnlyCmd=false;
             if((methodName==='as2_settings_command'||methodName==='as2_render_command'||methodName==='as2_input_command')&&typeof args[args.length-1]==='string'&&args[args.length-1].includes('"op":"get"')){
               isReadOnlyCmd=true;

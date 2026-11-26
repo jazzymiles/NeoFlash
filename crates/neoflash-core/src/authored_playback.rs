@@ -383,6 +383,7 @@ pub struct AuthoredPlayback {
     looping: bool,
     play_all_scenes: bool,
     live_scripts: bool,
+    cli_diagnostics: bool,
     script_halted_root: bool,
     current_language: ScriptLanguage,
     traces: Vec<String>,
@@ -407,6 +408,25 @@ impl AuthoredPlayback {
         start_frame: u32,
         live_scripts: bool,
     ) -> Self {
+        Self::with_live_scripts_inner(project, symbol, start_frame, live_scripts, false)
+    }
+
+    pub fn with_live_scripts_for_cli(
+        project: &Project,
+        symbol: &str,
+        start_frame: u32,
+        live_scripts: bool,
+    ) -> Self {
+        Self::with_live_scripts_inner(project, symbol, start_frame, live_scripts, true)
+    }
+
+    fn with_live_scripts_inner(
+        project: &Project,
+        symbol: &str,
+        start_frame: u32,
+        live_scripts: bool,
+        cli_diagnostics: bool,
+    ) -> Self {
         // A scoped player shares the runtime's placement clocks but does not
         // prepare bitmap pixels. Native textures consume immutable resources.
         let mut player = Player::with_source_root(project, Some(symbol.to_owned()));
@@ -427,6 +447,7 @@ impl AuthoredPlayback {
             looping: true,
             play_all_scenes: false,
             live_scripts,
+            cli_diagnostics,
             script_halted_root: false,
             current_language: ScriptLanguage::ActionScript2,
             traces: Vec::new(),
@@ -1025,9 +1046,12 @@ impl AuthoredPlayback {
     }
 
     fn record_diagnostic(&mut self, origin: &str, line: usize, detail: &str) {
-        let msg = format!(
-            "{origin}, line {line}: {detail} — use Test Movie (Cmd+Return) for full runtime execution."
-        );
+        let hint = if self.cli_diagnostics {
+            "use `--headless eval --vm swf` or HTML5 export for full runtime execution."
+        } else {
+            "use Test Movie (Cmd+Return) for full runtime execution."
+        };
+        let msg = format!("{origin}, line {line}: {detail} — {hint}");
         if self.reported_diagnostics.insert(msg.clone()) {
             self.diagnostics.push(msg);
         }

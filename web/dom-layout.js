@@ -2599,17 +2599,21 @@
         return { targetList: parentChildren, worldMatrix: currentWorld, insideButton };
       };
 
-      // Group contiguous island draws so whole filter_groups rasterize together accurately.
+      // Group contiguous island draws so whole filter_groups rasterize together accurately,
+      // and coalesce contiguous unfiltered procedural Graphics runs on the same DisplayObject.
       const renderQueue = [];
+      const ownerBatchCounts = new Map();
+      const nextOwnerBatchKey = (ownKey, fallbackIndex) => {
+        if (!ownKey) return `draw:idx:${fallbackIndex}`;
+        const nextOrd = (ownerBatchCounts.get(ownKey) || 0) + 1;
+        ownerBatchCounts.set(ownKey, nextOrd);
+        return `draw:${ownKey}:batch:${nextOrd}`;
+      };
       for (let i = 0; i < draws.length; i++) {
         const item = draws[i];
-        const reason = islandReasonForDraw(item, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
-        if (!reason) {
-          renderQueue.push({ type: 'dom', item, index: i });
-          continue;
-        }
         const rootFg = item.filter_id ? fgAncestry(item.filter_id)[0] : null;
-        if (rootFg) {
+        const reason = islandReasonForDraw(item, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
+        if (rootFg && reason) {
           const groupDraws = [item];
           while (i + 1 < draws.length) {
             const nextFg = draws[i + 1].filter_id ? fgAncestry(draws[i + 1].filter_id)[0] : null;
@@ -2626,32 +2630,65 @@
             draws: groupDraws,
             rootFg,
           });
-        } else {
-          const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : null;
-          const groupDraws = [item];
-          if (ownKey) {
-            while (i + 1 < draws.length) {
-              const nextItem = draws[i + 1];
-              const nextReason = islandReasonForDraw(nextItem, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
-              if (!nextReason) break;
-              const nextFg = nextItem.filter_id ? fgAncestry(nextItem.filter_id)[0] : null;
-              const nextOwnKey = nextItem.owner_ref ? JSON.stringify(nextItem.owner_ref) : null;
-              if (!nextFg && nextOwnKey === ownKey) {
-                groupDraws.push(draws[++i]);
-              } else {
-                break;
-              }
+          continue;
+        }
+        const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : null;
+        if (!rootFg && ownKey && item.procedural_graphics) {
+          const clipSig = JSON.stringify(item.clip_ids || []);
+          let end = i;
+          let anyReason = reason;
+          while (end + 1 < draws.length) {
+            const nxt = draws[end + 1];
+            const nxtFg = nxt.filter_id ? fgAncestry(nxt.filter_id)[0] : null;
+            if (nxtFg || !nxt.procedural_graphics) break;
+            const nxtOwn = nxt.owner_ref ? JSON.stringify(nxt.owner_ref) : null;
+            if (nxtOwn !== ownKey) break;
+            if (JSON.stringify(nxt.clip_ids || []) !== clipSig) break;
+            const r = islandReasonForDraw(nxt, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
+            if (!anyReason && r) anyReason = r;
+            end++;
+          }
+          const runLen = end - i + 1;
+          if (anyReason || runLen > 12) {
+            const groupDraws = draws.slice(i, end + 1);
+            i = end;
+            renderQueue.push({
+              type: 'island',
+              islandKey: nextOwnerBatchKey(ownKey, i),
+              reason: anyReason || 'procedural-graphics-batch',
+              draws: groupDraws,
+              rootFg: null,
+            });
+            continue;
+          }
+        }
+        if (!reason) {
+          renderQueue.push({ type: 'dom', item, index: i });
+          continue;
+        }
+        const groupDraws = [item];
+        if (ownKey) {
+          const clipSig = JSON.stringify(item.clip_ids || []);
+          while (i + 1 < draws.length) {
+            const nextItem = draws[i + 1];
+            const nextReason = islandReasonForDraw(nextItem, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
+            if (!nextReason) break;
+            const nextFg = nextItem.filter_id ? fgAncestry(nextItem.filter_id)[0] : null;
+            const nextOwnKey = nextItem.owner_ref ? JSON.stringify(nextItem.owner_ref) : null;
+            if (!nextFg && nextOwnKey === ownKey && JSON.stringify(nextItem.clip_ids || []) === clipSig) {
+              groupDraws.push(draws[++i]);
+            } else {
+              break;
             }
           }
-          const keySuffix = groupDraws.length > 1 ? 'batch' : (item.element_id || i);
-          renderQueue.push({
-            type: 'island',
-            islandKey: `draw:${ownKey || `idx:${i}`}:${keySuffix}`,
-            reason,
-            draws: groupDraws,
-            rootFg: null,
-          });
         }
+        renderQueue.push({
+          type: 'island',
+          islandKey: groupDraws.length > 1 ? nextOwnerBatchKey(ownKey, i) : `draw:${ownKey || `idx:${i}`}:${item.element_id || nextOwnerBatchKey(ownKey, i)}`,
+          reason,
+          draws: groupDraws,
+          rootFg: null,
+        });
       }
 
       for (const entry of renderQueue) {
