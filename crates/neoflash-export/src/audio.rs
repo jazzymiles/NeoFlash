@@ -2073,6 +2073,15 @@ pub fn transcode_unit_with_settings(
         kept.audio_export = None;
         return Ok(Some(kept));
     }
+    if compression == SoundCompression::Mp3
+        && !convert_to_mono
+        && settings.is_none()
+        && matches!(unit.media_type.as_str(), "audio/mpeg" | "audio/mp3")
+    {
+        let mut kept = unit.clone();
+        kept.audio_export = None;
+        return Ok(Some(kept));
+    }
 
     let decoded = match decode_audio_resource(unit) {
         Ok(d) => d,

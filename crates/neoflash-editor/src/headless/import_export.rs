@@ -2852,7 +2852,7 @@ fn parse_audio_policy(raw: &str) -> Result<AudioExportPolicy, CliError> {
         "wav16" | "wav-16" | "wav_16" | "wav" => Ok(AudioExportPolicy::Wav16),
         "mp3_64" | "mp3-64" | "64" => Ok(AudioExportPolicy::Mp3_64),
         "mp3_96" | "mp3-96" | "96" => Ok(AudioExportPolicy::Mp3_96),
-        "mp3_128" | "mp3-128" | "128" => Ok(AudioExportPolicy::Mp3_128),
+        "mp3" | "mp3_128" | "mp3-128" | "128" => Ok(AudioExportPolicy::Mp3_128),
         "mp3_160" | "mp3-160" | "160" => Ok(AudioExportPolicy::Mp3_160),
         "mp3_192" | "mp3-192" | "192" => Ok(AudioExportPolicy::Mp3_192),
         "mp3_256" | "mp3-256" | "256" => Ok(AudioExportPolicy::Mp3_256),
@@ -3008,12 +3008,15 @@ fn resolve_builtin_profile(
             profile.id = "builtin-balanced".to_owned();
             profile.name = "Balanced".to_owned();
             profile.options.size = SizeLevel::Balanced;
+            profile.options.audio = AudioExportPolicy::Mp3_160;
             Ok(Some((profile, BuiltinHtmlRoute::Standard)))
         }
         "compact" | "web compact" => {
             profile.id = "builtin-compact".to_owned();
             profile.name = "Compact".to_owned();
             profile.options.size = SizeLevel::Compact;
+            profile.options.fonts = FontExportPolicy::Subset;
+            profile.options.audio = AudioExportPolicy::Mp3_128;
             Ok(Some((profile, BuiltinHtmlRoute::Standard)))
         }
         "shared" | "web shared" => {
@@ -3034,6 +3037,8 @@ fn resolve_builtin_profile(
             profile.id = "builtin-web-banner-native".to_owned();
             profile.name = "Web Banner · Native".to_owned();
             profile.options.size = SizeLevel::Compact;
+            profile.options.fonts = FontExportPolicy::Subset;
+            profile.options.audio = AudioExportPolicy::Mp3_128;
             Ok(Some((profile, BuiltinHtmlRoute::BannerNative)))
         }
         "criteo" | "criteo html5 zip" | "builtin criteo" => {
@@ -3042,6 +3047,8 @@ fn resolve_builtin_profile(
                 .label()
                 .to_owned();
             profile.options.size = SizeLevel::Compact;
+            profile.options.fonts = FontExportPolicy::Subset;
+            profile.options.audio = AudioExportPolicy::Mp3_128;
             Ok(Some((profile, BuiltinHtmlRoute::Criteo)))
         }
         "desktop app" | "desktop" => {

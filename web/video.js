@@ -27,7 +27,7 @@
     if(!player?.object_video_info||!net?.mediaSource||!events?.create)throw new TypeError('Video requires the shared display, resource and Event services.');
     const connections=new WeakMap(),streams=new WeakMap(),disposedStreams=new WeakSet(),connectionRecords=new Set(),streamRecords=new Set(),bindings=new Map(),timelineControllers=new Map(),frames=new Set(),derived=new Map(),publishedStreams=new Map();
     const statusTypes=new WeakSet(),schedule=options.schedule||(fn=>queueMicrotask(fn));
-    const gesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
+    const gesture=options.isUserGesture||(()=>{const ua=global.navigator?.userActivation;return ua?ua.isActive===true:true;});
     let generation=1,disposed=false,resetting=false,serial=0,used=false,unlocked=false,muted=false,errorText='',framePixels=0,ownAudioContext=null,mixerUnsub=null;
     const diagnosticsList=[];
     const hub=events.create({weakTargets:true,alive:value=>{const record=connections.get(value)||streams.get(value);return !disposed&&!record?.disposed&&record?.generation===generation;}});
@@ -913,6 +913,7 @@
       Promise.resolve(promise).catch(error=>{if(!current(r,media,sequence)||!r.wanted)return;if(error?.name==='AbortError')return;r.playing=false;if(error?.name==='NotAllowedError'){unlocked=false;audio(r);changed();return;}try{emit(r,'NetStream.Play.Failed','error',{description:String(error?.message||error)});}catch(cause){report(cause);}});
     }
     function resumeFromGesture(){open();if(!gesture())return Promise.reject(new Error('Video playback needs an actual user gesture. Use an authored Play control or Enable audio.'));used=true;unlocked=true;muted=false;errorText='';for(const r of streamRecords){audio(r);playNative(r);}changed();return Promise.resolve(true);}
+    function unlockFromUserInput(){if(disposed||resetting||unlocked||muted||!used||!gesture())return Promise.resolve(false);return resumeFromGesture().catch(()=>false);}
     function setMuted(value){open();if(typeof value!=='boolean')throw new TypeError('Video mute requires a Boolean.');if(!value)return resumeFromGesture();muted=true;for(const r of streamRecords)audio(r);changed();return Promise.resolve(true);}
     function metadata(r,media,sequence){
       if(!current(r,media,sequence))return;
@@ -1868,7 +1869,7 @@
     }
     function reset(){open();resetState();}
     function dispose(){if(disposed)return;disposed=true;resetState();}
-    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,timeline,timelineSources,diagnostics,syncTimeline,resumeFromGesture,setMuted,status,streamInfo,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
+    return Object.freeze({Video,VideoStatus,NetConnection,NetStream,LegacyNetConnection,LegacyNetStream,NetStatusEvent,methods,get,set,UNHANDLED,draw,prepareSnapshot,timeline,timelineSources,diagnostics,syncTimeline,resumeFromGesture,unlockFromUserInput,setMuted,status,streamInfo,legacyController,legacyAttachVideo,reset,dispose,_as3Hook});
   }
   const api=Object.freeze({create,VideoStatus});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashVideo=api;
 })(globalThis);

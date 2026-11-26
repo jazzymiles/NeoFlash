@@ -334,6 +334,73 @@ test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapDat
       legLocked.dispose();
       leg.dispose();
 
+      // [T-494]: WebAudio unlockFromUserInput unlocks 'ready' audio on first gesture, ignores non-gestures without throwing, respects mute, and bounds pre-gesture channels
+      {
+        let gestureActive = false;
+        let fakeNow = 0;
+        const gains = [];
+        const fakeCtx = {
+          state: 'suspended',
+          sampleRate: 44100,
+          currentTime: 0,
+          destination: {},
+          resume() { this.state = 'running'; return Promise.resolve(); },
+          close() { this.state = 'closed'; return Promise.resolve(); },
+          decodeAudioData() { return Promise.resolve({ numberOfChannels: 1, sampleRate: 44100, length: 2, duration: 2 / 44100 }); },
+          createGain() { const g = { gain: { value: 1 }, connect() {}, disconnect() {} }; gains.push(g); return g; },
+          createStereoPanner() { return { pan: { value: 0 }, connect() {}, disconnect() {} }; },
+          createBufferSource() { return { buffer: null, loop: false, loopStart: 0, loopEnd: 0, onended: null, connect() {}, disconnect() {}, start() {}, stop() {} }; },
+        };
+        const minWav = Buffer.alloc(48);
+        minWav.write('RIFF', 0); minWav.writeUInt32LE(40, 4); minWav.write('WAVEfmt ', 8); minWav.writeUInt32LE(16, 16);
+        minWav.writeUInt16LE(1, 20); minWav.writeUInt16LE(1, 22); minWav.writeUInt32LE(44100, 24); minWav.writeUInt32LE(88200, 28);
+        minWav.writeUInt16LE(2, 32); minWav.writeUInt16LE(16, 34); minWav.write('data', 36); minWav.writeUInt32LE(4, 40);
+        const evMod = require('../events.js');
+        const fakeBinary = {
+          ByteArray: class {},
+          toBytes(b) { return b instanceof Uint8Array ? b : new Uint8Array(b.bytes || minWav); },
+        };
+        const fakeNet = {
+          URLRequest: Object.assign(function(u) { this.url = u; this.method = 'GET'; this.data = null; }, { __nfIs: () => true }),
+          IOErrorEvent: class extends evMod.Event { constructor(t) { super(t); } },
+          URLLoader: function() {
+            const handlers = {};
+            this.dataFormat = 'binary'; this.bytesLoaded = minWav.length; this.bytesTotal = minWav.length;
+            this.data = { bytes: minWav, clear() {} };
+            this.addEventListener = (n, fn) => { handlers[n] = fn; };
+            this.load = () => { handlers.complete?.(); };
+            this.close = () => {};
+          },
+          mediaSource: () => ({ kind: 'bytes', bytes: new Uint8Array(minWav) }),
+        };
+        const aud = require('../audio.js').create({
+          events: require('../events.js'),
+          net: fakeNet,
+          binary: fakeBinary,
+          player: { as2_sound_resource: () => JSON.stringify('sfx.mp3') },
+          createContext: () => fakeCtx,
+          isUserGesture: () => gestureActive,
+          now: () => fakeNow,
+        });
+        const sfx = new aud.LegacySound();
+        sfx.attachSound('sfx');
+        await new Promise(r => setTimeout(r, 10));
+        assert.equal(aud.status().state, 'ready');
+        assert.equal(aud.status().unlocked, false);
+        assert.equal(await aud.unlockFromUserInput(), false, 'non-gesture event silently returns false without throwing');
+        // Fire 40 one-shot sounds before gesture: must evict oldest unstarted instead of throwing RangeError at 32!
+        for (let k = 0; k < 40; k++) sfx.start(0, 1);
+        fakeNow = 3.0; // Advance > 1.5s so stale pre-gesture one-shots expire instead of blasting all at once
+        gestureActive = true;
+        assert.equal(await aud.unlockFromUserInput(), true, 'first real gesture unlocks ready/pending audio');
+        assert.equal(aud.status().unlocked, true);
+        assert.equal(aud.status().active, 0, 'stale pre-gesture one-shot SFX (>1.5s old) were retired cleanly on unlock');
+        await aud.setMuted(true);
+        assert.equal(aud.status().muted, true);
+        assert.equal(await aud.unlockFromUserInput(), false, 'subsequent input respects explicit Mute state');
+        aud.dispose();
+      }
+
       // Run 1,500 consecutive frames (> 6,000 lifecycle phases, well past the old 4,096 cap at 34.1s!)
       for (let f = 0; f < 1500; f++) {
         player.tick();

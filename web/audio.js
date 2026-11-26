@@ -51,7 +51,7 @@
       get checkPolicyFile(){const r=loaderContexts.get(this);if(!r)throw new TypeError('Expected SoundLoaderContext.');return r.checkPolicyFile;}
       set checkPolicyFile(value){const r=loaderContexts.get(this);if(!r)throw new TypeError('Expected SoundLoaderContext.');r.checkPolicyFile=Boolean(value);}
     }
-    const isUserGesture=options.isUserGesture||(()=>global.navigator?.userActivation?.isActive===true);
+    const isUserGesture=options.isUserGesture||(()=>{const ua=global.navigator?.userActivation;return ua?ua.isActive===true:true;});
     function open(){if(disposed)throw new Error('This audio service has been disposed.');if(resetting)throw new Error('This audio service is resetting. Retry after Restart.');}
     function state(value,table){open();const record=table.get(value);if(!record)throw new TypeError('Expected an audio object from this publication.');if(record.generation!==generation)throw new Error('This audio object belongs to a previous publication session.');return record;}
     const hub=events.create({weakTargets:true,alive:target=>!disposed&&(sounds.get(target)||channels.get(target))?.generation===generation});
@@ -295,7 +295,16 @@
       for(const record of playing)applyLiveChannelTransform(record);
       for(const fn of mixerSubscribers){try{fn(mixerTransform);}catch(_){}}
     }
-    function flush(){blockedEvents=0;flushVoices();for(const record of [...playing]){if(disposed||record.generation!==generation)break;startChannel(record);}notifyMixerChanged();changed();}
+    function flush(){
+      blockedEvents=0;flushVoices();
+      const tNow=now();
+      for(const record of [...playing]){
+        if(disposed||record.generation!==generation)break;
+        if(!record.started&&record.loops===0&&typeof record.createdAt==='number'&&tNow-record.createdAt>1.5){stop(record);continue;}
+        startChannel(record);
+      }
+      notifyMixerChanged();changed();
+    }
     function resumeFromGesture(){
       open();if(!isUserGesture())return Promise.reject(new Error('Audio needs an actual user gesture. Use Enable audio or an authored Play control.'));
       const ctx=ensureContext(),epoch=generation;used=true;lastError='';
@@ -306,6 +315,10 @@
         unlocked=true;muted=false;master.gain.value=1;flush();return true;
       }).catch(error=>{if(disposed||epoch!==generation||context!==ctx)return false;throw error;}).finally(()=>{if(epoch===generation){resuming=null;changed();}});
       return resuming;
+    }
+    function unlockFromUserInput(){
+      if(disposed||resetting||unlocked||muted||!used||!isUserGesture())return Promise.resolve(false);
+      return resumeFromGesture().catch(()=>false);
     }
     // Private AS2 capture transport into the existing publication mute/output bus.
     function captureBus(){open();if(!isUserGesture())throw new Error('Microphone playback needs an actual user gesture.');const ctx=ensureContext();return {context:ctx,destination:master,ready:resumeFromGesture()};}
@@ -413,9 +426,15 @@
       }
       const knownDur=sound.buffer?sound.buffer.duration:(sound.opaqueAudioUrl?sound.opaqueDuration:null);
       if(knownDur!==null&&knownDur>0&&startTime>knownDur*1000)throw new RangeError('Sound startTime is beyond the decoded duration.');
-      if(playing.size>=maxChannels)throw new RangeError(`This publication supports at most ${maxChannels} active or pending sound channels.`);
+      if(playing.size>=maxChannels){
+        let evicted=false;
+        if(!unlocked){
+          for(const old of playing){if(!old.started){stop(old);evicted=true;break;}}
+        }
+        if(!evicted&&playing.size>=maxChannels)throw new RangeError(`This publication supports at most ${maxChannels} active or pending sound channels.`);
+      }
       ensureContext();used=true;
-      const receiver=Object.create(SoundChannel.prototype),record={receiver,generation,sound,offset:startTime/1000,loops,transform:value,targetTransform,matrix,position:startTime,started:false,stopped:false,source:null,gain:null,panner:null,mediaElement:null,mediaListeners:null};
+      const receiver=Object.create(SoundChannel.prototype),record={receiver,generation,sound,offset:startTime/1000,loops,transform:value,targetTransform,matrix,position:startTime,createdAt:now(),started:false,stopped:false,source:null,gain:null,panner:null,mediaElement:null,mediaListeners:null};
       channels.set(receiver,record);Object.assign(receiver,hub.methods(receiver));Object.seal(receiver);playing.add(record);
       startChannel(record);changed();
       if((!unlocked||context.state!=='running')&&isUserGesture())resumeFromGesture().catch(error=>{if(!disposed&&record.generation===generation)report(error);});
@@ -992,7 +1011,7 @@
       changed();
     }
     function dispose(){if(disposed)return;try{reset();}finally{disposed=true;}}
-    return Object.freeze({Sound,SoundChannel,SoundTransform,ID3Info,SoundLoaderContext,SoundMixer,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,registerResources,unregisterResources,captureBus,resumeFromGesture,setMuted,status,reset,dispose});
+    return Object.freeze({Sound,SoundChannel,SoundTransform,ID3Info,SoundLoaderContext,SoundMixer,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,registerResources,unregisterResources,captureBus,resumeFromGesture,unlockFromUserInput,setMuted,status,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAudio=api;
 })(globalThis);

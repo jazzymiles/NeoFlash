@@ -5098,13 +5098,24 @@
       }
       return null;
     }
-    canvas.addEventListener('pointerdown', guardHostCallback(() => {
+    const tryUnlockMediaFromInput = guardHostCallback(event => {
+      if (event && event.isTrusted === false) return;
       for (const host of [audioHost, videoHost]) {
-        if (host && host.status?.().state === 'awaiting_gesture') {
+        if (host && typeof host.unlockFromUserInput === 'function') {
+          host.unlockFromUserInput();
+        } else if (host && host.status?.().state === 'awaiting_gesture') {
           mediaGesture(host, 'resumeFromGesture');
         }
       }
-    }));
+    });
+    const gestureSurface = stageSurface || viewport || canvas;
+    for (const evtName of ['pointerdown', 'mousedown', 'pointerup', 'click', 'touchend']) {
+      addOwnedListener(gestureSurface, evtName, tryUnlockMediaFromInput);
+    }
+    addOwnedListener(instanceDoc || global, 'keydown', event => {
+      if (event?.key === 'Escape' || event?.metaKey || event?.ctrlKey) return;
+      tryUnlockMediaFromInput(event);
+    }, true);
     canvas.addEventListener('click', event => {
       if (familyDisposed || failed || preview.panMode || preview.suppressClick) return;
       try {
