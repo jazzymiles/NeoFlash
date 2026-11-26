@@ -3,7 +3,7 @@ const test = require('node:test');
 const fs = require('node:fs');
 const { resolve } = require('node:path');
 const { homedir } = require('node:os');
-const { spawnSync } = require('node:child_process');
+const { runCargo } = require('../../scripts/test-cargo.cjs');
 const { as2Frame, createAs2Methods } = require('../runtime.js');
 const root = resolve(__dirname, '../..');
 
@@ -28,7 +28,7 @@ const scripts = [
 let compiled;
 function compileBatch(list, prefix) {
   const localCargo = resolve(homedir(), '.cargo/bin/cargo');
-  const result = spawnSync(process.env.CARGO || (fs.existsSync(localCargo) ? localCargo : 'cargo'),
+  const result = runCargo(process.env.CARGO || (fs.existsSync(localCargo) ? localCargo : 'cargo'),
     ['run', '--quiet', '--locked', '-p', 'neoflash-script', '--example', 'compile_batch'],
     { cwd: root, encoding: 'utf8', input: JSON.stringify(list), maxBuffer: 8 * 1024 * 1024 });
   assert.equal(result.status, 0, result.stderr);
@@ -273,7 +273,7 @@ test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapDat
     const nflashPath = resolve(tmpDir, 'doom-reg.nflash');
     const outDir = resolve(tmpDir, 'html5');
     fs.writeFileSync(nflashPath, JSON.stringify(project));
-    const exported = spawnSync(
+    const exported = runCargo(
       cargo,
       ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--', nflashPath, '--output', outDir],
       { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },

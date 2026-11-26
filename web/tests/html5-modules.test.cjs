@@ -38,7 +38,7 @@ function findChromeBinary() {
 
 function ensureExportBinary() {
   if (fs.existsSync(exportBin)) return exportBin;
-  execFileSync('cargo', ['build', '-p', 'neoflash-export', '--bin', 'neoflash-export'], {
+  execFileSync('cargo', ['build', '--locked', '-p', 'neoflash-export', '--bin', 'neoflash-export'], {
     cwd: repoRoot,
     stdio: 'inherit',
   });

@@ -24,6 +24,10 @@ publish_gate_dir="$(mktemp -d "$project_root/target/artifacts/publish-gate-$NEOF
 NEOFLASH_PUBLISH_GATE_DIR="$publish_gate_dir" cargo test --locked --workspace
 cargo test --locked -p egui-winit --lib neoflash_paste_tests
 python3 scripts/check-fla-corpus.py
+cargo build --locked -p neoflash-export --bin neoflash-export
+cargo build --locked -p neoflash-import --bin neoflash-import
+cargo build --locked -p neoflash-sync --bin neoflash-sync
+cargo build --locked -p neoflash-script --example compile_batch --example compile_project
 node --test --test-concurrency=2 --test-timeout=180000 web/tests/*.test.cjs scripts/check-fla-examples.cjs scripts/tests/*.test.cjs
 node crates/neoflash-script/tests/execute.mjs
 node crates/neoflash-script/tests/project-execute.mjs
