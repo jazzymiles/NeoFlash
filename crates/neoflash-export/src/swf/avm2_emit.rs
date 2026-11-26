@@ -2,17 +2,21 @@
 
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compile_avm2_closure_value(
     pool: &mut AbcPoolBuilder,
     self_name: Option<&str>,
     params: &[String],
+    opt_defaults: &[AbcOptDefault],
+    rest_param: Option<String>,
     body: &[SwfStmt],
     code: &mut SwfBitWriter,
     state: &mut Avm2CompilerState,
     env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     let param_name_indices: Vec<u32> = params.iter().map(|p| pool.add_string(p)).collect();
-    let m_idx = state.alloc_method(param_name_indices);
+    let encoded_opts: Vec<(u32, u8)> = opt_defaults.iter().map(|d| d.encode(pool)).collect();
+    let m_idx = state.alloc_method_sig(param_name_indices, encoded_opts, rest_param);
 
     let mut child_outer = env.outer_slots.clone();
     if env.needs_activation {
@@ -247,8 +251,24 @@ fn compile_avm2_expr_inner(
     env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     match expr {
-        SwfExpr::Function { name, params, body } => {
-            compile_avm2_closure_value(pool, name.as_deref(), params, body, code, state, env)?;
+        SwfExpr::Function {
+            name,
+            params,
+            opt_defaults,
+            rest_param,
+            body,
+        } => {
+            compile_avm2_closure_value(
+                pool,
+                name.as_deref(),
+                params,
+                opt_defaults,
+                rest_param.clone(),
+                body,
+                code,
+                state,
+                env,
+            )?;
         }
         SwfExpr::Null => code.u8(0x20),        // pushnull
         SwfExpr::Undefined => code.u8(0x21),   // pushundefined
@@ -902,30 +922,63 @@ where
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn compile_avm2_function_decl_binding(
     pool: &mut AbcPoolBuilder,
     name: &str,
     params: &[String],
+    opt_defaults: &[AbcOptDefault],
+    rest_param: Option<String>,
     body: &[SwfStmt],
     code: &mut SwfBitWriter,
     state: &mut Avm2CompilerState,
     env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     if let Some(&reg) = env.local_regs.get(name) {
-        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        compile_avm2_closure_value(
+            pool,
+            None,
+            params,
+            opt_defaults,
+            rest_param,
+            body,
+            code,
+            state,
+            env,
+        )?;
         code.u8(0x82); // coerce_a
         emit_avm2_setlocal(code, reg);
     } else if let Some(&slot_id) = env.own_slots.get(name) {
         code.u8(0x65); // getscopeobject 1
         code.u8(0x01);
-        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        compile_avm2_closure_value(
+            pool,
+            None,
+            params,
+            opt_defaults,
+            rest_param,
+            body,
+            code,
+            state,
+            env,
+        )?;
         code.u8(0x6D); // setslot
         code.u32_v(slot_id);
     } else {
         let fn_mn = pool.add_qname("", name);
         code.u8(0x5E); // findproperty
         code.u32_v(fn_mn);
-        compile_avm2_closure_value(pool, None, params, body, code, state, env)?;
+        compile_avm2_closure_value(
+            pool,
+            None,
+            params,
+            opt_defaults,
+            rest_param,
+            body,
+            code,
+            state,
+            env,
+        )?;
         code.u8(0x61); // setproperty
         code.u32_v(fn_mn);
     }
@@ -940,8 +993,25 @@ pub(super) fn compile_avm2_stmt_list(
     env: &mut Avm2LexicalEnv,
 ) -> Result<(), String> {
     for stmt in stmts {
-        if let SwfStmt::FunctionDecl { name, params, body } = stmt {
-            compile_avm2_function_decl_binding(pool, name, params, body, code, state, env)?;
+        if let SwfStmt::FunctionDecl {
+            name,
+            params,
+            opt_defaults,
+            rest_param,
+            body,
+        } = stmt
+        {
+            compile_avm2_function_decl_binding(
+                pool,
+                name,
+                params,
+                opt_defaults,
+                rest_param.clone(),
+                body,
+                code,
+                state,
+                env,
+            )?;
         }
     }
     for stmt in stmts {
@@ -1669,8 +1739,24 @@ fn compile_avm2_stmt_inner(
                 code.u8(0x07); // dxnslate
             }
         }
-        SwfStmt::FunctionDecl { name, params, body } => {
-            compile_avm2_function_decl_binding(pool, name, params, body, code, state, env)?;
+        SwfStmt::FunctionDecl {
+            name,
+            params,
+            opt_defaults,
+            rest_param,
+            body,
+        } => {
+            compile_avm2_function_decl_binding(
+                pool,
+                name,
+                params,
+                opt_defaults,
+                rest_param.clone(),
+                body,
+                code,
+                state,
+                env,
+            )?;
         }
         SwfStmt::ClassDecl { .. } => {
             return Err(

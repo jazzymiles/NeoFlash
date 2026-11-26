@@ -173,7 +173,9 @@ pub(super) fn collect_refs_and_child_free_in_expr(
                 collect_refs_and_child_free_in_expr(val, direct_refs, child_free);
             }
         }
-        SwfExpr::Function { name, params, body } => {
+        SwfExpr::Function {
+            name, params, body, ..
+        } => {
             collect_free_vars_of_function(name.as_deref(), params, body, child_free);
         }
         SwfExpr::Member(obj, _) => {
@@ -372,6 +374,7 @@ pub(super) fn collect_refs_and_child_free_in_stmts(
                 ctor,
                 methods,
                 fields,
+                ..
             } => {
                 direct_refs.insert(name.clone());
                 if let Some(sup) = super_name {
@@ -389,7 +392,9 @@ pub(super) fn collect_refs_and_child_free_in_stmts(
                     }
                 }
             }
-            SwfStmt::FunctionDecl { name, params, body } => {
+            SwfStmt::FunctionDecl {
+                name, params, body, ..
+            } => {
                 direct_refs.insert(name.clone());
                 collect_free_vars_of_function(Some(name.as_str()), params, body, child_free);
             }
@@ -500,7 +505,9 @@ fn avm1_compile_expr_bounded(
             avm1_push_int(out, props.len() as i32);
             out.push(0x43); // ActionInitObject
         }
-        SwfExpr::Function { name, params, body } => {
+        SwfExpr::Function {
+            name, params, body, ..
+        } => {
             // An unnamed ActionDefineFunction2 pushes the function value onto the stack;
             // if a function-expression self-name is present (`function fact(n)`), bind it
             // inside the function's own local activation scope via `arguments.callee`.
@@ -1249,7 +1256,10 @@ fn avm1_compile_stmt_list_with_flow(
     ctx: &mut Avm1FlowCtx,
 ) -> Result<(), String> {
     for stmt in stmts {
-        if let SwfStmt::FunctionDecl { name, params, body } = stmt {
+        if let SwfStmt::FunctionDecl {
+            name, params, body, ..
+        } = stmt
+        {
             if in_function {
                 avm1_push_string(out, name)?;
                 avm1_compile_function(out, "", Some(name), params, body)?;
@@ -1337,22 +1347,55 @@ fn avm1_compile_stmt_with_flow(
             then_branch,
             else_branch,
         } => {
-            avm1_compile_expr(out, cond, reg_map)?;
-            out.push(0x12); // ActionNot: jump if cond is false
-            let skip_then_patch = emit_avm1_branch_placeholder(out, 0x9d);
-            avm1_compile_stmt_list_with_flow(out, then_branch, in_function, reg_map, ctx)?;
-            if let Some(else_stmts) = else_branch
-                && !else_stmts.is_empty()
-            {
-                let skip_else_patch = emit_avm1_branch_placeholder(out, 0x99);
-                let else_start = out.len();
-                patch_avm1_branch(out, skip_then_patch, else_start)?;
-                avm1_compile_stmt_list_with_flow(out, else_stmts, in_function, reg_map, ctx)?;
-                let after_else = out.len();
-                patch_avm1_branch(out, skip_else_patch, after_else)?;
-            } else {
-                let after_then = out.len();
-                patch_avm1_branch(out, skip_then_patch, after_then)?;
+            let mut end_patches = Vec::new();
+            let mut cur_cond = cond;
+            let mut cur_then = then_branch;
+            let mut cur_else = else_branch.as_deref();
+            loop {
+                avm1_compile_expr(out, cur_cond, reg_map)?;
+                out.push(0x12); // ActionNot: jump if cond is false
+                let skip_then_patch = emit_avm1_branch_placeholder(out, 0x9d);
+                avm1_compile_stmt_list_with_flow(out, cur_then, in_function, reg_map, ctx)?;
+                match cur_else {
+                    Some(
+                        [
+                            SwfStmt::If {
+                                cond: next_cond,
+                                then_branch: next_then,
+                                else_branch: next_else,
+                            },
+                        ],
+                    ) => {
+                        end_patches.push(emit_avm1_branch_placeholder(out, 0x99));
+                        let next_if_start = out.len();
+                        patch_avm1_branch(out, skip_then_patch, next_if_start)?;
+                        cur_cond = next_cond;
+                        cur_then = next_then;
+                        cur_else = next_else.as_deref();
+                    }
+                    Some(else_stmts) if !else_stmts.is_empty() => {
+                        end_patches.push(emit_avm1_branch_placeholder(out, 0x99));
+                        let else_start = out.len();
+                        patch_avm1_branch(out, skip_then_patch, else_start)?;
+                        avm1_compile_stmt_list_with_flow(
+                            out,
+                            else_stmts,
+                            in_function,
+                            reg_map,
+                            ctx,
+                        )?;
+                        break;
+                    }
+                    _ => {
+                        let after_then = out.len();
+                        patch_avm1_branch(out, skip_then_patch, after_then)?;
+                        break;
+                    }
+                }
+            }
+            let after_chain = out.len();
+            for patch in end_patches {
+                patch_avm1_branch(out, patch, after_chain)?;
             }
         }
         SwfStmt::While {
@@ -1788,16 +1831,105 @@ fn avm1_compile_stmt_with_flow(
         }
         SwfStmt::ClassDecl {
             name,
+            full_name,
             super_name,
             ctor,
             methods,
             fields,
         } => {
-            let (ctor_params, ctor_body): (&[String], &[SwfStmt]) = match ctor {
-                Some((p, b)) => (p.as_slice(), b.as_slice()),
-                None => (&[], &[]),
+            let instance_prologue: Vec<SwfStmt> = fields
+                .iter()
+                .filter_map(|(is_static, f_name, f_init)| {
+                    if !*is_static
+                        && let Some(init_expr) = f_init
+                        && !is_scalar_avm1_field_expr(init_expr)
+                    {
+                        Some(SwfStmt::Assign {
+                            target: SwfLValue::Member(
+                                Box::new(SwfExpr::Ident("this".to_owned())),
+                                f_name.clone(),
+                            ),
+                            op: SwfAssignOp::Assign,
+                            value: init_expr.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            let empty_params: &[String] = &[];
+            let (ctor_params, synthesized_body): (&[String], Vec<SwfStmt>) = match ctor {
+                Some((p, b)) => {
+                    if instance_prologue.is_empty() {
+                        (p.as_slice(), b.clone())
+                    } else {
+                        let insert_pos = b
+                            .iter()
+                            .position(|s| {
+                                matches!(
+                                    s,
+                                    SwfStmt::Expr(SwfExpr::Call { callee, .. })
+                                        if matches!(callee.as_ref(), SwfExpr::Ident(id) if id == "super")
+                                )
+                            })
+                            .map_or(0, |idx| idx + 1);
+                        let mut merged = Vec::with_capacity(b.len() + instance_prologue.len());
+                        merged.extend_from_slice(&b[..insert_pos]);
+                        merged.extend(instance_prologue);
+                        merged.extend_from_slice(&b[insert_pos..]);
+                        (p.as_slice(), merged)
+                    }
+                }
+                None => (empty_params, instance_prologue),
             };
-            avm1_compile_function(out, name, None, ctor_params, ctor_body)?;
+            avm1_compile_function(out, name, None, ctor_params, &synthesized_body)?;
+            // Register `_global.<pkg>.<Class> = <Class>` when packaged so both qualified
+            // `pkg.Class` and short `Class` work in Flash Player 8 and round-trip on SWF import.
+            let segs: Vec<&str> = full_name.split('.').filter(|s| !s.is_empty()).collect();
+            if segs.len() >= 2 {
+                for depth in 0..segs.len() - 1 {
+                    let get_parent = |out: &mut Vec<u8>| -> Result<(), String> {
+                        avm1_push_string(out, "_global")?;
+                        out.push(0x1c); // GetVariable(_global)
+                        for &seg in &segs[..depth] {
+                            avm1_push_string(out, seg)?;
+                            out.push(0x4e); // GetMember
+                        }
+                        Ok(())
+                    };
+                    get_parent(out)?;
+                    avm1_push_string(out, segs[depth])?;
+                    out.push(0x4e); // GetMember (_global...pkg)
+                    out.push(0x12); // Not
+                    let mut init_pkg = Vec::new();
+                    get_parent(&mut init_pkg)?;
+                    avm1_push_string(&mut init_pkg, segs[depth])?;
+                    avm1_push_int(&mut init_pkg, 0);
+                    init_pkg.push(0x43); // InitObject {}
+                    init_pkg.push(0x4f); // SetMember
+                    let skip_len = i16::try_from(init_pkg.len())
+                        .map_err(|_| "AVM1 package init jump overflow".to_owned())?;
+                    out.push(0x9d); // If (!exists) -> execute init_pkg, so invert: Not again!
+                    // Wait: If jumps when top of stack is truthy! We want to SKIP init_pkg when pkg EXISTS!
+                    // Above we pushed `!pkg`; let's remove `0x12` (Not) so `If (pkg)` skips `init_pkg`!
+                    out.pop(); // pop the 0x9d
+                    out.pop(); // pop the 0x12 (Not) -> top of stack is `Boolean(pkg)`!
+                    out.push(0x9d); // ActionIf: jump over `init_pkg` if `pkg` already exists!
+                    out.extend_from_slice(&2u16.to_le_bytes());
+                    out.extend_from_slice(&skip_len.to_le_bytes());
+                    out.extend_from_slice(&init_pkg);
+                }
+                avm1_push_string(out, "_global")?;
+                out.push(0x1c);
+                for &seg in &segs[..segs.len() - 1] {
+                    avm1_push_string(out, seg)?;
+                    out.push(0x4e);
+                }
+                avm1_push_string(out, segs[segs.len() - 1])?;
+                avm1_push_string(out, name)?;
+                out.push(0x1c); // GetVariable(Cls)
+                out.push(0x4f); // SetMember (_global.<pkg>.<Cls> = Cls)
+            }
             if let Some(sup) = super_name {
                 avm1_push_string(out, name)?;
                 out.push(0x1c); // ActionGetVariable(Sub)
@@ -1818,6 +1950,9 @@ fn avm1_compile_stmt_with_flow(
             }
             for (is_static, f_name, f_init) in fields {
                 if let Some(init_expr) = f_init {
+                    if !*is_static && !is_scalar_avm1_field_expr(init_expr) {
+                        continue;
+                    }
                     avm1_push_string(out, name)?;
                     out.push(0x1c); // ActionGetVariable(Cls)
                     if !*is_static {
@@ -1830,7 +1965,9 @@ fn avm1_compile_stmt_with_flow(
                 }
             }
         }
-        SwfStmt::FunctionDecl { name, params, body } => {
+        SwfStmt::FunctionDecl {
+            name, params, body, ..
+        } => {
             avm1_compile_function(out, name, None, params, body)?;
         }
         SwfStmt::Return(expr_opt) => {
@@ -1853,6 +1990,23 @@ fn avm1_compile_stmt_with_flow(
         }
     }
     Ok(())
+}
+
+fn is_scalar_avm1_field_expr(expr: &SwfExpr) -> bool {
+    match expr {
+        SwfExpr::Null
+        | SwfExpr::Undefined
+        | SwfExpr::Bool(_)
+        | SwfExpr::Int(_)
+        | SwfExpr::Float(_)
+        | SwfExpr::Str(_) => true,
+        SwfExpr::Ident(id) => matches!(id.as_str(), "NaN" | "Infinity"),
+        SwfExpr::Unary {
+            op: SwfUnaryOp::Neg | SwfUnaryOp::Pos,
+            expr: inner,
+        } => is_scalar_avm1_field_expr(inner),
+        _ => false,
+    }
 }
 
 pub(super) fn compile_avm1_actions_mode(

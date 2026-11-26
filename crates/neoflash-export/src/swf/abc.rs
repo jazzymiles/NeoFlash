@@ -219,7 +219,17 @@ pub(super) fn is_avm2_inherited_builtin_member(name: &str) -> bool {
 }
 
 pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, ExportError> {
-    let ordered_classes = order_and_resolve_abc_classes(classes);
+    let mut ordered_classes = order_and_resolve_abc_classes(classes);
+    let const_table = build_abc_const_table(&ordered_classes);
+    let known_snapshot = ordered_classes.clone();
+    for spec in &mut ordered_classes {
+        resolve_abc_opt_defaults_on_spec(spec, &known_snapshot, &const_table).map_err(|err| {
+            ExportError::Options(format!(
+                "AVM2 class '{}' failed parameter default resolution: {err}",
+                spec_qname(spec)
+            ))
+        })?;
+    }
     let mut pool = AbcPoolBuilder::default();
     let object_mn = pool.add_qname("", "Object");
     let add_frame_script_mn = pool.add_qname("", "addFrameScript");
@@ -444,9 +454,29 @@ pub(super) fn build_abc_bytes(classes: &[AbcClassSpec]) -> Result<Vec<u8>, Expor
         }
         let mut hoisted_frame_slots = Vec::new();
         for (frame_idx, script_src) in &cls.frame_scripts {
-            let stmts = parse_swf_statements_strict(script_src, true).map_err(|err| {
+            let mut stmts = parse_swf_statements_strict(script_src, true).map_err(|err| {
                 ExportError::Options(format!(
                     "AVM2 frame script on class '{}' frame {} failed to parse: {err}",
+                    cls.class_name,
+                    frame_idx + 1
+                ))
+            })?;
+            let mut fs_imp = cls.imported_classes.clone();
+            let mut fs_wild = cls.wildcard_packages.clone();
+            extract_script_imports(script_src, &mut fs_imp, &mut fs_wild);
+            let cls_qn = spec_qname(cls);
+            resolve_abc_opt_defaults_in_stmts(
+                &mut stmts,
+                Some(&cls_qn),
+                &cls.pkg,
+                &fs_imp,
+                &fs_wild,
+                &known_snapshot,
+                &const_table,
+            )
+            .map_err(|err| {
+                ExportError::Options(format!(
+                    "AVM2 frame script on class '{}' frame {} failed to compile: {err}",
                     cls.class_name,
                     frame_idx + 1
                 ))

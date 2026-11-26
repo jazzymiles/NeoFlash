@@ -1,5 +1,5 @@
 // Per-publication class registry. No ambient language switch or global patches.
-const __nfProgram = (() => {
+function __nfCreateProjectRuntime(__nfBuiltins) {
     const definitions = new Map(), interfaces = new Map(), identities = new WeakMap(), fieldStates = new WeakMap();
     const accessorStates = new WeakMap(), slots = new WeakMap(), classFacades = new WeakMap();
     const elementDescriptors = new Map();
@@ -10,7 +10,7 @@ const __nfProgram = (() => {
     const prototypeOwners = new WeakMap();
     const objectDefaults = {toString:Object.prototype.toString,toLocaleString:Object.prototype.toLocaleString};
     const classDefaultString = Function.prototype.toString;
-    let nativeTypeNames = [];
+    let nativeTypeNames = typeof __nfDefaultNativeTypes !== 'undefined' ? __nfDefaultNativeTypes : [];
     const flashProxyNs = typeof __nfXML?.namespace === 'function'
         ? __nfXML.namespace('flash_proxy', 'http://www.adobe.com/2006/actionscript/flash/proxy')
         : Object.freeze({ prefix: 'flash_proxy', uri: 'http://www.adobe.com/2006/actionscript/flash/proxy', toString() { return this.uri; } });
@@ -303,8 +303,10 @@ const __nfProgram = (() => {
         const raw = unwrapProxy(receiver);
         if (definition.dialect === 'as2') {
             for (const field of definition.fields.filter(field => field.static === isStatic)) {
-                Object.defineProperty(raw, field.name, { configurable: true, enumerable: false, writable: true,
-                    value: field.init ? field.init.call(selfReceiver) : undefined });
+                const value = (!isStatic && field.scalar && field.init)
+                    ? field.init.call(selfReceiver)
+                    : undefined;
+                Object.defineProperty(raw, field.name, { configurable: true, enumerable: false, writable: true, value });
             }
             return;
         }
@@ -322,8 +324,28 @@ const __nfProgram = (() => {
     }
     function initializeFields(name, receiver, isStatic = false) {
         const definition = definitions.get(name);
-        if (definition.dialect === 'as2') return; // Scalar defaults live on the shared prototype.
         const raw = unwrapProxy(receiver);
+        if (definition.dialect === 'as2') {
+            for (const field of definition.fields.filter(field => field.static === isStatic)) {
+                if (!field.init) continue;
+                if (isStatic) {
+                    Object.defineProperty(raw, field.name, {
+                        configurable: true,
+                        enumerable: false,
+                        writable: true,
+                        value: field.init.call(receiver),
+                    });
+                } else if (!field.scalar) {
+                    Object.defineProperty(raw, field.name, {
+                        configurable: true,
+                        enumerable: true,
+                        writable: true,
+                        value: field.init.call(receiver),
+                    });
+                }
+            }
+            return;
+        }
         for (const field of definition.fields.filter(field => field.static === isStatic)) {
             if (field.init) fieldStates.get(raw).get(field.slot).value = field.coerce(field.init.call(receiver));
         }
@@ -964,4 +986,17 @@ const __nfProgram = (() => {
         instanceClassName:value=>identities.get(value)||null,
         setNativeTypes:names=>{nativeTypeNames=names;},
         dialect:name=>definitions.get(name)?.dialect });
-})();
+}
+function __nfWireBuiltinVectors(__nfBuiltins, __nfProgram) {
+    if(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));
+    if(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));
+    if(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));
+    if(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));
+    if(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));
+    if(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)});
+    if(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));
+    if(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));
+    if(typeof __nfBuiltins.__nfAs3NetSysVectorFactory==='function')__nfBuiltins.__nfAs3NetSysVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));
+    if(typeof __nfBuiltins.__nfFte3dVectorFactory==='function')__nfBuiltins.__nfFte3dVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));
+    if(typeof __nfBuiltins.__nfMediaEventsVectorFactory==='function')__nfBuiltins.__nfMediaEventsVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));
+}

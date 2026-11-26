@@ -1,8 +1,10 @@
 // Compiler intrinsics, captured before entering any user function/catch scope.
 const __nfThrownBrand = Symbol.for('neoflash.as2.thrown.v1');
+const __nfUncatchableBrand = Symbol.for('neoflash.vm.uncatchable.v1');
 const __nfErrorKind = Symbol.for('neoflash.error.kind.v1');
 const __nfDescriptor = Object.getOwnPropertyDescriptor;
 const __nfDefineProperty = Object.defineProperty;
+const __nfObjectToString = Object.prototype.toString;
 const __nfErrorTypes = { Error, TypeError, RangeError, ReferenceError, SyntaxError, EvalError, URIError,
     ArgumentError: class extends Error { constructor() { super(); this.name = 'ArgumentError'; } },
     DefinitionError: class extends Error { constructor() { super(); this.name = 'DefinitionError'; } },
@@ -14,6 +16,72 @@ function __nfIsThrown(value) {
         const tag = __nfDescriptor(value, __nfThrownBrand), payload = __nfDescriptor(value, 'value');
         return !!tag && tag.value === true && !!payload && 'value' in payload;
     } catch (_) { return false; }
+}
+function __nfIsUncatchable(value) {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false;
+    try {
+        const brand = __nfDescriptor(value, __nfUncatchableBrand);
+        if (brand && brand.value === true) return true;
+        if (value.__nfUncatchable === true) return true;
+        const msg = typeof value.message === 'string' ? value.message : '';
+        if (msg.startsWith('Script step limit exceeded')
+            || msg.startsWith('Script execution step limit exceeded')
+            || msg.startsWith('Script event limit exceeded.')
+            || msg.startsWith('Event listener work limit exceeded.')
+            || msg.startsWith('Event dispatch recursion limit exceeded.')) {
+            return true;
+        }
+    } catch (_) {}
+    return false;
+}
+function __nfIsErrorObject(value) {
+    if (value === null || typeof value !== 'object') return false;
+    if (value instanceof __nfErrorTypes.Error) return true;
+    if (typeof __nfErrorTypes.Error.isError === 'function' && __nfErrorTypes.Error.isError(value)) return true;
+    const tag = __nfObjectToString.call(value);
+    return tag === '[object Error]' || tag === '[object DOMException]';
+}
+let __nfLoopSteps = 0, __nfLoopResetQueued = false;
+function __nfStepOverflow() {
+    const max = typeof globalThis !== 'undefined' && typeof globalThis.__nfMaxScriptSteps === 'number'
+        ? globalThis.__nfMaxScriptSteps
+        : 25000000;
+    if (!__nfLoopResetQueued) {
+        __nfLoopResetQueued = true;
+        Promise.resolve().then(() => { __nfLoopSteps = 0; __nfLoopResetQueued = false; });
+    }
+    if (__nfLoopSteps > max) {
+        __nfLoopSteps = 0;
+        const err = new __nfErrorTypes.Error('Script step limit exceeded (' + max + ' steps).');
+        __nfDefineProperty(err, __nfUncatchableBrand, { value: true });
+        __nfDefineProperty(err, '__nfUncatchable', { value: true });
+        throw err;
+    }
+}
+function __nfUnwrapCaught(caught, as3) {
+    if (__nfIsUncatchable(caught)) throw caught;
+    if (__nfIsThrown(caught)) return caught.value;
+    if (__nfIsErrorObject(caught)) {
+        const existingKind = __nfDescriptor(caught, __nfErrorKind);
+        if (existingKind && typeof existingKind.value === 'string') return caught;
+        const rawName = typeof caught.name === 'string' && Object.hasOwn(__nfErrorTypes, caught.name) ? caught.name : 'Error';
+        const rawMsg = typeof caught.message === 'string' ? caught.message : __nfString(caught);
+        if (!as3) {
+            const wrapped = __nfMakeError(rawName, false, [rawMsg]);
+            if (typeof caught.stack === 'string') {
+                __nfDefineProperty(wrapped, 'stack', { value: caught.stack, configurable: true, writable: true });
+            }
+            return wrapped;
+        }
+        if (!(caught instanceof __nfErrorTypes.Error)) {
+            const wrapped = __nfMakeError(rawName, true, [rawMsg]);
+            if (typeof caught.stack === 'string') {
+                __nfDefineProperty(wrapped, 'stack', { value: caught.stack, configurable: true, writable: true });
+            }
+            return wrapped;
+        }
+    }
+    return caught;
 }
 function __nfCatchType(value, type) {
     if (type === '*') return true;
@@ -30,11 +98,17 @@ function __nfCatchType(value, type) {
         case 'DefinitionError':
         case 'SecurityError':
         case 'VerifyError': {
-            if (!(value instanceof __nfErrorTypes.Error)) return false;
+            if (!__nfIsErrorObject(value)) return false;
             const kind = __nfDescriptor(value, __nfErrorKind);
             return value instanceof __nfErrorTypes[type] || (!!kind && kind.value === type) || value.name === type;
         }
-        default: return value instanceof __nfErrorTypes[type];
+        case 'Error': return __nfIsErrorObject(value);
+        default: {
+            if (Object.hasOwn(__nfErrorTypes, type)) {
+                return value instanceof __nfErrorTypes[type] || (__nfIsErrorObject(value) && value.name === type);
+            }
+            return false;
+        }
     }
 }
 function __nfMakeError(type, as3, args) {

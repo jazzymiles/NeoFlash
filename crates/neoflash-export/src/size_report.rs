@@ -168,7 +168,7 @@ fn build_size_report_and_summary(
     if !issues.is_empty() {
         return Err(ExportError::InvalidProject(format!("{issues:?}")));
     }
-    let program = neoflash_script::compile_project(project).map_err(|errors| {
+    let mut program = neoflash_script::compile_project(project).map_err(|errors| {
         ExportError::Scripts(
             errors
                 .into_iter()
@@ -179,20 +179,48 @@ fn build_size_report_and_summary(
     })?;
     let mut compiled_scripts = compile_scripts(project, &program)?;
     let raw_as_prelude = neoflash_script::as_runtime_prelude_js();
-    if !raw_as_prelude.is_empty() && program.code.contains(&raw_as_prelude) {
+    let mut uses_as = false;
+    if !raw_as_prelude.is_empty() {
+        let (deduped_prog, hit) =
+            super::replace_as_prelude_once_with_newlines(&program.code, &raw_as_prelude, false);
+        if hit {
+            program.code = deduped_prog;
+            uses_as = true;
+        }
         for script in &mut compiled_scripts {
-            let (deduped, hit) = super::replace_as_prelude_once(&script.code, &raw_as_prelude);
+            let (deduped, hit) =
+                super::replace_as_prelude_once_with_newlines(&script.code, &raw_as_prelude, false);
             if hit {
                 script.code = deduped;
+                uses_as = true;
             }
         }
     }
-    size_report_from(project, &program, &compiled_scripts, runtime)
+    let effective_runtime = runtime.or_else(|| {
+        Some(RuntimeFigures {
+            wasm_bytes: 0,
+            wasm_inline: false,
+            runtime_js_bytes: static_runtime_js_bytes()
+                + if uses_as {
+                    super::AS_INTRINSICS.len()
+                } else {
+                    0
+                },
+        })
+    });
+    size_report_from(
+        project,
+        &program,
+        None,
+        &compiled_scripts,
+        effective_runtime,
+    )
 }
 
 pub(crate) fn size_report_from(
     project: &Project,
     program: &neoflash_script::ProjectProgram,
+    effective_program_code: Option<&str>,
     compiled_scripts: &[CompiledScript],
     runtime: Option<RuntimeFigures>,
 ) -> Result<(String, LoadSummary), ExportError> {
@@ -318,10 +346,30 @@ pub(crate) fn size_report_from(
         });
     }
 
+    let raw_as_prelude = neoflash_script::as_runtime_prelude_js();
     let source_unit_bytes: usize = project.sources.iter().map(|u| u.source.len()).sum();
     let handler_source_bytes: usize = compiled_scripts.iter().map(|s| s.source.len()).sum();
-    let handler_compiled_bytes: usize = compiled_scripts.iter().map(|s| s.code.len()).sum();
-    let program_compiled_bytes = program.code.len();
+    let handler_compiled_bytes: usize = compiled_scripts
+        .iter()
+        .map(|s| {
+            super::replace_as_prelude_once_with_newlines(&s.code, &raw_as_prelude, false)
+                .0
+                .trim_start_matches('\n')
+                .len()
+        })
+        .sum();
+    let prog_code = effective_program_code.unwrap_or(&program.code);
+    let program_compiled_bytes = if project.sources.is_empty()
+        && project.document_class.is_none()
+        && compiled_scripts.is_empty()
+        && program.class_names.is_empty()
+    {
+        0
+    } else {
+        super::replace_as_prelude_once_with_newlines(prog_code, &raw_as_prelude, false)
+            .0
+            .len()
+    };
     let bundle_payload_bytes =
         published_project_bytes + program_compiled_bytes + handler_compiled_bytes;
     let runtime_js_bytes = runtime.map_or_else(static_runtime_js_bytes, |r| r.runtime_js_bytes);

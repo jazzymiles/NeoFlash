@@ -12,6 +12,18 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const path = resolve(root, 'web/runtime.js');
   const runtime = readFileSync(path, 'utf8');
   const runtimeExports = require(path);
+  const asIntrinsicsPath = resolve(root, 'web/as-intrinsics.js');
+  try {
+    require(asIntrinsicsPath);
+  } catch (_) {}
+  if (options.bundle && typeof options.bundle === 'object' && !options.bundle.as_prelude && typeof globalThis.__neoflashAsIntrinsics === 'string') {
+    Object.defineProperty(options.bundle, 'as_prelude', {
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: globalThis.__neoflashAsIntrinsics,
+    });
+  }
   const { completeCleanup, createScenePainter, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, scriptFunction, functionBodyLineOffset, mappedErrorFrames, sourceLocationText, formatTraceValue, formatTraceArgs, emitScriptMessage } = runtimeExports;
   const hydrateAsPrelude = typeof runtimeExports.hydrateAsPrelude === 'function'
     ? runtimeExports.hydrateAsPrelude
@@ -223,4 +235,162 @@ export function verifyHostFailureFormatting(root) {
     });
     assert.deepEqual(traceCalls, [], 'failed dispatch must not invent a trace');
   }
+}
+
+export async function verifyTryCatchHostErrorsAndStepSentinels(root) {
+  const { runCargo } = require(resolve(root, 'scripts/test-cargo.cjs'));
+  const { homedir } = await import('node:os');
+  const { existsSync } = await import('node:fs');
+  const vm = await import('node:vm');
+  const localCargo = resolve(homedir(), '.cargo/bin/cargo');
+  const cargo = process.env.CARGO || (existsSync(localCargo) ? localCargo : 'cargo');
+
+  const as2CatchSource = [
+    'import flash.display.BitmapData;',
+    'import flash.geom.Point;',
+    'var caught = [];',
+    'try { this.hostDisplayThrow(); } catch (err) { caught.push("display:" + err.message); }',
+    'try { var badBmp = new BitmapData(0, 0); } catch (err) { caught.push("bitmap:" + (err.message.length > 0)); }',
+    'try { this.hostTextThrow(); } catch (err) { caught.push("text:" + err.message); }',
+    'try { this.hostSoundThrow(); } catch (err) { caught.push("sound:" + err.message); }',
+    'try { this.hostXmlThrow(); } catch (err) { caught.push("xml:" + err.message); }',
+    'try { this.hostGeomThrow(); } catch (err) { caught.push("geom:" + err.message); }',
+    'try { this.hostCrossRealmThrow(); } catch (err) { caught.push("realm:" + err.message); }',
+    'this.caughtSummary = caught.join("|");',
+  ].join('\n');
+
+  const as3CatchSource = [
+    'import flash.display.BitmapData;',
+    'var caught:Array = [];',
+    'try { this.hostDisplayThrow(); } catch (err:Error) { caught.push("display:" + err.message); }',
+    'try { var badBmp:BitmapData = new BitmapData(0, 0); } catch (err:Error) { caught.push("bitmap:" + (err.message.length > 0)); }',
+    'try { this.hostTextThrow(); } catch (err:Error) { caught.push("text:" + err.message); }',
+    'try { this.hostSoundThrow(); } catch (err:Error) { caught.push("sound:" + err.message); }',
+    'try { this.hostXmlThrow(); } catch (err:*) { caught.push("xml:" + err.message); }',
+    'try { this.hostGeomThrow(); } catch (err:Error) { caught.push("geom:" + err.message); }',
+    'try { this.hostCrossRealmThrow(); } catch (err:Error) { caught.push("realm:" + err.message); }',
+    'this.caughtSummary = caught.join("|");',
+  ].join('\n');
+
+  const as2InfLoopSource = 'this.swallowed = false; try { while (true) {} } catch (e) { this.swallowed = true; }';
+  const as3InfLoopSource = 'this.swallowed = false; try { while (true) {} } catch (e:*) { this.swallowed = true; }';
+  const as2SentinelSource = 'this.swallowed = false; try { this.throwAbortSentinel(); } catch (e) { this.swallowed = true; }';
+  const as3SentinelSource = 'this.swallowed = false; try { this.throwAbortSentinel(); } catch (e:Error) { this.swallowed = true; }';
+
+  const project = {
+    format_version: 2,
+    name: 'FO-03 try/catch host error fixture',
+    width: 320,
+    height: 180,
+    fps: 24,
+    background: [255, 255, 255, 255],
+    root: 'scene',
+    symbols: [{ id: 'scene', name: 'Scene', kind: 'movie_clip', timeline: { frame_count: 1, layers: [], scripts: [] } }],
+    sources: [],
+  };
+  const scripts = [
+    { language: 'action_script2', source: as2CatchSource },
+    { language: 'action_script3', source: as3CatchSource },
+    { language: 'action_script2', source: as2InfLoopSource },
+    { language: 'action_script3', source: as3InfLoopSource },
+    { language: 'action_script2', source: as2SentinelSource },
+    { language: 'action_script3', source: as3SentinelSource },
+  ];
+  const res = runCargo(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-script', '--example', 'compile_project'], {
+    cwd: root,
+    input: JSON.stringify({ project, scripts }),
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  assert.equal(res.status, 0, res.error?.message || res.stderr);
+  const compiled = JSON.parse(res.stdout).Ok;
+  assert.ok(compiled, res.stdout);
+
+  const crossRealmErr = vm.runInNewContext('new TypeError("cross-realm failure")');
+  function installThrowers(clip) {
+    clip.hostDisplayThrow = () => { throw new Error('swapDepths host error'); };
+    clip.hostTextThrow = () => { throw new RangeError('TextField host error'); };
+    clip.hostSoundThrow = () => { throw new Error('Sound host error'); };
+    clip.hostXmlThrow = () => { throw new SyntaxError('XML host error'); };
+    clip.hostGeomThrow = () => { throw new TypeError('Geometry host error'); };
+    clip.hostCrossRealmThrow = () => { throw crossRealmErr; };
+    clip.throwAbortSentinel = () => {
+      const abortErr = new Error('Host VM abort sentinel');
+      Object.defineProperty(abortErr, '__nfUncatchable', { value: true });
+      throw abortErr;
+    };
+  }
+
+  // 1. AS2 & AS3 catch ordinary host/intrinsic/cross-realm Errors cleanly.
+  for (const idx of [0, 1]) {
+    const player = new runtimeWasm.WebPlayer(JSON.stringify(project));
+    const unit = { script: scripts[idx], code: compiled.scripts[idx], location: `fo03-${idx}` };
+    const env = createRuntimeHost(root, player, [unit], {
+      bundle: { project, program: { code: compiled.code, class_names: [] }, scripts: [{ ...scripts[idx], code: compiled.scripts[idx] }] },
+      project,
+    });
+    const blue = env.host.proxyFor([]);
+    installThrowers(blue);
+    player.free();
+
+    const harness = createHostHarness(root, scripts[idx], compiled.scripts[idx]);
+    const target = harness.host.proxyFor(['blue']);
+    installThrowers(target);
+    harness.click('blue');
+    assert.equal(
+      target.caughtSummary,
+      'display:swapDepths host error|bitmap:true|text:TextField host error|sound:Sound host error|xml:XML host error|geom:Geometry host error|realm:cross-realm failure',
+      `script[${idx}] should catch all host/intrinsic/cross-realm errors`,
+    );
+  }
+
+  // 2. Infinite loop step-limit sentinels CANNOT be swallowed by AS2 or AS3 try/catch!
+  const prevSteps = globalThis.__nfMaxScriptSteps;
+  globalThis.__nfMaxScriptSteps = 256;
+  try {
+    for (const idx of [2, 3]) {
+      const harness = createHostHarness(root, scripts[idx], compiled.scripts[idx]);
+      const target = harness.host.proxyFor(['blue']);
+      assert.throws(
+        () => harness.click('blue'),
+        /Script step limit exceeded/,
+        `script[${idx}] infinite loop inside try/catch must abort instead of being swallowed`,
+      );
+      assert.equal(target.swallowed, false, `script[${idx}] catch block must not run on step overflow`);
+    }
+  } finally {
+    if (prevSteps === undefined) delete globalThis.__nfMaxScriptSteps;
+    else globalThis.__nfMaxScriptSteps = prevSteps;
+  }
+
+  // 3. Explicit __nfUncatchable VM abort sentinels rethrow past AS2 and AS3 catch blocks!
+  for (const idx of [4, 5]) {
+    const harness = createHostHarness(root, scripts[idx], compiled.scripts[idx]);
+    const target = harness.host.proxyFor(['blue']);
+    installThrowers(target);
+    assert.throws(
+      () => harness.click('blue'),
+      /Host VM abort sentinel/,
+      `script[${idx}] uncatchable sentinel must rethrow past user catch`,
+    );
+    assert.equal(target.swallowed, false);
+  }
+}
+
+const isMainModule = (() => {
+  try {
+    const { fileURLToPath } = require('node:url');
+    return Boolean(process.argv[1]) && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+  } catch (_) {
+    return false;
+  }
+})();
+
+if (isMainModule) {
+  const { dirname } = require('node:path');
+  const { fileURLToPath } = require('node:url');
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+  verifyHostFailureFormatting(repoRoot);
+  await verifyTryCatchHostErrorsAndStepSentinels(repoRoot);
+  console.log('host-integration: failure formatting, externalized as-intrinsics, AS2/AS3 host try/catch, and uncatchable step sentinels passed.');
 }

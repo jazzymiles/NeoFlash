@@ -293,10 +293,19 @@ pub(crate) fn build_project_from_swf(
     builder.finalize_pending_buttons();
     builder.apply_scaling_grids();
 
-    // Attach `DoInitAction` scripts to target sprites (or root frame 0 if target isn't a sprite).
+    // Reconstruct AVM1 `DoInitAction` AS2 classes into `SourceUnit`s when valid, and attach any
+    // remaining non-class `DoInitAction` scripts to target sprites (or root frame 0).
+    let placed_char_sym_ids =
+        collect_placed_symbol_ids(&root_snapshots, &builder.symbols, &builder.characters);
+    let mut reconstructed_as2_sources: Vec<SourceUnit> = Vec::new();
+    let mut removed_init_sprite_ids: HashSet<Id> = HashSet::new();
+    let mut consumed_package_exports: HashSet<(u16, String)> = HashSet::new();
     let mut root_extra_frame0_actions = Vec::new();
     let init_actions = std::mem::take(&mut builder.init_actions);
-    for (sprite_char_id, scripts) in init_actions {
+    let mut ordered_init_actions: Vec<(u16, Vec<String>)> = init_actions.into_iter().collect();
+    ordered_init_actions.sort_by_key(|(cid, _)| *cid);
+    let swf_script_lang = script_language_for_swf(builder.swf_version);
+    for (sprite_char_id, scripts) in ordered_init_actions {
         let joined = scripts.join("\n\n");
         if joined.trim().is_empty() {
             continue;
@@ -305,18 +314,83 @@ pub(crate) fn build_project_from_swf(
             Some(SwfCharacter::Sprite { symbol_id, .. }) => Some(symbol_id.clone()),
             _ => None,
         };
+        let pkg_export_opt = builder
+            .exports
+            .iter()
+            .find(|(cid, name)| *cid == sprite_char_id && name.starts_with("__Packages."))
+            .map(|(_, name)| name.clone());
+        let has_non_pkg_export = builder
+            .exports
+            .iter()
+            .any(|(cid, name)| *cid == sprite_char_id && !name.starts_with("__Packages."))
+            || builder
+                .symbol_classes
+                .iter()
+                .any(|(cid, _)| *cid == sprite_char_id);
+        let is_empty_unplaced_sprite = target_sym_id.as_ref().is_some_and(|sid| {
+            !placed_char_sym_ids.contains(sid)
+                && !has_non_pkg_export
+                && builder
+                    .symbols
+                    .iter()
+                    .find(|s| s.id == *sid)
+                    .is_some_and(is_empty_carrier_sprite_symbol)
+        });
+        let hint_qname = pkg_export_opt
+            .as_deref()
+            .and_then(|s| s.strip_prefix("__Packages."))
+            .filter(|q| is_valid_class_name(q));
+
+        if swf_script_lang == ScriptLanguage::ActionScript2
+            && (pkg_export_opt.is_some() || is_empty_unplaced_sprite)
+            && let Some(recovered_classes) = try_reconstruct_avm1_init_classes(&joined, hint_qname)
+        {
+            for (full_name, class_src) in recovered_classes {
+                let idx = reconstructed_as2_sources.len() + 1;
+                let mut rel_path = format!("{}.as", full_name.replace('.', "/"));
+                if reconstructed_as2_sources
+                    .iter()
+                    .any(|u| u.path.eq_ignore_ascii_case(&rel_path))
+                {
+                    rel_path = format!("{}-{idx}.as", rel_path.trim_end_matches(".as"));
+                }
+                reconstructed_as2_sources.push(SourceUnit {
+                    id: format!("swf-as2-src-{idx}"),
+                    path: rel_path,
+                    language: ScriptLanguage::ActionScript2,
+                    source: class_src,
+                });
+            }
+            if let Some(pkg_exp) = pkg_export_opt {
+                consumed_package_exports.insert((sprite_char_id, pkg_exp));
+            }
+            if is_empty_unplaced_sprite && let Some(sid) = target_sym_id {
+                removed_init_sprite_ids.insert(sid);
+            }
+            continue;
+        }
+
         if let Some(sym_id) = target_sym_id
             && let Some(sym) = builder.symbols.iter_mut().find(|s| s.id == sym_id)
         {
-            prepend_frame_script(
-                &mut sym.timeline,
-                0,
-                script_language_for_swf(builder.swf_version),
-                joined,
-            );
+            prepend_frame_script(&mut sym.timeline, 0, swf_script_lang, joined);
         } else {
             root_extra_frame0_actions.push(joined);
         }
+    }
+    if !removed_init_sprite_ids.is_empty() {
+        builder
+            .symbols
+            .retain(|s| !removed_init_sprite_ids.contains(&s.id));
+        builder.characters.retain(|_, ch| match ch {
+            SwfCharacter::Sprite { symbol_id, .. } => !removed_init_sprite_ids.contains(symbol_id),
+            _ => true,
+        });
+    }
+    if !consumed_package_exports.is_empty() {
+        builder
+            .exports
+            .retain(|entry| !consumed_package_exports.contains(entry));
     }
 
     // Build root timeline (or split into ordered scene timelines when `DefineSceneAndFrameLabelData` defines >1 scene).
@@ -403,7 +477,7 @@ pub(crate) fn build_project_from_swf(
         root: root_id.clone(),
         symbols: builder.symbols,
         library_folders: folder_set.into_iter().collect(),
-        sources: Vec::new(),
+        sources: reconstructed_as2_sources,
         resources: builder.resources,
         document_class: None,
         scenes: scenes_ids,
@@ -443,11 +517,20 @@ pub(crate) fn build_project_from_swf(
         });
     }
     inline_single_use_dictionary_shapes(&mut project, builder.report, location);
+    if !inspection.as3_flag && swf_script_lang == ScriptLanguage::ActionScript2 {
+        synthesize_avm1_imports_on_project(&mut project);
+    }
     project.script_language = Some(
-        if inspection.as3_flag || !project.sources.is_empty() || project.document_class.is_some() {
+        if inspection.as3_flag
+            || project
+                .sources
+                .iter()
+                .any(|u| u.language == ScriptLanguage::ActionScript3)
+            || project.document_class.is_some()
+        {
             ScriptLanguage::ActionScript3
         } else {
-            script_language_for_swf(container.swf_version)
+            swf_script_lang
         },
     );
 
@@ -3759,8 +3842,12 @@ fn apply_linkage_and_abc(
     }
 
     // 3. Populate `project.sources` with decompiled `.as` files (excluding omitted auto-generated timeline classes).
-    let mut used_paths_lower: HashSet<String> = HashSet::new();
-    let mut total_src_bytes = 0usize;
+    let mut used_paths_lower: HashSet<String> = project
+        .sources
+        .iter()
+        .map(|u| u.path.to_lowercase())
+        .collect();
+    let mut total_src_bytes: usize = project.sources.iter().map(|u| u.source.len()).sum();
     for (idx, cls) in abc_classes.into_iter().enumerate() {
         if omitted_pure_classes.contains(&cls.qualified_name) {
             continue;
@@ -3785,6 +3872,653 @@ fn apply_linkage_and_abc(
             language: ScriptLanguage::ActionScript3,
             source: cls.source,
         });
+    }
+}
+
+fn collect_placed_symbol_ids(
+    root_snapshots: &[FrameSnapshot],
+    symbols: &[Symbol],
+    characters: &HashMap<u16, SwfCharacter>,
+) -> HashSet<Id> {
+    let mut placed = HashSet::new();
+    for snap in root_snapshots {
+        for slot in snap.slots.values() {
+            if let Some(symbol_id) = char_symbol_id(characters, slot.character_id) {
+                placed.insert(symbol_id);
+            }
+        }
+    }
+    for sym in symbols {
+        for layer in &sym.timeline.layers {
+            for kf in &layer.keyframes {
+                for el in &kf.elements {
+                    if let ElementKind::Instance { symbol_id, .. } = &el.kind {
+                        placed.insert(symbol_id.clone());
+                    }
+                }
+            }
+        }
+    }
+    placed
+}
+
+fn is_empty_carrier_sprite_symbol(sym: &Symbol) -> bool {
+    sym.timeline.frame_count <= 1
+        && sym.timeline.scripts.is_empty()
+        && sym.timeline.layers.iter().all(|l| {
+            l.keyframes
+                .iter()
+                .all(|kf| kf.elements.is_empty() && kf.sound.is_none())
+        })
+}
+
+struct ReconstructedAs2Class {
+    short_name: String,
+    full_name: String,
+    super_name: Option<String>,
+    ctor: Option<(String, String)>,
+    methods: Vec<(bool, String, String, String)>,
+    fields: Vec<(bool, String, Option<String>)>,
+}
+
+fn split_top_level_avm1_chunks(src: &str) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut cur = String::new();
+    let mut brace_depth = 0usize;
+    let mut in_str: Option<char> = None;
+    let mut escaped = false;
+    let mut chars = src.chars().peekable();
+    while let Some(c) = chars.next() {
+        cur.push(c);
+        if let Some(q) = in_str {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                in_str = None;
+            }
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            in_str = Some(c);
+            continue;
+        }
+        if c == '/' && chars.peek() == Some(&'*') {
+            if let Some(star) = chars.next() {
+                cur.push(star);
+            }
+            while let Some(cc) = chars.next() {
+                cur.push(cc);
+                if cc == '*' && chars.peek() == Some(&'/') {
+                    if let Some(slash) = chars.next() {
+                        cur.push(slash);
+                    }
+                    break;
+                }
+            }
+            if brace_depth == 0 && chars.peek().is_none_or(|n| *n == '\n') {
+                let trimmed = cur.trim();
+                if !trimmed.is_empty() {
+                    chunks.push(trimmed.to_owned());
+                }
+                cur.clear();
+            }
+            continue;
+        }
+        if c == '{' {
+            brace_depth += 1;
+        } else if c == '}' {
+            brace_depth = brace_depth.saturating_sub(1);
+            if brace_depth == 0 && chars.peek().is_none_or(|n| *n == '\n' || *n == ';') {
+                if chars.peek() == Some(&';')
+                    && let Some(semi) = chars.next()
+                {
+                    cur.push(semi);
+                }
+                let trimmed = cur.trim();
+                if !trimmed.is_empty() {
+                    chunks.push(trimmed.to_owned());
+                }
+                cur.clear();
+            }
+        } else if c == '\n' && brace_depth == 0 {
+            let trimmed = cur.trim();
+            if !trimmed.is_empty() {
+                chunks.push(trimmed.to_owned());
+            }
+            cur.clear();
+        }
+    }
+    let rem = cur.trim();
+    if !rem.is_empty() {
+        chunks.push(rem.to_owned());
+    }
+    chunks
+}
+
+fn parse_fn_header_and_body(text: &str) -> Option<(String, String)> {
+    let rest = text.strip_prefix("function(")?;
+    let close_paren = rest.find(") {")?;
+    let params = rest[..close_paren].trim().to_owned();
+    let after_open = &rest[close_paren + 3..];
+    let body_raw = after_open
+        .strip_suffix("};")
+        .or_else(|| after_open.strip_suffix('}'))?;
+    Some((params, dedent_four_spaces(body_raw)))
+}
+
+fn dedent_four_spaces(body: &str) -> String {
+    let trimmed = body.trim_matches('\n');
+    if trimmed.trim().is_empty() {
+        return String::new();
+    }
+    trimmed
+        .lines()
+        .map(|line| line.strip_prefix("    ").unwrap_or(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn collect_this_field_idents_in_as2(code: &str, out: &mut std::collections::BTreeSet<String>) {
+    let bytes = code.as_bytes();
+    let mut i = 0usize;
+    let mut in_str: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = in_str {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == q {
+                in_str = None;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            in_str = Some(b);
+            i += 1;
+            continue;
+        }
+        if i + 5 < bytes.len()
+            && &bytes[i..i + 5] == b"this."
+            && (i == 0
+                || !(bytes[i - 1].is_ascii_alphanumeric()
+                    || bytes[i - 1] == b'_'
+                    || bytes[i - 1] == b'$'))
+        {
+            let start = i + 5;
+            let mut end = start;
+            while end < bytes.len()
+                && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_' || bytes[end] == b'$')
+            {
+                end += 1;
+            }
+            if end > start {
+                // Skip method calls `this.foo(...)` — only record property accesses/assignments.
+                let mut look = end;
+                while look < bytes.len() && bytes[look].is_ascii_whitespace() {
+                    look += 1;
+                }
+                if bytes.get(look) != Some(&b'(')
+                    && let Ok(ident) = std::str::from_utf8(&bytes[start..end])
+                {
+                    out.insert(ident.to_owned());
+                }
+                i = end;
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
+fn try_reconstruct_avm1_init_classes(
+    src: &str,
+    hint_qname: Option<&str>,
+) -> Option<Vec<(String, String)>> {
+    let chunks = split_top_level_avm1_chunks(src);
+    if chunks.is_empty() {
+        return None;
+    }
+    let mut classes: Vec<ReconstructedAs2Class> = Vec::new();
+    let find_or_insert = |classes: &mut Vec<ReconstructedAs2Class>,
+                          short_or_qname: &str,
+                          hint: Option<&str>|
+     -> Option<usize> {
+        let clean = short_or_qname
+            .strip_prefix("_global.")
+            .unwrap_or(short_or_qname);
+        if !is_valid_class_name(clean) {
+            return None;
+        }
+        let short = clean.rsplit('.').next().unwrap_or(clean);
+        if let Some(pos) = classes
+            .iter()
+            .position(|c| c.short_name == short || c.full_name == clean)
+        {
+            if clean.contains('.') && !classes[pos].full_name.contains('.') {
+                classes[pos].full_name = clean.to_owned();
+            }
+            return Some(pos);
+        }
+        let full = if clean.contains('.') {
+            clean.to_owned()
+        } else if let Some(hq) = hint
+            && (hq == short || hq.ends_with(&format!(".{short}")))
+        {
+            hq.to_owned()
+        } else {
+            short.to_owned()
+        };
+        classes.push(ReconstructedAs2Class {
+            short_name: short.to_owned(),
+            full_name: full,
+            super_name: None,
+            ctor: None,
+            methods: Vec::new(),
+            fields: Vec::new(),
+        });
+        Some(classes.len() - 1)
+    };
+
+    for chunk in chunks {
+        if chunk.starts_with("var __reg") && chunk.ends_with(';') && !chunk.contains('=') {
+            continue;
+        }
+        if chunk.starts_with("ASSetPropFlags(") && chunk.ends_with(");") {
+            continue;
+        }
+        if chunk.starts_with("if (")
+            && chunk.contains("_global.")
+            && (chunk.contains("{}") || chunk.contains("new Object()"))
+        {
+            continue;
+        }
+        if let Some(inner) = chunk
+            .strip_prefix("/* ")
+            .and_then(|s| s.strip_suffix(" */"))
+            && let Some((sub, sup)) = inner.split_once(" extends ")
+        {
+            let sub_clean = sub.trim().strip_prefix("_global.").unwrap_or(sub.trim());
+            let sup_clean = sup.trim().strip_prefix("_global.").unwrap_or(sup.trim());
+            if is_valid_class_name(sub_clean)
+                && is_valid_class_name(sup_clean)
+                && let Some(idx) = find_or_insert(&mut classes, sub_clean, hint_qname)
+            {
+                classes[idx].super_name = Some(sup_clean.to_owned());
+                continue;
+            }
+            return None;
+        }
+        if let Some(rest) = chunk.strip_prefix("function ") {
+            let open_paren = rest.find('(')?;
+            let fn_name = rest[..open_paren].trim();
+            if !is_valid_class_name(fn_name) || fn_name.contains('.') {
+                return None;
+            }
+            let close_paren = rest[open_paren + 1..].find(") {")? + open_paren + 1;
+            let params = rest[open_paren + 1..close_paren].trim().to_owned();
+            let after_open = &rest[close_paren + 3..];
+            let body_raw = after_open.strip_suffix('}')?;
+            let idx = find_or_insert(&mut classes, fn_name, hint_qname)?;
+            classes[idx].ctor = Some((params, dedent_four_spaces(body_raw)));
+            continue;
+        }
+        // Handle `_global.<pkg>.<Class> = <Class>;` or `_global.<pkg>.<Class> = function(...) { ... };`
+        if let Some(eq_pos) = chunk.find(" = ") {
+            let lhs_raw = chunk[..eq_pos].trim();
+            let rhs_raw = chunk[eq_pos + 3..].trim();
+            let lhs = lhs_raw.strip_prefix("var ").map_or(lhs_raw, str::trim);
+            if let Some(qname) = lhs.strip_prefix("_global.")
+                && is_valid_class_name(qname)
+            {
+                if let Some((params, body)) = parse_fn_header_and_body(rhs_raw) {
+                    let idx = find_or_insert(&mut classes, qname, hint_qname)?;
+                    classes[idx].full_name = qname.to_owned();
+                    classes[idx].ctor = Some((params, body));
+                    continue;
+                }
+                if let Some(rhs_ident) = rhs_raw.strip_suffix(';') {
+                    let rhs_clean = rhs_ident.trim();
+                    let short = qname.rsplit('.').next().unwrap_or(qname);
+                    if rhs_clean == short
+                        && let Some(idx) = find_or_insert(&mut classes, qname, hint_qname)
+                    {
+                        classes[idx].full_name = qname.to_owned();
+                        continue;
+                    }
+                }
+            }
+            // Prototype member: `<Target>.prototype.<member> = ...`
+            if let Some((target_raw, member_raw)) = lhs.split_once(".prototype.") {
+                let target = target_raw.strip_prefix("_global.").unwrap_or(target_raw);
+                let member = member_raw.trim();
+                if is_valid_class_name(target)
+                    && is_valid_class_name(member)
+                    && !member.contains('.')
+                    && let Some(idx) = classes
+                        .iter()
+                        .position(|c| c.short_name == target || c.full_name == target)
+                {
+                    if let Some((params, body)) = parse_fn_header_and_body(rhs_raw) {
+                        classes[idx]
+                            .methods
+                            .push((false, member.to_owned(), params, body));
+                        continue;
+                    }
+                    if let Some(expr) = rhs_raw.strip_suffix(';') {
+                        classes[idx].fields.push((
+                            false,
+                            member.to_owned(),
+                            Some(expr.trim().to_owned()),
+                        ));
+                        continue;
+                    }
+                }
+                return None;
+            }
+            // Static member: `<Target>.<member> = ...`
+            if let Some((target_raw, member_raw)) = lhs.rsplit_once('.') {
+                let target = target_raw.strip_prefix("_global.").unwrap_or(target_raw);
+                let member = member_raw.trim();
+                if member != "prototype"
+                    && is_valid_class_name(target)
+                    && is_valid_class_name(member)
+                    && !member.contains('.')
+                    && let Some(idx) = classes
+                        .iter()
+                        .position(|c| c.short_name == target || c.full_name == target)
+                {
+                    if let Some((params, body)) = parse_fn_header_and_body(rhs_raw) {
+                        classes[idx]
+                            .methods
+                            .push((true, member.to_owned(), params, body));
+                        continue;
+                    }
+                    if let Some(expr) = rhs_raw.strip_suffix(';') {
+                        classes[idx].fields.push((
+                            true,
+                            member.to_owned(),
+                            Some(expr.trim().to_owned()),
+                        ));
+                        continue;
+                    }
+                }
+            }
+        }
+        return None;
+    }
+
+    if classes.is_empty() || classes.iter().any(|c| c.ctor.is_none()) {
+        return None;
+    }
+
+    let mut out = Vec::with_capacity(classes.len());
+    for cls in classes {
+        let (ctor_params, ctor_body) = cls.ctor?;
+        let mut declared_names: HashSet<String> = HashSet::new();
+        for (_, m_name, _, _) in &cls.methods {
+            declared_names.insert(m_name.clone());
+        }
+        for (_, f_name, _) in &cls.fields {
+            declared_names.insert(f_name.clone());
+        }
+        let mut inferred_props = std::collections::BTreeSet::new();
+        collect_this_field_idents_in_as2(&ctor_body, &mut inferred_props);
+        for (is_static, _, _, m_body) in &cls.methods {
+            if !*is_static {
+                collect_this_field_idents_in_as2(m_body, &mut inferred_props);
+            }
+        }
+
+        let mut buf = String::new();
+        buf.push_str("dynamic class ");
+        buf.push_str(&cls.full_name);
+        if let Some(sup) = &cls.super_name {
+            buf.push_str(" extends ");
+            buf.push_str(sup);
+        }
+        buf.push_str(" {\n");
+        for (is_static, f_name, f_init) in &cls.fields {
+            buf.push_str(if *is_static {
+                "    public static var "
+            } else {
+                "    public var "
+            });
+            buf.push_str(f_name);
+            if let Some(init) = f_init {
+                buf.push_str(" = ");
+                buf.push_str(init);
+            }
+            buf.push_str(";\n");
+        }
+        for prop in inferred_props {
+            if declared_names.contains(&prop) || prop.starts_with('_') && cls.super_name.is_some() {
+                continue;
+            }
+            buf.push_str("    public var ");
+            buf.push_str(&prop);
+            buf.push_str(";\n");
+        }
+        buf.push_str("    public function ");
+        buf.push_str(&cls.short_name);
+        buf.push('(');
+        buf.push_str(&ctor_params);
+        buf.push_str(") {\n");
+        if !ctor_body.is_empty() {
+            for line in ctor_body.lines() {
+                buf.push_str("        ");
+                buf.push_str(line);
+                buf.push('\n');
+            }
+        }
+        buf.push_str("    }\n");
+        for (is_static, m_name, m_params, m_body) in &cls.methods {
+            buf.push_str(if *is_static {
+                "    public static function "
+            } else {
+                "    public function "
+            });
+            buf.push_str(m_name);
+            buf.push('(');
+            buf.push_str(m_params);
+            buf.push_str(") {\n");
+            if !m_body.is_empty() {
+                for line in m_body.lines() {
+                    buf.push_str("        ");
+                    buf.push_str(line);
+                    buf.push('\n');
+                }
+            }
+            buf.push_str("    }\n");
+        }
+        buf.push_str("}\n");
+        out.push((cls.full_name, buf));
+    }
+    Some(out)
+}
+
+const AS2_FLASH_PACKAGE_IMPORTS: &[(&str, &str)] = &[
+    ("BitmapData", "flash.display.BitmapData"),
+    ("ExternalInterface", "flash.external.ExternalInterface"),
+    ("BevelFilter", "flash.filters.BevelFilter"),
+    ("BitmapFilter", "flash.filters.BitmapFilter"),
+    ("BlurFilter", "flash.filters.BlurFilter"),
+    ("ColorMatrixFilter", "flash.filters.ColorMatrixFilter"),
+    ("ConvolutionFilter", "flash.filters.ConvolutionFilter"),
+    (
+        "DisplacementMapFilter",
+        "flash.filters.DisplacementMapFilter",
+    ),
+    ("DropShadowFilter", "flash.filters.DropShadowFilter"),
+    ("GlowFilter", "flash.filters.GlowFilter"),
+    ("GradientBevelFilter", "flash.filters.GradientBevelFilter"),
+    ("GradientGlowFilter", "flash.filters.GradientGlowFilter"),
+    ("ColorTransform", "flash.geom.ColorTransform"),
+    ("Matrix", "flash.geom.Matrix"),
+    ("Point", "flash.geom.Point"),
+    ("Rectangle", "flash.geom.Rectangle"),
+    ("Transform", "flash.geom.Transform"),
+    ("FileReference", "flash.net.FileReference"),
+    ("FileReferenceList", "flash.net.FileReferenceList"),
+    ("TextRenderer", "flash.text.TextRenderer"),
+    ("Tween", "mx.transitions.Tween"),
+];
+
+fn extract_unqualified_as2_idents(source: &str) -> (HashSet<String>, HashSet<String>) {
+    let mut referenced = HashSet::new();
+    let mut locally_declared = HashSet::new();
+    let bytes = source.as_bytes();
+    let mut i = 0usize;
+    let mut in_str: Option<u8> = None;
+    let mut prev_ident: Option<String> = None;
+    let mut prev_was_dot = false;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = in_str {
+            if b == b'\\' {
+                i += 2;
+                continue;
+            }
+            if b == q {
+                in_str = None;
+            }
+            i += 1;
+            continue;
+        }
+        if b == b'"' || b == b'\'' {
+            in_str = Some(b);
+            prev_ident = None;
+            prev_was_dot = false;
+            i += 1;
+            continue;
+        }
+        if b == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        if b.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if b.is_ascii_alphabetic() || b == b'_' || b == b'$' {
+            let start = i;
+            i += 1;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' || bytes[i] == b'$')
+            {
+                i += 1;
+            }
+            if let Ok(ident) = std::str::from_utf8(&bytes[start..i]) {
+                if !prev_was_dot {
+                    referenced.insert(ident.to_owned());
+                    if matches!(prev_ident.as_deref(), Some("var" | "function")) {
+                        locally_declared.insert(ident.to_owned());
+                    }
+                }
+                prev_ident = Some(ident.to_owned());
+            }
+            prev_was_dot = false;
+            continue;
+        }
+        prev_was_dot = b == b'.';
+        prev_ident = None;
+        i += 1;
+    }
+    (referenced, locally_declared)
+}
+
+fn prepend_missing_as2_imports(
+    source: &mut String,
+    own_short_name: Option<&str>,
+    available_imports: &[(String, String)],
+) {
+    let (referenced, locally_declared) = extract_unqualified_as2_idents(source);
+    let mut header = String::new();
+    for (short, qname) in available_imports {
+        if own_short_name == Some(short.as_str()) {
+            continue;
+        }
+        if !referenced.contains(short) || locally_declared.contains(short) {
+            continue;
+        }
+        let import_stmt = format!("import {qname};");
+        if source.contains(&import_stmt) {
+            continue;
+        }
+        header.push_str(&import_stmt);
+        header.push('\n');
+    }
+    if !header.is_empty() {
+        header.push_str(source);
+        *source = header;
+    }
+}
+
+fn synthesize_avm1_imports_on_project(project: &mut Project) {
+    let mut short_counts: HashMap<String, usize> = HashMap::new();
+    let mut source_qnames: Vec<(usize, String, String)> = Vec::new();
+    for (idx, unit) in project.sources.iter().enumerate() {
+        if unit.language != ScriptLanguage::ActionScript2 {
+            continue;
+        }
+        let qname = unit
+            .path
+            .trim_end_matches(".as")
+            .replace('\\', "/")
+            .trim_matches('/')
+            .replace('/', ".");
+        if !qname.contains('.') || !is_valid_class_name(&qname) {
+            continue;
+        }
+        let short = qname.rsplit('.').next().unwrap_or(&qname).to_owned();
+        *short_counts.entry(short.clone()).or_insert(0) += 1;
+        source_qnames.push((idx, short, qname));
+    }
+
+    let mut available_imports: Vec<(String, String)> = AS2_FLASH_PACKAGE_IMPORTS
+        .iter()
+        .map(|(s, q)| ((*s).to_owned(), (*q).to_owned()))
+        .collect();
+    for (_, short, qname) in &source_qnames {
+        if short_counts.get(short).copied() == Some(1)
+            && !available_imports.iter().any(|(s, _)| s == short)
+        {
+            available_imports.push((short.clone(), qname.clone()));
+        }
+    }
+    available_imports.sort_by(|a, b| a.1.cmp(&b.1));
+
+    for unit in &mut project.sources {
+        if unit.language == ScriptLanguage::ActionScript2 {
+            let own_short = unit
+                .path
+                .trim_end_matches(".as")
+                .rsplit(['/', '\\'])
+                .next()
+                .map(str::to_owned);
+            prepend_missing_as2_imports(&mut unit.source, own_short.as_deref(), &available_imports);
+        }
+    }
+    for sym in &mut project.symbols {
+        for fs in &mut sym.timeline.scripts {
+            if fs.script.language == ScriptLanguage::ActionScript2 {
+                prepend_missing_as2_imports(&mut fs.script.source, None, &available_imports);
+            }
+        }
     }
 }
 

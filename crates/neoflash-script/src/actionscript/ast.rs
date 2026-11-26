@@ -57,10 +57,25 @@ pub(crate) struct Function {
     pub(crate) name: Option<String>,
     pub(crate) params: Vec<(String, Option<String>)>,
     pub(crate) defaults: Vec<Option<Expr>>,
+    pub(crate) default_offsets: Vec<usize>,
     pub(crate) rest: Option<String>,
     pub(crate) returns: Option<String>,
     pub(crate) body: Vec<Stmt>,
     pub(crate) declaration: bool,
+}
+
+pub(crate) fn dotted_const_ref(expr: &Expr) -> Option<Vec<String>> {
+    match expr {
+        Expr::Name(name) if !matches!(name.as_str(), "this" | "super" | "arguments") => {
+            Some(vec![name.clone()])
+        }
+        Expr::Member(base, prop) => {
+            let mut parts = dotted_const_ref(base)?;
+            parts.push(prop.clone());
+            Some(parts)
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn constant_default(expr: &Expr) -> bool {

@@ -2892,8 +2892,22 @@ fn t488_as_prelude_dedup_omit_file_fallback_and_script_linked_resource_warnings(
     );
     let bundle_text = fs::read_to_string(out.join("bundle.js")).unwrap();
     assert!(
-        bundle_text.contains("\"as_prelude\":"),
-        "bundle.js emits single shared as_prelude field"
+        !bundle_text.contains("\"as_prelude\":"),
+        "bundle.js externalizes shared ActionScript intrinsics instead of embedding as_prelude"
+    );
+    assert!(
+        out.join("as-intrinsics.js").is_file(),
+        "ActionScript export emits standalone as-intrinsics.js alongside runtime.js"
+    );
+    assert!(
+        html.contains("as-intrinsics.js"),
+        "index.html loads as-intrinsics.js before runtime.js"
+    );
+    let expected_prelude_json =
+        serde_json::to_string(&neoflash_script::as_runtime_prelude_js()).unwrap();
+    assert!(
+        AS_INTRINSICS.contains(&expected_prelude_json),
+        "web/as-intrinsics.js must stay byte-for-byte in sync with neoflash_script::as_runtime_prelude_js()"
     );
     assert!(
         bundle_text.contains("\"omit_file_fallback\":true"),
@@ -2905,8 +2919,8 @@ fn t488_as_prelude_dedup_omit_file_fallback_and_script_linked_resource_warnings(
         "program + 2 frame scripts each reference /*__NF_AS_PRELUDE__*/ instead of duplicating ~340 KB"
     );
     assert!(
-        bundle_text.len() < 550_000,
-        "deduplicated bundle.js with 3 AS2 units must stay under 550 KB, got {} B",
+        bundle_text.len() < 80_000,
+        "externalized bundle.js with 3 AS2 units must stay well under 80 KB, got {} B",
         bundle_text.len()
     );
 

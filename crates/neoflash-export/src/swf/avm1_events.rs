@@ -2,9 +2,9 @@
 
 use super::*;
 
-pub(super) fn button_mouse_cond_mask(events: &[String]) -> Result<(u8, u8), String> {
+pub(super) fn button_cond_masks(events: &[String]) -> Result<Vec<(u8, u8)>, String> {
     let mut b0 = 0u8;
-    let mut b1 = 0u8;
+    let mut key_b1s: Vec<u8> = Vec::new();
     for ev in events {
         if let Some(rest) = ev.strip_prefix("keyPress") {
             let quoted = rest
@@ -14,13 +14,10 @@ pub(super) fn button_mouse_cond_mask(events: &[String]) -> Result<(u8, u8), Stri
                 .ok_or_else(|| format!("Invalid button keyPress handler 'on({ev})'"))?;
             let kc = parse_clip_event_key_code(quoted)
                 .ok_or_else(|| format!("Unsupported button keyPress key '{quoted}'"))?;
-            if (b1 & 0xFE) != 0 {
-                return Err(
-                    "DefineButton2 BUTTONCONDACTION supports at most one keyPress key per handler"
-                        .to_owned(),
-                );
+            let b1 = (kc & 0x7F) << 1;
+            if !key_b1s.contains(&b1) {
+                key_b1s.push(b1);
             }
-            b1 |= (kc & 0x7F) << 1;
             continue;
         }
         match ev.as_str() {
@@ -38,10 +35,15 @@ pub(super) fn button_mouse_cond_mask(events: &[String]) -> Result<(u8, u8), Stri
             }
         }
     }
-    if b0 == 0 && b1 == 0 {
-        b0 = 0x08;
+    if key_b1s.is_empty() {
+        let mouse = if b0 == 0 { 0x08 } else { b0 };
+        return Ok(vec![(mouse, 0)]);
     }
-    Ok((b0, b1))
+    let mut masks = Vec::with_capacity(key_b1s.len());
+    for (idx, b1) in key_b1s.into_iter().enumerate() {
+        masks.push((if idx == 0 { b0 } else { 0 }, b1));
+    }
+    Ok(masks)
 }
 
 pub(super) fn validate_button_script_syntax(
@@ -69,7 +71,7 @@ pub(super) fn validate_button_script_syntax(
                         .to_owned(),
                 );
             }
-            let _ = button_mouse_cond_mask(events)?;
+            let _ = button_cond_masks(events)?;
         } else if find_event_handler_in_stmts(std::slice::from_ref(stmt)).is_some() {
             return Err(
                 "Nested 'on(...)' / 'onClipEvent(...)' handlers are not supported inside statements"
@@ -115,12 +117,14 @@ pub(super) fn encode_button2_cond_actions(
                             .to_owned(),
                     );
                 }
-                let (b0, b1) = button_mouse_cond_mask(&events)?;
+                let masks = button_cond_masks(&events)?;
                 let mut h_bytes = Vec::new();
                 avm1_compile_stmt_list(&mut h_bytes, &body, false, &HashMap::new())?;
                 h_bytes.push(0x00);
                 if h_bytes.len() > 1 {
-                    valid.push((b0, b1, h_bytes));
+                    for (b0, b1) in masks {
+                        valid.push((b0, b1, h_bytes.clone()));
+                    }
                 }
             } else {
                 top_stmts.push(stmt);

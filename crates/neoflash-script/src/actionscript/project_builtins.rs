@@ -1,6 +1,6 @@
 //! Built-in ActionScript 2/3 class, function, namespace, and host method tables.
 
-pub(super) const AS2_BUILTINS: &[&str] = &[
+pub(crate) const AS2_BUILTINS: &[&str] = &[
     "mx.managers.DepthManager",
     "mx.video.VideoPlayer",
     "mx.transitions.TransitionManager",
@@ -44,7 +44,7 @@ pub(super) const AS2_BUILTINS: &[&str] = &[
     "mx.data.to.ValueListIterator",
 ];
 
-pub(super) const BUILTINS: &[&str] = &[
+pub(crate) const BUILTINS: &[&str] = &[
     "mx.managers.DepthManager",
     "mx.video.VideoPlayer",
     "mx.transitions.TransitionManager",

@@ -651,17 +651,18 @@ pub(super) fn preflight_swf_publish_inner(
                 let parsed_spec = if is_included_snippet {
                     None
                 } else {
-                    expanded_res
-                        .as_ref()
-                        .ok()
-                        .and_then(|expanded| try_compile_avm2_source(expanded, true).ok())
+                    expanded_res.as_ref().ok().and_then(|expanded| {
+                        try_compile_avm2_source_in_project(Some(project), expanded, true).ok()
+                    })
                 };
                 let compile_issue = match &expanded_res {
                     Err(err) => Some(err.clone()),
                     Ok(expanded) if is_included_snippet => {
-                        try_compile_avm2_source(expanded, false).err()
+                        try_compile_avm2_source_in_project(Some(project), expanded, false).err()
                     }
-                    Ok(expanded) => try_compile_avm2_source(expanded, true).err(),
+                    Ok(expanded) => {
+                        try_compile_avm2_source_in_project(Some(project), expanded, true).err()
+                    }
                 };
                 let duplicate_qname = if compile_issue.is_none()
                     && options.profile.is_avm2()

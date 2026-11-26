@@ -658,7 +658,7 @@ pub fn size_report(
         wasm_inline: options.size.wasm_inline(),
         runtime_js_bytes,
     };
-    size_report_from(project, &program, &compiled_scripts, Some(figures))
+    size_report_from(project, &program, None, &compiled_scripts, Some(figures))
 }
 
 /// Simulate network download speed, delayed assets, and frame-by-frame progressive startup

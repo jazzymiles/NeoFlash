@@ -617,6 +617,112 @@ pub fn as_runtime_prelude_js() -> String {
     actionscript::embedded_helpers()
 }
 
+/// AST-safe JavaScript function-body minifier (`oxc_parser` + `oxc_semantic` + `oxc_codegen`)
+/// for clean publish bundles without source maps. Preserves `prelude_marker` (`/*__NF_AS_PRELUDE__*/`).
+#[must_use]
+pub fn minify_function_body_js(code: &str, prelude_marker: &str) -> String {
+    const HELPER_ALIASES: &[(&str, &str)] = &[
+        ("__nfFamilyPropertyValue", "__nfPV"),
+        ("__nfContainerMethod", "__nfCM"),
+        ("__nfFamilyAssign", "__nfFA"),
+        ("__nfContainerIndex", "__nfCI"),
+        ("__nfContainerRef", "__nfCR"),
+        ("__nfLegacyBinary", "__nfLB"),
+        ("__nfXMLBinary", "__nfXB"),
+        ("__nfTruthy", "__nfTR"),
+        ("__nfAs2Method", "__nfAM"),
+        ("__nfAs2Value", "__nfAV"),
+        ("__nfSourceFunction", "__nfSF"),
+        ("__nfArrayCreate", "__nfAC"),
+        ("__nfObjectCreate", "__nfOC"),
+        ("__nfStringCreate", "__nfSC"),
+        ("__nfNumber1", "__nfN1"),
+        ("__nfNumber2", "__nfN2"),
+    ];
+
+    fn minify_chunk(chunk: &str, alias_helpers: bool) -> Option<String> {
+        if chunk.trim().is_empty() {
+            return Some(String::new());
+        }
+        let mut working = chunk.to_owned();
+        let mut alias_decls = Vec::new();
+        if alias_helpers {
+            let wrapped_scan = format!("function __nfMinWrap__(){{\n{working}\n}}");
+            let prefix_len = "function __nfMinWrap__(){\n".len();
+            let scan_alloc = Allocator::default();
+            let scan_parsed = Parser::new(&scan_alloc, &wrapped_scan, SourceType::cjs()).parse();
+            if scan_parsed.errors.is_empty() && scan_parsed.program.body.len() == 1 {
+                let sem = SemanticBuilder::new().build(&scan_parsed.program);
+                if sem.errors.is_empty() {
+                    let scoping = sem.semantic.scoping();
+                    let mut replacements: Vec<(usize, usize, &'static str)> = Vec::new();
+                    for &(long_name, short_name) in HELPER_ALIASES {
+                        if let Some(ref_ids) = scoping.root_unresolved_references().get(long_name)
+                            && ref_ids.len() >= 3
+                        {
+                            alias_decls.push(format!("{short_name}={long_name}"));
+                            for &rid in ref_ids {
+                                let sp = sem
+                                    .semantic
+                                    .nodes()
+                                    .get_node(scoping.get_reference(rid).node_id())
+                                    .span();
+                                let start = (sp.start as usize).saturating_sub(prefix_len);
+                                let end = (sp.end as usize).saturating_sub(prefix_len);
+                                if end <= working.len() && &working[start..end] == long_name {
+                                    replacements.push((start, end, short_name));
+                                }
+                            }
+                        }
+                    }
+                    if !replacements.is_empty() {
+                        replacements.sort_by_key(|(s, _, _)| std::cmp::Reverse(*s));
+                        for (start, end, short_name) in replacements {
+                            working.replace_range(start..end, short_name);
+                        }
+                    }
+                }
+            }
+        }
+        if !alias_decls.is_empty() {
+            working = format!("const {};\n{working}", alias_decls.join(","));
+        }
+        let wrapped = format!("function __nfMinWrap__(){{\n{working}\n}}");
+        let allocator = Allocator::default();
+        let parsed = Parser::new(&allocator, &wrapped, SourceType::cjs()).parse();
+        if !parsed.errors.is_empty() || parsed.program.body.len() != 1 {
+            return None;
+        }
+        let printed = Codegen::new()
+            .with_options(oxc_codegen::CodegenOptions {
+                minify: true,
+                ..oxc_codegen::CodegenOptions::default()
+            })
+            .build(&parsed.program)
+            .code;
+        let open = printed.find('{')?;
+        let close = printed.rfind('}')?;
+        (close > open).then(|| printed[open + 1..close].to_owned())
+    }
+
+    if !prelude_marker.is_empty()
+        && let Some((before, after)) = code.split_once(prelude_marker)
+    {
+        let Some(mut min_before) = minify_chunk(before, false) else {
+            return code.to_owned();
+        };
+        let Some(min_after) = minify_chunk(after, true) else {
+            return code.to_owned();
+        };
+        if !min_before.is_empty() && !min_before.ends_with([';', '\n']) {
+            min_before.push(';');
+        }
+        return format!("{min_before}{prelude_marker}\n{min_after}");
+    }
+
+    minify_chunk(code, false).unwrap_or_else(|| code.to_owned())
+}
+
 /// Compile one frame/object handler into a JavaScript function body.
 ///
 /// The browser calls this body with `this` bound to the current display object.
@@ -674,9 +780,8 @@ pub fn compile_with_source_map(
         )?,
         _ => {
             let prefix = sourcemap::marker_prefix(&script.source);
-            let code = actionscript::compile_mapped(script, &prefix).map_err(|e| vec![e])?;
-            let map = sourcemap::map_marked_source(source_name, &script.source, &code, &prefix);
-            (code, map)
+            let marked = actionscript::compile_mapped(script, &prefix).map_err(|e| vec![e])?;
+            sourcemap::strip_and_map_marked_source(source_name, &script.source, &marked, &prefix)
         }
     };
     Ok(CompiledWithSourceMap {

@@ -193,20 +193,32 @@ impl VideoKey {
     }
 }
 
-pub(super) fn explicit_fla_sound_linkage_id(res: &ResourceUnit) -> Option<&str> {
+pub(super) fn explicit_fla_media_linkage_id(res: &ResourceUnit) -> Option<&str> {
     let trimmed = res.id.trim();
-    if trimmed.is_empty() || trimmed.len() > 512 || trimmed.chars().any(char::is_control) {
+    if trimmed.is_empty()
+        || trimmed == "root"
+        || trimmed.len() > 512
+        || trimmed.chars().any(char::is_control)
+    {
         return None;
     }
     for prefix in [
+        "resource-",
         "legacy-sound-",
         "xfl-sound-",
         "swf-sound-",
+        "legacy-bitmap-",
+        "xfl-bitmap-",
+        "swf-bitmap-",
         "legacy-cc-",
         "fla-",
         "res-",
         "asset-",
         "audio-",
+        "bitmap-",
+        "image-",
+        "img-",
+        "bmp-",
         "baked-",
         "video-audio-",
     ] {
@@ -214,7 +226,7 @@ pub(super) fn explicit_fla_sound_linkage_id(res: &ResourceUnit) -> Option<&str> 
             return None;
         }
     }
-    for prefix in ["snd-", "sound-", "s"] {
+    for prefix in ["snd-", "sound-", "s", "b"] {
         if let Some(rest) = trimmed.strip_prefix(prefix)
             && !rest.is_empty()
             && rest.bytes().all(|b| b.is_ascii_digit())
@@ -223,6 +235,124 @@ pub(super) fn explicit_fla_sound_linkage_id(res: &ResourceUnit) -> Option<&str> 
         }
     }
     Some(trimmed)
+}
+
+#[allow(dead_code)]
+pub(super) fn explicit_fla_sound_linkage_id(res: &ResourceUnit) -> Option<&str> {
+    explicit_fla_media_linkage_id(res)
+}
+
+fn project_has_authored_scripts(project: &Project) -> bool {
+    !project.sources.is_empty()
+        || project
+            .document_class
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
+        || project.resources.iter().any(is_actionscript_resource)
+        || project.symbols.iter().any(|sym| {
+            sym.class_name
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty())
+                || sym
+                    .timeline
+                    .scripts
+                    .iter()
+                    .any(|fs| !fs.script.source.trim().is_empty())
+                || sym.timeline.layers.iter().any(|layer| {
+                    layer.keyframes.iter().any(|kf| {
+                        kf.elements.iter().any(|el| {
+                            el.scripts
+                                .iter()
+                                .any(|os| !os.script.source.trim().is_empty())
+                        })
+                    })
+                })
+        })
+}
+
+fn derive_fla_media_linkage_id(
+    res: &ResourceUnit,
+    is_audio: bool,
+    has_scripts: bool,
+    fallback_idx: usize,
+    used_linkage_ids: &mut BTreeSet<String>,
+) -> Option<String> {
+    let raw_candidate = if let Some(explicit) = explicit_fla_media_linkage_id(res) {
+        explicit.to_owned()
+    } else if has_scripts {
+        let normalized = res
+            .path
+            .trim()
+            .replace('\\', "/")
+            .trim_start_matches("./")
+            .trim_start_matches('/')
+            .to_owned();
+        let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
+        let stem = if is_audio {
+            basename
+                .split_once('.')
+                .filter(|(s, e)| !s.is_empty() && !e.is_empty())
+                .map_or(basename, |(s, _)| s)
+        } else {
+            basename
+                .rsplit_once('.')
+                .filter(|(s, e)| !s.is_empty() && !e.is_empty())
+                .map_or(basename, |(s, _)| s)
+        };
+        let sanitized: String = stem
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect::<String>()
+            .trim()
+            .chars()
+            .take(512)
+            .collect();
+        if sanitized.is_empty() || sanitized == "root" {
+            format!(
+                "{}_{}",
+                if is_audio { "sound" } else { "bitmap" },
+                fallback_idx + 1
+            )
+        } else {
+            sanitized
+        }
+    } else {
+        return None;
+    };
+
+    let mut candidate = raw_candidate.clone();
+    let mut suffix = 2usize;
+    while !used_linkage_ids.insert(candidate.clone()) {
+        candidate = format!("{raw_candidate}_{suffix}");
+        suffix += 1;
+    }
+    Some(candidate)
+}
+
+fn format_fla_media_linkage_attrs(
+    linkage_id: Option<&str>,
+    as_version_num: &str,
+    is_bitmap: bool,
+) -> String {
+    match linkage_id {
+        Some(lid) if as_version_num == "3" && is_valid_as3_qname(lid) => {
+            let base_attr = if is_bitmap {
+                " linkageBaseClass=\"flash.display.BitmapData\""
+            } else {
+                ""
+            };
+            format!(
+                " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageIdentifier=\"{}\" linkageClassName=\"{}\"{base_attr}",
+                xml_escape(lid),
+                xml_escape(lid)
+            )
+        }
+        Some(lid) => format!(
+            " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageIdentifier=\"{}\"",
+            xml_escape(lid)
+        ),
+        None => String::new(),
+    }
 }
 
 pub(super) fn build_xfl_package(
@@ -415,6 +545,18 @@ pub(super) fn build_xfl_package(
     }
 
     // Media resources (bitmaps & sounds) & bundled .as include resources
+    let has_authored_scripts = project_has_authored_scripts(project);
+    let mut used_media_linkage_ids: BTreeSet<String> = project
+        .symbols
+        .iter()
+        .flat_map(|sym| {
+            sym.linkage_id
+                .iter()
+                .chain(sym.class_name.iter())
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+        })
+        .collect();
     let mut video_preview_marker = "";
     let mut bitmap_names: BTreeMap<Id, String> = BTreeMap::new();
     let mut sound_names: BTreeMap<Id, String> = BTreeMap::new();
@@ -494,9 +636,22 @@ pub(super) fn build_xfl_package(
                 }
                 _ => item_name.clone(),
             };
+            let bitmap_linkage = if href == item_name {
+                derive_fla_media_linkage_id(
+                    res,
+                    false,
+                    has_authored_scripts,
+                    idx,
+                    &mut used_media_linkage_ids,
+                )
+            } else {
+                None
+            };
+            let linkage_attrs =
+                format_fla_media_linkage_attrs(bitmap_linkage.as_deref(), as_version_num, true);
             binary_files.insert(format!("LIBRARY/{href}"), norm_bytes);
             media_xml.push_str(&format!(
-                "    <DOMBitmapItem name=\"{}\" href=\"{}\" allowSmoothing=\"{allow_smoothing}\"/>\n",
+                "    <DOMBitmapItem name=\"{}\" href=\"{}\" allowSmoothing=\"{allow_smoothing}\"{linkage_attrs}/>\n",
                 xml_escape(&item_name),
                 xml_escape(&href)
             ));
@@ -510,17 +665,15 @@ pub(super) fn build_xfl_package(
             let item_name = format!("sound_{}.{ext}", idx + 1);
             sound_names.insert(res.id.clone(), item_name.clone());
             sound_durations.insert(res.id.clone(), duration_44);
-            let linkage_attrs = match explicit_fla_sound_linkage_id(res) {
-                Some(lid) if as_version_num == "3" && is_valid_as3_qname(lid) => format!(
-                    " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageClassName=\"{}\"",
-                    xml_escape(lid)
-                ),
-                Some(lid) => format!(
-                    " linkageExportForAS=\"true\" linkageExportInFirstFrame=\"true\" linkageIdentifier=\"{}\"",
-                    xml_escape(lid)
-                ),
-                None => String::new(),
-            };
+            let sound_linkage = derive_fla_media_linkage_id(
+                res,
+                true,
+                has_authored_scripts,
+                idx,
+                &mut used_media_linkage_ids,
+            );
+            let linkage_attrs =
+                format_fla_media_linkage_attrs(sound_linkage.as_deref(), as_version_num, false);
             let cache = neoflash_import::build_flash_sound_cache(&bytes);
             binary_files.insert(format!("LIBRARY/{item_name}"), bytes);
             if let Some(cache) = cache {

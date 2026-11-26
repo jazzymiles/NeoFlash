@@ -1225,7 +1225,7 @@ pub(super) fn swf_script_compilation_issue(
                 Ok(s) => s,
                 Err(err) => return Some(err),
             };
-            try_compile_avm2_source(&expanded, external_source).err()
+            try_compile_avm2_source_in_project(Some(project), &expanded, external_source).err()
         }
     }
 }

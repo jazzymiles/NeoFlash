@@ -44,6 +44,7 @@ pub(crate) struct CompileContext {
     pub(crate) members: std::collections::BTreeMap<String, Option<String>>,
     pub(crate) static_members: std::collections::BTreeMap<String, String>,
     pub(crate) as2_private: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    pub(crate) as3_class_consts: std::collections::BTreeMap<(String, String), Expr>,
     pub(crate) static_method: bool,
     pub(crate) class_name: Option<String>,
     pub(crate) method_id: Option<usize>,
@@ -794,7 +795,30 @@ pub(crate) fn compile_legacy(script: &Script) -> Result<String, Diagnostic> {
 // One helper profile for standalone handlers and project methods. Helpers are
 // lexically captured per compiled unit; JavaScript/TypeScript remain untouched.
 pub(crate) fn embedded_helpers() -> String {
+    let mut reflection_types = project::BUILTINS
+        .iter()
+        .filter(|name| {
+            !name.starts_with("mx.transitions.")
+                && (!project::AS2_BUILTINS.contains(name)
+                    || matches!(
+                        **name,
+                        "flash.net.FileReference" | "flash.net.FileReferenceList"
+                    ))
+        })
+        .copied()
+        .collect::<Vec<_>>();
+    reflection_types.extend([
+        "Date",
+        "RegExp",
+        "JSON",
+        "XML",
+        "XMLList",
+        "Namespace",
+        "QName",
+    ]);
+    let default_native_types = format!("const __nfDefaultNativeTypes = {reflection_types:?};");
     [
+        default_native_types.as_str(),
         include_str!("actionscript/exceptions.js"),
         include_str!("actionscript/intrinsics.js"),
         include_str!("actionscript/functions.js"),
@@ -806,6 +830,7 @@ pub(crate) fn embedded_helpers() -> String {
         include_str!("actionscript/dictionary.js"),
         include_str!("actionscript/containers.js"),
         include_str!("actionscript/json.js"),
+        include_str!("actionscript/project-runtime.js"),
         r#"
 // XML state/settings belong to the publication host, shared by every source unit.
 function __nfXMLClass(name,as3) {
@@ -994,6 +1019,301 @@ fn has_default_xml_ns(stmts: &[Stmt]) -> bool {
     })
 }
 
+pub(crate) fn builtin_as3_const_expr(parts: &[String]) -> Option<Expr> {
+    match parts {
+        [single] if single == "NaN" => Some(Expr::Literal("NaN".into())),
+        [single] if single == "Infinity" => Some(Expr::Literal("Infinity".into())),
+        [cls, prop] if cls == "Number" && prop == "NaN" => Some(Expr::Literal("NaN".into())),
+        [cls, prop] if cls == "Number" && prop == "POSITIVE_INFINITY" => {
+            Some(Expr::Literal("Infinity".into()))
+        }
+        [cls, prop] if cls == "Number" && prop == "NEGATIVE_INFINITY" => Some(Expr::Unary(
+            "-".into(),
+            Box::new(Expr::Literal("Infinity".into())),
+        )),
+        [cls, prop] if cls == "int" && prop == "MAX_VALUE" => {
+            Some(Expr::Literal("2147483647".into()))
+        }
+        [cls, prop] if cls == "int" && prop == "MIN_VALUE" => Some(Expr::Unary(
+            "-".into(),
+            Box::new(Expr::Literal("2147483648".into())),
+        )),
+        [cls, prop] if cls == "uint" && prop == "MAX_VALUE" => {
+            Some(Expr::Literal("4294967295".into()))
+        }
+        [cls, prop] if cls == "uint" && prop == "MIN_VALUE" => Some(Expr::Literal("0".into())),
+        _ => None,
+    }
+}
+
+pub(crate) fn resolve_const_expr_from_map(
+    expr: &Expr,
+    types: &std::collections::BTreeMap<String, String>,
+    class_consts: &std::collections::BTreeMap<(String, String), Expr>,
+) -> Option<Expr> {
+    if constant_default(expr) {
+        return Some(expr.clone());
+    }
+    let parts = ast::dotted_const_ref(expr)?;
+    if let Some(b) = builtin_as3_const_expr(&parts) {
+        return Some(b);
+    }
+    if parts.len() == 1 {
+        return class_consts
+            .get(&(String::new(), parts[0].clone()))
+            .cloned();
+    }
+    let cls_raw = parts[..parts.len() - 1].join(".");
+    let prop = &parts[parts.len() - 1];
+    if let Some(mapped) = types.get(&cls_raw)
+        && let Some(val) = class_consts.get(&(mapped.clone(), prop.clone()))
+    {
+        return Some(val.clone());
+    }
+    class_consts.get(&(cls_raw, prop.clone())).cloned()
+}
+
+pub(crate) fn resolve_function_defaults_in_function(
+    script: &Script,
+    func: &mut Function,
+    types: &std::collections::BTreeMap<String, String>,
+    class_consts: &std::collections::BTreeMap<(String, String), Expr>,
+) -> Result<(), Diagnostic> {
+    for (idx, def_opt) in func.defaults.iter_mut().enumerate() {
+        if let Some(def) = def_opt
+            && !constant_default(def)
+        {
+            let param_off = func
+                .default_offsets
+                .get(idx)
+                .copied()
+                .unwrap_or(func.offset);
+            let param_name = func
+                .params
+                .get(idx)
+                .map(|(n, _)| n.as_str())
+                .unwrap_or("param");
+            if let Some(resolved) = resolve_const_expr_from_map(def, types, class_consts) {
+                *def_opt = Some(resolved);
+            } else {
+                let raw = ast::dotted_const_ref(def)
+                    .map(|p| p.join("."))
+                    .unwrap_or_else(|| "expression".to_owned());
+                return Err(Diagnostic::at(
+                    script,
+                    param_off,
+                    format!(
+                        "Unresolved or non-constant default value '{raw}' for optional parameter '{param_name}'."
+                    ),
+                ));
+            }
+        }
+    }
+    resolve_function_defaults_in_stmts(script, &mut func.body, types, class_consts)
+}
+
+pub(crate) fn resolve_function_defaults_in_expr(
+    script: &Script,
+    expr: &mut Expr,
+    types: &std::collections::BTreeMap<String, String>,
+    class_consts: &std::collections::BTreeMap<(String, String), Expr>,
+) -> Result<(), Diagnostic> {
+    match expr {
+        Expr::Function(f) => resolve_function_defaults_in_function(script, f, types, class_consts),
+        Expr::Member(a, _)
+        | Expr::Unary(_, a)
+        | Expr::Update(_, a, _)
+        | Expr::TypeTest(_, a, _, _)
+        | Expr::Delete(a, _) => resolve_function_defaults_in_expr(script, a, types, class_consts),
+        Expr::Index(a, b)
+        | Expr::Binary(_, a, b)
+        | Expr::Assign(_, a, b)
+        | Expr::XmlFilter(a, b, _)
+        | Expr::InstanceOf(a, b) => {
+            resolve_function_defaults_in_expr(script, a, types, class_consts)?;
+            resolve_function_defaults_in_expr(script, b, types, class_consts)
+        }
+        Expr::Conditional(a, b, c) => {
+            resolve_function_defaults_in_expr(script, a, types, class_consts)?;
+            resolve_function_defaults_in_expr(script, b, types, class_consts)?;
+            resolve_function_defaults_in_expr(script, c, types, class_consts)
+        }
+        Expr::Array(items) => {
+            for item in items.iter_mut().flatten() {
+                resolve_function_defaults_in_expr(script, item, types, class_consts)?;
+            }
+            Ok(())
+        }
+        Expr::Object(props) => {
+            for (_, v) in props {
+                resolve_function_defaults_in_expr(script, v, types, class_consts)?;
+            }
+            Ok(())
+        }
+        Expr::Call(callee, args, _) => {
+            resolve_function_defaults_in_expr(script, callee, types, class_consts)?;
+            for a in args {
+                resolve_function_defaults_in_expr(script, a, types, class_consts)?;
+            }
+            Ok(())
+        }
+        Expr::NewError(_, args, _)
+        | Expr::NewClass(_, args, _)
+        | Expr::NewValue(_, args, _)
+        | Expr::NewBuiltin(_, args, _)
+        | Expr::NewVector(_, args, _)
+        | Expr::XmlLiteral(_, args) => {
+            for a in args {
+                resolve_function_defaults_in_expr(script, a, types, class_consts)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+pub(crate) fn resolve_function_defaults_in_stmts(
+    script: &Script,
+    stmts: &mut [Stmt],
+    types: &std::collections::BTreeMap<String, String>,
+    class_consts: &std::collections::BTreeMap<(String, String), Expr>,
+) -> Result<(), Diagnostic> {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Located(_, inner) => {
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(inner.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+            }
+            Stmt::Function(f) | Stmt::LegacyEvent(_, f) => {
+                resolve_function_defaults_in_function(script, f, types, class_consts)?;
+            }
+            Stmt::Block(body) | Stmt::InitClip(_, body, _) => {
+                resolve_function_defaults_in_stmts(script, body, types, class_consts)?;
+            }
+            Stmt::If(cond, yes, no) => {
+                resolve_function_defaults_in_expr(script, cond, types, class_consts)?;
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(yes.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+                if let Some(no_branch) = no {
+                    resolve_function_defaults_in_stmts(
+                        script,
+                        std::slice::from_mut(no_branch.as_mut()),
+                        types,
+                        class_consts,
+                    )?;
+                }
+            }
+            Stmt::While(cond, body) | Stmt::DoWhile(body, cond) => {
+                resolve_function_defaults_in_expr(script, cond, types, class_consts)?;
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(body.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+            }
+            Stmt::For(init, cond, upd, body) => {
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(init.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+                if let Some(c) = cond {
+                    resolve_function_defaults_in_expr(script, c, types, class_consts)?;
+                }
+                if let Some(u) = upd {
+                    resolve_function_defaults_in_expr(script, u, types, class_consts)?;
+                }
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(body.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+            }
+            Stmt::ForIn(init, coll, _, body) => {
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(init.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+                resolve_function_defaults_in_expr(script, coll, types, class_consts)?;
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(body.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+            }
+            Stmt::Switch(val, cases) => {
+                resolve_function_defaults_in_expr(script, val, types, class_consts)?;
+                for case in cases {
+                    if let Some(t) = &mut case.test {
+                        resolve_function_defaults_in_expr(script, t, types, class_consts)?;
+                    }
+                    resolve_function_defaults_in_stmts(
+                        script,
+                        &mut case.body,
+                        types,
+                        class_consts,
+                    )?;
+                }
+            }
+            Stmt::Try(body, catches, fin) => {
+                resolve_function_defaults_in_stmts(script, body, types, class_consts)?;
+                for c in catches {
+                    resolve_function_defaults_in_stmts(script, &mut c.body, types, class_consts)?;
+                }
+                if let Some(f) = fin {
+                    resolve_function_defaults_in_stmts(script, f, types, class_consts)?;
+                }
+            }
+            Stmt::With(obj, body, _) | Stmt::TellTarget(obj, body, _) => {
+                resolve_function_defaults_in_expr(script, obj, types, class_consts)?;
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(body.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+            }
+            Stmt::Label(_, body) => {
+                resolve_function_defaults_in_stmts(
+                    script,
+                    std::slice::from_mut(body.as_mut()),
+                    types,
+                    class_consts,
+                )?;
+            }
+            Stmt::Var(vars) => {
+                for (_, _, init) in vars {
+                    if let Some(e) = init {
+                        resolve_function_defaults_in_expr(script, e, types, class_consts)?;
+                    }
+                }
+            }
+            Stmt::Expr(e) | Stmt::Throw(e) | Stmt::DefaultXmlNamespace(e) => {
+                resolve_function_defaults_in_expr(script, e, types, class_consts)?;
+            }
+            Stmt::Return(Some(e), _) => {
+                resolve_function_defaults_in_expr(script, e, types, class_consts)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 fn compile_context(script: &Script, mut context: CompileContext) -> Result<String, Diagnostic> {
     if script.language == ScriptLanguage::ActionScript3 {
         context
@@ -1024,7 +1344,15 @@ fn compile_context(script: &Script, mut context: CompileContext) -> Result<Strin
         with_depth: 0,
         in_initclip: false,
     };
-    let statements = parser.statements(false)?;
+    let mut statements = parser.statements(false)?;
+    if script.language == ScriptLanguage::ActionScript3 {
+        resolve_function_defaults_in_stmts(
+            script,
+            &mut statements,
+            &parser.context.types,
+            &parser.context.as3_class_consts,
+        )?;
+    }
     let analysis = scope::Analysis::with_context(script, &statements, parser.context)?;
     let raw_body = Emitter {
         as3: script.language == ScriptLanguage::ActionScript3,

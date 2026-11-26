@@ -58,7 +58,7 @@ pub(super) fn visible_names(
         .collect()
 }
 
-fn scalar_initializer(value: &Expr) -> bool {
+pub(super) fn scalar_initializer(value: &Expr) -> bool {
     match value {
         Expr::Literal(_) => true,
         Expr::Name(name) => matches!(
@@ -1295,17 +1295,6 @@ fn parse_class_body(
                         &header.script,
                         member_offset,
                         "Class const fields require an initializer in this profile.",
-                    ));
-                }
-                if as2
-                    && value
-                        .as_ref()
-                        .is_some_and(|value| !scalar_initializer(value))
-                {
-                    return Err(Diagnostic::at(
-                        &header.script,
-                        member_offset,
-                        "AS2 inline field initializers currently require scalar constants. Initialize arrays, objects and computed values in the constructor.",
                     ));
                 }
                 fields.push(Field {

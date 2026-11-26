@@ -281,13 +281,30 @@ fn include_error_contracts_and_nested_diagnostic_origins_are_preserved() {
     assert_eq!(ov_errs[0].path.as_deref(), Some("pkg/bad_override.as"));
     assert_eq!(ov_errs[0].line, 2);
 
+    let mut as2_good_proj = Project::blank();
+    as2_good_proj.script_language = Some(ScriptLanguage::ActionScript2);
+    add_as_resource(
+        &mut as2_good_proj,
+        "inc-as2-good",
+        "app/as2_good_member.as",
+        b"// comment\npublic var computed:Array = [1, 2, 3];\n",
+    );
+    as2_good_proj.sources.push(SourceUnit {
+        id: "src-as2-widget-good".into(),
+        path: "app/Widget.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "class app.Widget {\n#include \"as2_good_member.as\"\n}\n".into(),
+    });
+    neoflash_script::compile_project(&as2_good_proj)
+        .expect("non-scalar inline initializer inside AS2 included member compiles cleanly");
+
     let mut as2_class_proj = Project::blank();
     as2_class_proj.script_language = Some(ScriptLanguage::ActionScript2);
     add_as_resource(
         &mut as2_class_proj,
         "inc-as2-bad",
         "app/as2_bad_member.as",
-        b"// comment\npublic var computed:Array = [1, 2, 3];\n",
+        b"// comment\noverride public function invalid():Void {}\n",
     );
     as2_class_proj.sources.push(SourceUnit {
         id: "src-as2-widget".into(),
@@ -296,7 +313,7 @@ fn include_error_contracts_and_nested_diagnostic_origins_are_preserved() {
         source: "class app.Widget {\n#include \"as2_bad_member.as\"\n}\n".into(),
     });
     let Err(as2_errs) = neoflash_script::compile_project(&as2_class_proj) else {
-        panic!("non-scalar inline initializer inside AS2 included member must fail");
+        panic!("AS3-only override modifier inside AS2 included member must fail");
     };
     assert_eq!(as2_errs[0].path.as_deref(), Some("app/as2_bad_member.as"));
     assert_eq!(as2_errs[0].line, 2);

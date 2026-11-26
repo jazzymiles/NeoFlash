@@ -101,6 +101,8 @@ pub(super) enum SwfExpr {
     Function {
         name: Option<String>,
         params: Vec<String>,
+        opt_defaults: Vec<AbcOptDefault>,
+        rest_param: Option<String>,
         body: Vec<SwfStmt>,
     },
     Member(Box<SwfExpr>, String),
@@ -388,10 +390,13 @@ pub(super) enum SwfStmt {
     FunctionDecl {
         name: String,
         params: Vec<String>,
+        opt_defaults: Vec<AbcOptDefault>,
+        rest_param: Option<String>,
         body: Vec<SwfStmt>,
     },
     ClassDecl {
         name: String,
+        full_name: String,
         super_name: Option<String>,
         ctor: Option<(Vec<String>, Vec<SwfStmt>)>,
         methods: Vec<(bool, String, Vec<String>, Vec<SwfStmt>)>,
@@ -460,6 +465,13 @@ pub(super) enum SwfToken {
 }
 
 pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String> {
+    tokenize_swf_script_with_spans(source).map(|(tokens, _)| tokens)
+}
+
+pub(super) type TokenizedSwfScript = (Vec<SwfToken>, Vec<(usize, usize)>);
+pub(super) type ParsedFnParams = (Vec<String>, Vec<AbcOptDefault>, Option<String>);
+
+pub(super) fn tokenize_swf_script_with_spans(source: &str) -> Result<TokenizedSwfScript, String> {
     if source.len() > 1_048_576 {
         return Err(
             "script exceeds the 1 MiB source size limit in bounded SWF compiler".to_owned(),
@@ -469,8 +481,12 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
     let len = bytes.len();
     let mut i = 0;
     let mut tokens = Vec::new();
+    let mut spans = Vec::new();
+    let mut tok_starts: Vec<usize> = Vec::new();
 
     while i < len {
+        let prev_len = tokens.len();
+        let scan_start = i;
         let b = bytes[i];
         if b.is_ascii_whitespace() {
             i += 1;
@@ -499,6 +515,7 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
             }
             continue;
         }
+        tok_starts.push(scan_start);
         if b == b'"' || b == b'\'' {
             let quote = b;
             i += 1;
@@ -681,8 +698,29 @@ pub(super) fn tokenize_swf_script(source: &str) -> Result<Vec<SwfToken>, String>
             tokens.push(tok);
             i += 1;
         }
+        debug_assert_eq!(tokens.len(), prev_len + 1);
     }
-    Ok(tokens)
+    spans.reserve(tok_starts.len());
+    let mut line = 1usize;
+    let mut col = 1usize;
+    let mut chars = source.char_indices().peekable();
+    for &off in &tok_starts {
+        let target = off.min(source.len());
+        while let Some(&(idx, ch)) = chars.peek() {
+            if idx >= target {
+                break;
+            }
+            chars.next();
+            if ch == '\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        spans.push((line, col));
+    }
+    Ok((tokens, spans))
 }
 
 fn can_start_xml_literal(tokens: &[SwfToken], source: &str, pos: usize) -> bool {
@@ -1077,6 +1115,7 @@ pub(super) const MAX_SWF_AST_DEPTH: usize = 256;
 
 pub(super) struct SwfParser {
     pub(super) tokens: Vec<SwfToken>,
+    pub(super) spans: Vec<(usize, usize)>,
     pub(super) pos: usize,
     pub(super) is_avm2: bool,
     pub(super) depth: usize,
@@ -1091,9 +1130,28 @@ impl SwfParser {
         Self::with_depth(tokens, is_avm2, 0)
     }
 
+    pub(super) fn with_spans(
+        tokens: Vec<SwfToken>,
+        spans: Vec<(usize, usize)>,
+        is_avm2: bool,
+    ) -> Self {
+        Self {
+            tokens,
+            spans,
+            pos: 0,
+            is_avm2,
+            depth: 0,
+            expr_nesting: 0,
+            function_depth: 0,
+            in_function_expression: false,
+            allow_in: true,
+        }
+    }
+
     pub(super) fn with_depth(tokens: Vec<SwfToken>, is_avm2: bool, depth: usize) -> Self {
         Self {
             tokens,
+            spans: Vec::new(),
             pos: 0,
             is_avm2,
             depth,
@@ -1102,6 +1160,10 @@ impl SwfParser {
             in_function_expression: false,
             allow_in: true,
         }
+    }
+
+    pub(super) fn span_at(&self, pos: usize) -> (usize, usize) {
+        self.spans.get(pos).copied().unwrap_or((1, 1))
     }
 
     fn with_recursion_guard<T>(
@@ -1441,21 +1503,43 @@ impl SwfParser {
                 }
                 "if" => {
                     self.pos += 1;
-                    self.expect(&SwfToken::LParen)?;
-                    let cond = self.parse_expr()?;
-                    self.expect(&SwfToken::RParen)?;
-                    let then_branch = self.parse_block_or_single()?;
-                    let else_branch = if self.peek() == Some(&SwfToken::Ident("else".to_owned())) {
-                        self.pos += 1;
-                        Some(self.parse_block_or_single()?)
-                    } else {
-                        None
-                    };
-                    out.push(SwfStmt::If {
-                        cond,
-                        then_branch,
-                        else_branch,
-                    });
+                    let mut branches = Vec::new();
+                    let mut final_else = None;
+                    loop {
+                        if branches.len() >= 1024 {
+                            return Err(
+                                "script exceeds maximum else-if chain length (1024) in bounded SWF compiler"
+                                    .to_owned(),
+                            );
+                        }
+                        self.expect(&SwfToken::LParen)?;
+                        let cond = self.parse_expr()?;
+                        self.expect(&SwfToken::RParen)?;
+                        let then_branch = self.parse_block_or_single()?;
+                        branches.push((cond, then_branch));
+                        if self.peek() == Some(&SwfToken::Ident("else".to_owned())) {
+                            self.pos += 1;
+                            if self.peek() == Some(&SwfToken::Ident("if".to_owned())) {
+                                self.pos += 1;
+                                continue;
+                            }
+                            final_else = Some(self.parse_block_or_single()?);
+                        }
+                        break;
+                    }
+                    let mut current_else = final_else;
+                    while let Some((cond, then_branch)) = branches.pop() {
+                        let stmt = SwfStmt::If {
+                            cond,
+                            then_branch,
+                            else_branch: current_else,
+                        };
+                        if branches.is_empty() {
+                            out.push(stmt);
+                            return Ok(());
+                        }
+                        current_else = Some(vec![stmt]);
+                    }
                     Ok(())
                 }
                 "while" | "do" => {
@@ -1610,23 +1694,8 @@ impl SwfParser {
                 "function" => {
                     self.pos += 1;
                     let name = self.expect_ident()?;
-                    self.expect(&SwfToken::LParen)?;
-                    let mut params = Vec::new();
-                    if !self.eat(&SwfToken::RParen) {
-                        loop {
-                            let pname = self.expect_ident()?;
-                            self.skip_type_annotation()?;
-                            if self.eat(&SwfToken::Assign) {
-                                let _ = self.parse_expr()?;
-                            }
-                            params.push(pname);
-                            if self.eat(&SwfToken::Comma) {
-                                continue;
-                            }
-                            self.expect(&SwfToken::RParen)?;
-                            break;
-                        }
-                    }
+                    let (params, opt_defaults, rest_param) =
+                        self.parse_fn_params_with_defaults()?;
                     self.skip_type_annotation()?;
                     self.expect(&SwfToken::LBrace)?;
                     self.function_depth += 1;
@@ -1639,7 +1708,13 @@ impl SwfParser {
                                 .to_owned(),
                         );
                     }
-                    out.push(SwfStmt::FunctionDecl { name, params, body });
+                    out.push(SwfStmt::FunctionDecl {
+                        name,
+                        params,
+                        opt_defaults,
+                        rest_param,
+                        body,
+                    });
                     Ok(())
                 }
                 "return" => {
@@ -1847,13 +1922,86 @@ impl SwfParser {
             }
         }
         self.expect(&SwfToken::RBrace)?;
+        let static_names: HashSet<String> = methods
+            .iter()
+            .filter(|(is_st, _, _, _)| *is_st)
+            .map(|(_, mname, _, _)| mname.clone())
+            .chain(
+                fields
+                    .iter()
+                    .filter(|(is_st, _, _)| *is_st)
+                    .map(|(_, fname, _)| fname.clone()),
+            )
+            .collect();
+        if !static_names.is_empty() {
+            if let Some((ref cparams, ref mut cbody)) = ctor {
+                qualify_as2_intra_class_statics_in_fn(&short_name, &static_names, cparams, cbody);
+            }
+            for (_, _, mparams, mbody) in &mut methods {
+                qualify_as2_intra_class_statics_in_fn(&short_name, &static_names, mparams, mbody);
+            }
+            for (_, _, finit) in &mut fields {
+                if let Some(expr) = finit {
+                    let empty_locals = HashSet::new();
+                    qualify_as2_intra_class_statics_in_expr(
+                        &short_name,
+                        &static_names,
+                        &empty_locals,
+                        expr,
+                    );
+                }
+            }
+        }
         Ok(SwfStmt::ClassDecl {
             name: short_name,
+            full_name,
             super_name,
             ctor,
             methods,
             fields,
         })
+    }
+
+    pub(super) fn parse_fn_params_with_defaults(&mut self) -> Result<ParsedFnParams, String> {
+        self.expect(&SwfToken::LParen)?;
+        let mut params = Vec::new();
+        let mut opt_defaults = Vec::new();
+        let mut rest_param = None;
+        if !self.eat(&SwfToken::RParen) {
+            loop {
+                if self.is_avm2 && self.eat(&SwfToken::DotDot) {
+                    self.expect(&SwfToken::Dot)?;
+                    let rname = self.expect_ident()?;
+                    self.skip_type_annotation()?;
+                    rest_param = Some(rname);
+                    self.expect(&SwfToken::RParen)?;
+                    break;
+                }
+                let param_tok_pos = self.pos;
+                let (line, col) = self.span_at(param_tok_pos);
+                let pname = self.expect_ident()?;
+                self.skip_type_annotation()?;
+                if self.eat(&SwfToken::Assign) {
+                    let def_expr = self.parse_expr()?;
+                    if self.is_avm2 {
+                        opt_defaults.push(parse_abc_opt_default_or_const_ref(
+                            &def_expr, &pname, line, col,
+                        )?);
+                    }
+                } else if self.is_avm2 && !opt_defaults.is_empty() {
+                    return Err(format!(
+                        "line {line}:{col}: ActionScript 3 required parameter '{pname}' cannot follow an optional parameter"
+                    ));
+                }
+                params.push(pname);
+                if self.eat(&SwfToken::Comma) {
+                    continue;
+                }
+                self.expect(&SwfToken::RParen)?;
+                break;
+            }
+        }
+        Ok((params, opt_defaults, rest_param))
     }
 
     pub(super) fn parse_simple_assign_or_expr_stmt(&mut self) -> Result<SwfStmt, String> {
@@ -2373,6 +2521,8 @@ impl SwfParser {
         Ok(Some(SwfExpr::Function {
             name: None,
             params,
+            opt_defaults: Vec::new(),
+            rest_param: None,
             body,
         }))
     }
@@ -2418,22 +2568,8 @@ impl SwfParser {
                     } else {
                         None
                     };
-                    self.expect(&SwfToken::LParen)?;
-                    let mut params = Vec::new();
-                    if !self.eat(&SwfToken::RParen) {
-                        loop {
-                            params.push(self.expect_ident()?);
-                            self.skip_type_annotation()?;
-                            if self.eat(&SwfToken::Assign) {
-                                let _ = self.parse_expr()?;
-                            }
-                            if self.eat(&SwfToken::Comma) {
-                                continue;
-                            }
-                            self.expect(&SwfToken::RParen)?;
-                            break;
-                        }
-                    }
+                    let (params, opt_defaults, rest_param) =
+                        self.parse_fn_params_with_defaults()?;
                     self.skip_type_annotation()?;
                     self.expect(&SwfToken::LBrace)?;
                     let prev_in_fn_expr = self.in_function_expression;
@@ -2453,6 +2589,8 @@ impl SwfParser {
                     Ok(SwfExpr::Function {
                         name: fn_name,
                         params,
+                        opt_defaults,
+                        rest_param,
                         body,
                     })
                 }
@@ -2462,6 +2600,8 @@ impl SwfParser {
                         Ok(SwfExpr::Function {
                             name: None,
                             params: vec![s],
+                            opt_defaults: Vec::new(),
+                            rest_param: None,
                             body,
                         })
                     } else {
@@ -2596,8 +2736,8 @@ pub(super) fn parse_swf_statements_strict(
     source: &str,
     is_avm2: bool,
 ) -> Result<Vec<SwfStmt>, String> {
-    let tokens = tokenize_swf_script(source)?;
-    let mut parser = SwfParser::new(tokens, is_avm2);
+    let (tokens, spans) = tokenize_swf_script_with_spans(source)?;
+    let mut parser = SwfParser::with_spans(tokens, spans, is_avm2);
     let stmts = parser.parse_stmt_list(false)?;
     if parser.pos < parser.tokens.len() {
         return Err(format!(
@@ -2606,6 +2746,273 @@ pub(super) fn parse_swf_statements_strict(
         ));
     }
     Ok(stmts)
+}
+
+fn qualify_as2_intra_class_statics_in_fn(
+    class_short: &str,
+    static_names: &HashSet<String>,
+    params: &[String],
+    body: &mut [SwfStmt],
+) {
+    let mut vars = Vec::new();
+    let mut funcs = Vec::new();
+    collect_direct_decls_in_stmts(body, &mut vars, &mut funcs);
+    let locals: HashSet<String> = params.iter().cloned().chain(vars).chain(funcs).collect();
+    qualify_as2_intra_class_statics_in_stmts(class_short, static_names, &locals, body);
+}
+
+fn qualify_as2_intra_class_statics_in_lvalue(
+    class_short: &str,
+    static_names: &HashSet<String>,
+    locals: &HashSet<String>,
+    target: &mut SwfLValue,
+) {
+    match target {
+        SwfLValue::Ident(id) => {
+            if static_names.contains(id) && !locals.contains(id) {
+                let prop = id.clone();
+                *target = SwfLValue::Member(Box::new(SwfExpr::Ident(class_short.to_owned())), prop);
+            }
+        }
+        SwfLValue::Member(obj, _) => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, obj);
+        }
+        SwfLValue::Index(obj, idx) => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, obj);
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, idx);
+        }
+        SwfLValue::XmlAttr { object, attr } => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, object);
+            if let SwfXmlSelector::Computed(idx) = attr {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, idx);
+            }
+        }
+    }
+}
+
+fn qualify_as2_intra_class_statics_in_expr(
+    class_short: &str,
+    static_names: &HashSet<String>,
+    locals: &HashSet<String>,
+    expr: &mut SwfExpr,
+) {
+    match expr {
+        SwfExpr::Ident(id) => {
+            if static_names.contains(id) && !locals.contains(id) {
+                let prop = id.clone();
+                *expr = SwfExpr::Member(Box::new(SwfExpr::Ident(class_short.to_owned())), prop);
+            }
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for e in elems {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, e);
+            }
+        }
+        SwfExpr::ObjectLit(props) => {
+            for (_, v) in props {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, v);
+            }
+        }
+        SwfExpr::Function { params, body, .. } => {
+            let mut inner_vars = Vec::new();
+            let mut inner_funcs = Vec::new();
+            collect_direct_decls_in_stmts(body, &mut inner_vars, &mut inner_funcs);
+            let mut merged_locals = locals.clone();
+            merged_locals.extend(params.iter().cloned());
+            merged_locals.extend(inner_vars);
+            merged_locals.extend(inner_funcs);
+            qualify_as2_intra_class_statics_in_stmts(
+                class_short,
+                static_names,
+                &merged_locals,
+                body,
+            );
+        }
+        SwfExpr::Member(obj, _) => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, obj);
+        }
+        SwfExpr::Index(obj, idx)
+        | SwfExpr::Binary {
+            lhs: obj, rhs: idx, ..
+        } => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, obj);
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, idx);
+        }
+        SwfExpr::Unary { expr: inner, .. } => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, inner);
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, callee);
+            for a in args {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, a);
+            }
+        }
+        SwfExpr::Delete(lv) => {
+            qualify_as2_intra_class_statics_in_lvalue(class_short, static_names, locals, lv);
+        }
+        SwfExpr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, cond);
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, then_expr);
+            qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, else_expr);
+        }
+        _ => {}
+    }
+}
+
+fn qualify_as2_intra_class_statics_in_stmts(
+    class_short: &str,
+    static_names: &HashSet<String>,
+    locals: &HashSet<String>,
+    stmts: &mut [SwfStmt],
+) {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::VarDecl { init: Some(e), .. }
+            | SwfStmt::Expr(e)
+            | SwfStmt::Throw(e)
+            | SwfStmt::Return(Some(e)) => {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, e);
+            }
+            SwfStmt::Assign { target, value, .. } => {
+                qualify_as2_intra_class_statics_in_lvalue(
+                    class_short,
+                    static_names,
+                    locals,
+                    target,
+                );
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, value);
+            }
+            SwfStmt::IncDec { target, .. } => {
+                qualify_as2_intra_class_statics_in_lvalue(
+                    class_short,
+                    static_names,
+                    locals,
+                    target,
+                );
+            }
+            SwfStmt::Block(inner) => {
+                qualify_as2_intra_class_statics_in_stmts(class_short, static_names, locals, inner);
+            }
+            SwfStmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, cond);
+                qualify_as2_intra_class_statics_in_stmts(
+                    class_short,
+                    static_names,
+                    locals,
+                    then_branch,
+                );
+                if let Some(eb) = else_branch {
+                    qualify_as2_intra_class_statics_in_stmts(class_short, static_names, locals, eb);
+                }
+            }
+            SwfStmt::While { cond, body, .. } => {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, cond);
+                qualify_as2_intra_class_statics_in_stmts(class_short, static_names, locals, body);
+            }
+            SwfStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
+                if let Some(i) = init {
+                    qualify_as2_intra_class_statics_in_stmts(
+                        class_short,
+                        static_names,
+                        locals,
+                        std::slice::from_mut(i.as_mut()),
+                    );
+                }
+                if let Some(c) = cond {
+                    qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, c);
+                }
+                if let Some(u) = update {
+                    qualify_as2_intra_class_statics_in_stmts(
+                        class_short,
+                        static_names,
+                        locals,
+                        std::slice::from_mut(u.as_mut()),
+                    );
+                }
+                qualify_as2_intra_class_statics_in_stmts(class_short, static_names, locals, body);
+            }
+            SwfStmt::ForIn { object, body, .. } => {
+                qualify_as2_intra_class_statics_in_expr(class_short, static_names, locals, object);
+                qualify_as2_intra_class_statics_in_stmts(class_short, static_names, locals, body);
+            }
+            SwfStmt::Switch {
+                discriminant,
+                cases,
+            } => {
+                qualify_as2_intra_class_statics_in_expr(
+                    class_short,
+                    static_names,
+                    locals,
+                    discriminant,
+                );
+                for (c_opt, cbody) in cases {
+                    if let Some(ce) = c_opt {
+                        qualify_as2_intra_class_statics_in_expr(
+                            class_short,
+                            static_names,
+                            locals,
+                            ce,
+                        );
+                    }
+                    qualify_as2_intra_class_statics_in_stmts(
+                        class_short,
+                        static_names,
+                        locals,
+                        cbody,
+                    );
+                }
+            }
+            SwfStmt::Try {
+                try_body,
+                catches,
+                finally_body,
+            } => {
+                qualify_as2_intra_class_statics_in_stmts(
+                    class_short,
+                    static_names,
+                    locals,
+                    try_body,
+                );
+                for (cname, _, cbody) in catches {
+                    let mut c_locals = locals.clone();
+                    if !cname.is_empty() {
+                        c_locals.insert(cname.clone());
+                    }
+                    qualify_as2_intra_class_statics_in_stmts(
+                        class_short,
+                        static_names,
+                        &c_locals,
+                        cbody,
+                    );
+                }
+                if let Some(fbody) = finally_body {
+                    qualify_as2_intra_class_statics_in_stmts(
+                        class_short,
+                        static_names,
+                        locals,
+                        fbody,
+                    );
+                }
+            }
+            SwfStmt::FunctionDecl { params, body, .. } => {
+                qualify_as2_intra_class_statics_in_fn(class_short, static_names, params, body);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

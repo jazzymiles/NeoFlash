@@ -723,8 +723,105 @@ pub(crate) fn marker_prefix(source: &str) -> String {
     }
 }
 
+/// Strip compiler origin comments (`/*__nf_origin_N:OFFSET*/`) from `code` while recording exact
+/// v3 UTF-16 generated columns on the stripped output lines.
+pub(crate) fn strip_and_map_marked_source(
+    name: &str,
+    source: &str,
+    code: &str,
+    prefix: &str,
+) -> (String, SourceMap) {
+    let mut mapped = strip_and_map_marked_project(code, &[(name, source, prefix)]);
+    let clean = mapped.0;
+    let map = mapped.1.remove(name).unwrap_or_else(|| {
+        SourceMap::from_segments(None, vec![name.into()], vec![source.into()], vec![], vec![])
+    });
+    (clean, map)
+}
+
+pub(crate) fn strip_and_map_marked_project(
+    code: &str,
+    units: &[(&str, &str, &str)],
+) -> (String, BTreeMap<String, SourceMap>) {
+    let mut segments_by_unit: Vec<Vec<SourceMappingSegment>> = vec![Vec::new(); units.len()];
+    let mut clean_code = String::with_capacity(code.len());
+
+    for (line_idx, text) in code.split('\n').enumerate() {
+        if line_idx > 0 {
+            clean_code.push('\n');
+        }
+        let mut cursor = 0usize;
+        let mut clean_utf16_col = 0usize;
+        while cursor < text.len() {
+            let rest = &text[cursor..];
+            let mut next_hit: Option<(usize, usize, usize, usize)> = None;
+            for (u_idx, &(_, _, prefix)) in units.iter().enumerate() {
+                if prefix.is_empty() {
+                    continue;
+                }
+                if let Some(rel_pos) = rest.find(prefix) {
+                    let abs_start = cursor + rel_pos;
+                    let after_prefix = &text[abs_start + prefix.len()..];
+                    if let Some(end_rel) = after_prefix.find("*/") {
+                        let offset_str = &after_prefix[..end_rel];
+                        if let Ok(src_offset) = offset_str.parse::<usize>() {
+                            let abs_end = abs_start + prefix.len() + end_rel + 2;
+                            if next_hit.is_none_or(|(best_start, _, _, _)| abs_start < best_start) {
+                                next_hit = Some((abs_start, abs_end, u_idx, src_offset));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((abs_start, abs_end, u_idx, src_offset)) = next_hit {
+                let chunk = &text[cursor..abs_start];
+                clean_code.push_str(chunk);
+                clean_utf16_col += chunk.encode_utf16().count();
+                let (_, source, _) = units[u_idx];
+                if let Some(before) = source.get(..src_offset) {
+                    let original_line = before.bytes().filter(|&c| c == b'\n').count();
+                    let original_column = before
+                        .rsplit('\n')
+                        .next()
+                        .unwrap_or("")
+                        .encode_utf16()
+                        .count();
+                    segments_by_unit[u_idx].push(SourceMappingSegment {
+                        generated_line: line_idx,
+                        generated_column: clean_utf16_col,
+                        source_index: 0,
+                        original_line,
+                        original_column,
+                        name_index: None,
+                    });
+                }
+                cursor = abs_end;
+            } else {
+                clean_code.push_str(rest);
+                break;
+            }
+        }
+    }
+
+    let mut maps = BTreeMap::new();
+    for (&(name, source, _), segments) in units.iter().zip(segments_by_unit) {
+        maps.insert(
+            name.to_owned(),
+            SourceMap::from_segments(
+                None,
+                vec![name.into()],
+                vec![source.into()],
+                vec![],
+                segments,
+            ),
+        );
+    }
+    (clean_code, maps)
+}
+
 /// Map only positions supplied by the parser/emitter, never identifier similarity.
 /// Offsets in marker comments are byte offsets in the original source; v3 columns are UTF-16.
+#[allow(dead_code)]
 pub(crate) fn map_marked_source(name: &str, source: &str, code: &str, prefix: &str) -> SourceMap {
     let mut segments = Vec::new();
     for (line, text) in code.lines().enumerate() {

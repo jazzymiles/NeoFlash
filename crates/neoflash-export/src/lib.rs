@@ -78,6 +78,7 @@ use std::{
 use thiserror::Error;
 
 const HOST: &str = include_str!("../../../web/runtime.js");
+const AS_INTRINSICS: &str = include_str!("../../../web/as-intrinsics.js");
 const DOM_LAYOUT: &str = include_str!("../../../web/dom-layout.js");
 const PATH_GEOMETRY: &str = include_str!("../../../web/path.js");
 const ACCESSIBILITY: &str = include_str!("../../../web/accessibility.js");
@@ -192,6 +193,27 @@ pub enum ExportError {
     Options(String),
 }
 
+fn source_map_is_omitted(map: &neoflash_script::SourceMap) -> bool {
+    map.sources.is_empty() && map.mappings.is_empty()
+}
+
+fn compact_runtime_locations(
+    locations: Vec<neoflash_script::RuntimeSourceLocation>,
+) -> Vec<neoflash_script::RuntimeSourceLocation> {
+    let mut out: Vec<neoflash_script::RuntimeSourceLocation> = Vec::with_capacity(locations.len());
+    for loc in locations {
+        if let Some(prev) = out.last()
+            && prev.generated_line == loc.generated_line
+            && prev.source == loc.source
+            && prev.line == loc.line
+        {
+            continue;
+        }
+        out.push(loc);
+    }
+    out
+}
+
 #[derive(Clone, Serialize)]
 pub(crate) struct CompiledScript {
     language: ScriptLanguage,
@@ -200,7 +222,9 @@ pub(crate) struct CompiledScript {
     location: String,
     locations: Vec<String>,
     source_url: String,
+    #[serde(skip_serializing_if = "source_map_is_omitted")]
     source_map: neoflash_script::SourceMap,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     source_locations: Vec<neoflash_script::RuntimeSourceLocation>,
 }
 
@@ -262,17 +286,31 @@ const HOST_MODULES: &[(&str, &str)] = &[
 ];
 const WASM_FILE: &str = "neoflash_web_bg.wasm";
 const BINDINGS_FILE: &str = "neoflash_web.js";
+const AS_INTRINSICS_FILE: &str = "as-intrinsics.js";
 const WASM_FALLBACK_FILE: &str = "neoflash_wasm_fallback.js";
 const NOTICES_FILE: &str = "THIRD_PARTY_NOTICES.txt";
 const RUNTIME_ID_FILE: &str = "runtime-id.js";
 const MODULE_FILE: &str = "module.mjs";
 pub(crate) const AS_PRELUDE_MARKER: &str = "/*__NF_AS_PRELUDE__*/";
 
+#[allow(dead_code)]
 pub(crate) fn replace_as_prelude_once(code: &str, prelude: &str) -> (String, bool) {
+    replace_as_prelude_once_with_newlines(code, prelude, true)
+}
+
+pub(crate) fn replace_as_prelude_once_with_newlines(
+    code: &str,
+    prelude: &str,
+    keep_newlines: bool,
+) -> (String, bool) {
     if !prelude.is_empty()
         && let Some(pos) = code.find(prelude)
     {
-        let nl_count = prelude.as_bytes().iter().filter(|&&b| b == b'\n').count();
+        let nl_count = if keep_newlines {
+            prelude.as_bytes().iter().filter(|&&b| b == b'\n').count()
+        } else {
+            0
+        };
         let mut out = String::with_capacity(
             code.len()
                 .saturating_sub(prelude.len())
@@ -419,7 +457,9 @@ struct ProgramBundle<'a> {
     code: &'a str,
     class_names: &'a [String],
     source_url: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
     source_map: Option<&'a neoflash_script::SourceMap>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     source_locations: Vec<neoflash_script::RuntimeSourceLocation>,
 }
 
@@ -1464,6 +1504,7 @@ fn reserved_publish_path(path: &str) -> bool {
     const GENERATED: &[&str] = &[
         MARKER,
         BINDINGS_FILE,
+        AS_INTRINSICS_FILE,
         WASM_FALLBACK_FILE,
         WASM_FILE,
         RUNTIME_ID_FILE,
@@ -1606,7 +1647,12 @@ fn read_runtime(runtime_dir: &Path) -> Result<(String, Vec<u8>), ExportError> {
 }
 
 fn shared_runtime_id(bindings: &str, wasm: &[u8]) -> String {
-    let mut parts: Vec<&[u8]> = vec![bindings.as_bytes(), wasm, HOST.as_bytes()];
+    let mut parts: Vec<&[u8]> = vec![
+        bindings.as_bytes(),
+        wasm,
+        HOST.as_bytes(),
+        AS_INTRINSICS.as_bytes(),
+    ];
     parts.extend(HOST_MODULES.iter().map(|(_, source)| source.as_bytes()));
     publish::runtime_id(&parts)
 }
@@ -1922,21 +1968,8 @@ pub(crate) fn assemble_with_config(
     let emit_wasm_fallback = shared_url.is_none()
         && !level.wasm_inline()
         && !config.is_some_and(|c| c.omit_file_fallback);
-    let runtime_js_bytes = if shared_url.is_some() {
-        0
-    } else {
-        bindings_bytes.len()
-            + HOST.len()
-            + modules
-                .iter()
-                .map(|(_, source)| source.len())
-                .sum::<usize>()
-    };
-    let figures = RuntimeFigures {
-        wasm_bytes: if shared_url.is_some() { 0 } else { wasm.len() },
-        wasm_inline: level.wasm_inline(),
-        runtime_js_bytes,
-    };
+    let slim_bundle = config.is_some_and(|c| c.minify && !c.source_maps);
+    let include_html = config.map(|c| c.include_html).unwrap_or(true);
     let (effective_program_code, program_map_shift) =
         apply_js_publish_transforms(&prepared.program.code, config);
     let effective_program_map = prepared
@@ -1952,7 +1985,8 @@ pub(crate) fn assemble_with_config(
             let (code, map_shift) = apply_js_publish_transforms(&script.code, config);
             script.code = code;
             script.source_map = apply_publish_source_map_shift(&script.source_map, map_shift);
-            script.source_locations = script.source_map.runtime_locations();
+            script.source_locations =
+                compact_runtime_locations(script.source_map.runtime_locations());
             script
         })
         .collect();
@@ -1960,32 +1994,113 @@ pub(crate) fn assemble_with_config(
         .is_some_and(|c| c.source_maps)
         .then(|| build_fallback_bundle_source_map(&effective_scripts, &effective_program_code));
     // Without scripts or classes the compiled prelude has nothing to run; the runtime supplies
-    // its built-in class lookup instead.
+    // its built-in class lookup instead. Pure JS/TS and scriptless exports never load or embed
+    // the ActionScript intrinsics library (`as-intrinsics.js`).
     let scriptless = publish::script_corpus(&prepared.published)
         .trim()
         .is_empty()
-        && prepared.program.class_names.is_empty();
-    let ships_program = !(scriptless && level.trims_content());
+        && prepared.program.class_names.is_empty()
+        && prepared.program.web_modules.is_empty();
+    let has_as_units = prepared
+        .published
+        .sources
+        .iter()
+        .any(|u| u.language.is_actionscript())
+        || prepared.published.document_class.is_some()
+        || prepared
+            .published
+            .symbols
+            .iter()
+            .any(|s| s.class_name.is_some())
+        || effective_scripts
+            .iter()
+            .any(|s| s.language.is_actionscript());
+    let ships_program = !(level.trims_content() && scriptless);
     let raw_as_prelude = neoflash_script::as_runtime_prelude_js();
     let mut uses_as_prelude = false;
-    let effective_program_code = if ships_program {
-        let (deduped, hit) = replace_as_prelude_once(&effective_program_code, &raw_as_prelude);
+    let effective_program_code = if ships_program && has_as_units {
+        let (deduped, hit) = replace_as_prelude_once_with_newlines(
+            &effective_program_code,
+            &raw_as_prelude,
+            !slim_bundle,
+        );
         uses_as_prelude |= hit;
-        deduped
+        if slim_bundle {
+            neoflash_script::minify_function_body_js(&deduped, AS_PRELUDE_MARKER)
+        } else {
+            deduped
+        }
+    } else if ships_program && !prepared.program.web_modules.is_empty() {
+        let web_only = format!(
+            "const __nfProgram = Object.create(null);\n{}\nreturn __nfProgram;",
+            prepared.program.web_modules.bundled_code
+        );
+        let (transformed, _) = apply_js_publish_transforms(&web_only, config);
+        if slim_bundle {
+            neoflash_script::minify_function_body_js(&transformed, "")
+        } else {
+            transformed
+        }
+    } else if ships_program {
+        "return null;".to_owned()
     } else {
-        effective_program_code
+        String::new()
     };
     for script in &mut effective_scripts {
-        let (deduped, hit) = replace_as_prelude_once(&script.code, &raw_as_prelude);
+        let (deduped, hit) =
+            replace_as_prelude_once_with_newlines(&script.code, &raw_as_prelude, !slim_bundle);
         if hit {
-            script.code = deduped;
             uses_as_prelude = true;
+            script.code = if slim_bundle {
+                neoflash_script::minify_function_body_js(&deduped, AS_PRELUDE_MARKER)
+            } else {
+                deduped
+            };
+        } else if slim_bundle {
+            script.code = neoflash_script::minify_function_body_js(&script.code, "");
+        }
+        if slim_bundle {
+            script.source_map =
+                neoflash_script::SourceMap::from_segments(None, vec![], vec![], vec![], vec![]);
+            script.source_locations.clear();
+        } else if script.source_map.sources.len() == 1
+            && script.source_map.sources[0] == script.location
+        {
+            script.source_map.sources_content.clear();
         }
     }
-    let bundle_as_prelude = uses_as_prelude.then_some(raw_as_prelude);
+    let wrapper_loads_runtime_list = wrapper.is_none_or(|tpl| {
+        tpl.contains("$SCRIPT_BUNDLE")
+            || tpl.contains("$RUNTIME_SCRIPT")
+            || tpl.contains(AS_INTRINSICS_FILE)
+    });
+    let inline_as_prelude = uses_as_prelude && include_html && !wrapper_loads_runtime_list;
+    let emit_as_intrinsics = uses_as_prelude && !inline_as_prelude;
+    let bundle_as_prelude = inline_as_prelude.then_some(raw_as_prelude);
+    let runtime_js_bytes = if shared_url.is_some() {
+        0
+    } else {
+        bindings_bytes.len()
+            + HOST.len()
+            + if emit_as_intrinsics {
+                AS_INTRINSICS.len()
+            } else {
+                0
+            }
+            + modules
+                .iter()
+                .map(|(_, source)| source.len())
+                .sum::<usize>()
+    };
+    let figures = RuntimeFigures {
+        wasm_bytes: if shared_url.is_some() { 0 } else { wasm.len() },
+        wasm_inline: level.wasm_inline(),
+        runtime_js_bytes,
+    };
     let (size_report, load_summary) = size_report_from(
         &prepared.published,
         &prepared.program,
+        Some(&effective_program_code),
         &effective_scripts,
         Some(figures),
     )?;
@@ -2010,11 +2125,17 @@ pub(crate) fn assemble_with_config(
             .unwrap_or(&effective_program_code),
         class_names: &prepared.program.class_names,
         source_url: "neoflash-project.js",
-        source_map: effective_program_map.as_ref(),
-        source_locations: effective_program_map
-            .as_ref()
-            .map(|map| map.runtime_locations())
-            .unwrap_or_default(),
+        source_map: (!slim_bundle)
+            .then_some(effective_program_map.as_ref())
+            .flatten(),
+        source_locations: if slim_bundle {
+            Vec::new()
+        } else {
+            effective_program_map
+                .as_ref()
+                .map(|map| compact_runtime_locations(map.runtime_locations()))
+                .unwrap_or_default()
+        },
     });
     let assets_folder = config.is_some_and(|c| c.assets_folder);
     let effective_sprite_sheets =
@@ -2246,6 +2367,45 @@ pub(crate) fn assemble_with_config(
         );
     }
 
+    if slim_bundle {
+        for src_unit in &mut effective_published.sources {
+            src_unit.source.clear();
+        }
+        let mut key_tokens: std::collections::HashMap<(ScriptLanguage, String), String> =
+            std::collections::HashMap::new();
+        for (idx, script) in effective_scripts.iter_mut().enumerate() {
+            if script.source.len() > 24 {
+                let token = format!("/*nf:{idx}*/");
+                key_tokens.insert((script.language, script.source.clone()), token.clone());
+                script.source = token;
+            }
+        }
+        if !key_tokens.is_empty() {
+            for symbol in &mut effective_published.symbols {
+                for fs in &mut symbol.timeline.scripts {
+                    if let Some(tok) =
+                        key_tokens.get(&(fs.script.language, fs.script.source.clone()))
+                    {
+                        fs.script.source = tok.clone();
+                    }
+                }
+                for layer in &mut symbol.timeline.layers {
+                    for key in &mut layer.keyframes {
+                        for el in &mut key.elements {
+                            for os in &mut el.scripts {
+                                if let Some(tok) =
+                                    key_tokens.get(&(os.script.language, os.script.source.clone()))
+                                {
+                                    os.script.source = tok.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let is_dom_mode = config.is_some_and(|c| c.render_mode == HtmlRenderMode::Dom)
         || (config.is_none() && project.html_render_mode() == HtmlRenderMode::Dom);
     let synthesized_dom_cfg = (config.is_none() && is_dom_mode).then(|| HtmlPublishConfig {
@@ -2302,6 +2462,9 @@ pub(crate) fn assemble_with_config(
     }
     scripts.push(runtime_src(BINDINGS_FILE));
     scripts.push("bundle.js".to_owned());
+    if emit_as_intrinsics {
+        scripts.push(runtime_src(AS_INTRINSICS_FILE));
+    }
     scripts.extend(modules.iter().map(|(file, _)| runtime_src(file)));
     scripts.push(runtime_src("runtime.js"));
     let readme = format!(
@@ -2318,6 +2481,9 @@ pub(crate) fn assemble_with_config(
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
     if shared_url.is_none() {
         files.push((BINDINGS_FILE.into(), bindings_bytes));
+        if emit_as_intrinsics {
+            files.push((AS_INTRINSICS_FILE.into(), AS_INTRINSICS.as_bytes().to_vec()));
+        }
         files.push(("runtime.js".into(), HOST.as_bytes().to_vec()));
         for (file, source) in &modules {
             files.push(((*file).into(), source.as_bytes().to_vec()));
@@ -2399,11 +2565,14 @@ pub(crate) fn assemble_with_config(
             files.push((ext_vid.relative_path.clone(), ext_vid.bytes.clone()));
         }
     }
-    let mut module_runtime_files = Vec::with_capacity(modules.len() + 3);
+    let mut module_runtime_files = Vec::with_capacity(modules.len() + 4);
     if shared_url.is_some() {
         module_runtime_files.push(RUNTIME_ID_FILE);
     }
     module_runtime_files.push(BINDINGS_FILE);
+    if emit_as_intrinsics {
+        module_runtime_files.push(AS_INTRINSICS_FILE);
+    }
     module_runtime_files.extend(modules.iter().map(|(file, _)| *file));
     module_runtime_files.push("runtime.js");
     let module_wasm_url = match (level, &shared_url) {
@@ -2422,7 +2591,6 @@ pub(crate) fn assemble_with_config(
         config.is_some_and(|c| !c.minify),
     )?;
     let project_json = serde_json::to_string(&effective_published)?;
-    let include_html = config.map(|c| c.include_html).unwrap_or(true);
     if include_html {
         let html = if let Some(template) = wrapper {
             render_custom_html_wrapper(
@@ -2780,6 +2948,14 @@ export async function mount(container, options = {{}}) {{
     ensureRuntime(options),
     options?.bundle ? Promise.resolve(options.bundle) : loadBundle(options?.baseUrl || MODULE_DIR_URL),
   ]);
+  if (loadedBundle && typeof loadedBundle === 'object' && !loadedBundle.as_prelude && typeof globalThis.__neoflashAsIntrinsics === 'string') {{
+    Object.defineProperty(loadedBundle, 'as_prelude', {{
+      configurable: true,
+      enumerable: false,
+      writable: true,
+      value: globalThis.__neoflashAsIntrinsics,
+    }});
+  }}
   if (typeof globalThis.NeoFlash?.mount !== 'function') {{
     throw new Error('NeoFlash runtime did not register globalThis.NeoFlash.mount.');
   }}
@@ -2815,6 +2991,7 @@ fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(Stri
         ),
         (BINDINGS_FILE.into(), reusable.into_bytes()),
         (WASM_FALLBACK_FILE.into(), fallback_js.into_bytes()),
+        (AS_INTRINSICS_FILE.into(), AS_INTRINSICS.as_bytes().to_vec()),
         ("runtime.js".into(), HOST.as_bytes().to_vec()),
         (WASM_FILE.into(), wasm.to_vec()),
         (NOTICES_FILE.into(), ALGORITHM_NOTICES.as_bytes().to_vec()),

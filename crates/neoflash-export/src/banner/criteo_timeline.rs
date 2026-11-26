@@ -471,9 +471,12 @@ pub(crate) fn compile_criteo_banner_html(
                 if layer.properties.role == neoflash_core::LayerRole::Mask {
                     unsupported("Mask layer");
                 }
-                if !layer.properties.filters.is_empty()
-                    || !key.filters.is_empty()
-                    || key.elements.iter().any(|el| !el.filters.is_empty())
+                if layer.properties.filters.iter().any(FilterSpec::is_enabled)
+                    || key.filters.iter().any(FilterSpec::is_enabled)
+                    || key
+                        .elements
+                        .iter()
+                        .any(|el| el.filters.iter().any(FilterSpec::is_enabled))
                 {
                     unsupported("Display filters");
                 }
@@ -542,6 +545,17 @@ pub(crate) fn compile_criteo_banner_html(
         ));
     }
     let (mut eval, _) = flatten_scenes_with_ranges(project);
+    for symbol in &mut eval.symbols {
+        for layer in &mut symbol.timeline.layers {
+            layer.properties.filters.retain(FilterSpec::is_enabled);
+            for keyframe in &mut layer.keyframes {
+                keyframe.filters.retain(FilterSpec::is_enabled);
+                for element in &mut keyframe.elements {
+                    element.filters.retain(FilterSpec::is_enabled);
+                }
+            }
+        }
+    }
     let _ = crate::apply_bitmap_export_settings(&mut eval, options.jpeg_quality);
     let fonts = crate::apply_font_policy(&mut eval, crate::FontExportPolicy::Subset).css_rules;
     let frames = eval

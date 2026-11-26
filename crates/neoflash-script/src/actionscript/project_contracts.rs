@@ -676,23 +676,51 @@ pub(super) fn emit_class(c: &Class) -> Result<String, Diagnostic> {
         BTreeMap::<(String, bool, Access, Option<String>), (Option<String>, Option<String>)>::new();
     let mut constructor = "null".to_owned();
     let short = c.header.name.rsplit('.').next().unwrap();
-    let initializers: Vec<_> = c
+    let instance_initializers: Vec<_> = c
         .fields
         .iter()
+        .filter(|f| !f.is_static)
         .filter_map(|f| f.value.clone())
         .map(Stmt::Expr)
         .collect();
-    let field_analysis =
-        scope::Analysis::with_context(&c.header.script, &initializers, c.context.clone())?;
-    let emitter = Emitter {
+    let static_initializers: Vec<_> = c
+        .fields
+        .iter()
+        .filter(|f| f.is_static)
+        .filter_map(|f| f.value.clone())
+        .map(Stmt::Expr)
+        .collect();
+    let instance_field_analysis =
+        scope::Analysis::with_context(&c.header.script, &instance_initializers, c.context.clone())?;
+    let mut static_field_ctx = c.context.clone();
+    static_field_ctx.static_method = true;
+    let static_field_analysis =
+        scope::Analysis::with_context(&c.header.script, &static_initializers, static_field_ctx)?;
+    let instance_emitter = Emitter {
         as3,
-        analysis: &field_analysis,
+        analysis: &instance_field_analysis,
+        scope: 0,
+        with_targets: Vec::new(),
+        tell_target: None,
+    };
+    let static_emitter = Emitter {
+        as3,
+        analysis: &static_field_analysis,
         scope: 0,
         with_targets: Vec::new(),
         tell_target: None,
     };
     for f in &c.fields {
+        let emitter = if f.is_static {
+            &static_emitter
+        } else {
+            &instance_emitter
+        };
         let coerce = emitter.coerce_type(f.ty.as_deref(), "value".into());
+        let is_scalar = f
+            .value
+            .as_ref()
+            .is_none_or(super::project_classes::scalar_initializer);
         let initial = f
             .value
             .as_ref()
@@ -712,7 +740,7 @@ pub(super) fn emit_class(c: &Class) -> Result<String, Diagnostic> {
             .namespace
             .as_ref()
             .map_or_else(|| "null".into(), |u| format!("{u:?}"));
-        fields.push(format!("{{name:{:?},static:{},access:{:?},ns:{ns_lit},constant:{},defaultValue:{},coerce:function(value){{return {coerce};}},init:{initial}}}",f.name,f.is_static,f.access.name(),f.constant,emitter.default_value(f.ty.as_deref())));
+        fields.push(format!("{{name:{:?},static:{},scalar:{is_scalar},access:{:?},ns:{ns_lit},constant:{},defaultValue:{},coerce:function(value){{return {coerce};}},init:{initial}}}",f.name,f.is_static,f.access.name(),f.constant,emitter.default_value(f.ty.as_deref())));
     }
     for method in &c.methods {
         let f = &method.function;

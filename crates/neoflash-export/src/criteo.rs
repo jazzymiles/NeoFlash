@@ -174,4 +174,107 @@ mod tests {
         assert!(html.contains("ล่องเรือชมจันทร์"));
         assert!(html.contains("nf-licenses") && html.contains("SIL OPEN FONT LICENSE"));
     }
+
+    #[test]
+    fn disabled_filters_export_identically_to_unfiltered_while_active_filters_report_layer_and_frame()
+     {
+        use neoflash_core::{Element, ElementKind, FilterSpec};
+
+        let mut base = Project::blank();
+        base.width = 300;
+        base.height = 250;
+        base.symbols[0].timeline.frame_count = 12;
+        base.symbols[0].timeline.layers[0].name = "HeroLayer".into();
+        base.symbols[0].timeline.layers[0].keyframes[0].elements = vec![Element {
+            id: "cta-card".into(),
+            kind: ElementKind::Rectangle {
+                width: 180.0,
+                height: 60.0,
+                fill: [20, 120, 220, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..Element::default()
+        }];
+        base.validate().unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let clean_zip_path = dir.path().join("clean.zip");
+        export_criteo_banner_zip(&base, &clean_zip_path, DEFAULT_CRITEO_MAX_ZIP_BYTES).unwrap();
+        let clean_bytes = fs::read(&clean_zip_path).unwrap();
+        let mut clean_zip = zip::ZipArchive::new(Cursor::new(&clean_bytes)).unwrap();
+        let mut clean_html = String::new();
+        clean_zip
+            .by_name("index.html")
+            .unwrap()
+            .read_to_string(&mut clean_html)
+            .unwrap();
+
+        let disabled_blur = FilterSpec::Blur {
+            blur_x: 8.0,
+            blur_y: 8.0,
+            quality: 1,
+        }
+        .with_enabled(false);
+        let disabled_glow = FilterSpec::Glow {
+            color: 0xFFCC00,
+            alpha: 0.8,
+            blur_x: 6.0,
+            blur_y: 6.0,
+            strength: 2.0,
+            quality: 1,
+            inner: false,
+            knockout: false,
+        }
+        .with_enabled(false);
+
+        let mut with_disabled = base.clone();
+        with_disabled.symbols[0].timeline.layers[0]
+            .properties
+            .filters
+            .push(disabled_blur.clone());
+        with_disabled.symbols[0].timeline.layers[0].keyframes[0]
+            .filters
+            .push(disabled_glow.clone());
+        with_disabled.symbols[0].timeline.layers[0].keyframes[0].elements[0]
+            .filters
+            .push(disabled_blur);
+        with_disabled.upgrade_format_for_features();
+        with_disabled.validate().unwrap();
+
+        let disabled_zip_path = dir.path().join("disabled.zip");
+        export_criteo_banner_zip(
+            &with_disabled,
+            &disabled_zip_path,
+            DEFAULT_CRITEO_MAX_ZIP_BYTES,
+        )
+        .expect("300x250 Criteo banner with disabled filters must export cleanly to ZIP");
+        let disabled_bytes = fs::read(&disabled_zip_path).unwrap();
+        let mut disabled_zip = zip::ZipArchive::new(Cursor::new(&disabled_bytes)).unwrap();
+        let mut disabled_html = String::new();
+        disabled_zip
+            .by_name("index.html")
+            .unwrap()
+            .read_to_string(&mut disabled_html)
+            .unwrap();
+        assert_eq!(
+            disabled_html, clean_html,
+            "disabled filters must render identically to removing the disabled effect"
+        );
+
+        let mut with_active = with_disabled;
+        with_active.symbols[0].timeline.layers[0].keyframes[0].elements[0].filters[0]
+            .set_enabled(true);
+        let err = export_criteo_banner_zip(
+            &with_active,
+            &dir.path().join("active.zip"),
+            DEFAULT_CRITEO_MAX_ZIP_BYTES,
+        )
+        .expect_err("active display filter must block Criteo banner export");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("HeroLayer") && msg.contains("frame 1") && msg.contains("Display filters"),
+            "active filter diagnostic must retain layer and frame location, got: {msg}"
+        );
+    }
 }

@@ -9,3 +9,4 @@ if ! command -v wasm-bindgen >/dev/null || [[ "$(wasm-bindgen --version)" != "wa
 fi
 cargo build --locked --release -p neoflash-web --target wasm32-unknown-unknown
 wasm-bindgen --target no-modules --no-modules-global NeoFlashWasm --out-name neoflash_web --out-dir target/web-runtime target/wasm32-unknown-unknown/release/neoflash_web.wasm
+cp "$project_root/web/as-intrinsics.js" target/web-runtime/as-intrinsics.js

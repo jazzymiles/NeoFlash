@@ -4,7 +4,7 @@
 
 use super::bits::SwfSlice;
 use neoflash_core::{ObjectEvent, ObjectScript, Script, ScriptLanguage};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 const MAX_AVM1_INSNS: usize = 50_000;
 const MAX_AVM1_DEPTH: usize = 24;
@@ -36,6 +36,7 @@ pub(crate) fn decompile_actions(
         swf_version,
         constants: Vec::new(),
         reg_names: HashMap::new(),
+        used_synth_regs: BTreeSet::new(),
         loop_bounds: Vec::new(),
         enclosing_finally_lines: Vec::new(),
         unrecognized: 0,
@@ -52,7 +53,10 @@ pub(crate) fn decompile_actions(
         0,
     );
     let mut stack = Vec::new();
-    let lines = decompile_range(&insns, 0, insns.len(), &mut ctx, &mut stack, 0);
+    let mut lines = decompile_range(&insns, 0, insns.len(), &mut ctx, &mut stack, 0);
+    if let Some(reg_decl) = format_synth_reg_decl(&ctx.used_synth_regs, &[]) {
+        lines.insert(0, reg_decl);
+    }
     (
         join_lines(&lines, 0),
         ctx.unrecognized,
@@ -67,7 +71,8 @@ pub(crate) fn parse_and_decompile_button2_actions(
     legacy_cp_warned: &mut bool,
 ) -> Vec<DecompiledObjectHandler> {
     let lang = script_language_for_swf(swf_version);
-    let mut out = Vec::new();
+    let mut out: Vec<DecompiledObjectHandler> = Vec::new();
+    let mut last_coalesceable: Option<(Vec<String>, String)> = None;
     let mut pos = 0usize;
     let mut guard = 0usize;
     while pos + 4 <= bytes.len() && guard < 1024 {
@@ -96,6 +101,29 @@ pub(crate) fn parse_and_decompile_button2_actions(
         }
         if !body.trim().is_empty() || unrecognized > 0 {
             let (conds, native_ok) = describe_button_conditions_classified(cond_b0, cond_b1);
+            if native_ok && !conds.is_empty() && unrecognized == 0 {
+                if let Some((prev_conds, prev_body)) = &mut last_coalesceable
+                    && *prev_body == body
+                    && !conds.iter().any(|c| prev_conds.contains(c))
+                    && let Some(last_handler) = out.last_mut()
+                {
+                    prev_conds.extend(conds);
+                    last_handler.script.script.source = format!(
+                        "on({}) {{\n{}\n}}",
+                        prev_conds.join(", "),
+                        indent_handler_body(&body)
+                    );
+                    last_handler.approximated_event = false;
+                    if cond_size == 0 || end >= bytes.len() {
+                        break;
+                    }
+                    pos = end;
+                    continue;
+                }
+                last_coalesceable = Some((conds.clone(), body.clone()));
+            } else {
+                last_coalesceable = None;
+            }
             let is_direct_release = native_ok && conds.len() == 1 && conds[0] == "release";
             let (source, approximated_event) = if is_direct_release {
                 (body, false)
@@ -1118,6 +1146,7 @@ struct Avm1Context<'a> {
     swf_version: u8,
     constants: Vec<String>,
     reg_names: HashMap<u8, String>,
+    used_synth_regs: BTreeSet<u8>,
     loop_bounds: Vec<(usize, usize)>,
     enclosing_finally_lines: Vec<Vec<String>>,
     unrecognized: usize,
@@ -1161,12 +1190,46 @@ fn strip_trailing_inline_finally_lines(lines: &mut Vec<String>, finally_stack: &
 }
 
 impl Avm1Context<'_> {
-    fn reg_expr(&self, reg: u8) -> String {
-        self.reg_names
-            .get(&reg)
-            .cloned()
-            .unwrap_or_else(|| format!("__reg{reg}"))
+    fn reg_expr(&mut self, reg: u8) -> String {
+        if let Some(named) = self.reg_names.get(&reg) {
+            named.clone()
+        } else {
+            self.used_synth_regs.insert(reg);
+            format!("__reg{reg}")
+        }
     }
+}
+
+fn format_synth_reg_decl(regs: &BTreeSet<u8>, params: &[String]) -> Option<String> {
+    let decls: Vec<String> = regs
+        .iter()
+        .map(|r| format!("__reg{r}"))
+        .filter(|name| !params.contains(name))
+        .collect();
+    (!decls.is_empty()).then(|| format!("var {};", decls.join(", ")))
+}
+
+fn is_flattenable_if_chain(lines: &[String]) -> bool {
+    if lines.len() < 2 {
+        return false;
+    }
+    let first = &lines[0];
+    if !(first.starts_with("if (") && first.ends_with(") {")) {
+        return false;
+    }
+    if lines.last().map(String::as_str) != Some("}") {
+        return false;
+    }
+    for line in &lines[1..lines.len() - 1] {
+        if line.starts_with("    ") || line.is_empty() {
+            continue;
+        }
+        if line == "} else {" || (line.starts_with("} else if (") && line.ends_with(") {")) {
+            continue;
+        }
+        return false;
+    }
+    true
 }
 
 #[derive(Clone, Debug)]
@@ -1175,6 +1238,7 @@ struct Expr {
     raw_string: Option<String>,
     int_val: Option<i64>,
     negated_of: Option<String>,
+    bin_op: Option<&'static str>,
 }
 
 impl Expr {
@@ -1184,6 +1248,7 @@ impl Expr {
             raw_string: None,
             int_val: None,
             negated_of: None,
+            bin_op: None,
         }
     }
 
@@ -1193,6 +1258,7 @@ impl Expr {
             raw_string: Some(s),
             int_val: None,
             negated_of: None,
+            bin_op: None,
         }
     }
 
@@ -1202,6 +1268,35 @@ impl Expr {
             raw_string: None,
             int_val: Some(v),
             negated_of: None,
+            bin_op: None,
+        }
+    }
+
+    fn binary(op: &'static str, lhs: Expr, rhs: Expr) -> Self {
+        let lhs_str = if lhs.bin_op == Some(op)
+            && matches!(op, "+" | "-" | "*" | "&&" | "||" | "|" | "&" | "^")
+            && lhs.code.starts_with('(')
+            && lhs.code.ends_with(')')
+        {
+            &lhs.code[1..lhs.code.len() - 1]
+        } else {
+            lhs.code.as_str()
+        };
+        let rhs_str = if rhs.bin_op == Some(op)
+            && matches!(op, "&&" | "||")
+            && rhs.code.starts_with('(')
+            && rhs.code.ends_with(')')
+        {
+            &rhs.code[1..rhs.code.len() - 1]
+        } else {
+            rhs.code.as_str()
+        };
+        Self {
+            code: format!("({lhs_str} {op} {rhs_str})"),
+            raw_string: None,
+            int_val: None,
+            negated_of: None,
+            bin_op: Some(op),
         }
     }
 
@@ -1403,19 +1498,13 @@ fn decompile_range(
                     {
                         let mut rhs_stack = stack.clone();
                         let lhs = pop_expr(&mut rhs_stack);
-                        let rhs_lines = decompile_range(
-                            insns,
-                            pc + 2,
-                            target_idx,
-                            ctx,
-                            &mut rhs_stack,
-                            depth + 1,
-                        );
+                        let rhs_lines =
+                            decompile_range(insns, pc + 2, target_idx, ctx, &mut rhs_stack, depth);
                         if rhs_lines.is_empty() && rhs_stack.len() == stack.len() {
                             let rhs = pop_expr(&mut rhs_stack);
                             let _ = pop_expr(stack);
                             let op_str = if is_short_circuit_and { "&&" } else { "||" };
-                            stack.push(Expr::atom(format!("({} {op_str} {})", lhs.code, rhs.code)));
+                            stack.push(Expr::binary(op_str, lhs, rhs));
                             pc = target_idx;
                             continue;
                         }
@@ -1450,7 +1539,7 @@ fn decompile_range(
                             else_end,
                             ctx,
                             &mut else_stack,
-                            depth + 1,
+                            depth,
                         );
                         // Ternary / short-circuit expression (`cond ? a : b`) leaves one extra item on both stacks and emits no statements!
                         if then_lines.is_empty()
@@ -1469,11 +1558,16 @@ fn decompile_range(
                             for tl in then_lines {
                                 lines.push(format!("    {tl}"));
                             }
-                            lines.push("} else {".into());
-                            for el in else_lines {
-                                lines.push(format!("    {el}"));
+                            if is_flattenable_if_chain(&else_lines) {
+                                lines.push(format!("}} else {}", else_lines[0]));
+                                lines.extend(else_lines.into_iter().skip(1));
+                            } else {
+                                lines.push("} else {".into());
+                                for el in else_lines {
+                                    lines.push(format!("    {el}"));
+                                }
+                                lines.push("}".into());
                             }
-                            lines.push("}".into());
                         }
                         pc = else_end;
                         continue;
@@ -1722,6 +1816,7 @@ fn step_single_insn(
             body,
         } => {
             let saved_regs = ctx.reg_names.clone();
+            let saved_used_regs = std::mem::take(&mut ctx.used_synth_regs);
             ctx.reg_names.clear();
             for (reg, ident) in preload_regs {
                 ctx.reg_names.insert(*reg, ident.clone());
@@ -1741,10 +1836,14 @@ fn step_single_insn(
             let mut fn_stack = Vec::new();
             let saved_loops = std::mem::take(&mut ctx.loop_bounds);
             let saved_fins = std::mem::take(&mut ctx.enclosing_finally_lines);
-            let fn_lines = decompile_range(body, 0, body.len(), ctx, &mut fn_stack, depth + 1);
+            let mut fn_lines = decompile_range(body, 0, body.len(), ctx, &mut fn_stack, depth + 1);
+            if let Some(reg_decl) = format_synth_reg_decl(&ctx.used_synth_regs, &param_list) {
+                fn_lines.insert(0, reg_decl);
+            }
             ctx.loop_bounds = saved_loops;
             ctx.enclosing_finally_lines = saved_fins;
             ctx.reg_names = saved_regs;
+            ctx.used_synth_regs = saved_used_regs;
             let params_joined = param_list.join(", ");
             if name.is_empty() {
                 let mut expr_str = format!("function({params_joined}) {{");
@@ -2166,10 +2265,10 @@ fn step_simple_op(code: u8, _swf_version: u8, stack: &mut Vec<Expr>, lines: &mut
     }
 }
 
-fn binary_op(stack: &mut Vec<Expr>, op: &str) {
+fn binary_op(stack: &mut Vec<Expr>, op: &'static str) {
     let rhs = pop_expr(stack);
     let lhs = pop_expr(stack);
-    stack.push(Expr::atom(format!("({} {op} {})", lhs.code, rhs.code)));
+    stack.push(Expr::binary(op, lhs, rhs));
 }
 
 fn pop_arg_count(stack: &mut Vec<Expr>) -> usize {

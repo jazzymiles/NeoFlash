@@ -233,6 +233,12 @@ pub(super) enum AbcOptDefault {
     Int(i32),
     Float(f64),
     Str(String),
+    ConstRef {
+        raw: String,
+        param_name: String,
+        line: usize,
+        col: usize,
+    },
 }
 
 impl AbcOptDefault {
@@ -245,6 +251,7 @@ impl AbcOptDefault {
             Self::Int(v) => (pool.add_int(*v), 0x03),
             Self::Float(v) => (pool.add_double(*v), 0x06),
             Self::Str(s) => (pool.add_string(s), 0x01),
+            Self::ConstRef { .. } => (0, 0x00),
         }
     }
 }
@@ -280,6 +287,7 @@ pub(super) struct AbcClassSpec {
     pub(super) ctor_statements: Vec<SwfStmt>,
     pub(super) instance_fields: Vec<(String, Option<SwfExpr>)>,
     pub(super) static_fields: Vec<(String, Option<SwfExpr>)>,
+    pub(super) static_consts: Vec<(String, bool, Option<SwfExpr>)>,
     pub(super) static_methods: Vec<(String, Vec<String>, Vec<SwfStmt>)>,
     pub(super) frame_scripts: Vec<(u32, String)>,
     pub(super) extra_methods: Vec<(String, Vec<String>, Vec<SwfStmt>)>,
@@ -525,6 +533,59 @@ fn expr_to_abc_opt_default(expr: &SwfExpr, pname: &str) -> Result<AbcOptDefault,
     }
 }
 
+fn swf_dotted_const_chain(expr: &SwfExpr) -> Option<String> {
+    match expr {
+        SwfExpr::Ident(id) if !matches!(id.as_str(), "this" | "super" | "arguments") => {
+            Some(id.clone())
+        }
+        SwfExpr::Member(inner, prop) => {
+            let mut prefix = swf_dotted_const_chain(inner)?;
+            prefix.push('.');
+            prefix.push_str(prop);
+            Some(prefix)
+        }
+        _ => None,
+    }
+}
+
+fn builtin_abc_opt_default(raw: &str) -> Option<AbcOptDefault> {
+    match raw {
+        "NaN" | "Number.NaN" => Some(AbcOptDefault::Float(f64::NAN)),
+        "Infinity" | "Number.POSITIVE_INFINITY" => Some(AbcOptDefault::Float(f64::INFINITY)),
+        "Number.NEGATIVE_INFINITY" => Some(AbcOptDefault::Float(f64::NEG_INFINITY)),
+        "int.MAX_VALUE" => Some(AbcOptDefault::Int(i32::MAX)),
+        "int.MIN_VALUE" => Some(AbcOptDefault::Int(i32::MIN)),
+        "uint.MAX_VALUE" => Some(AbcOptDefault::Float(f64::from(u32::MAX))),
+        "uint.MIN_VALUE" => Some(AbcOptDefault::Int(0)),
+        _ => None,
+    }
+}
+
+pub(super) fn parse_abc_opt_default_or_const_ref(
+    expr: &SwfExpr,
+    pname: &str,
+    line: usize,
+    col: usize,
+) -> Result<AbcOptDefault, String> {
+    if let Ok(lit) = expr_to_abc_opt_default(expr, pname) {
+        return Ok(lit);
+    }
+    if let Some(raw) = swf_dotted_const_chain(expr) {
+        if let Some(b) = builtin_abc_opt_default(&raw) {
+            return Ok(b);
+        }
+        return Ok(AbcOptDefault::ConstRef {
+            raw,
+            param_name: pname.to_owned(),
+            line,
+            col,
+        });
+    }
+    Err(format!(
+        "line {line}:{col}: ActionScript 3 optional parameter '{pname}' initializer must be a compile-time constant"
+    ))
+}
+
 fn parse_as3_param_list(parser: &mut SwfParser) -> Result<(Vec<String>, AbcMethodMeta), String> {
     parser.expect(&SwfToken::LParen)?;
     let mut params = Vec::new();
@@ -541,14 +602,18 @@ fn parse_as3_param_list(parser: &mut SwfParser) -> Result<(Vec<String>, AbcMetho
                 parser.expect(&SwfToken::RParen)?;
                 break;
             }
+            let param_tok_pos = parser.pos;
+            let (line, col) = parser.span_at(param_tok_pos);
             let pname = parser.expect_ident()?;
             parser.skip_type_annotation()?;
             if parser.eat(&SwfToken::Assign) {
                 let def_expr = parser.parse_expr()?;
-                opt_defaults.push(expr_to_abc_opt_default(&def_expr, &pname)?);
+                opt_defaults.push(parse_abc_opt_default_or_const_ref(
+                    &def_expr, &pname, line, col,
+                )?);
             } else if !opt_defaults.is_empty() {
                 return Err(format!(
-                    "ActionScript 3 required parameter '{pname}' cannot follow an optional parameter"
+                    "line {line}:{col}: ActionScript 3 required parameter '{pname}' cannot follow an optional parameter"
                 ));
             } else {
                 min_arity += 1;
@@ -585,8 +650,8 @@ pub(super) fn parse_as3_source_to_spec_strict(
     fallback_qname: &str,
     external_source: bool,
 ) -> Result<AbcClassSpec, String> {
-    let tokens = tokenize_swf_script(source)?;
-    let mut parser = SwfParser::new(tokens, true);
+    let (tokens, spans) = tokenize_swf_script_with_spans(source)?;
+    let mut parser = SwfParser::with_spans(tokens, spans, true);
 
     let starts_with_package = parser.peek() == Some(&SwfToken::Ident("package".to_owned()));
     let has_type_decl_tok = parser
@@ -798,6 +863,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
     let mut ctor_statements = Vec::new();
     let mut instance_fields = Vec::new();
     let mut static_fields = Vec::new();
+    let mut static_consts = Vec::new();
     let mut static_methods = Vec::new();
     let mut static_method_meta = HashMap::new();
     let mut extra_methods = Vec::new();
@@ -871,6 +937,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
             }
         } else if matches!(parser.peek(), Some(SwfToken::Ident(kw)) if kw == "var" || kw == "const")
         {
+            let is_const_decl = matches!(parser.peek(), Some(SwfToken::Ident(kw)) if kw == "const");
             if is_override {
                 return Err(format!(
                     "ActionScript 3 'override' modifier cannot be applied to 'var' or 'const' in '{class_name}'"
@@ -881,6 +948,9 @@ pub(super) fn parse_as3_source_to_spec_strict(
             for s in tmp {
                 if let SwfStmt::VarDecl { name, init } = s {
                     if is_static {
+                        if is_const_decl {
+                            static_consts.push((name.clone(), is_private, init.clone()));
+                        }
                         static_fields.push((name, init));
                     } else {
                         instance_fields.push((name, init));
@@ -931,6 +1001,7 @@ pub(super) fn parse_as3_source_to_spec_strict(
         ctor_statements,
         instance_fields,
         static_fields,
+        static_consts,
         static_methods,
         frame_scripts: Vec::new(),
         extra_methods,
@@ -1220,6 +1291,7 @@ pub(super) fn expr_has_direct_self_named_fn(expr: &SwfExpr) -> bool {
             name: Some(sn),
             params,
             body,
+            ..
         } => {
             if !sn.is_empty() && !params.iter().any(|p| p == sn) {
                 let mut d_refs = HashSet::new();
@@ -1605,11 +1677,766 @@ where
     Ok(())
 }
 
+pub(super) type AbcConstTable = HashMap<(String, String), (bool, String, AbcOptDefault)>;
+
+pub(super) fn build_abc_const_table(classes: &[AbcClassSpec]) -> AbcConstTable {
+    fn resolve_one(
+        owner_qname: &str,
+        cname: &str,
+        classes: &[AbcClassSpec],
+        cache: &mut AbcConstTable,
+        visiting: &mut HashSet<(String, String)>,
+    ) -> Option<(bool, String, AbcOptDefault)> {
+        let key = (owner_qname.to_owned(), cname.to_owned());
+        if let Some(hit) = cache.get(&key) {
+            return Some(hit.clone());
+        }
+        if !visiting.insert(key.clone()) {
+            return None;
+        }
+        let spec = classes.iter().find(|c| spec_qname(c) == owner_qname)?;
+        let (_, is_priv, init_opt) = spec.static_consts.iter().find(|(n, _, _)| n == cname)?;
+        let expr = init_opt.as_ref()?;
+        let val = if let Ok(lit) = expr_to_abc_opt_default(expr, cname) {
+            Some(lit)
+        } else if let Some(raw) = swf_dotted_const_chain(expr) {
+            if let Some(b) = builtin_abc_opt_default(&raw) {
+                Some(b)
+            } else if !raw.contains('.') {
+                resolve_one(owner_qname, &raw, classes, cache, visiting).map(|(_, _, v)| v)
+            } else {
+                let (r_cls, r_prop) = raw.rsplit_once('.')?;
+                let target_qname = if let Some(imp_pkg) = spec.imported_classes.get(r_cls) {
+                    if imp_pkg.is_empty() {
+                        r_cls.to_owned()
+                    } else {
+                        format!("{imp_pkg}.{r_cls}")
+                    }
+                } else if !r_cls.contains('.')
+                    && !spec.pkg.is_empty()
+                    && classes
+                        .iter()
+                        .any(|c| c.pkg == spec.pkg && c.class_name == r_cls)
+                {
+                    format!("{}.{r_cls}", spec.pkg)
+                } else {
+                    r_cls.to_owned()
+                };
+                resolve_one(&target_qname, r_prop, classes, cache, visiting).and_then(
+                    |(priv_flag, _, v)| (!priv_flag || target_qname == owner_qname).then_some(v),
+                )
+            }
+        } else {
+            None
+        };
+        visiting.remove(&key);
+        let resolved = (*is_priv, spec.pkg.clone(), val?);
+        cache.insert(key, resolved.clone());
+        Some(resolved)
+    }
+
+    let mut table = AbcConstTable::new();
+    let mut visiting = HashSet::new();
+    for cls in classes {
+        let qn = spec_qname(cls);
+        for (cname, _, _) in &cls.static_consts {
+            let _ = resolve_one(&qn, cname, classes, &mut table, &mut visiting);
+        }
+    }
+    for cls in classes {
+        let qn = spec_qname(cls);
+        let chain = resolve_abc_ancestor_chain(cls, classes);
+        for (apkg, aname) in chain {
+            let anc_qn = if apkg.is_empty() {
+                aname
+            } else {
+                format!("{apkg}.{aname}")
+            };
+            let inherited: Vec<_> = table
+                .iter()
+                .filter(|((owner, _), (is_priv, _, _))| owner == &anc_qn && !*is_priv)
+                .map(|((_, prop), entry)| ((qn.clone(), prop.clone()), entry.clone()))
+                .collect();
+            for (k, v) in inherited {
+                table.entry(k).or_insert(v);
+            }
+        }
+    }
+    table
+}
+
+fn resolve_single_abc_opt_default(
+    opt: &mut AbcOptDefault,
+    caller_qname: Option<&str>,
+    caller_pkg: &str,
+    imported_classes: &HashMap<String, String>,
+    wildcard_packages: &[String],
+    known_classes: &[AbcClassSpec],
+    const_table: &AbcConstTable,
+) -> Result<(), String> {
+    let AbcOptDefault::ConstRef {
+        raw,
+        param_name,
+        line,
+        col,
+    } = opt.clone()
+    else {
+        return Ok(());
+    };
+    if let Some(b) = builtin_abc_opt_default(&raw) {
+        *opt = b;
+        return Ok(());
+    }
+    if !raw.contains('.') {
+        if let Some(cqn) = caller_qname
+            && let Some((_, _, val)) = const_table.get(&(cqn.to_owned(), raw.clone()))
+        {
+            *opt = val.clone();
+            return Ok(());
+        }
+        return Err(format!(
+            "line {line}:{col}: unresolved or non-constant default value '{raw}' for optional parameter '{param_name}'"
+        ));
+    }
+    let (cls_part, prop) = raw.rsplit_once('.').unwrap();
+    let mut candidates = Vec::new();
+    if cls_part.contains('.') {
+        candidates.push(cls_part.to_owned());
+    } else {
+        if let Some(cqn) = caller_qname
+            && cqn.rsplit('.').next() == Some(cls_part)
+        {
+            candidates.push(cqn.to_owned());
+        }
+        if let Some(imp_pkg) = imported_classes.get(cls_part) {
+            candidates.push(if imp_pkg.is_empty() {
+                cls_part.to_owned()
+            } else {
+                format!("{imp_pkg}.{cls_part}")
+            });
+        }
+        if !caller_pkg.is_empty() {
+            candidates.push(format!("{caller_pkg}.{cls_part}"));
+        }
+        for wp in wildcard_packages {
+            if !wp.is_empty() {
+                candidates.push(format!("{wp}.{cls_part}"));
+            }
+        }
+        candidates.push(cls_part.to_owned());
+        for kc in known_classes {
+            if kc.class_name == cls_part && kc.pkg.is_empty() {
+                candidates.push(kc.class_name.clone());
+            }
+        }
+    }
+    for cand in candidates {
+        if let Some((is_priv, _, val)) = const_table.get(&(cand.clone(), prop.to_owned())) {
+            if *is_priv && caller_qname != Some(cand.as_str()) {
+                return Err(format!(
+                    "line {line}:{col}: private static const '{raw}' is not accessible as default value for optional parameter '{param_name}'"
+                ));
+            }
+            *opt = val.clone();
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "line {line}:{col}: unresolved or non-constant default value '{raw}' for optional parameter '{param_name}'"
+    ))
+}
+
+fn resolve_abc_opt_defaults_in_expr(
+    expr: &mut SwfExpr,
+    caller_qname: Option<&str>,
+    caller_pkg: &str,
+    imported_classes: &HashMap<String, String>,
+    wildcard_packages: &[String],
+    known_classes: &[AbcClassSpec],
+    const_table: &AbcConstTable,
+) -> Result<(), String> {
+    match expr {
+        SwfExpr::Function {
+            opt_defaults, body, ..
+        } => {
+            for d in opt_defaults {
+                resolve_single_abc_opt_default(
+                    d,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            resolve_abc_opt_defaults_in_stmts(
+                body,
+                caller_qname,
+                caller_pkg,
+                imported_classes,
+                wildcard_packages,
+                known_classes,
+                const_table,
+            )
+        }
+        SwfExpr::ArrayLit(elems) => {
+            for e in elems {
+                resolve_abc_opt_defaults_in_expr(
+                    e,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            Ok(())
+        }
+        SwfExpr::ObjectLit(props) => {
+            for (_, v) in props {
+                resolve_abc_opt_defaults_in_expr(
+                    v,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            Ok(())
+        }
+        SwfExpr::Member(a, _) | SwfExpr::Unary { expr: a, .. } => resolve_abc_opt_defaults_in_expr(
+            a,
+            caller_qname,
+            caller_pkg,
+            imported_classes,
+            wildcard_packages,
+            known_classes,
+            const_table,
+        ),
+        SwfExpr::Index(a, b) | SwfExpr::Binary { lhs: a, rhs: b, .. } => {
+            resolve_abc_opt_defaults_in_expr(
+                a,
+                caller_qname,
+                caller_pkg,
+                imported_classes,
+                wildcard_packages,
+                known_classes,
+                const_table,
+            )?;
+            resolve_abc_opt_defaults_in_expr(
+                b,
+                caller_qname,
+                caller_pkg,
+                imported_classes,
+                wildcard_packages,
+                known_classes,
+                const_table,
+            )
+        }
+        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            resolve_abc_opt_defaults_in_expr(
+                callee,
+                caller_qname,
+                caller_pkg,
+                imported_classes,
+                wildcard_packages,
+                known_classes,
+                const_table,
+            )?;
+            for a in args {
+                resolve_abc_opt_defaults_in_expr(
+                    a,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            Ok(())
+        }
+        SwfExpr::Ternary {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            resolve_abc_opt_defaults_in_expr(
+                cond,
+                caller_qname,
+                caller_pkg,
+                imported_classes,
+                wildcard_packages,
+                known_classes,
+                const_table,
+            )?;
+            resolve_abc_opt_defaults_in_expr(
+                then_expr,
+                caller_qname,
+                caller_pkg,
+                imported_classes,
+                wildcard_packages,
+                known_classes,
+                const_table,
+            )?;
+            resolve_abc_opt_defaults_in_expr(
+                else_expr,
+                caller_qname,
+                caller_pkg,
+                imported_classes,
+                wildcard_packages,
+                known_classes,
+                const_table,
+            )
+        }
+        _ => Ok(()),
+    }
+}
+
+pub(super) fn resolve_abc_opt_defaults_in_stmts(
+    stmts: &mut [SwfStmt],
+    caller_qname: Option<&str>,
+    caller_pkg: &str,
+    imported_classes: &HashMap<String, String>,
+    wildcard_packages: &[String],
+    known_classes: &[AbcClassSpec],
+    const_table: &AbcConstTable,
+) -> Result<(), String> {
+    for stmt in stmts {
+        match stmt {
+            SwfStmt::FunctionDecl {
+                opt_defaults, body, ..
+            } => {
+                for d in opt_defaults {
+                    resolve_single_abc_opt_default(
+                        d,
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+                resolve_abc_opt_defaults_in_stmts(
+                    body,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            SwfStmt::VarDecl { init: Some(e), .. }
+            | SwfStmt::Expr(e)
+            | SwfStmt::Throw(e)
+            | SwfStmt::Return(Some(e))
+            | SwfStmt::DefaultXmlNamespace(e) => {
+                resolve_abc_opt_defaults_in_expr(
+                    e,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            SwfStmt::Assign { value, .. } => {
+                resolve_abc_opt_defaults_in_expr(
+                    value,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            SwfStmt::Block(inner) => {
+                resolve_abc_opt_defaults_in_stmts(
+                    inner,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            SwfStmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                resolve_abc_opt_defaults_in_expr(
+                    cond,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+                resolve_abc_opt_defaults_in_stmts(
+                    then_branch,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+                if let Some(eb) = else_branch {
+                    resolve_abc_opt_defaults_in_stmts(
+                        eb,
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+            }
+            SwfStmt::While { cond, body, .. } => {
+                resolve_abc_opt_defaults_in_expr(
+                    cond,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+                resolve_abc_opt_defaults_in_stmts(
+                    body,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            SwfStmt::For {
+                init,
+                cond,
+                update,
+                body,
+            } => {
+                if let Some(i) = init {
+                    resolve_abc_opt_defaults_in_stmts(
+                        std::slice::from_mut(i.as_mut()),
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+                if let Some(c) = cond {
+                    resolve_abc_opt_defaults_in_expr(
+                        c,
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+                if let Some(u) = update {
+                    resolve_abc_opt_defaults_in_stmts(
+                        std::slice::from_mut(u.as_mut()),
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+                resolve_abc_opt_defaults_in_stmts(
+                    body,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            SwfStmt::ForIn { object, body, .. } => {
+                resolve_abc_opt_defaults_in_expr(
+                    object,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+                resolve_abc_opt_defaults_in_stmts(
+                    body,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+            }
+            SwfStmt::Switch {
+                discriminant,
+                cases,
+            } => {
+                resolve_abc_opt_defaults_in_expr(
+                    discriminant,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+                for (c_opt, cbody) in cases {
+                    if let Some(ce) = c_opt {
+                        resolve_abc_opt_defaults_in_expr(
+                            ce,
+                            caller_qname,
+                            caller_pkg,
+                            imported_classes,
+                            wildcard_packages,
+                            known_classes,
+                            const_table,
+                        )?;
+                    }
+                    resolve_abc_opt_defaults_in_stmts(
+                        cbody,
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+            }
+            SwfStmt::Try {
+                try_body,
+                catches,
+                finally_body,
+            } => {
+                resolve_abc_opt_defaults_in_stmts(
+                    try_body,
+                    caller_qname,
+                    caller_pkg,
+                    imported_classes,
+                    wildcard_packages,
+                    known_classes,
+                    const_table,
+                )?;
+                for (_, _, cb) in catches {
+                    resolve_abc_opt_defaults_in_stmts(
+                        cb,
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+                if let Some(fb) = finally_body {
+                    resolve_abc_opt_defaults_in_stmts(
+                        fb,
+                        caller_qname,
+                        caller_pkg,
+                        imported_classes,
+                        wildcard_packages,
+                        known_classes,
+                        const_table,
+                    )?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn resolve_abc_opt_defaults_on_spec(
+    spec: &mut AbcClassSpec,
+    known_classes: &[AbcClassSpec],
+    const_table: &AbcConstTable,
+) -> Result<(), String> {
+    let qn = spec_qname(spec);
+    let pkg = spec.pkg.clone();
+    let imp = spec.imported_classes.clone();
+    let wild = spec.wildcard_packages.clone();
+    for (_, _, meta) in &mut spec.interface_methods {
+        for d in &mut meta.opt_defaults {
+            resolve_single_abc_opt_default(
+                d,
+                Some(&qn),
+                &pkg,
+                &imp,
+                &wild,
+                known_classes,
+                const_table,
+            )?;
+        }
+    }
+    for d in &mut spec.ctor_opt_defaults {
+        resolve_single_abc_opt_default(
+            d,
+            Some(&qn),
+            &pkg,
+            &imp,
+            &wild,
+            known_classes,
+            const_table,
+        )?;
+    }
+    for meta in spec.method_meta.values_mut() {
+        for d in &mut meta.opt_defaults {
+            resolve_single_abc_opt_default(
+                d,
+                Some(&qn),
+                &pkg,
+                &imp,
+                &wild,
+                known_classes,
+                const_table,
+            )?;
+        }
+    }
+    for meta in spec.static_method_meta.values_mut() {
+        for d in &mut meta.opt_defaults {
+            resolve_single_abc_opt_default(
+                d,
+                Some(&qn),
+                &pkg,
+                &imp,
+                &wild,
+                known_classes,
+                const_table,
+            )?;
+        }
+    }
+    resolve_abc_opt_defaults_in_stmts(
+        &mut spec.ctor_statements,
+        Some(&qn),
+        &pkg,
+        &imp,
+        &wild,
+        known_classes,
+        const_table,
+    )?;
+    for (_, _, body) in &mut spec.extra_methods {
+        resolve_abc_opt_defaults_in_stmts(
+            body,
+            Some(&qn),
+            &pkg,
+            &imp,
+            &wild,
+            known_classes,
+            const_table,
+        )?;
+    }
+    for (_, _, body) in &mut spec.static_methods {
+        resolve_abc_opt_defaults_in_stmts(
+            body,
+            Some(&qn),
+            &pkg,
+            &imp,
+            &wild,
+            known_classes,
+            const_table,
+        )?;
+    }
+    for (_, finit) in &mut spec.instance_fields {
+        if let Some(e) = finit {
+            resolve_abc_opt_defaults_in_expr(
+                e,
+                Some(&qn),
+                &pkg,
+                &imp,
+                &wild,
+                known_classes,
+                const_table,
+            )?;
+        }
+    }
+    for (_, sfinit) in &mut spec.static_fields {
+        if let Some(e) = sfinit {
+            resolve_abc_opt_defaults_in_expr(
+                e,
+                Some(&qn),
+                &pkg,
+                &imp,
+                &wild,
+                known_classes,
+                const_table,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
 pub(super) fn try_compile_avm2_source(
     source: &str,
     external_source: bool,
 ) -> Result<AbcClassSpec, String> {
-    let spec = parse_as3_source_to_spec_strict(source, "Main", external_source)?;
+    try_compile_avm2_source_in_project(None, source, external_source)
+}
+
+pub(super) fn try_compile_avm2_source_in_project(
+    project: Option<&Project>,
+    source: &str,
+    external_source: bool,
+) -> Result<AbcClassSpec, String> {
+    let mut spec = parse_as3_source_to_spec_strict(source, "Main", external_source)?;
+    let mut all_specs = Vec::new();
+    if let Some(proj) = project {
+        let included = swf_collect_included_source_paths(proj);
+        for src in &proj.sources {
+            if src.language != ScriptLanguage::ActionScript3 {
+                continue;
+            }
+            let norm_lower = src
+                .path
+                .trim()
+                .replace('\\', "/")
+                .trim_start_matches('/')
+                .to_ascii_lowercase();
+            let Ok(expanded) = expand_swf_includes(proj, src.language, &src.path, &src.source)
+            else {
+                continue;
+            };
+            if included.contains(&norm_lower) && !as3_source_declares_package_or_class(&expanded) {
+                continue;
+            }
+            let fallback = strip_as_extension_ci(src.path.rsplit('/').next().unwrap_or("Main"));
+            if let Ok(other_spec) = parse_as3_source_to_spec_strict(&expanded, fallback, true)
+                && (!external_source || spec_qname(&other_spec) != spec_qname(&spec))
+            {
+                all_specs.push(other_spec);
+            }
+        }
+    }
+    all_specs.push(spec.clone());
+    let ordered_known = order_and_resolve_abc_classes(&all_specs);
+    let const_table = build_abc_const_table(&ordered_known);
+    resolve_abc_opt_defaults_on_spec(&mut spec, &ordered_known, &const_table)?;
     if spec.is_interface {
         return Ok(spec);
     }

@@ -11,10 +11,10 @@ mod project_classes;
 #[path = "project_contracts.rs"]
 mod project_contracts;
 
-use self::project_builtins::{
-    AS2_BUILTINS, BUILTIN_FUNCTIONS, BUILTINS, builtin_namespace_uri, is_display_method,
+pub(super) use self::project_builtins::{
+    AS2_BUILTINS, BUILTINS, is_graphics_constants, is_host_method,
 };
-pub(super) use self::project_builtins::{is_graphics_constants, is_host_method};
+use self::project_builtins::{BUILTIN_FUNCTIONS, builtin_namespace_uri, is_display_method};
 use self::project_classes::{
     context, frontend, header, imports, parse_class, prefix, visible_names,
 };
@@ -35,6 +35,7 @@ pub struct ProjectProgram {
     public_types: BTreeSet<String>,
     namespace_uris: BTreeMap<String, String>,
     as2_private: BTreeMap<String, BTreeSet<String>>,
+    as3_class_consts: BTreeMap<(String, String), Expr>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -400,27 +401,6 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         .keys()
         .map(|name| (name.clone(), BTreeSet::from([name.clone()])))
         .collect();
-    let mut reflection_types = BUILTINS
-        .iter()
-        .filter(|name| {
-            !name.starts_with("mx.transitions.")
-                && (!AS2_BUILTINS.contains(name)
-                    || matches!(
-                        **name,
-                        "flash.net.FileReference" | "flash.net.FileReferenceList"
-                    ))
-        })
-        .copied()
-        .collect::<Vec<_>>();
-    reflection_types.extend([
-        "Date",
-        "RegExp",
-        "JSON",
-        "XML",
-        "XMLList",
-        "Namespace",
-        "QName",
-    ]);
     let mapping_prefix = crate::sourcemap::marker_prefix(
         &classes
             .values()
@@ -428,11 +408,240 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .collect::<Vec<_>>()
             .join("\n"),
     );
-    let mut registrations = format!("__nfProgram.setNativeTypes({reflection_types:?});\n");
+    let mut registrations = String::new();
     for (ns_name, ns_uri) in &namespace_uris {
         registrations.push_str(&format!(
             "if(typeof __nfProgram.defineNamespace==='function')__nfProgram.defineNamespace({ns_name:?},{ns_uri:?});\n"
         ));
+    }
+    // Resolve AS3 static const fields so parameter default expressions (`speed:int = DEFAULT_SPEED`
+    // and `speed:int = MyClass.DEFAULT_SPEED`) fold before interface/override contract checks.
+    let mut resolved_as3_consts: BTreeMap<(String, String), (Access, Option<String>, Expr)> =
+        BTreeMap::new();
+    {
+        fn resolve_class_const_field(
+            owner: &str,
+            field_name: &str,
+            classes: &BTreeMap<String, Class>,
+            ancestors: &BTreeMap<String, BTreeSet<String>>,
+            cache: &mut BTreeMap<(String, String), (Access, Option<String>, Expr)>,
+            visiting: &mut BTreeSet<(String, String)>,
+        ) -> Option<(Access, Option<String>, Expr)> {
+            let key = (owner.to_owned(), field_name.to_owned());
+            if let Some(hit) = cache.get(&key) {
+                return Some(hit.clone());
+            }
+            if !visiting.insert(key.clone()) {
+                return None;
+            }
+            let cls = classes.get(owner)?;
+            if cls.header.script.language != ScriptLanguage::ActionScript3 {
+                visiting.remove(&key);
+                return None;
+            }
+            let field = cls
+                .fields
+                .iter()
+                .find(|f| f.is_static && f.constant && f.name == field_name)?;
+            let raw_val = field.value.as_ref()?;
+            let folded = if super::ast::constant_default(raw_val) {
+                Some(raw_val.clone())
+            } else if let Some(parts) = super::ast::dotted_const_ref(raw_val) {
+                if let Some(b) = super::builtin_as3_const_expr(&parts) {
+                    Some(b)
+                } else if parts.len() == 1 {
+                    let mut found = None;
+                    let mut cur_opt = cls.base.as_deref();
+                    while let Some(anc) = cur_opt {
+                        if let Some((acc, ns, v)) = resolve_class_const_field(
+                            anc, &parts[0], classes, ancestors, cache, visiting,
+                        ) && ns.is_none()
+                            && acc.inherited(anc, &cls.header.package, false)
+                        {
+                            found = Some(v);
+                            break;
+                        }
+                        cur_opt = classes.get(anc).and_then(|ac| ac.base.as_deref());
+                    }
+                    if found.is_none() {
+                        for other_f in &cls.fields {
+                            if other_f.is_static
+                                && other_f.constant
+                                && other_f.name == parts[0]
+                                && other_f.name != field_name
+                                && let Some((_, _, v)) = resolve_class_const_field(
+                                    owner, &parts[0], classes, ancestors, cache, visiting,
+                                )
+                            {
+                                found = Some(v);
+                                break;
+                            }
+                        }
+                    }
+                    found
+                } else {
+                    let cls_prefix = parts[..parts.len() - 1].join(".");
+                    let prop = &parts[parts.len() - 1];
+                    let target_owner = cls
+                        .context
+                        .types
+                        .get(&cls_prefix)
+                        .cloned()
+                        .unwrap_or(cls_prefix);
+                    resolve_class_const_field(
+                        &target_owner,
+                        prop,
+                        classes,
+                        ancestors,
+                        cache,
+                        visiting,
+                    )
+                    .and_then(|(acc, ns, v)| {
+                        let ok = ns.is_none()
+                            && match acc {
+                                Access::Public => true,
+                                Access::Private => target_owner == owner,
+                                Access::Internal => {
+                                    type_package(&target_owner) == cls.header.package
+                                }
+                                Access::Protected => ancestors
+                                    .get(owner)
+                                    .is_some_and(|set| set.contains(&target_owner)),
+                            };
+                        ok.then_some(v)
+                    })
+                }
+            } else {
+                None
+            };
+            visiting.remove(&key);
+            let expr = folded?;
+            let out = (field.access, field.namespace.clone(), expr);
+            cache.insert(key, out.clone());
+            Some(out)
+        }
+
+        let mut visiting = BTreeSet::new();
+        for cls_name in &order {
+            if let Some(cls) = classes.get(cls_name)
+                && cls.header.script.language == ScriptLanguage::ActionScript3
+            {
+                let const_names: Vec<String> = cls
+                    .fields
+                    .iter()
+                    .filter(|f| f.is_static && f.constant)
+                    .map(|f| f.name.clone())
+                    .collect();
+                for cname in const_names {
+                    let _ = resolve_class_const_field(
+                        cls_name,
+                        &cname,
+                        &classes,
+                        &ancestors,
+                        &mut resolved_as3_consts,
+                        &mut visiting,
+                    );
+                }
+            }
+        }
+    }
+    // Expand inherited AS3 static consts so `SubClass.BASE_CONST` also resolves when visible.
+    let mut effective_as3_consts = resolved_as3_consts.clone();
+    for cls_name in &order {
+        let Some(cls) = classes.get(cls_name) else {
+            continue;
+        };
+        if cls.header.script.language != ScriptLanguage::ActionScript3 {
+            continue;
+        }
+        let mut cur_base = cls.base.as_deref();
+        while let Some(anc) = cur_base {
+            for ((owner, prop), (acc, ns, val)) in &resolved_as3_consts {
+                if owner == anc
+                    && ns.is_none()
+                    && acc.inherited(anc, &cls.header.package, false)
+                    && !effective_as3_consts.contains_key(&(cls_name.clone(), prop.clone()))
+                {
+                    effective_as3_consts
+                        .insert((cls_name.clone(), prop.clone()), (*acc, None, val.clone()));
+                }
+            }
+            cur_base = classes.get(anc).and_then(|ac| ac.base.as_deref());
+        }
+    }
+    let timeline_as3_consts: BTreeMap<(String, String), Expr> = effective_as3_consts
+        .iter()
+        .filter_map(|((owner, prop), (acc, ns, val))| {
+            let visible_on_timeline = ns.is_none()
+                && (*acc == Access::Public
+                    || (*acc == Access::Internal && type_package(owner).is_empty()));
+            visible_on_timeline.then(|| ((owner.clone(), prop.clone()), val.clone()))
+        })
+        .collect();
+    for name in &order {
+        let caller_pkg = classes[name].header.package.clone();
+        let caller_as3 = classes[name].header.script.language == ScriptLanguage::ActionScript3;
+        if !caller_as3 {
+            continue;
+        }
+        let caller_open_ns = classes[name].context.open_namespaces.clone();
+        let mut local_const_map: BTreeMap<(String, String), Expr> = BTreeMap::new();
+        for ((owner, prop), (acc, ns, val)) in &effective_as3_consts {
+            let ns_ok = match ns {
+                None => true,
+                Some(uri) => caller_open_ns.contains(uri),
+            };
+            if !ns_ok {
+                continue;
+            }
+            let access_ok = match acc {
+                Access::Public => true,
+                Access::Private => owner == name,
+                Access::Internal => type_package(owner) == caller_pkg,
+                Access::Protected => ancestors.get(name).is_some_and(|set| set.contains(owner)),
+            };
+            if access_ok {
+                local_const_map.insert((owner.clone(), prop.clone()), val.clone());
+                if owner == name {
+                    local_const_map.insert((String::new(), prop.clone()), val.clone());
+                }
+            }
+        }
+        let c = classes.get_mut(name).unwrap();
+        let types_snapshot = c.context.types.clone();
+        for m in &mut c.methods {
+            let mut method_consts = local_const_map.clone();
+            for ((owner, prop), (_, ns, val)) in &effective_as3_consts {
+                if let Some(uri) = ns
+                    && m.open_namespaces.contains(uri)
+                {
+                    method_consts.insert((owner.clone(), prop.clone()), val.clone());
+                    if owner == name {
+                        method_consts.insert((String::new(), prop.clone()), val.clone());
+                    }
+                }
+            }
+            if let Err(diag) = super::resolve_function_defaults_in_function(
+                &c.header.script,
+                &mut m.function,
+                &types_snapshot,
+                &method_consts,
+            ) {
+                errors.push(prefix(c.header.map_diag(diag), &c.header.path));
+            }
+        }
+        for f in &mut c.fields {
+            if let Some(init) = &mut f.value
+                && let Err(diag) = super::resolve_function_defaults_in_expr(
+                    &c.header.script,
+                    init,
+                    &types_snapshot,
+                    &local_const_map,
+                )
+            {
+                errors.push(prefix(c.header.map_diag(diag), &c.header.path));
+            }
+        }
     }
     for name in &order {
         let c = classes.get_mut(name).unwrap();
@@ -1043,26 +1252,33 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         return Err(errors);
     }
     let code = format!(
-        "{}\n{}\n{}\nif(typeof __nfBuiltins.__nfGeometryNumberVector==='function')__nfBuiltins.__nfGeometryNumberVector(values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values));\nif(typeof __nfBuiltins.__nfGeometryVector3DVector==='function')__nfBuiltins.__nfGeometryVector3DVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.geom.Vector3D'))(values));\nif(typeof __nfBuiltins.__nfDateStringVector==='function')__nfBuiltins.__nfDateStringVector(values=>__nfVectorType(__nfPrimitiveDescriptor('String'))(values));\nif(typeof __nfBuiltins.__nfBitmapUintVector==='function')__nfBuiltins.__nfBitmapUintVector(values=>__nfVectorType(__nfPrimitiveDescriptor('uint'))(values));\nif(typeof __nfBuiltins.__nfBitmapHistogramVector==='function')__nfBuiltins.__nfBitmapHistogramVector(channels=>__nfVectorType(__nfVectorDescriptor(__nfPrimitiveDescriptor('Number')))(channels.map(ch=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(ch))));\nif(typeof __nfBuiltins.__nfGraphicsVectors==='function')__nfBuiltins.__nfGraphicsVectors({{intVector:values=>__nfVectorType(__nfPrimitiveDescriptor('int'))(values),numberVector:values=>__nfVectorType(__nfPrimitiveDescriptor('Number'))(values),dataVector:values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.IGraphicsData'))(values)}});\nif(typeof __nfBuiltins.__nfMouseCursorVector==='function')__nfBuiltins.__nfMouseCursorVector(values=>__nfVectorType(__nfProgram.elementDescriptor('flash.display.BitmapData'))(values));\nif(typeof __nfBuiltins.__nfAirVectorFactory==='function')__nfBuiltins.__nfAirVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfAs3NetSysVectorFactory==='function')__nfBuiltins.__nfAs3NetSysVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfFte3dVectorFactory==='function')__nfBuiltins.__nfFte3dVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\nif(typeof __nfBuiltins.__nfMediaEventsVectorFactory==='function')__nfBuiltins.__nfMediaEventsVectorFactory((typeName,values)=>__nfVectorType(['Number','String','Boolean','int','uint','Object','*'].includes(typeName)?__nfPrimitiveDescriptor(typeName):__nfProgram.elementDescriptor(typeName))(values));\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
+        "{}\nconst __nfProgram = __nfCreateProjectRuntime(__nfBuiltins);\n{}\n__nfWireBuiltinVectors(__nfBuiltins, __nfProgram);\n__nfProgram.initializeStatics();\nreturn __nfProgram;",
         embedded_helpers(),
-        include_str!("project-runtime.js"),
         registrations
     );
     // Common intrinsic captures precede helper declarations.
     let code = format!(
         "const __nfNumber=Number,__nfString=String,__nfBoolean=Boolean,__nfTypeError=TypeError;\nconst __nfAs2Method=__nfBuiltins.__nfAs2Method,__nfAs2Value=__nfBuiltins.__nfAs2Value,__nfDisplay=__nfBuiltins.__nfDisplay,__nfLegacy=__nfBuiltins.__nfLegacy,__nfXML=__nfBuiltins.__nfXML;\nconst __nfTrace=(...args)=>{{if(typeof __nfBuiltins.__nfTrace !== 'function')throw new Error('Project trace host binding is missing');return __nfBuiltins.__nfTrace(...args);}};\n{code}"
     );
+    let class_map_inputs: Vec<(&str, &str, &str)> = classes
+        .values()
+        .filter_map(|c| {
+            c.context.mapping_prefix.as_deref().map(|prefix| {
+                (
+                    c.header.path.as_str(),
+                    c.header.script.source.as_str(),
+                    prefix,
+                )
+            })
+        })
+        .collect();
+    let (code, mut raw_maps) =
+        crate::sourcemap::strip_and_map_marked_project(&code, &class_map_inputs);
     let mut source_maps = BTreeMap::new();
     for c in classes.values() {
-        let Some(marker) = &c.context.mapping_prefix else {
+        let Some(mut map) = raw_maps.remove(&c.header.path) else {
             continue;
         };
-        let mut map = crate::sourcemap::map_marked_source(
-            &c.header.path,
-            &c.header.script.source,
-            &code,
-            marker,
-        );
         if let Some(expanded) = &c.header.expanded {
             let raw_src = expanded
                 .sources
@@ -1091,6 +1307,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
         public_types,
         namespace_uris,
         as2_private,
+        as3_class_consts: timeline_as3_consts,
     })
 }
 
@@ -1137,22 +1354,30 @@ pub(crate) fn compile_with_program_mapped(
     // the program bootstrap and includes the authored source bytes.
     if !has_include_directive(script) {
         let prefix = crate::sourcemap::marker_prefix(&script.source);
-        let code = compile_prepared(script, program, Some(prefix.clone()))?;
-        let map = crate::sourcemap::map_marked_source(source_name, &script.source, &code, &prefix);
-        return Ok((code, map));
+        let marked = compile_prepared(script, program, Some(prefix.clone()))?;
+        return Ok(crate::sourcemap::strip_and_map_marked_source(
+            source_name,
+            &script.source,
+            &marked,
+            &prefix,
+        ));
     }
 
     let expanded = super::includes::expand(script, &program.includes).map_err(|e| vec![e])?;
     let prefix = crate::sourcemap::marker_prefix(&expanded.script.source);
-    let code =
+    let marked =
         compile_prepared(&expanded.script, program, Some(prefix.clone())).map_err(|errors| {
             errors
                 .into_iter()
                 .map(|e| expanded.diagnostic(e))
                 .collect::<Vec<_>>()
         })?;
-    let map =
-        crate::sourcemap::map_marked_source(source_name, &expanded.script.source, &code, &prefix);
+    let (code, map) = crate::sourcemap::strip_and_map_marked_source(
+        source_name,
+        &expanded.script.source,
+        &marked,
+        &prefix,
+    );
     Ok((
         code,
         remap_includes(map, &expanded, source_name, &script.source),
@@ -1279,6 +1504,7 @@ fn compile_prepared(
     c.mapping_prefix = mapping_prefix;
     c.legacy_case = is_as1;
     c.as2_private = program.as2_private.clone();
+    c.as3_class_consts = program.as3_class_consts.clone();
     // Keep original byte positions/line numbers when removing import statements.
     let mut replaced = script.clone();
     replaced.language = dialect;

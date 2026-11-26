@@ -3396,3 +3396,117 @@ fn flash8_fits_the_entire_oversized_stage_including_nested_and_animated_placemen
         project.symbols[0].timeline.layers[0].keyframes[0].elements[0].transform
     );
 }
+
+#[test]
+fn t496b_fo05_xfl_and_fla_preserve_audio_and_bitmap_linkage_stems_and_roundtrip() {
+    let wav_bytes: [u8; 52] = [
+        b'R', b'I', b'F', b'F', 44, 0, 0, 0, b'W', b'A', b'V', b'E', b'f', b'm', b't', b' ', 16, 0,
+        0, 0, 1, 0, 1, 0, 0x44, 0xAC, 0, 0, 0x88, 0x58, 1, 0, 2, 0, 16, 0, b'd', b'a', b't', b'a',
+        8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+    let mut img_buf = std::io::Cursor::new(Vec::new());
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([30, 210, 90, 255]))
+        .write_to(&mut img_buf, image::ImageFormat::Png)
+        .unwrap();
+    let png_bytes = img_buf.into_inner();
+
+    let mut as2_proj = Project::blank();
+    as2_proj.script_language = Some(ScriptLanguage::ActionScript2);
+    as2_proj.resources.push(
+        ResourceUnit::from_bytes("resource-35", "sfx/pistol10mm.wav", "audio/wav", &wav_bytes)
+            .unwrap(),
+    );
+    as2_proj.resources.push(
+        ResourceUnit::from_bytes(
+            "explicit_klaxon",
+            "sfx/klaxon_raw.wav",
+            "audio/wav",
+            &wav_bytes,
+        )
+        .unwrap(),
+    );
+    as2_proj.resources.push(
+        ResourceUnit::from_bytes(
+            "resource-36",
+            "gfx/vault_tiles.png",
+            "image/png",
+            &png_bytes,
+        )
+        .unwrap(),
+    );
+    as2_proj.symbols[0].timeline.scripts.push(FrameScript {
+        layer: None,
+        frame: 0,
+        script: Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "var s = new Sound(this); s.attachSound(\"pistol10mm\");".into(),
+        },
+    });
+    as2_proj.upgrade_format_for_features();
+    as2_proj.validate().unwrap();
+
+    let tmp_dir = tempfile::tempdir().unwrap();
+    let xfl_dir = tmp_dir.path().join("fallout_xfl");
+    let xfl_report = export_fla_with_profile(
+        &as2_proj,
+        FlaTargetProfile::UncompressedXfl,
+        &FlaExportOptions::default(),
+        &xfl_dir,
+    )
+    .expect("export XFL dir");
+    assert!(!xfl_report.has_blocking(), "{:?}", xfl_report.items);
+    let dom_xml = std::fs::read_to_string(xfl_dir.join("DOMDocument.xml")).unwrap();
+    assert!(
+        !dom_xml.contains("resource-35") && !dom_xml.contains("resource-36"),
+        "auto-generated resource-N IDs must never leak into XFL linkageIdentifier:\n{dom_xml}"
+    );
+    assert!(
+        dom_xml.contains("linkageExportForAS=\"true\"")
+            && dom_xml.contains("linkageIdentifier=\"pistol10mm\"")
+            && dom_xml.contains("linkageIdentifier=\"explicit_klaxon\"")
+            && dom_xml.contains("linkageIdentifier=\"vault_tiles\""),
+        "DOMDocument.xml must emit linkageExportForAS and deterministic stem/explicit linkageIdentifier on both DOMSoundItem and DOMBitmapItem:\n{dom_xml}"
+    );
+
+    let fla_path = tmp_dir.path().join("fallout_roundtrip.fla");
+    export_fla_with_profile(
+        &as2_proj,
+        FlaTargetProfile::AnimateCC,
+        &FlaExportOptions::default(),
+        &fla_path,
+    )
+    .expect("export .fla archive");
+    let reimported = neoflash_import::import_project(&fla_path).expect("re-import .fla archive");
+    reimported.validate().unwrap();
+    let sound_ids: Vec<&str> = reimported
+        .resources
+        .iter()
+        .filter(|r| r.is_audio())
+        .map(|r| r.id.as_str())
+        .collect();
+    assert!(
+        sound_ids.contains(&"pistol10mm") && sound_ids.contains(&"explicit_klaxon"),
+        "re-imported .fla must preserve sound linkage IDs, got: {sound_ids:?}"
+    );
+
+    // Also verify AS3 emits linkageClassName alongside linkageIdentifier for valid QNames.
+    let mut as3_proj = as2_proj.clone();
+    as3_proj.script_language = Some(ScriptLanguage::ActionScript3);
+    as3_proj.symbols[0].timeline.scripts[0].script.language = ScriptLanguage::ActionScript3;
+    as3_proj.symbols[0].timeline.scripts[0].script.source = "stop();".into();
+    let as3_xfl_dir = tmp_dir.path().join("as3_xfl");
+    export_fla_with_profile(
+        &as3_proj,
+        FlaTargetProfile::UncompressedXfl,
+        &FlaExportOptions::default(),
+        &as3_xfl_dir,
+    )
+    .expect("export AS3 XFL");
+    let as3_dom_xml = std::fs::read_to_string(as3_xfl_dir.join("DOMDocument.xml")).unwrap();
+    assert!(
+        as3_dom_xml.contains("linkageClassName=\"pistol10mm\"")
+            && as3_dom_xml.contains("linkageClassName=\"vault_tiles\"")
+            && as3_dom_xml.contains("linkageBaseClass=\"flash.display.BitmapData\""),
+        "AS3 XFL must emit linkageClassName on DOMSoundItem and DOMBitmapItem:\n{as3_dom_xml}"
+    );
+}

@@ -1177,12 +1177,12 @@ impl Emitter<'_> {
                 output
             }
             Stmt::While(condition, body) => format!(
-                "while ({}) {{\n{}\n}}",
+                "while ({}) {{ if ((++__nfLoopSteps & 63) === 0) __nfStepOverflow();\n{}\n}}",
                 self.expression(condition),
                 self.statement(body)
             ),
             Stmt::For(init, condition, update, body) => format!(
-                "for ({} {}; {}) {{\n{}\n}}",
+                "for ({} {}; {}) {{ if ((++__nfLoopSteps & 63) === 0) __nfStepOverflow();\n{}\n}}",
                 self.statement(init),
                 condition
                     .as_ref()
@@ -1217,7 +1217,7 @@ impl Emitter<'_> {
                     format!("({}, {iterator})", initial.trim_end_matches(';'))
                 });
                 format!(
-                    "for (const __nfItem of {iterator}) {{\n{};\n{}\n}}",
+                    "for (const __nfItem of {iterator}) {{ if ((++__nfLoopSteps & 63) === 0) __nfStepOverflow();\n{};\n{}\n}}",
                     self.expression(&assign),
                     self.statement(body)
                 )
@@ -1232,7 +1232,7 @@ impl Emitter<'_> {
             ),
             Stmt::Label(name, body) => format!("{name}: {}", self.statement(body)),
             Stmt::DoWhile(body, test) => format!(
-                "do {{\n{}\n}} while ({});",
+                "do {{ if ((++__nfLoopSteps & 63) === 0) __nfStepOverflow();\n{}\n}} while ({});",
                 self.statement(body),
                 self.expression(test)
             ),
@@ -1270,12 +1270,9 @@ impl Emitter<'_> {
                     let caught = format!("__nfCaught{id}");
                     let value = format!("__nfValue{id}");
                     out.push_str(&format!(" catch ({caught}) {{\n"));
-                    if !self.as3 {
-                        out.push_str(&format!("if (!__nfIsThrown({caught})) throw {caught};\n"));
-                    }
                     out.push_str(&format!(
-                        "const {value} = {caught}{};\n",
-                        if self.as3 { "" } else { ".value" }
+                        "const {value} = __nfUnwrapCaught({caught}, {});\n",
+                        self.as3
                     ));
                     for (index, catch) in catches.iter().enumerate() {
                         let inner = Emitter {

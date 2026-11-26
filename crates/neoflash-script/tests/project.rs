@@ -223,12 +223,31 @@ fn class_syntax_outside_profile_is_never_erased() {
             "{source}"
         );
     }
-    let mut legacy = project(&[("A.as", "class A { public var items:Array=[]; }")]);
+    let mut legacy = project(&[(
+        "A.as",
+        "class A { public static var EVEN_DX:Array=[0,1,0,-1,-1,-1]; public var items:Array=[]; public var cfg:Object={ok:1}; }",
+    )]);
     legacy.sources[0].language = ScriptLanguage::ActionScript2;
     assert!(
-        neoflash_script::compile_project(&legacy).is_err(),
-        "AS2 object initializers need constructor initialization"
+        neoflash_script::compile_project(&legacy).is_ok(),
+        "FO-16: AS2 non-scalar static & instance field initializers lower into post-class / constructor prologue setup"
     );
+    let as3_const_defaults = project(&[(
+        "Mover.as",
+        "package { public class Mover { public static const DEFAULT_SPEED:int = 10; private static const ZERO:int = 0; public function Mover(s:int = DEFAULT_SPEED) {} public function step(speed:int = DEFAULT_SPEED, base:int = Mover.ZERO):int { return speed + base; } } }",
+    )]);
+    assert!(
+        neoflash_script::compile_project(&as3_const_defaults).is_ok(),
+        "Proposal #4: AS3 class constants resolve in constructor and method parameter defaults"
+    );
+    let bad_const_default = project(&[(
+        "Broken.as",
+        "package {\npublic class Broken {\n    public function step(speed:int = MISSING_CONST):int { return speed; }\n}\n}",
+    )]);
+    let bad_diags = neoflash_script::compile_project(&bad_const_default)
+        .expect_err("Proposal #4: unresolved parameter default constant must fail");
+    assert_eq!(bad_diags[0].line, 3);
+    assert_eq!(bad_diags[0].column, 26);
     legacy.sources[0].source = "package { public class A {} }".into();
     assert!(
         neoflash_script::compile_project(&legacy).is_err(),

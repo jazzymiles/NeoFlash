@@ -532,6 +532,7 @@ impl<'a> Frontend<'a> {
                 name: None,
                 params: Vec::new(),
                 defaults: Vec::new(),
+                default_offsets: Vec::new(),
                 rest: None,
                 returns: None,
                 body,
@@ -1095,7 +1096,8 @@ impl<'a> Frontend<'a> {
         };
         self.expect("(")?;
         let mut params = Vec::new();
-        let mut defaults = Vec::new();
+        let mut defaults: Vec<Option<Expr>> = Vec::new();
+        let mut default_offsets: Vec<usize> = Vec::new();
         let mut rest = None;
         if !self.is(")") {
             loop {
@@ -1121,6 +1123,7 @@ impl<'a> Frontend<'a> {
                     rest = Some(name);
                     break;
                 }
+                let param_offset = self.token().offset;
                 let name = self.ident()?;
                 if invalid_binding(&name, true) {
                     return Err(self.error("Invalid or reserved parameter name."));
@@ -1128,11 +1131,19 @@ impl<'a> Frontend<'a> {
                 let ty = self.annotation(false)?;
                 let default = if self.eat("=") {
                     if self.script.language != ScriptLanguage::ActionScript3 {
-                        return Err(self.error("Default parameter syntax requires AS3. AS2 functions can test omitted values explicitly."));
+                        return Err(Diagnostic::at(
+                            self.script,
+                            param_offset,
+                            "Default parameter syntax requires AS3. AS2 functions can test omitted values explicitly.",
+                        ));
                     }
                     let value = self.expression(0)?;
-                    if !constant_default(&value) {
-                        return Err(self.error("Optional parameters currently require primitive literals, undefined/NaN/Infinity or signed numeric literals; computed/class constants are not supported."));
+                    if !constant_default(&value) && super::ast::dotted_const_ref(&value).is_none() {
+                        return Err(Diagnostic::at(
+                            self.script,
+                            param_offset,
+                            "Optional parameters require primitive literals, undefined/NaN/Infinity, signed numeric literals, or AS3 static const references.",
+                        ));
                     }
                     Some(value)
                 } else {
@@ -1145,6 +1156,7 @@ impl<'a> Frontend<'a> {
                 };
                 params.push((name, ty));
                 defaults.push(default);
+                default_offsets.push(param_offset);
                 if params.len() > 256 {
                     return Err(
                         self.error("A source function supports at most 256 normal parameters.")
@@ -1212,6 +1224,7 @@ impl<'a> Frontend<'a> {
                 name,
                 params,
                 defaults,
+                default_offsets,
                 rest,
                 returns,
                 body,
