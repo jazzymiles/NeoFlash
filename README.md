@@ -1,15 +1,18 @@
 # NeoFlash
 
-Open-source vector animation, interactive media and application authoring studio inspired by classic Macromedia/Adobe Flash before Animate, built in Rust. NeoFlash gives illustrators, animators, web designers and game makers one responsive workspace with HTML5 + WebAssembly as its primary publishing target—requiring no Flash Player, browser plug-in or external CDN.
+Open-source vector animation, interactive media, and application authoring studio in Rust, inspired by classic Macromedia/Adobe Flash before Animate. Primary target: self-contained HTML5 + WebAssembly (Canvas or semantic DOM) with no Flash Player, browser plug-in, or external CDN.
 
-**Beta 1 supports macOS 15+ on Apple Silicon and macOS 12+ on Intel, with Windows x64 and Ubuntu 24.04 x64 Technical Previews.** Authoring tools, nested timelines, tweens, motion guides, scenes, synchronized audio/video, multi-language scripting (ActionScript 1/2/3, JavaScript and TypeScript), portable HTML5 publishing, and legacy FLA (Flash 3–CS6), XFL, SWF and SWC import work within the documented boundaries below. Open items and platform limits are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
+**Beta 1 (`0.1.0-beta.1`) supports macOS 15+ on Apple Silicon and macOS 12+ on Intel, with Windows x64 and Ubuntu 24.04 x64 Technical Previews.** Open items and format boundaries are tracked in the [compatibility matrix](docs/COMPATIBILITY.md) and [roadmap](docs/ROADMAP.md).
 
-## Key capabilities
+## Capabilities
 
-- **Vector drawing & illustration:** Object Drawing and planar Merge Drawing modes (**J**), Pen (**P**), Subselection (**A**), Pencil (**Y**), calligraphic Brush (**B**) with presets and tablet pressure, Free Transform (**Q**), Gradient Transform (**F**), Paint Bucket gap closing, Eraser stroke/fill modes, boolean Combine Objects operations, **Trace Bitmap** vectorization, live filters and blend modes.
-- **Timelines, symbols & sound/video:** Nested MovieClip, Button (Up/Over/Down/Hit) and Graphic symbols (**F8**), in-place affine symbol editing with dimmed parent context, Classic, Motion (editable Bézier paths + property ◆ keyframes) and Shape tweens (with shape hints), motion guides, multiple scenes, vector/alpha/luminance mask layers, and decoded stereo timeline sound waveforms with envelopes and video trim sync.
-- **Scripting & debugging:** Frame scripts, placed instance handlers and project modules in **ActionScript 1/2**, **ActionScript 3**, **JavaScript (ES2023+)** and **TypeScript** (with built-in static checking, Source Map v3 and connected Chromium breakpoint debugging).
-- **Publishing & interchange:** Self-contained HTML5/Canvas/DOM bundles (`Full`, `Balanced`, `Compact`, `Shared`), texture atlases, raster/vector sequences, derived Adobe Animate `.fla` / XFL archives, standalone `.swf` movies, editable After Effects compositions, and opening legacy binary `.fla` (Flash 3–CS4), XFL/CS5+ `.fla`, `.swf`, `.swc`, `.fig`/`.figma`, `.svg`, PDF-compatible `.ai`, `.pdf`, EPS previews, Photoshop layers or composites, audio and video assets.
+| Area | Supported in `0.1.0-beta.1` |
+| --- | --- |
+| **Drawing & illustration** | Merge & Object Drawing (`J`), Pen (`P`), Subselection (`A`), Pencil (`Y`), calligraphic Brush (`B`) with custom presets & tablet pressure/tilt, Free Transform (`Q`), Gradient Transform (`F`), Paint Bucket gap closing, Eraser stroke/fill modes, boolean Combine Objects, **Trace Bitmap**, 7 live filter families & 14 blend modes |
+| **Timelines, symbols & media** | Nested `MovieClip`, `Button` (`Up`/`Over`/`Down`/`Hit`) & `Graphic` symbols (`F8`), in-place affine editing with dimmed parent context, Classic, Motion (editable Bézier paths + `◆` property keys) & Shape tweens (with `a–z` shape hints), motion guides, multiple scenes, geometry/alpha/luminance masks, stereo sound waveforms/envelopes, linked video/audio Razor (`C`) trims |
+| **Scripting & debugging** | Frame scripts, placed instance handlers, standalone `.as` Script Editor tabs & project modules in **ActionScript 1/2**, **ActionScript 3**, **JavaScript (ES2023+)** & **TypeScript** (built-in type checker, Source Map v3, connected Chromium breakpoint/Watch debugger, deterministic `Save As` `AS2 ↔ AS3` & `AS2/AS3 → JS` conversion) |
+| **Publishing & export** | HTML5 + WASM (`Full`, `Balanced`, `Compact`, `Shared`; `Canvas` or `Web App · DOM`), zero-WASM single-file HTML5 ad banners (`Web Banner · Native`, `Criteo · HTML5 ZIP`), Flash Player 8/9/10 `.swf`, versioned `.fla` / XFL (Flash 8–Animate), Lottie / `.lottie`, 5-format Texture Atlases, After Effects `.aep`/`.jsx`, PNG/JPEG/WebP/GIF/SVG/AI/PDF/PSD, MP4/WebM/WAV/MP3, plus experimental Xcode/Swift 6 |
+| **Import & clipboard** | Legacy binary `.fla` (Flash 3–CS4), XFL/CS5+ `.fla`, `.swf` (source reconstruction + bounded AVM1/AVM2 preview), `.swc`, Figma `.fig`/`.figma` + native `⌘C → ⌘V` Figma & bidirectional Illustrator PDF/AICB/SVG clipboard, layered `.psd`/`.psb`, `.ai`/`.pdf`/`.eps`/`.svg`/`.fxg`, palettes, fonts, audio & video |
 
 <!-- progress:start -->
 ## Current coverage
@@ -41,93 +44,94 @@ Test-backed declaration statuses only (not an overall Flash compatibility score)
 Generated from `docs/progress/`; GitHub Pages rebuilds on every push to `main`.
 <!-- progress:end -->
 
-## Install, Update & Run (`0.1.0-beta.1`)
+## Download & Install (`0.1.0-beta.1`)
 
-Download [NeoFlash Beta 1, build 605](https://github.com/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.1). On a Mac, choose the disk image or ZIP for your processor. Both Mac editions are Developer ID signed and notarized by Apple.
+Download **[NeoFlash Beta 1 (build 605)](https://github.com/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.1)** and verify archives against `NeoFlash-0.1.0-beta.1-SHA256SUMS.txt` on the release page:
 
-To build from source, install [Rust with rustup](https://rust-lang.org/tools/install/) and Xcode Command Line Tools on macOS 15+ (Apple Silicon). The repository pins its Rust toolchain.
+| Platform | Package | Install & update |
+| --- | --- | --- |
+| **macOS 15+ · Apple Silicon** (`arm64`) | `macos-arm64.dmg` / `.zip` (Developer ID signed & Apple notarized) | Drag `NeoFlash.app` to `/Applications`. Replacing `NeoFlash.app` preserves `~/Library/Application Support/NeoFlash`. |
+| **macOS 12+ · Intel** (`x86_64`) | `macos-x86_64.dmg` / `.zip` (Developer ID signed & Apple notarized) | Drag the Intel `NeoFlash.app` to `/Applications`. Preserves `~/Library/Application Support/NeoFlash`. |
+| **Windows 10/11 · x64** (Technical Preview) | `windows-x64-preview.zip` (unsigned portable) | Extract the folder and launch `neoflash-editor.exe` (SmartScreen may prompt on first run). User data stays in `%APPDATA%\NeoFlash`. |
+| **Ubuntu 24.04 · x64** (Technical Preview) | `neoflash_*_amd64.deb` / `linux-x64-preview.tar.gz` | `sudo apt install ./neoflash_*.deb` (remove with `sudo apt remove neoflash`), or extract `.tar.gz` and run `neoflash-editor`. User data stays in `~/.local/share/NeoFlash`. |
+
+- **Bundled media & licences:** Every package includes self-contained `ffmpeg` and `ffprobe` helpers (`Contents/Resources/media/bin/` on macOS, `media/bin/` in portable archives, `/usr/lib/neoflash/media/bin/` in `.deb` installs; override via `NEOFLASH_FFMPEG` / `NEOFLASH_FFPROBE`) plus exact Rust and media licence notices. Checksummed corresponding-source archives are published alongside the binaries on the release page.
+- **Updates & bug reports:** `Preferences ▸ Updates` checks GitHub Releases and downloads SHA-256-verified archives for manual replacement (no silent self-update). Keep `.nflash` projects in Git or regular backups, and include a minimal reproduction, `Output` (`F2`) diagnostics, and the **About NeoFlash** build/commit when reporting bugs.
+
+### Tested hardware & environments
+
+| Platform | Tested machines | Verified scope |
+| --- | --- | --- |
+| **macOS · Apple Silicon** | Apple Silicon Mac (macOS 15 Sequoia, Metal) · GitHub Actions `macos-15` | Native GUI authoring, full Rust/WASM/browser check suite, Chrome/Firefox/Safari 27.2 HTML5 matrix, notarized DMG/ZIP Gatekeeper launch |
+| **macOS · Intel** | **MacBook Pro 15" Retina Mid 2015** (`MacBookPro11,4`, Core i7-4770HQ, Intel Iris Pro `Metal GPUFamily macOS 1`, macOS 12.7.6 Monterey) · Rosetta 2 on macOS 15 | Native `x86_64` desktop GUI, Stage rendering, authoring, bundled `x86_64` `ffmpeg`/`ffprobe`, HTML5/SWF/MP4 export, notarized DMG/ZIP |
+| **Linux · x64** | **Bare-metal Intel Retina laptop** (`MacBookPro11,4` `2880×1800` HiDPI, Ubuntu 24.04.5 LTS `amd64`, X11/Wayland, Vulkan/GLES) · Ubuntu 24.04 ARM64 + Rosetta VM · GitHub Actions `ubuntu-24.04` | `.deb` desktop install & portable `.tar.gz`, GUI authoring, HiDPI Chrome `Test Movie`, bundled static-codec `ffmpeg`/`ffprobe`, headless CLI |
+| **Windows · x64 / ARM64** | **Bare-metal Windows 10 Pro x64** (`Miles-WIN-Test`) · **Windows 11 24H2 ARM64 VM** (UTM, DX12 native `arm64` & `x86_64` emulation) · GitHub Actions `windows-2022` (MSVC + DX12 WARP) | Portable launch, DX12 GUI rendering, headless CLI/JSFL authoring, bundled `ffmpeg`/`ffprobe` H.264 MP4, HTML5 & SWF export |
+
+- **Known Beta 1 limits:** Spoken macOS VoiceOver output is unverified; graphics-tablet pressure, tilt, and eraser switching are experimental; Windows builds are unsigned, lack the connected Chromium `Test Movie` debugger, and await interactive physical Windows 11 desktop sign-off; Linux packages target Ubuntu 24.04 x64 (`glibc 2.39+`); legacy FLA, SWF, and ActionScript remain bounded by [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) and [docs/IMPORTS.md](docs/IMPORTS.md).
+
+### Build from source
+
+Requires [Rust (`rustup`)](https://rust-lang.org/tools/install/) and Xcode Command Line Tools on macOS 15+ (Apple Silicon); Node.js 22+ is used only by repository test suites.
 
 ```sh
-./scripts/run.sh                    # build the browser runtime and open the editor
-./scripts/package-macos.sh          # local Apple Silicon dist/NeoFlash.app only
+./scripts/run.sh                    # build WASM runtime and launch editor
+./scripts/package-macos.sh          # build local Apple Silicon dist/NeoFlash.app
 open dist/NeoFlash.app
 ```
 
-Ordinary local packaging intentionally creates only the self-contained, ad-hoc-signed Apple Silicon app and removes
-stale macOS release archives for the same version. A complete macOS Beta release set is an explicit release operation:
-`./scripts/package-macos.sh release --beta-release` adds the ZIP, DMG, corresponding-source archive and checksums.
-Use that mode only when preparing an authorized Beta release.
-
-Windows and Linux downloads are available on the same release page.
-
-- Windows x64: `NeoFlash-0.1.0-beta.1-windows-x64-preview.zip`; extract it and run `neoflash-editor.exe`.
-- **Ubuntu 24.04 x64** — install the downloaded package with `sudo apt install ./neoflash_*.deb`. Open NeoFlash from the applications menu, open a `.nflash` project from Files, or run `neoflash`. Install a newer build with the same command. Remove the application with `sudo apt remove neoflash`. The portable `NeoFlash-0.1.0-beta.1-linux-x64-preview.tar.gz` also runs directly after extraction.
-- Verify your download against `NeoFlash-0.1.0-beta.1-SHA256SUMS.txt` on the release page. Each package includes its licence notices. Separate corresponding-source archives cover the media tools for Apple Silicon, Intel, and Windows/Linux. The release notes include reassembly instructions for the two Windows/Linux source parts.
-
-- **Install & manual update:** Drag `NeoFlash.app` into `/Applications` (or run `dist/NeoFlash.app` directly). To update to a newer Beta build, quit NeoFlash and replace `NeoFlash.app` in `/Applications`; user preferences, custom workspace layouts, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash` are preserved automatically.
-- **Bundled media helpers:** Every packaged build includes `ffmpeg` and `ffprobe` helpers (`NeoFlash.app/Contents/Resources/media/bin/` on macOS and `media/bin/` in portable archives), so video import, audio/video transcoding, and MP4 export require no separate media-tool installation. Windows/Linux helpers include their codec dependencies but still use normal operating-system runtime libraries such as glibc on Linux. Exact Rust and media notices are inside each package; the explicit full-release gate also emits a checksummed corresponding-source archive beside it. Advanced users can override the bundled binaries by setting `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`).
-- **Backups and bug reports:** Save versioned `.nflash` projects in Git or keep regular backups. Include a minimal reproduction, the relevant Output diagnostics and the build from **About NeoFlash** when reporting a bug.
-- **Beta 1 known issues & limitations:**
-  - The macOS editor exposes native accessibility metadata and shows keyboard focus on panel controls. HTML5 publications expose `role`, `aria-label` and `tabindex` through the accessibility overlay. Spoken VoiceOver output remains unverified.
-  - Physical graphics-tablet pressure, tilt-to-angle mapping, and pen-tip/eraser switching are **experimental** in `0.1.0-beta.1`: the deterministic event-level pipeline (pressure `0.05..=1.0`, tilt-to-nib angle, consecutive strokes, pen/eraser tool switching, single-step Undo, and `.nflash` round-trip) is verified, while physical Wacom and Apple Sidecar hardware certification remains an external hardware check (`T-235`).
-  - Updates require manual installation. The unsigned Windows archive may trigger SmartScreen. Its private connected Test Movie debugger is not yet available (ordinary Test Movie works). The Linux archive is tested on Ubuntu 24.04 x64 with X11/Wayland and Vulkan/GLES. Interactive acceptance on a physical Windows 11 desktop and broader Linux distributions remains pending.
-  - Legacy binary FLA, SWF, and ActionScript compatibility remains bounded by the documented [compatibility matrix](docs/COMPATIBILITY.md) and [legacy import rules](docs/IMPORTS.md).
-
-The first source build downloads pinned Rust/WASM dependencies. Node.js 22+ is needed for repository verification checks, not for running `NeoFlash.app` or published HTML5 content. See [contributing](CONTRIBUTING.md) for verification commands.
+Ordinary `./scripts/package-macos.sh` builds only the ad-hoc-signed `arm64` `dist/NeoFlash.app` (use `./scripts/verify-macos-intel.sh` for standalone `x86_64` macOS 12.0+ staging; `./scripts/package-macos.sh release --beta-release` is reserved for full release archives).
 
 ## Examples
 
-| Workflow | Source project |
+| Category | Projects |
 | --- | --- |
-| Nested animation and timelines | [Nested animation](examples/nested-orbit.nflash) |
-| Vector paths and compound fills | [Vector drawing](examples/vector-paths.nflash) |
-| Linked classes and input events | [Project program](examples/project-program.nflash), [AS2 input](examples/as2-project-input.nflash) |
-| Text entry and saved values | [Text form](examples/text-form.nflash), [Saved game](examples/saved-game.nflash) |
-| Images, filters and resource loading | [Loader gallery](examples/loader-gallery.nflash), [Filter gallery](examples/filter-gallery.nflash) |
-| Self-contained 300×250 HTML5 ad | [Moon Tide](examples/moon-tide-300x250.nflash) · Publish settings → Profile → **Criteo · HTML5 ZIP** |
-| Tweens, motion guides and scenes | [Timeline tweens](examples/timeline-tweens.nflash) |
-| Timeline sound with Flash sync | [Timeline sound](examples/timeline-sound.nflash) |
-| Audio and video | [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
-| Browser integration and dragging | [Web integration](examples/web-integration.nflash), [Drag and drop](examples/drag-drop.nflash) |
-| Headless-authored AS2 retro games | [Doom: E1M1 Hangar](examples/doom-as2.nflash), [Fallout: Vault 13 Cavern](examples/fallout-as2.nflash) |
+| **Timelines, vectors & tweens** | [Nested orbit](examples/nested-orbit.nflash), [Vector paths](examples/vector-paths.nflash), [Timeline tweens](examples/timeline-tweens.nflash), [Midnight Express Ep. 1–6](examples/README.md#animated-series--midnight-express) |
+| **Classes, UI, forms & storage** | [Project program](examples/project-program.nflash), [AS2 input](examples/as2-project-input.nflash), [Text form](examples/text-form.nflash), [Saved game](examples/saved-game.nflash), [Drag and drop](examples/drag-drop.nflash), [Web integration](examples/web-integration.nflash) |
+| **Bitmaps, filters, audio & video** | [Loader gallery](examples/loader-gallery.nflash), [Filter gallery](examples/filter-gallery.nflash), [Timeline sound](examples/timeline-sound.nflash), [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
+| **HTML5 ad banner (`< 8 KB` ZIP)** | [Moon Tide 300×250](examples/moon-tide-300x250.nflash) (`Publish settings ▸ Profile: Criteo · HTML5 ZIP`) |
+| **Playable AS2 / AS3 games** | [Doom: E1M1 Hangar](examples/doom-as2.nflash), [Fallout: Vault 13 Cavern](examples/fallout-as2.nflash), [Tetris AS2](examples/tetris-as2.nflash) / [AS3](examples/tetris-as3.nflash), [Arkanoid AS2](examples/arkanoid-as2.nflash) / [AS3](examples/arkanoid-as3.nflash), [Snake AS2](examples/snake-as2.nflash) / [AS3](examples/snake-as3.nflash), [AS2/AS3 suites](examples/README.md) |
+| **Public FLA / XFL / SWF corpus** | [examples/fla-corpus](examples/fla-corpus/README.md) (`21/21` licensed Flash 5–CS6 & XFL imports, `0` refusals, [visual & SWF trace oracles](examples/fla-corpus/VERIFICATION.md)) |
 
-**File → Open…** opens binary FLA files saved by Flash 3 through CS4, XFL and ZIP-based FLA documents (CS5+/Animate), published SWF movies (with source reconstruction and a bounded AVM1/AVM2 interpreter) and SWC libraries. **File → Save as…** can create a preflighted modern Animate `.fla` as a derived copy without retargeting the open native document or clearing its unsaved state; the other versioned FLA/XFL profiles live under **File → Export**. **File → Export Flash Movie…** writes a bounded standalone `.swf` after script/depth checks and structural re-import verification. Supported scenes, nested symbols, layers, masks, motion guides, tweens, filters, blend modes, bitmap fills, text, sounds and scripts are preserved where the selected profile supports them; unsupported content is blocked or kept as an explicit approximation instead of being silently discarded. The SWF interpreter can project its bounded runtime display list onto the Stage and supports seek, step and restart without modifying the authored project; it is still not a complete Flash Player. Missing installed fonts use fallback and do not block import. See [legacy import support and limits](docs/IMPORTS.md) and [current export boundaries](docs/COMPATIBILITY.md).
+## Headless CLI & Automation
 
-The [public FLA corpus](examples/fla-corpus/README.md) includes licensed, pinned source files. All eight binary FLA sources (Flash 5, MX, 8 and CS4) and seven external XFL/FLA sources import through the native converter with 21 imports and 0 refusals, and an Adobe CS6 example reproduces its reference trace in HTML5. Unsupported cases retain explicit diagnostics; see [legacy import support and limits](docs/IMPORTS.md).
-
-## Headless CLI & AI automation
-
-`neoflash-editor --headless` (or `NEOFLASH_HEADLESS=1`, `--help`, `--version`) runs a display-free, machine-readable JSON CLI before initializing a native window while keeping macOS Finder `-psn_*` launches untouched:
+`neoflash-editor --headless` (or `NEOFLASH_HEADLESS=1`) runs display-free JSON/text commands for CI, scripts, and AI agents without opening a GUI window:
 
 ```sh
 neoflash-editor --headless capabilities
 neoflash-editor --headless new --output app.nflash --name Demo --width 800 --height 600 --fps 24 --language as2
 neoflash-editor --headless jsfl --project app.nflash --in-place --eval 'fl.getDocumentDOM().getTimeline().layers[0].frames[0].actionScript = "trace(\"hi\");";'
-neoflash-editor --headless compile --project app.nflash
+neoflash-editor --headless compile --project app.nflash --strict
 neoflash-editor --headless eval --project app.nflash --frames 0..=1 --scripts
 neoflash-editor --headless export --project app.nflash --target html5 --size-level compact --out dist-web
 ```
 
-`inspect`, `validate`, strict 18-operation JSON `batch` pipelines (`--stdin` / `--file`, including in-memory `import`), and capability-gated JSFL `FLfile` access (`--allow-read` / `--allow-write` / `--allow-delete`, default deny-all) return structured JSON on stdout (`{ "ok": true, ... }`) and errors on stderr with non-zero exit codes. Batch `save`, `export`, permitted `FLfile` mutations and the final `.nflash` output retain step-order read-your-writes behavior but share one filesystem rollback boundary; standalone `jsfl` applies the same rule to its permitted writes and project save. Returned errors, cooperative cancellation and response-write failure restore the pre-command state; process termination or power loss cannot run this in-memory rollback. See [workspace and headless CLI notes](docs/WORKSPACE.md#headless-cli-and-ai-automation).
+Supports `inspect`, `validate`, `compile`, `eval` (including `--vm swf`), capability-gated `jsfl` (`FLfile` denied unless `--allow-read`/`--allow-write`/`--allow-delete` are set), `import`, `export`, and transactional 18-operation JSON `batch` pipelines (`--stdin` / `--file`). Details: [docs/WORKSPACE.md](docs/WORKSPACE.md#headless-cli-and-ai-automation) and [docs/JSFL-COMPATIBILITY.md](docs/JSFL-COMPATIBILITY.md).
 
-## Project layout
+## Project Layout
 
 ```text
-crates/     shared Rust model, editor, compiler, runtime, importer and exporter
-web/        browser host and runtime tests
-examples/   small authored projects and licensed import fixtures
-scripts/    build, check, packaging and coverage tasks
-docs/       product behavior, architecture, compatibility and roadmap
-vendor/     pinned integration patches, provenance and licenses
+crates/     shared Rust core, editor, script compiler, WASM bridge, importer and exporter
+web/        HTML5 browser host, progress dashboard and runtime tests
+examples/   authored .nflash projects, games and licensed FLA/XFL/SWF corpus
+scripts/    build, verification, packaging, notarization and progress tooling
+docs/       architecture, compatibility, import boundaries, verification and ADRs
+vendor/     pinned egui/eframe patches, provenance and licenses
 ```
 
 ## Documentation
 
-- [Product requirements](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md) and [decisions](docs/decisions/)
-- [Compatibility](docs/COMPATIBILITY.md), [legacy imports](docs/IMPORTS.md) and [interactive HTML5](docs/WEB.md)
-- [Roadmap](docs/ROADMAP.md), [known issues](docs/BACKLOG.md) and [verification scope](docs/VERIFICATION.md)
+- [Product scope](docs/PRODUCT.md), [architecture](docs/ARCHITECTURE.md), [workspace & CLI](docs/WORKSPACE.md) and [decisions](docs/decisions/)
+- [Compatibility](docs/COMPATIBILITY.md), [legacy imports](docs/IMPORTS.md), [JSFL matrix](docs/JSFL-COMPATIBILITY.md), [clipboard](docs/CLIPBOARD.md) and [interactive HTML5](docs/WEB.md)
+- [Roadmap](docs/ROADMAP.md), [known issues](docs/BACKLOG.md) and [verification record](docs/VERIFICATION.md)
 - [Changelog](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 
 ## License
 
-Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Contributions use the same terms. Third-party code and fixtures retain their licenses and pinned provenance; see [third-party notices](THIRD_PARTY_NOTICES.txt). Packaged builds carry their exact dependency notices and media corresponding source, so end users do not need to assemble a licence bundle. The editor plays timeline sounds through unmodified MPL-2.0 Symphonia decoder crates; they are not part of published HTML5 content. This independent project does not include Adobe application code or branding assets.
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option. Third-party components retain their licenses and pinned provenance in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt); packaged builds carry complete Rust and media licence evidence alongside corresponding-source archives. Independent project; no Adobe application code or branding assets are included.
+
+## Thanks
+
+I want to thank the entire community of creative people who once made the web — and the internet as a whole — such an interesting and interactive place. Your creativity played a huge role in my life — thank you!!!
+
+Special thanks to:
+ndglook, Смольный (Smolniy), Iv, juggy, Audax, Luke, iNils, etc, Gossip, ish, john, Xoxol, baxtep, УильямБрэдберри, C2Plus, лис, M@trix, Ales, Дениска, McMamus, silin, and everyone else!

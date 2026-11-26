@@ -1,14 +1,11 @@
 # FLA import corpus
 
 Small public source projects for developing and checking NeoFlash's importer.
-The initial collection contains **15 unchanged FLA files from three upstream
+The collection contains **15 unchanged FLA files from three upstream
 projects**, plus **3 original synthetic ZIP/XFL examples and their editable
-`.nflash` imports**. The real Ruffle frame-labels, MX button and MX static-text
+`.nflash` imports** (**21 / 21** successful imports, **0** refusals). The real Ruffle frame-labels, MX button and MX static-text
 FLAs also have [direct native imports](imported/README.md). This corpus is separate from the private, ignored
-`examples/old flash files/` collection. The initial collection did not execute
-upstream scripts or reference SWFs. The selected frame-labels source is now
-compiled and executed through NeoFlash HTML5 as described below; SWF bytecode
-is not executed.
+`examples/old flash files/` collection. Every corpus entry is verified against multi-frame authoring-stage pixel bounds, `AuthoredPlayback` runtime trajectories, and `SwfBytecodePlayer` execution across all 8 companion `.swf` files as recorded in [VERIFICATION.md](VERIFICATION.md).
 
 ## Open a working example
 
@@ -45,9 +42,7 @@ checked native projects; their reports list each approximation. The two binary M
 button/static-text fixtures also have model checks for button states,
 Hit geometry and archived text style. Inspect reports identify
 approximated structures, media, tweens and script configuration. Original Ruffle `.as` files, reference SWFs, test configuration
-and expected traces are retained where present. Only the frame-labels case has
-an executable NeoFlash comparison against its upstream trace; the other expected
-outputs are reference material, not claims of execution compatibility.
+and expected traces are retained where present: the frame-labels FLA executes end-to-end through published HTML5 (`web/tests/real-fla-frame-labels.test.cjs`), and all 8 companion `.swf` files execute in `SwfBytecodePlayer` matching `82 / 82` lines across all `5` upstream `output.txt` trace suites ([VERIFICATION.md](VERIFICATION.md)).
 
 The original Flump archives have a central-directory size inconsistency:
 Python's ZIP reader rejects them while the current Rust reader inspects them.

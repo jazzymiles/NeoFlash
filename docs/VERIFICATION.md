@@ -1,17 +1,25 @@
 # Verification record
 
-## How to read this record
+## Beta 1 (`0.1.0-beta.1`) Platform & Hardware Matrix
 
-These are scoped observations from **27–28 October 2026**, retained for the development preview. They describe the named revisions and workflows; later implementations do not inherit their results. Current contracts and declaration decisions are in the [compatibility matrix](COMPATIBILITY.md) and [ActionScript audit](progress/ACTIONSCRIPT.md). The [normalized audit](progress/actionscript-audit.json) preserves per-entry provenance.
+Current contracts and test-backed declaration statuses live in the [compatibility matrix](COMPATIBILITY.md), [capability registry](progress/DETAILS.md), and [ActionScript audit](progress/ACTIONSCRIPT.md) (`docs/progress/actionscript-audit.json`). Raw logs, screenshots, and notarization/package manifests remain local under ignored `target/artifacts/`.
 
-Ordinary HTML5 exports were exercised with the shared Rust/WASM runtime. Unless explicitly named otherwise, browser observations used the Codex in-app browser without independent engine/version identification. Original Flash was not executed. DOM readiness, automated execution and observed interaction are separate evidence; startup-only projects do not receive full behavior acceptance. Screenshot comparisons establish consistency within the observed browser profile, not Flash raster equivalence.
+| Platform | Tested hardware / runner | Verified scope |
+| --- | --- | --- |
+| **macOS 15+ · Apple Silicon (`arm64`)** | Apple Silicon Mac (macOS 15.8 Sequoia, Metal, Rust `1.99.1`) · GitHub Actions `macos-15` | Full `scripts/check.sh` & `--release` suites (`2,263+` Rust/egui tests, `206` Node/WASM tests, `97` script fixtures, `27` workflows, `260` Chrome publish cases, Firefox BiDi `10/10`, Safari 27.2 HTML5 matrix, paired A/B performance gate), live NF3 Dark/Light/Mid Neutral Gray/Dark Graphite GUI authoring, Developer ID signing, Apple notarization & Gatekeeper launch (`build 605`+). |
+| **macOS 12+ · Intel (`x86_64`)** | **MacBook Pro 15" Retina Mid 2015** (`MacBookPro11,4`, Quad-Core Core i7-4770HQ, Intel Iris Pro `Metal GPUFamily macOS 1`, macOS 12.7.6 Monterey) · Rosetta 2 on macOS 15 | Live desktop Metal GUI launch (verifying the `wgpu` indirect-call validation fix on Tier-1 Argument Buffer GPUs), Stage vector rendering, authoring, standalone `minos 12.0` `x86_64` `ffmpeg`/`ffprobe` H.264/VP9/AAC/Opus transcoding, HTML5/SWF/MP4 export, Developer ID signing & Apple notarization. |
+| **Ubuntu 24.04+ · Linux x64 (`amd64`)** | **Bare-metal Intel Retina laptop** (`MacBookPro11,4` `2880×1800` HiDPI, Ubuntu 24.04.5 LTS, X11/Wayland, Vulkan/GLES) · Ubuntu 24.04 ARM64 + Rosetta VM · GitHub Actions `ubuntu-24.04` | `.deb` package install/remove (`libc6 >= 2.39`, desktop launcher, `.nflash` MIME) and portable `.tar.gz`, live GUI authoring, XWayland HiDPI Chrome `Test Movie`, empty-`PATH` static-codec `ffmpeg`/`ffprobe` round trips, full workspace Rust/WASM/A-B CI suite. |
+| **Windows 10/11 · x64 / ARM64** | **Bare-metal Windows 10 Pro x64** (`Miles-WIN-Test`) · **Windows 11 24H2 ARM64 VM** (UTM, DX12 native `arm64` & `x86_64` emulation) · GitHub Actions `windows-2022` (MSVC + DX12 WARP) | Portable launch, DX12 GUI rendering, headless CLI/JSFL batch authoring, empty-`PATH` `ffmpeg`/`ffprobe` H.264/HEVC/VP9/Opus/MP3 round trips, HTML5 & SWF export, full Windows workspace Rust/WASM/A-B CI suite (interactive physical Windows 11 x64 desktop & Windows CDP debugger remain open). |
+| **Flash / Animate & SWF oracles** | Adobe Animate 24.0.16 & 27.0.1.5 · JPEXS FLA Convert 3.0.0 · 310 upstream Ruffle Flash Player `test.swf` + `output.txt` suites | `21/21` public FLA/XFL corpus multi-frame visual + behavioral parity (`examples/fla-corpus/VERIFICATION.md`), `105/105` nonempty private legacy FLAs opened (`104/105` inline + `105/105` `OversizedFlaBundle` byte-exact `.fla` reconstruction), 7 FLA/XFL export profiles, and `310` 1:1 Flash Player trace reference movies. |
 
-This page keeps tested behavior and meaningful limits. Raw logs, artifact fingerprints, screenshots and delivery notes remain local under ignored `target/`.
+## Historical Subsystem Audits (October–November 2026)
+
+The sections below preserve scoped revision-specific observations (originally recorded **27–28 October 2026** and extended by targeted November audits) referenced by ADRs and `docs/progress/actionscript-audit.json`. They describe only their named revisions and workflows; later features are governed by the current test suite and [compatibility matrix](COMPATIBILITY.md).
 
 <a id="automated-checks"></a>
 ## Automated verification
 
-The recorded shared checks ran on Apple Silicon, macOS 15.8 and Rust 1.99.1. They cover formatting and Clippy, native Rust behavior, the macOS paste adapter, actual WASM and browser-host execution in Node, emitted-script fixtures, project workflows, public FLA corpus integrity/refusals, export preparation and demo export. Earlier failed gates and their affected reruns do not constitute an uninterrupted all-green pass.
+The shared local and CI checks run on pinned Rust `1.99.1` and Node `22.23.5`. They cover formatting and strict Clippy, native Rust behavior, the macOS paste adapter, actual WASM and browser-host execution in Node, emitted-script fixtures, project workflows, public FLA corpus integrity, export preparation and demo export. Earlier failed gates and their affected reruns do not constitute an uninterrupted all-green pass.
 
 Use `./scripts/check.sh` for ordinary verification. It runs every HTML5 publish scenario with a representative size
 profile and covers Full, Balanced, Compact and Shared across AS2 and AS3. It also checks estimate accuracy with

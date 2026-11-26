@@ -1,71 +1,29 @@
-# Known issues and open follow-ups
+# Known Issues & Open Follow-Ups
 
-This page lists concrete defects and the follow-ups that each delivered family left open. It does not repeat other
-records:
+This page tracks concrete open limitations and follow-ups without duplicating generated registries:
 
-- Planned and partial **product functions**: the progress registry ([summary](progress/DETAILS.md),
-  `docs/progress/product.json`).
-- **ActionScript** declaration status and per-declaration gaps: the [ActionScript audit](progress/ACTIONSCRIPT.md).
-- **Defects found during verification** and their status: [VERIFICATION.md › Open findings](VERIFICATION.md#open-findings-and-scoped-fixes).
-- Future direction: [ROADMAP.md](ROADMAP.md). Legacy FLA approximations: [IMPORTS.md](IMPORTS.md).
+- **Product functions (`working` / `partial` / `planned`):** [progress/DETAILS.md](progress/DETAILS.md) (`docs/progress/product.json`)
+- **ActionScript per-declaration status & notes:** [progress/ACTIONSCRIPT.md](progress/ACTIONSCRIPT.md)
+- **Historical verification findings:** [VERIFICATION.md › Open findings](VERIFICATION.md#open-findings-and-scoped-fixes)
+- **Future work:** [ROADMAP.md](ROADMAP.md) · **Import approximations:** [IMPORTS.md](IMPORTS.md)
 
-## Standing HTML5 correctness requirements
+## `0.1.0-beta.1` Known Issues & Platform Limits
 
-- Known built-in properties implement their contract or diagnose unsupported behaviour. Visibility agrees across
-  pixels, scene, hit testing and semantic targets; text, dimensions and callback assignments never become silent
-  custom fields.
-- XFL Include Hidden Layers policy is preserved for root and nested timelines; placement lifetime stays distinct from
-  XML slot order; ambiguous transfers are rejected.
-- AS2 and AS3 keep separate value profiles (parseInt radix, Number.toFixed limits, typed slot writes and defaults,
-  rotation normalization, public void results).
-- Each feature batch keeps a representative source project, an ordinary HTML5 publish and an aggregate browser
-  result; documented expectations stay separate from original Flash measurements, and tested browser engines are named.
+- **Supported platforms & separate macOS bundles:** `0.1.0-beta.1` ships Developer ID signed, Apple-notarized DMG and ZIP packages for **macOS 15+ (Apple Silicon, `arm64`)** and **macOS 12+ (Intel, `x86_64`)** as separate architecture-specific bundles (no fat universal binary), alongside **Windows x64** (`.zip`) and **Ubuntu 24.04 x64** (`.deb` and `.tar.gz`) Technical Previews.
+- **Manual update installation:** `Preferences ▸ Updates` checks GitHub Releases (`Stable` / `Beta`) and downloads SHA-256-verified packages, but applying an update requires manually replacing `NeoFlash.app` in `/Applications` (or extracting the new archive / running `sudo apt install ./neoflash_*.deb`). Preferences, workspaces, recent files, and crash-recovery snapshots in `~/Library/Application Support/NeoFlash`, `%APPDATA%\NeoFlash`, or `~/.local/share/NeoFlash` are preserved. Live post-release update/rollback handoff verification (`T-347`) remains open.
+- **Windows Technical Preview limits:** The portable `windows-x64-preview.zip` (`neoflash-editor.exe`) is unsigned and may trigger a Windows SmartScreen prompt on first launch. The private pipe-connected Chromium `Test Movie` debugger is not yet wired on Windows (ordinary `Test Movie` HTML5 preview works). Bare-metal Windows 10 Pro x64 CLI/headless/media export and Windows 11 ARM64 VM DX12 GUI launch are verified; interactive physical Windows 11 x64 desktop sign-off remains open (`T-339`).
+- **Linux Technical Preview limits:** Tested on bare-metal Ubuntu 24.04.5 LTS `amd64` (X11/Wayland, Vulkan/GLES, `.deb` and `.tar.gz`), Ubuntu 24.04 ARM64 + Rosetta VM, and CI (`libc6 >= 2.39`). AppImage packaging and non-Ubuntu distribution testing remain open.
+- **Bundled media helpers:** Every package includes self-contained `ffmpeg` and `ffprobe` (`Contents/Resources/media/bin/` on macOS, `media/bin/` in portable archives, `/usr/lib/neoflash/media/bin/` in `.deb` installs) plus exact Rust/media licence notices and side-by-side corresponding-source archives. Set `NEOFLASH_FFMPEG` / `NEOFLASH_FFPROBE` only to override the bundled binaries. Note: Intel macOS HEVC encoding uses hardware VideoToolbox, while Apple Silicon additionally bundles software `libx265` and `SVT-AV1`.
+- **Accessibility & graphics tablets:** The macOS editor exposes `NSAccessibility` (`AccessKit`) trees and keyboard focus, and HTML5 exports expose `#stage-a11y-overlay` ARIA roles/labels/tab stops, but spoken macOS VoiceOver output has not been verified. Graphics-tablet pressure, tilt, and pen/eraser switching are **experimental** pending broader physical Wacom and Apple Sidecar hardware certification (`T-235`).
+- **In-app Beta feedback:** The Stage `Bug?` chip and **Help ▸ Send Beta Feedback…** dialog are hidden in `0.1.0-beta.1` pending endpoint activation (`T-335`). Report issues on GitHub with a minimal `.nflash` reproduction, `Output` (`F2`) diagnostics, and the build/commit from **About NeoFlash**.
+- **Stage repaint glitch:** Artwork can briefly appear blank on a single frame immediately after switching themes or opening a Library popup preview before reappearing on the next redraw; no document data is affected.
+- **Bounded Flash / ActionScript compatibility:** Binary FLA (Flash 3–CS4), XFL/CS5+ FLA, SWF decompilation/preview/publish, and ActionScript 1/2/3 execution operate within the documented [compatibility matrix](COMPATIBILITY.md) and [import rules](IMPORTS.md).
 
-Still open: broader owner-aware unsupported-API diagnostics (TextField mutation and callbacks outside the supported
-subset), typed handler slots and defaults across aliases, complete visibility conversion, construction and lifecycle
-conformance, rotated dimension setters.
+## Standing Correctness & Runtime Follow-Ups
 
-## Runtime family follow-ups
-
-Recorded when each family was delivered (October 2026). Later ActionScript conformance work may have closed some of
-them; check the ActionScript audit before starting one.
-
-- **Text and fonts:** rich character runs, HTML text, input/IME, auto-size and scrolling, fuller metrics, embedded
-  fonts; mixed runs in input forms, full IME/locale/grapheme behaviour, initial keyboard traversal, Canvas occlusion of
-  active DOM editing; general AS2 string target resolution.
-- **Bitmaps and loading:** broader Loader formats, security and timing; SWF/GIF loading, application/security domains,
-  native subclasses, legacy target paths/levels, full garbage collection; `drawWithQuality` and non-normal blends,
-  external mask dependencies, other encoders.
-- **Graphics, masks and filters:** bitmap fills, repeat/reflect spreads, linearRGB; animated authored mask sources,
-  bitmap/text/alpha masks, fractional or deferred scroll rectangles; remaining filter families, high-density raster
-  quality, filtered DOM text input, full cacheAsBitmap and bounds semantics, original-player differential. The masks
-  example overlaps an explanatory label in phase two.
-- **Audio and video:** streaming, linkage, historical mixing, re-synchronising streams after dropped frames; video
-  timeline synchronization, codec/seek/error fidelity, RTMP/camera/publishing, richer media authoring.
-- **Data and XML:** regex literals, broader PCRE parity, historical Date parsing/DST/locale, remaining native JSON
-  encodings; E4X filters, scoped default namespace, dynamic names, namespace interpolation, XML/Namespace/QName
-  equality and addition, wildcard target creation, class namespace declarations.
-- **Storage:** typed AMF aliases, externalizable/XML/Vector/Dictionary values, `.sol` files, remote synchronization,
-  cross-tab notifications.
-- **Language:** complete AVM global-scope lookup, prototype and reflection parity, `arguments.caller`, runtime-built
-  Function code, generalized compile-time defaults and typing, native overrides, user namespaces, full
-  initialization-order conformance; native display enumeration and historical mutation/coercion behaviour.
-- **Pointer and drag:** full legacy enabled/trackAsMenu behaviour, transparent-fill/glyph/filter hit fidelity,
-  reparenting during drag, multi-touch/3D, cross-engine and original-player comparison.
-
-## `0.1.0-beta.1` Known Issues & Limitations
-
-- **Release target & manual updates:** `0.1.0-beta.1` targets **macOS 15+ (Apple Silicon)** and provides Windows x64 and Ubuntu 24.04-compatible Linux x64 Technical Previews. Intel (`x86_64`) macOS builds and a built-in automatic updater are not included in Beta 1. The unsigned Windows archive may trigger SmartScreen; its private connected debugger and physical Windows 11 desktop acceptance remain pending. Linux AppImage packaging and broader-distro acceptance remain pending. To update `NeoFlash.app`, replace the bundle in `/Applications`; user preferences, custom workspaces, recent files and crash recovery under `~/Library/Application Support/NeoFlash` are preserved. Keep `.nflash` JSON projects in Git or regular file backups, and attach a minimal `.nflash` reproduction, `Output` panel diagnostics, and the build commit from **NeoFlash → About NeoFlash** when reporting bugs.
-- **Bundled media helpers:** Platform packages carry `ffmpeg` and `ffprobe` in `Contents/Resources/media/bin/` (macOS) or `media/bin/` (Windows/Linux), requiring no separate media-tool installation. The Windows/Linux helpers include codec dependencies but use normal system runtime libraries. Exact Rust/media licence evidence is inside the package and a checksummed corresponding-source archive is beside it; the package gate refuses incomplete evidence. Set `NEOFLASH_FFMPEG` (and `NEOFLASH_FFPROBE`) only for a custom override.
-- **Bounded legacy FLA, SWF and ActionScript compatibility:** Legacy binary FLA (Flash 3–CS4), XFL, SWF and ActionScript 1/2/3 support operates within the documented [compatibility matrix](COMPATIBILITY.md) and [legacy import rules](IMPORTS.md).
-
-## Native and platform acceptance still pending
-
-- Live native Sources editing and detached Actions feedback (`D-008`), IME, multi-monitor.
-- Touch devices and Safari for the HTML5 preview; audible output and balance for audio families.
-
-## Legacy import
-
-- The five local binary FLA documents that still refuse; per-file private-corpus tests with rendered frames and input
-  scenarios; lossless FLA round-trip.
-- Evaluate Ruffle as an optional SWF playback module; HTML5 publication stays independent of SWF.
+- **Built-in API contracts:** Known Flash properties must either implement their runtime contract or emit an explicit diagnostic; visibility, dimensions, text, and callbacks must never silently degrade into inert custom fields.
+- **AS2 vs AS3 dialect isolation:** Keep separate dialect semantics (`parseInt` octal radix, `Number.toFixed` bounds, `_alpha`/`_xscale` percentage vs `0..1` unit floats, rotation normalization, `this` receiver binding on Button `on(release)` vs MovieClip `onClipEvent`).
+- **Open runtime conformance areas:**
+  - *Compiler & VM edge cases:* AS3 class-constant parameter defaults in all contexts, historical AVM1 string-target paths and `try/catch` wrapping of host errors, rotated `width`/`height` dimension setters, and native per-child callback timing during bulk `removeChildren`.
+  - *Text, graphics & media:* Full OpenType complex-script shaping, exact Flash font-metric/raster parity, dropped-frame stream audio resynchronization in browsers, and live camera/microphone hardware capture verification.
+  - *Networking & storage:* Native Adobe Media Server / RTMP protocol gateways (`SharedObject.getRemote` / `NetStream` currently use `neoflash-sync` WebSockets and HTTP(S) / loopback profiles).

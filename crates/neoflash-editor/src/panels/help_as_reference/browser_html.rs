@@ -734,24 +734,24 @@ fn write_as_chapter_reference_html(index: usize, out: &mut String) {
             #[cfg(target_os = "macos")]
             const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Replace <code>NeoFlash.app</code> in <code>/Applications</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>~/Library/Application Support/NeoFlash</code> are preserved across manual updates.</td></tr>";
             #[cfg(target_os = "windows")]
-            const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Extract the Windows x64 portable ZIP and launch <code>neoflash.exe</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>%APPDATA%\\NeoFlash</code> are preserved across manual updates.</td></tr>";
+            const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Extract the Windows x64 portable ZIP and launch <code>neoflash-editor.exe</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>%APPDATA%\\NeoFlash</code> are preserved across manual updates.</td></tr>";
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-            const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Extract the Linux x64 portable tar.gz archive and run <code>neoflash</code></td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>~/.local/share/NeoFlash</code> are preserved across manual updates.</td></tr>";
+            const INSTALL_ROW: &str = "<tr><td><code>Install &amp; Manual Update</code></td><td>Install <code>neoflash_*_amd64.deb</code> (<code>neoflash</code>) or extract the Linux x64 portable tar.gz (<code>neoflash-editor</code>)</td><td>Preferences, custom workspaces, recent files, and crash-recovery snapshots in <code>~/.local/share/NeoFlash</code> are preserved across manual updates.</td></tr>";
             #[cfg(target_os = "macos")]
             const MEDIA_ROW: &str = "<tr><td><code>Bundled Media &amp; Licences</code></td><td><code>Contents/Resources/media/bin/</code></td><td><code>ffmpeg</code>/<code>ffprobe</code>, exact application/Rust/media licence evidence and checksum manifests are included; corresponding source is supplied beside the platform archive. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom overrides.</td></tr>";
             #[cfg(not(target_os = "macos"))]
-            const MEDIA_ROW: &str = "<tr><td><code>Bundled Media &amp; Licences</code></td><td><code>media/bin/</code></td><td><code>ffmpeg</code>/<code>ffprobe</code>, exact application/Rust/media licence evidence and checksum manifests are included; corresponding source is supplied beside the platform archive. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom overrides.</td></tr>";
+            const MEDIA_ROW: &str = "<tr><td><code>Bundled Media &amp; Licences</code></td><td><code>media/bin/</code> (or <code>/usr/lib/neoflash/media/bin/</code>)</td><td><code>ffmpeg</code>/<code>ffprobe</code>, exact application/Rust/media licence evidence and checksum manifests are included; corresponding source is supplied beside the platform archive. Set <code>NEOFLASH_FFMPEG</code> / <code>NEOFLASH_FFPROBE</code> only for custom overrides.</td></tr>";
 
             out.push_str(
                 "<h3>NeoFlash 0.1.0-beta.1 — Release Identity, Install, Manual Update, Media &amp; Known Issues</h3>\
                  <table class=\"ref-table\"><thead><tr><th>Area</th><th>0.1.0-beta.1 Specification</th><th>Details &amp; Operational Guidance</th></tr></thead><tbody>\
-                 <tr><td><code>Release Identity</code></td><td><code>NeoFlash 0.1.0-beta.1</code> · macOS 15+ Apple Silicon · Windows/Linux x64 Technical Preview</td><td>Windows is an unsigned portable ZIP; Linux is an Ubuntu 24.04-compatible portable tar.gz.</td></tr>",
+                 <tr><td><code>Release Identity</code></td><td><code>NeoFlash 0.1.0-beta.1</code> · macOS 15+ Apple Silicon · macOS 12+ Intel (<code>x86_64</code>) · Windows/Linux x64 Technical Previews</td><td>macOS DMG/ZIP bundles are Developer ID signed and Apple notarized; Windows is an unsigned portable ZIP; Linux ships as an Ubuntu 24.04 <code>amd64</code> <code>.deb</code> and portable <code>tar.gz</code>.</td></tr>",
             );
             out.push_str(INSTALL_ROW);
             out.push_str(MEDIA_ROW);
             out.push_str(
                 "<tr><td><code>Backups &amp; Bug Reports</code></td><td>Versioned <code>.nflash</code> JSON + <code>About NeoFlash</code></td><td>Keep <code>.nflash</code> projects in Git or regular file backups. Attach a minimal <code>.nflash</code> repro, <code>Output</code> panel diagnostics, and the build commit from <code>NeoFlash &gt; About NeoFlash</code> when reporting bugs.</td></tr>\
-                 <tr><td><code>Known Issues &amp; Limits</code></td><td>VoiceOver, Intel Macs, updates, Windows / Linux previews, graphics tablets</td><td>Spoken VoiceOver output has not been verified. There is no build for Intel (x86_64) Macs. Updates are installed manually. The Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger. The Linux preview is available as a Debian package or portable archive for Ubuntu 24.04 x64 with X11 and Wayland. Windows and Linux have had less testing than macOS. Import of legacy Flash files is partial. Graphics-tablet support is experimental.</td></tr>\
+                 <tr><td><code>Known Issues &amp; Limits</code></td><td>VoiceOver, separate macOS bundles, manual updates, Windows / Linux previews, graphics tablets</td><td>Spoken VoiceOver output has not been verified. Apple Silicon (<code>arm64</code>) and Intel (<code>x86_64</code>) macOS bundles are distributed separately (no fat universal binary). Updates are installed manually. The Windows preview is unsigned, so SmartScreen may warn before the first launch, and it has no connected debugger. The Linux preview targets Ubuntu 24.04 x64 with X11 and Wayland. Import of legacy Flash files is bounded. Graphics-tablet support is experimental.</td></tr>\
                  </tbody></table>\
                  <h3>Classic Flash &lt;ESC&gt; Two-Key Code Chords in Actions (All 50 Chords)</h3>\
                  <table class=\"ref-table\"><thead><tr><th>Chord</th><th>Inserted Template</th><th>Purpose</th></tr></thead><tbody>",
@@ -1251,7 +1251,7 @@ pub(crate) fn render_browser_help_html_for_project(
 
     html.push_str(
         "<header class=\"top-header\" id=\"top\"><div>\
-         <h1>NeoFlash Help &amp; Reference (0.1.0-beta.1 · macOS + Windows/Linux x64 previews)</h1>\
+         <h1>NeoFlash Help &amp; Reference (0.1.0-beta.1 · macOS Apple Silicon &amp; Intel + Windows/Linux x64 previews)</h1>\
          <p>",
     );
     html.push_str(HEADER_SUMMARY);
