@@ -60,6 +60,8 @@
     function subscribe(type, callback) {
       const capture = guarded(callback);
       const target = guarded(event => { if (event.target === stage) callback(event); });
+      capture.__nfInternalBridge = true;
+      target.__nfInternalBridge = true;
       // Stage capture sees descendant events even if they stop bubbling. The
       // separate target listener handles unfocused input without double delivery.
       stage.addEventListener(type, capture, true, 2147483647);
@@ -82,6 +84,8 @@
       subscribe('keyUp', event => key(event, false));
       subscribe('mouseDown', () => broadcast(mouseListeners, 'onMouseDown'));
       subscribe('mouseUp', () => broadcast(mouseListeners, 'onMouseUp'));
+      subscribe('rightMouseDown', () => broadcast(mouseListeners, 'onRightMouseDown'));
+      subscribe('rightMouseUp', () => broadcast(mouseListeners, 'onRightMouseUp'));
       subscribe('mouseMove', event => {
         lastMovementX = Number(event?.movementX) || 0;
         lastMovementY = Number(event?.movementY) || 0;
@@ -89,6 +93,14 @@
       });
       subscribe('mouseWheel', event => broadcast(mouseListeners, 'onMouseWheel', [event.delta, event.target]));
       subscribe('resize', () => broadcast(stageListeners, 'onResize'));
+    }
+    function hasRightMouseListeners() {
+      if (disposed || mouseListeners.size === 0) return false;
+      for (const listener of [...mouseListeners]) {
+        if (options.alive && !options.alive(listener)) { mouseListeners.delete(listener); continue; }
+        if (typeof listener?.onRightMouseDown === 'function' || typeof listener?.onRightMouseUp === 'function') return true;
+      }
+      return false;
     }
     function unbind() { for (const cleanup of subscriptions.splice(0)) cleanup(); }
     function setVisible(next) {
@@ -146,7 +158,7 @@
     bind(); options.keyTarget?.addEventListener?.('blur', blur);
     options.keyTarget?.addEventListener?.('keydown', observeKey, true);
     options.keyTarget?.addEventListener?.('keyup', observeKey, true);
-    return Object.freeze({ Key, Mouse, Stage, reset, dispose, hasKeyListeners: () => keyListeners.size > 0 || keyUsed, broadcastStage:(name,args=[])=>{active();broadcast(stageListeners,name,args);} });
+    return Object.freeze({ Key, Mouse, Stage, reset, dispose, hasKeyListeners: () => keyListeners.size > 0 || keyUsed, hasRightMouseListeners, broadcastStage:(name,args=[])=>{active();broadcast(stageListeners,name,args);} });
   }
   const api = Object.freeze({ create });
   global.NeoFlashLegacyInput = api;

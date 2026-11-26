@@ -3,11 +3,21 @@
 //! 89a7049965f3090e706265670df309a5128233ac; see docs/AS2-DISPLAY-BATCH.md.
 use super::*;
 const MAX_DEPTH: i32 = 1_048_575;
+const MIN_SWAP_DEPTH: i32 = -16_384;
 
 fn depth_value(value: i32) -> Result<(), DisplayError> {
     if !(0..=MAX_DEPTH).contains(&value) {
         return Err(error(
             "AS2 runtime depth requires an integer from 0 through 1048575; authored negative depths are read-only",
+        ));
+    }
+    Ok(())
+}
+
+fn swap_depth_value(value: i32) -> Result<(), DisplayError> {
+    if !(MIN_SWAP_DEPTH..=MAX_DEPTH).contains(&value) {
+        return Err(error(
+            "AS2 swapDepths requires an integer depth from -16384 through 1048575",
         ));
     }
     Ok(())
@@ -24,6 +34,15 @@ impl RuntimeGraph {
                     .map(|(_, depth)| (child.clone(), *depth))
             })
             .collect();
+        for (child, (owner, depth)) in &self.as2_depths {
+            if owner == parent
+                && self.alive(child)
+                && self.parent(child).as_ref() == Some(parent)
+                && !result.contains_key(child)
+            {
+                result.insert(child.clone(), *depth);
+            }
+        }
         let mut used: BTreeSet<i32> = result.values().copied().collect();
         let mut next = 0;
         for child in children {
@@ -48,6 +67,36 @@ impl RuntimeGraph {
         if let Some(children) = self.suffix.get_mut(parent) {
             children.sort_by_key(|child| depths.get(child).copied().unwrap_or(0));
         }
+        let has_promoted_child = depths
+            .keys()
+            .any(|id| self.as2_promoted.contains_key(id) || depths[id] < 0);
+        if has_promoted_child {
+            let prefix_positions: HashMap<ObjectRef, i32> = self
+                .prefix
+                .get(parent)
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .map(|(pos, child)| (child.clone(), pos as i32 - 16_384))
+                .collect();
+            let current = self.children(parent);
+            let mut decorated: Vec<(i32, usize, ObjectRef)> = current
+                .into_iter()
+                .enumerate()
+                .map(|(ord, child)| {
+                    let d = depths
+                        .get(&child)
+                        .copied()
+                        .or_else(|| prefix_positions.get(&child).copied())
+                        .unwrap_or(ord as i32);
+                    (d, ord, child)
+                })
+                .collect();
+            decorated.sort_by_key(|(d, ord, _)| (*d, *ord));
+            let sorted: Vec<ObjectRef> = decorated.into_iter().map(|(_, _, c)| c).collect();
+            self.set_child_order(parent, sorted);
+            return;
+        }
         // Keep authored slots in their explicit AS3 order, while depth changes
         // reorder the runtime siblings within the runtime slots.
         if let Some(order) = self.child_order.get_mut(parent) {
@@ -69,7 +118,7 @@ impl RuntimeGraph {
 impl Player {
     /// Relative AS2 component depth policy over the existing runtime suffix.
     /// Numeric tiers belong to this bounded profile; raw swapDepths may override
-    /// them. Authored negative-depth placements remain immutable.
+    /// them.
     pub fn as2_depth_manager(
         &mut self,
         reference: &ObjectRef,
@@ -83,6 +132,13 @@ impl Player {
                 json!({"kCursor":101,"kTooltip":102,"kTop":201,"kBottom":202,"kTopmost":203,"kNotopmost":204}),
             );
         }
+        if op == "remove" {
+            let (mutation, retired) = self.as2_remove_subtree(reference)?;
+            return Ok(json!({
+                "events": mutation.events,
+                "retired": retired,
+            }));
+        }
         if !self.graph.alive(reference) {
             return Err(error("DepthManager target is stale or foreign"));
         }
@@ -90,7 +146,9 @@ impl Player {
         let parent = if planning {
             reference.clone()
         } else {
-            if !self.graph.dynamic.contains_key(reference) {
+            if !self.graph.dynamic.contains_key(reference)
+                && !self.graph.as2_promoted.contains_key(reference)
+            {
                 return Err(error(
                     "DepthManager currently reorders runtime MovieClips; authored negative-depth placements are unsupported",
                 ));
@@ -213,17 +271,24 @@ impl Player {
         if !self.graph.alive(parent) {
             return Err(error("AS2 depth container is stale or foreign"));
         }
+        if let Some(found) = self
+            .graph
+            .as2_depths(parent)
+            .into_iter()
+            .find_map(|(child, value)| (value == depth).then_some(child))
+        {
+            return Ok(Some(found));
+        }
         if depth < 0 {
             return Ok(usize::try_from(depth + 16384)
                 .ok()
                 .and_then(|index| self.graph.prefix.get(parent)?.get(index).cloned())
-                .filter(|child| self.graph.parent(child).as_ref() == Some(parent)));
+                .filter(|child| {
+                    !self.graph.as2_promoted.contains_key(child)
+                        && self.graph.parent(child).as_ref() == Some(parent)
+                }));
         }
-        Ok(self
-            .graph
-            .as2_depths(parent)
-            .into_iter()
-            .find_map(|(child, value)| (value == depth).then_some(child)))
+        Ok(None)
     }
     /// Replacement is confined to runtime children. Ordinary AS3 mutations keep
     /// their index semantics and never call this function or sort the list.
@@ -265,13 +330,7 @@ impl Player {
             },
         )?;
         if let Some(old) = occupied {
-            let removed = self.display_mutate(
-                project,
-                DisplayMutation::Remove {
-                    parent: parent.clone(),
-                    child: old,
-                },
-            )?;
+            let (removed, _) = self.as2_remove_subtree(&old)?;
             let mut events = removed.events;
             events.append(&mut result.events);
             result.events = events;
@@ -282,24 +341,276 @@ impl Player {
         self.graph.as2_sort_depths(parent);
         Ok(result)
     }
+    fn as2_promote_placement(&mut self, target: &ObjectRef) -> Result<(), DisplayError> {
+        if self.graph.dynamic.contains_key(target) || self.graph.as2_promoted.contains_key(target) {
+            return Ok(());
+        }
+        let (name, transform, visible, kind, symbol_id, frame) =
+            if let Some(address) = self.graph.linked_paths.get(target).cloned() {
+                let scoped = self
+                    .graph
+                    .namespaces
+                    .get(&address.namespace)
+                    .ok_or_else(|| error("swapDepths linked namespace is no longer active"))?;
+                let node = scoped
+                    .player
+                    .previous
+                    .get(&address.path)
+                    .ok_or_else(|| error("swapDepths target placement is no longer active"))?;
+                let mut t = node.transform;
+                let mut vis = node.visible;
+                let mut nm = node.name.clone();
+                if let Some(patch) = scoped.player.overrides.get(&address.path) {
+                    patch.apply(&mut t);
+                    if let Some(v) = patch.visible {
+                        vis = v;
+                    }
+                    if let Some(n) = &patch.name {
+                        nm = n.clone();
+                    }
+                }
+                (
+                    nm,
+                    t,
+                    vis,
+                    node.kind.clone(),
+                    node.symbol_id.clone(),
+                    node.frame,
+                )
+            } else if let Some(path) = self.graph.paths.get(target).cloned() {
+                if path.is_empty() {
+                    return Err(error("swapDepths cannot promote the root timeline"));
+                }
+                let node = self
+                    .previous
+                    .get(&path)
+                    .ok_or_else(|| error("swapDepths target placement is no longer active"))?;
+                let mut t = node.transform;
+                let mut vis = node.visible;
+                let mut nm = node.name.clone();
+                if let Some(patch) = self.overrides.get(&path) {
+                    patch.apply(&mut t);
+                    if let Some(v) = patch.visible {
+                        vis = v;
+                    }
+                    if let Some(n) = &patch.name {
+                        nm = n.clone();
+                    }
+                }
+                (
+                    nm,
+                    t,
+                    vis,
+                    node.kind.clone(),
+                    node.symbol_id.clone(),
+                    node.frame,
+                )
+            } else {
+                return Err(error("swapDepths requires a live MovieClip"));
+            };
+        if !self.graph.affines.contains_key(target)
+            && let Ok(affine) = transform::AffineState::new(transform_matrix(transform))
+        {
+            self.graph.affines.insert(target.clone(), affine);
+        }
+        self.graph
+            .color_transforms
+            .entry(target.clone())
+            .or_insert_with(|| transform.color_transform.with_alpha(transform.alpha));
+        self.graph.as2_promoted.insert(
+            target.clone(),
+            PromotedAuthoredMeta {
+                name,
+                transform,
+                visible,
+                kind,
+                symbol_id,
+                frame,
+            },
+        );
+        if let Some(parent) = self.graph.parent(target) {
+            let suffix = self.graph.suffix.entry(parent).or_default();
+            if !suffix.contains(target) {
+                suffix.push(target.clone());
+            }
+        }
+        Ok(())
+    }
+    pub fn as2_remove_subtree(
+        &mut self,
+        reference: &ObjectRef,
+    ) -> Result<(MutationResult, Vec<ObjectRef>), DisplayError> {
+        if !self.graph.alive(reference) {
+            return Ok((MutationResult::default(), Vec::new()));
+        }
+        let Some(parent) = self.graph.parent(reference) else {
+            return Ok((MutationResult::default(), Vec::new()));
+        };
+        self.graph
+            .validate_loader_mutation(&DisplayMutation::Remove {
+                parent: parent.clone(),
+                child: reference.clone(),
+            })?;
+        let subtree = self.graph.subtree(reference);
+        if subtree.len() + 1 > MAX_DISPLAY_EVENTS {
+            return Err(error("AS2 removal exceeds its lifecycle event budget"));
+        }
+        let attached = self.graph.on_stage(reference);
+        let target_route = self.graph.route(reference);
+        let mut events = vec![DisplayEvent {
+            kind: "removed".into(),
+            stage_route: attached,
+            target_ref: reference.clone(),
+            route: target_route,
+        }];
+        if attached {
+            for id in &subtree {
+                events.push(DisplayEvent {
+                    kind: "removed_from_stage".into(),
+                    stage_route: true,
+                    target_ref: id.clone(),
+                    route: self.graph.route(id),
+                });
+            }
+        }
+
+        self.graph.detach_child(reference);
+
+        let mut descendants: BTreeSet<ObjectRef> = subtree.into_iter().skip(1).collect();
+        // Also collect any authored descendants under `reference`'s path and any linked_authored
+        // nodes belonging to namespaces inside the removed subtree.
+        if let Some(root_path) = self.graph.paths.get(reference).cloned() {
+            if let Some(auth) = self.graph.authored.get(&root_path) {
+                self.graph
+                    .retired_promoted_slots
+                    .insert(RetiredAuthoredSlot {
+                        namespace: None,
+                        path: root_path.clone(),
+                        lifetime: auth.lifetime,
+                    });
+            }
+            let sub_paths: Vec<Vec<Id>> = self
+                .graph
+                .authored
+                .keys()
+                .filter(|p| p.len() > root_path.len() && p.starts_with(&root_path))
+                .cloned()
+                .collect();
+            for sp in sub_paths {
+                if let Some(auth) = self.graph.authored.remove(&sp) {
+                    self.graph
+                        .retired_promoted_slots
+                        .insert(RetiredAuthoredSlot {
+                            namespace: None,
+                            path: sp,
+                            lifetime: auth.lifetime,
+                        });
+                    self.graph.paths.remove(&auth.reference);
+                    descendants.insert(auth.reference);
+                }
+            }
+        } else if let Some(addr) = self.graph.linked_paths.get(reference).cloned() {
+            if let Some(auth) = self.graph.linked_authored.get(&addr) {
+                self.graph
+                    .retired_promoted_slots
+                    .insert(RetiredAuthoredSlot {
+                        namespace: Some(addr.namespace.clone()),
+                        path: addr.path.clone(),
+                        lifetime: auth.lifetime,
+                    });
+            }
+            let sub_addrs: Vec<SourceAddress> = self
+                .graph
+                .linked_authored
+                .keys()
+                .filter(|a| {
+                    a.namespace == addr.namespace
+                        && a.path.len() > addr.path.len()
+                        && a.path.starts_with(&addr.path)
+                })
+                .cloned()
+                .collect();
+            for sa in sub_addrs {
+                if let Some(auth) = self.graph.linked_authored.remove(&sa) {
+                    self.graph
+                        .retired_promoted_slots
+                        .insert(RetiredAuthoredSlot {
+                            namespace: Some(sa.namespace),
+                            path: sa.path,
+                            lifetime: auth.lifetime,
+                        });
+                    self.graph.linked_paths.remove(&auth.reference);
+                    descendants.insert(auth.reference);
+                }
+            }
+        }
+
+        // Stop and remove any LinkedNamespaces owned by `reference` or its descendants.
+        let mut ns_queue: Vec<ObjectRef> = std::iter::once(reference.clone())
+            .chain(descendants.iter().cloned())
+            .filter(|id| self.graph.namespaces.contains_key(id))
+            .collect();
+        while let Some(ns_id) = ns_queue.pop() {
+            if let Some(mut ns) = self.graph.namespaces.remove(&ns_id) {
+                let sounds = ns.player.stop_and_drain_scoped_sounds(&ns_id);
+                self.sound.extend(sounds);
+                if let Some(prefix) = ns.mounted_prefix {
+                    self.graph.retired_published_prefixes.insert(prefix);
+                }
+            }
+            let linked_keys: Vec<SourceAddress> = self
+                .graph
+                .linked_authored
+                .keys()
+                .filter(|a| a.namespace == ns_id)
+                .cloned()
+                .collect();
+            for lk in linked_keys {
+                if let Some(auth) = self.graph.linked_authored.remove(&lk) {
+                    self.graph.linked_paths.remove(&auth.reference);
+                    if descendants.insert(auth.reference.clone())
+                        && self.graph.namespaces.contains_key(&auth.reference)
+                    {
+                        ns_queue.push(auth.reference);
+                    }
+                }
+            }
+        }
+
+        let loader_sounds = self.graph.retire_loader_children(&descendants);
+        self.sound.extend(loader_sounds);
+        self.graph.retire_dynamic_descendants(&descendants);
+
+        // Convert or clean `reference` into a lightweight detached shell so immediate
+        // `.parent === null` queries succeed while zero graphics, children, text or bitmaps leak.
+        let root_loader_sounds = self
+            .graph
+            .retire_loader_children(&BTreeSet::from([reference.clone()]));
+        self.sound.extend(root_loader_sounds);
+        self.graph.convert_removed_target_to_shell(reference);
+
+        let retired_vec: Vec<ObjectRef> = descendants.into_iter().collect();
+        Ok((MutationResult { events }, retired_vec))
+    }
     pub fn as2_swap_depth(
         &mut self,
         reference: &ObjectRef,
         depth: i32,
     ) -> Result<(), DisplayError> {
-        depth_value(depth)?;
+        swap_depth_value(depth)?;
         let parent = self
             .graph
             .parent(reference)
             .ok_or_else(|| error("swapDepths requires an attached runtime MovieClip"))?;
-        if !self.graph.dynamic.contains_key(reference) {
-            return Err(error(
-                "swapDepths on authored timeline placements is outside the runtime depth profile",
-            ));
-        }
         let previous = self.as2_get_depth(reference)?;
         let other = self.as2_child_at_depth(&parent, depth)?;
         self.graph.as2_freeze_depths(&parent);
+        self.as2_promote_placement(reference)?;
+        if let Some(ref other_ref) = other
+            && other_ref != reference
+        {
+            self.as2_promote_placement(other_ref)?;
+        }
         self.graph
             .as2_depths
             .insert(reference.clone(), (parent.clone(), depth));

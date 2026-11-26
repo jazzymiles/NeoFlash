@@ -118,7 +118,7 @@ fn as2_sparse_depths_duplicate_paths_and_as3_indices_share_one_graph() {
             .unwrap(),
         None
     );
-    assert!(player.as2_swap_depth(&nested, -1).is_err());
+    assert!(player.as2_swap_depth(&nested, -16_385).is_err());
     // Component DepthManager shares the same graph, with normal/topmost tiers.
     player
         .as2_depth_manager(&first, serde_json::json!({"op":"set","flag":203}))

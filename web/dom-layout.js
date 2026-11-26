@@ -1472,6 +1472,23 @@
       });
     }
 
+    function onSceneAuxClick(event) {
+      if (disposed || event.button !== 2) return;
+      guardedCall(() => {
+        const sh = getStageHost();
+        sh?.handlePointer('auxclick', event);
+      });
+    }
+    function onSceneContextMenu(event) {
+      if (disposed) return;
+      guardedCall(() => {
+        const sh = getStageHost();
+        if (sh?.shouldSuppressContextMenu?.(event)) {
+          event.preventDefault?.();
+        }
+      });
+    }
+
     const hostWin = doc?.defaultView || global;
     function onWindowPageHide(ev) {
       if (!ev?.persisted) dispose();
@@ -1480,6 +1497,8 @@
     sceneElement.addEventListener('pointermove', onScenePointerMove);
     sceneElement.addEventListener('pointerup', onScenePointerUp);
     sceneElement.addEventListener('click', onSceneBackgroundClick);
+    sceneElement.addEventListener('auxclick', onSceneAuxClick);
+    sceneElement.addEventListener('contextmenu', onSceneContextMenu);
     stageElement.addEventListener?.('pointerleave', onStagePointerLeave);
     hostWin?.addEventListener?.('pagehide', onWindowPageHide);
     cleanups.push(() => {
@@ -1487,6 +1506,8 @@
       sceneElement.removeEventListener('pointermove', onScenePointerMove);
       sceneElement.removeEventListener('pointerup', onScenePointerUp);
       sceneElement.removeEventListener('click', onSceneBackgroundClick);
+      sceneElement.removeEventListener('auxclick', onSceneAuxClick);
+      sceneElement.removeEventListener('contextmenu', onSceneContextMenu);
       stageElement.removeEventListener?.('pointerleave', onStagePointerLeave);
       hostWin?.removeEventListener?.('pagehide', onWindowPageHide);
     });
@@ -2013,9 +2034,9 @@
           : sanitizeDomLinkHref(rawUrl);
         const node = safeHref ? doc.createElement('a') : doc.createElement('span');
         node.textContent = segmentText;
-        if (fmt?.bold) node.style.fontWeight = 'bold';
-        if (fmt?.italic) node.style.fontStyle = 'italic';
-        if (fmt?.underline || safeHref) node.style.textDecoration = 'underline';
+        node.style.fontWeight = fmt?.bold ? 'bold' : 'normal';
+        node.style.fontStyle = fmt?.italic ? 'italic' : 'normal';
+        node.style.textDecoration = (fmt?.underline || safeHref) ? 'underline' : 'none';
         if (Number.isInteger(fmt?.color)) node.style.color = rgbIntToCss(fmt.color);
         if (Number(fmt?.size) > 0) node.style.fontSize = `${fmt.size}px`;
         if (fmt?.font) {
@@ -2065,7 +2086,7 @@
         container.appendChild(node);
       };
       for (const run of runs) {
-        const b = Math.max(cursor, Math.min(fullText.length, Number(run.begin) || 0));
+        const b = Math.max(cursor, Math.min(fullText.length, Number(run.start ?? run.begin) || 0));
         const e = Math.max(b, Math.min(fullText.length, Number(run.end) || 0));
         if (b > cursor) appendSegment(fullText.slice(cursor, b), field.format || {});
         if (e > b) appendSegment(fullText.slice(b, e), { ...(field.format || {}), ...(run.format || {}) });
@@ -2237,6 +2258,100 @@
       svg.setAttribute('height', '1');
       svg.setAttribute('viewBox', '0 0 1 1');
       svg.innerHTML = `${defsMarkup}${clipWrapStart}${body}${clipWrapEnd}`;
+    }
+
+    function updateSvgBatchElement(rec, batchDraws, invContainer, clipsById) {
+      const svg = rec.element;
+      svg.style.overflow = 'visible';
+      svg.style.transform = 'matrix(1, 0, 0, 1, 0, 0)';
+      svg.style.opacity = '1';
+
+      const firstItem = batchDraws[0];
+      const clipSig = firstItem?.clip_ids?.length
+        ? firstItem.clip_ids.map(cid => clipsById.get(cid))
+        : null;
+      const sig = JSON.stringify([
+        batchDraws.map(d => [d.kind, d.transform, d.alpha]),
+        clipSig,
+        firstItem?.clip_ids?.length ? invContainer : null,
+      ]);
+      if (rec.signature === sig) return;
+      rec.signature = sig;
+
+      const defs = [];
+      let clipWrapStart = '';
+      let clipWrapEnd = '';
+      if (firstItem?.clip_ids?.length && invContainer) {
+        for (let ci = 0; ci < firstItem.clip_ids.length; ci++) {
+          const clip = clipsById.get(firstItem.clip_ids[ci]);
+          if (!clip) continue;
+          const cid = `nf-clip-${rec.uid}-${ci}`;
+          const compPaths = (clip.components || []).map(comp => {
+            if (typeof comp.alpha === 'number' && comp.alpha <= 0) return '';
+            const relM = matMultiply(invContainer, comp.matrix || [1, 0, 0, 1, 0, 0]);
+            const d = svgPathData(comp.commands || []);
+            const rule = comp.fill_rule === 'evenodd' ? 'evenodd' : 'nonzero';
+            return `<path d="${xmlAttrEscape(d)}" clip-rule="${rule}" transform="matrix(${relM[0]} ${relM[1]} ${relM[2]} ${relM[3]} ${relM[4]} ${relM[5]})"/>`;
+          }).join('');
+          defs.push(`<clipPath id="${cid}" clipPathUnits="userSpaceOnUse">${compPaths}</clipPath>`);
+          clipWrapStart += `<g clip-path="url(#${cid})">`;
+          clipWrapEnd = `</g>${clipWrapEnd}`;
+        }
+      }
+
+      const shapesMarkup = [];
+      for (let idx = 0; idx < batchDraws.length; idx++) {
+        const sub = batchDraws[idx];
+        const kind = sub.kind;
+        const relM = matMultiply(invContainer, sub.transform || [1, 0, 0, 1, 0, 0]);
+        const isIdentity = Math.abs(relM[0] - 1) < 1e-9 && Math.abs(relM[1]) < 1e-9 && Math.abs(relM[2]) < 1e-9
+          && Math.abs(relM[3] - 1) < 1e-9 && Math.abs(relM[4]) < 1e-9 && Math.abs(relM[5]) < 1e-9;
+        const transformAttr = isIdentity ? '' : ` transform="matrix(${relM[0]} ${relM[1]} ${relM[2]} ${relM[3]} ${relM[4]} ${relM[5]})"`;
+        const alphaVal = Math.max(0, Math.min(1, Number(sub.alpha) || 0));
+        const opacityAttr = alphaVal < 1 ? ` opacity="${alphaVal}"` : '';
+
+        let fillAttr = 'none';
+        let fillOpacityAttr = '';
+        if (kind.fill_gradient) {
+          const gid = `nf-grad-${rec.uid}-${idx}-f`;
+          defs.push(svgGradientDef(gid, kind.fill_gradient));
+          fillAttr = `url(#${gid})`;
+        } else if (Array.isArray(kind.fill) && (kind.fill[3] ?? 0) > 0) {
+          fillAttr = `rgb(${kind.fill[0] | 0},${kind.fill[1] | 0},${kind.fill[2] | 0})`;
+          if (kind.fill[3] < 255) fillOpacityAttr = ` fill-opacity="${kind.fill[3] / 255}"`;
+        }
+
+        let strokeAttrs = ' stroke="none"';
+        const sw = Number(kind.stroke_width) || 0;
+        if (sw > 0) {
+          if (kind.stroke_gradient) {
+            const gid = `nf-grad-${rec.uid}-${idx}-s`;
+            defs.push(svgGradientDef(gid, kind.stroke_gradient));
+            strokeAttrs = ` stroke="url(#${gid})" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"`;
+          } else if (Array.isArray(kind.stroke) && (kind.stroke[3] ?? 0) > 0) {
+            const sa = kind.stroke[3] < 255 ? ` stroke-opacity="${kind.stroke[3] / 255}"` : '';
+            strokeAttrs = ` stroke="rgb(${kind.stroke[0] | 0},${kind.stroke[1] | 0},${kind.stroke[2] | 0})"${sa} stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"`;
+          }
+        }
+
+        if (kind.type === 'rectangle') {
+          shapesMarkup.push(`<rect x="0" y="0" width="${Math.max(0, kind.width)}" height="${Math.max(0, kind.height)}" fill="${fillAttr}"${fillOpacityAttr}${strokeAttrs}${opacityAttr}${transformAttr}/>`);
+        } else if (kind.type === 'ellipse') {
+          const rx = Math.max(0, kind.width / 2);
+          const ry = Math.max(0, kind.height / 2);
+          shapesMarkup.push(`<ellipse cx="${rx}" cy="${ry}" rx="${rx}" ry="${ry}" fill="${fillAttr}"${fillOpacityAttr}${strokeAttrs}${opacityAttr}${transformAttr}/>`);
+        } else {
+          const d = svgPathData(kind.commands || []);
+          const rule = kind.fill_rule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+          shapesMarkup.push(`<path d="${xmlAttrEscape(d)}" fill="${fillAttr}"${fillOpacityAttr}${rule}${strokeAttrs}${opacityAttr}${transformAttr}/>`);
+        }
+      }
+
+      const defsMarkup = defs.length ? `<defs>${defs.join('')}</defs>` : '';
+      svg.setAttribute('width', '1');
+      svg.setAttribute('height', '1');
+      svg.setAttribute('viewBox', '0 0 1 1');
+      svg.innerHTML = `${defsMarkup}${clipWrapStart}${shapesMarkup.join('')}${clipWrapEnd}`;
     }
 
     function computeOwnerLocalBounds(ownerNode, ownerDraws, semBoundsByKey, ownerKey, drawsByOwnerAndAncestors, objectsByKey) {
@@ -2635,8 +2750,10 @@
         const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : null;
         if (!rootFg && ownKey && item.procedural_graphics) {
           const clipSig = JSON.stringify(item.clip_ids || []);
+          const isSvgVectorKind = k => Boolean(k && ['rectangle', 'ellipse', 'path', 'gradient_path'].includes(k.type));
           let end = i;
           let anyReason = reason;
+          let allSvgVector = isSvgVectorKind(item.kind);
           while (end + 1 < draws.length) {
             const nxt = draws[end + 1];
             const nxtFg = nxt.filter_id ? fgAncestry(nxt.filter_id)[0] : null;
@@ -2646,10 +2763,12 @@
             if (JSON.stringify(nxt.clip_ids || []) !== clipSig) break;
             const r = islandReasonForDraw(nxt, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
             if (!anyReason && r) anyReason = r;
+            if (!isSvgVectorKind(nxt.kind)) allSvgVector = false;
             end++;
           }
           const runLen = end - i + 1;
-          if (anyReason || runLen > 12) {
+          const SVG_COALESCE_MAX = 32;
+          if (anyReason || runLen > SVG_COALESCE_MAX || (!allSvgVector && runLen > 12)) {
             const groupDraws = draws.slice(i, end + 1);
             i = end;
             renderQueue.push({
@@ -2658,6 +2777,17 @@
               reason: anyReason || 'procedural-graphics-batch',
               draws: groupDraws,
               rootFg: null,
+            });
+            continue;
+          }
+          if (allSvgVector && runLen >= 2) {
+            const groupDraws = draws.slice(i, end + 1);
+            i = end;
+            renderQueue.push({
+              type: 'dom-svg-batch',
+              batchKey: nextOwnerBatchKey(ownKey, i),
+              ownerKey: ownKey,
+              draws: groupDraws,
             });
             continue;
           }
@@ -2737,6 +2867,44 @@
             });
             mounted.targetList.push(rec.element);
           }
+          continue;
+        }
+
+        if (entry.type === 'dom-svg-batch') {
+          const visibleDraws = entry.draws.filter(d => d.alpha > 0);
+          if (!visibleDraws.length) continue;
+          const ownerKey = entry.ownerKey;
+          const ownerNode = objectsByKey.get(ownerKey) || null;
+          const chain = containerChainFor(ownerKey);
+          const mounted = mountContainerChain(chain);
+          if (!mounted.targetList) continue;
+          const invContainer = matInverse(mounted.worldMatrix) || [1, 0, 0, 1, 0, 0];
+          const isContainerOwner = ownerNode && ['movie_clip', 'sprite', 'button', 'loader'].includes(ownerNode.owner);
+          const leafBlend = !isContainerOwner && ownerNode?.blend_mode
+            ? CSS_BLEND_MODES[String(ownerNode.blend_mode).toLowerCase()]
+            : null;
+          const leafMixBlend = leafBlend && leafBlend !== 'normal' ? leafBlend : '';
+          const leafKey = `svg:${entry.batchKey}`;
+          let rec = leafRecords.get(leafKey);
+          if (rec && rec.kind !== 'svg-batch') {
+            rec.cleanup?.();
+            leafRecords.delete(leafKey);
+            rec = null;
+          }
+          if (!rec) {
+            const svg = doc.createElementNS
+              ? doc.createElementNS(SVG_NS, 'svg')
+              : doc.createElement('svg');
+            svg.setAttribute('class', 'nf-dom-svg');
+            svg.setAttribute('data-nf-id', leafKey);
+            svg.setAttribute('data-nf-kind', 'svg');
+            rec = { kind: 'svg-batch', uid: idSeq++, element: svg, signature: null, cleanup() { svg.remove(); } };
+            leafRecords.set(leafKey, rec);
+          }
+          seenLeaves.add(leafKey);
+          updateSvgBatchElement(rec, visibleDraws, invContainer, clipsById);
+          rec.element.style.mixBlendMode = leafMixBlend;
+          mounted.targetList.push(rec.element);
           continue;
         }
 

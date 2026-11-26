@@ -353,7 +353,8 @@ impl Player {
                 .saturating_sub(released_graphics)
                 .checked_add(graphics.cost())
                 .ok_or_else(|| error("Runtime Graphics storage exceeds 100000 commands/runs"))?;
-            if graphics.cost() > MAX_GRAPHICS_OPS || next_graphics_cost > MAX_GRAPHICS_COMMANDS {
+            if graphics.cost() > MAX_GRAPHICS_COMMANDS || next_graphics_cost > MAX_GRAPHICS_COMMANDS
+            {
                 return Err(error(
                     "Runtime Graphics storage exceeds 100000 commands/runs",
                 ));

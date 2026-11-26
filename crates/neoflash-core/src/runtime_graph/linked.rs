@@ -177,6 +177,7 @@ impl Player {
                 "Linked timelines exceed 100000 reserved objects, including detached clips",
             ));
         }
+        self.graph.evict_removed_shells_if_needed();
         if self.graph.dynamic.len() >= MAX_DYNAMIC_OBJECTS {
             return Err(error("Dynamic display object limit reached"));
         }
@@ -197,8 +198,49 @@ impl Player {
         Ok(reference)
     }
 
+    pub(crate) fn materialize_promoted_symbols(&mut self, project: &Project) {
+        if self.graph.promoted_symbols.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.graph.promoted_symbols);
+        let playing = self.is_playing();
+        for (reference, (symbol_id, frame)) in pending {
+            if !self.graph.dynamic.contains_key(&reference)
+                || self.graph.namespaces.contains_key(&reference)
+            {
+                continue;
+            }
+            let Ok((nodes, depth)) = symbol_budget(
+                project,
+                &symbol_id,
+                &mut BTreeSet::new(),
+                &mut HashMap::new(),
+            ) else {
+                continue;
+            };
+            let used_nodes: usize = self.graph.namespaces.values().map(|ns| ns.nodes).sum();
+            if nodes + used_nodes > MAX_LINKED_NODES {
+                continue;
+            }
+            let mut scoped = Player::with_source_root_playing(project, Some(symbol_id), playing);
+            if frame > 0 {
+                scoped.control(project, &[], PlaybackCommand::GotoAndPlay(frame));
+            }
+            self.graph.namespaces.insert(
+                reference,
+                LinkedNamespace {
+                    player: Box::new(scoped),
+                    nodes,
+                    depth,
+                    mounted_prefix: None,
+                },
+            );
+        }
+    }
+
     pub(super) fn sync_linked(&mut self, project: &Project) {
-        let placements: Vec<_> = self
+        self.materialize_promoted_symbols(project);
+        let raw_placements: Vec<_> = self
             .graph
             .namespaces
             .iter()
@@ -223,10 +265,98 @@ impl Player {
                     .collect::<Vec<_>>()
             })
             .collect();
+        let raw_active: HashMap<SourceAddress, u64> = raw_placements
+            .iter()
+            .map(|(address, lifetime, _, _, _)| (address.clone(), *lifetime))
+            .collect();
+        self.graph.retired_promoted_slots.retain(|slot| {
+            let Some(ref ns) = slot.namespace else {
+                return true;
+            };
+            raw_active.get(&SourceAddress {
+                namespace: ns.clone(),
+                path: slot.path.clone(),
+            }) == Some(&slot.lifetime)
+        });
+        let placements: Vec<_> = raw_placements
+            .into_iter()
+            .filter(|(address, _, _, _, _)| {
+                !(1..=address.path.len()).any(|k| {
+                    let prefix_addr = SourceAddress {
+                        namespace: address.namespace.clone(),
+                        path: address.path[..k].to_vec(),
+                    };
+                    raw_active.get(&prefix_addr).is_some_and(|lt| {
+                        self.graph
+                            .retired_promoted_slots
+                            .contains(&RetiredAuthoredSlot {
+                                namespace: Some(address.namespace.clone()),
+                                path: prefix_addr.path,
+                                lifetime: *lt,
+                            })
+                    })
+                })
+            })
+            .collect();
         let active: HashMap<_, _> = placements
             .iter()
             .map(|(address, lifetime, _, _, _)| (address, *lifetime))
             .collect();
+
+        let promoted_survivors: Vec<(SourceAddress, ObjectRef)> = self
+            .graph
+            .linked_authored
+            .iter()
+            .filter(|(address, node)| {
+                active.get(address) != Some(&node.lifetime)
+                    && self.graph.as2_promoted.contains_key(&node.reference)
+                    && self
+                        .graph
+                        .as2_depths
+                        .get(&node.reference)
+                        .is_some_and(|(_, d)| *d >= 0)
+                    && self.graph.parent(&node.reference).is_some()
+            })
+            .map(|(address, node)| (address.clone(), node.reference.clone()))
+            .collect();
+        for (address, reference) in promoted_survivors {
+            let parent = self.graph.parent(&reference);
+            let meta = self
+                .graph
+                .as2_promoted
+                .remove(&reference)
+                .expect("promoted metadata");
+            self.graph.linked_authored.remove(&address);
+            self.graph.linked_paths.remove(&reference);
+            self.graph.parent_overrides.remove(&reference);
+            if let Some(ref sym_id) = meta.symbol_id {
+                self.graph
+                    .promoted_symbols
+                    .insert(reference.clone(), (sym_id.clone(), meta.frame));
+            }
+            self.graph.dynamic.insert(
+                reference.clone(),
+                DynamicObject {
+                    kind: DynamicKind::MovieClip,
+                    parent: parent.clone(),
+                    transform: meta.transform,
+                    visible: meta.visible,
+                    name: meta.name,
+                    playing: true,
+                    graphics: GraphicsState::default(),
+                    authored_kind: meta.kind,
+                },
+            );
+            if let Some(parent_ref) = parent {
+                let suffix = self.graph.suffix.entry(parent_ref).or_default();
+                if !suffix.contains(&reference) {
+                    suffix.push(reference);
+                }
+            }
+        }
+        if !self.graph.promoted_symbols.is_empty() {
+            self.materialize_promoted_symbols(project);
+        }
         let retired_info: Vec<_> = {
             let mut list: Vec<_> = self
                 .graph
@@ -313,15 +443,17 @@ impl Player {
                 && !self.graph.namespaces.contains_key(reference)
         });
         for (address, _, _, _, _) in placements {
-            let parent = self
+            if let Some(parent) = self
                 .graph
                 .linked_ref(&address.namespace, &address.path[..address.path.len() - 1])
-                .expect("namespace parent");
-            self.graph
-                .prefix
-                .entry(parent)
-                .or_default()
-                .push(self.graph.linked_authored[&address].reference.clone());
+                && let Some(child_node) = self.graph.linked_authored.get(&address)
+            {
+                self.graph
+                    .prefix
+                    .entry(parent)
+                    .or_default()
+                    .push(child_node.reference.clone());
+            }
         }
         for address in added_addresses {
             let Some(node) = self.graph.linked_authored.get(&address) else {
@@ -388,6 +520,9 @@ impl Player {
     }
 
     pub(crate) fn tick_linked(&mut self, project: &Project) {
+        if !self.graph.promoted_symbols.is_empty() {
+            self.sync_linked(project);
+        }
         let namespaces: Vec<_> = self.graph.namespaces.keys().cloned().collect();
         let mut remaining = self.budget;
         for namespace in &namespaces {

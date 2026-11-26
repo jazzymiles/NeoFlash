@@ -115,18 +115,21 @@ function create(options={}){
  Promise.resolve(promise).then(()=>{if((disposed||born!==generation)&&ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});},error=>{if(!disposed&&born===generation)report(new Error('Fullscreen request was rejected: '+String(error)));});
  }
  function screenSize(name){active();const value=Number((options.screen||global.screen)?.[name]);if(!Number.isFinite(value)||value<=0)throw new Error('Browser monitor dimensions are unavailable.');return value;}
- function menu(event){if(!disposed&&!state().showMenu)event.preventDefault();}
+ function shouldSuppressNativeMenu(){return !disposed&&(!state().showMenu||Boolean(legacy?.hasRightMouseListeners?.()));}
+ function menu(event){if(shouldSuppressNativeMenu())event.preventDefault?.();}
  const Stage={get width(){active();return last?.logicalWidth??legacy.Stage.width;},get height(){active();return last?.logicalHeight??legacy.Stage.height;},addListener:listener=>legacy.Stage.addListener(listener),removeListener:listener=>legacy.Stage.removeListener(listener),get displayState(){active();return ownsFullscreen()?'fullScreen':'normal';},set displayState(value){display(value);},get fullScreenWidth(){return screenSize('width');},get fullScreenHeight(){return screenSize('height');}};
  for(const name of ['align','scaleMode','showMenu','fullScreenSourceRect'])Object.defineProperty(Stage,name,{enumerable:true,get(){const value=state()[name];return name==='fullScreenSourceRect'&&value?new geometry.Rectangle(value.x,value.y,value.width,value.height):value;},set(value){change(name,value);}});
  Object.defineProperty(Stage,'wmodeGPU',{enumerable:true,get(){return Boolean(state().wmodeGPU);},set(){throw new TypeError('Stage.wmodeGPU is read-only.');}});
  Object.freeze(Stage);
  const onFullscreen=()=>{try{fullScreenChanged();}catch(error){report(error);}};
+ const surface=options.stageSurface||canvas?.parentElement||null;
  doc?.addEventListener?.('fullscreenchange',onFullscreen);doc?.addEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.addEventListener?.('contextmenu',menu);
+ if(surface&&surface!==canvas)surface.addEventListener?.('contextmenu',menu);
  const menus=createMenus(options,call,()=>state().showMenu);
  function reset(){if(disposed)return;menus.reset();generation++;requestGeneration=0;if(ownsFullscreen())Promise.resolve(exitFs()).catch(()=>{});fullscreen=false;core.free();core=makeCore();enabled=false;last=null;if(viewport?.style)viewport.style.overflow=initialOverflow;if(preview)preview.setStageLayout?.(null);}
- function dispose(){if(disposed)return;reset();menus.dispose();doc?.removeEventListener?.('fullscreenchange',onFullscreen);doc?.removeEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.removeEventListener?.('contextmenu',menu);core.free();disposed=true;}
+ function dispose(){if(disposed)return;reset();menus.dispose();doc?.removeEventListener?.('fullscreenchange',onFullscreen);doc?.removeEventListener?.('webkitfullscreenchange',onFullscreen);canvas?.removeEventListener?.('contextmenu',menu);if(surface&&surface!==canvas)surface.removeEventListener?.('contextmenu',menu);core.free();disposed=true;}
  function syncPassiveLayout(vw,vh){active();last=call({op:'layout',width:vw,height:vh,fullscreen:ownsFullscreen()});return last;}
- return Object.freeze({Stage,layout,syncPassiveLayout,activate,isActive:()=>enabled,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,menuState:menus.menuState,triggerBuiltin:menus.triggerBuiltin,reset,dispose});
+ return Object.freeze({Stage,layout,syncPassiveLayout,activate,isActive:()=>enabled,suppressesNativeContextMenu:shouldSuppressNativeMenu,ContextMenu:menus.ContextMenu,ContextMenuItem:menus.ContextMenuItem,menuRef:menus.menuRef,menuState:menus.menuState,triggerBuiltin:menus.triggerBuiltin,reset,dispose});
 }
 const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Stage=api;
 })(globalThis);

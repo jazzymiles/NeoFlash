@@ -9,7 +9,9 @@ impl RuntimeGraph {
             parent.clone(),
             children
                 .iter()
-                .filter(|child| self.dynamic.contains_key(*child))
+                .filter(|child| {
+                    self.dynamic.contains_key(*child) || self.as2_promoted.contains_key(*child)
+                })
                 .cloned()
                 .collect(),
         );
@@ -18,6 +20,7 @@ impl RuntimeGraph {
 
     pub(super) fn detach_child(&mut self, child: &ObjectRef) {
         self.stage_order.retain(|id| id != child);
+        self.as2_depths.remove(child);
         for state in self.button_states.values_mut() {
             for slot in &mut state.slots {
                 if slot.as_ref() == Some(&Some(child.clone())) {
@@ -49,11 +52,19 @@ impl RuntimeGraph {
                 .entry(parent.clone())
                 .or_default()
                 .push(child.clone());
-        } else if self.source_parent(child).as_ref() == Some(parent) {
-            self.parent_overrides.remove(child);
         } else {
-            self.parent_overrides
-                .insert(child.clone(), Some(parent.clone()));
+            if self.as2_promoted.contains_key(child) {
+                let suffix = self.suffix.entry(parent.clone()).or_default();
+                if !suffix.contains(child) {
+                    suffix.push(child.clone());
+                }
+            }
+            if self.source_parent(child).as_ref() == Some(parent) {
+                self.parent_overrides.remove(child);
+            } else {
+                self.parent_overrides
+                    .insert(child.clone(), Some(parent.clone()));
+            }
         }
         children.insert(index, child.clone());
         self.set_child_order(parent, children);
@@ -63,6 +74,10 @@ impl RuntimeGraph {
     /// accidentally reconnect to a new placement at the same authored path.
     pub(super) fn forget_hierarchy(&mut self, retired: &BTreeSet<ObjectRef>) {
         self.stage_order.retain(|id| !retired.contains(id));
+        self.as2_promoted.retain(|id, _| !retired.contains(id));
+        self.promoted_symbols.retain(|id, _| !retired.contains(id));
+        self.as2_depths
+            .retain(|id, (owner, _)| !retired.contains(id) && !retired.contains(owner));
         self.parent_overrides.retain(|id, _| !retired.contains(id));
         for parent in self.parent_overrides.values_mut() {
             if parent.as_ref().is_some_and(|id| retired.contains(id)) {

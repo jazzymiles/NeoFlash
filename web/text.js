@@ -461,7 +461,7 @@
       if(name==='restrict'){if(value!==null&&typeof value!=='string')throw new TypeError('TextField.restrict requires String or null.');update(ref,{restrict:{value}});return true;}
       if(['selectionBeginIndex','selectionEndIndex','caretIndex'].includes(name))throw new TypeError(`TextField.${name} is read-only; use setSelection.`);
       if(name==='text'){if(fieldStates.get(ref)?.style)throw illegalTextOp();update(ref,{text:string(value)});clearHtmlSource(ref);return true;}
-      if(name==='textColor'){if(value===null||value===undefined)throw new TypeError('TextField.textColor requires an RGB integer.');update(ref,{format:{color:formatValue('color',value)}});clearHtmlSource(ref);return true;}
+      if(name==='textColor'){if(value===null||value===undefined)throw new TypeError('TextField.textColor requires an RGB integer.');const c=formatValue('color',value);update(ref,{format:{color:c},default_format:{color:c}});clearHtmlSource(ref);return true;}
       if(name==='multiline'||name==='wordWrap'){if(typeof value!=='boolean')throw new TypeError(`TextField.${name} requires a Boolean.`);update(ref,{[name==='wordWrap'?'word_wrap':name]:value});return true;}
       if(name==='defaultTextFormat'){if(fieldStates.get(ref)?.style)throw illegalTextOp();update(ref,{default_format:formatPatch(value)});return true;}
       if(name==='width'||name==='height'||name==='_width'||name==='_height'){
@@ -1598,6 +1598,8 @@
     }
 
     function invalidateCache(){cache.clear();cacheBytes=0;}
+    function forgetField(ref){fieldStates.delete(ref);}
+    function pruneDeadFields(){if(typeof player.object_alive!=='function')return;for(const ref of [...fieldStates.keys()])if(!player.object_alive(ref))fieldStates.delete(ref);}
     function reset(){active();invalidateCache();fieldStates.clear();sharedRichClipboard=null;setRendererState(defaultRenderer());rendererAntiAliasType=AntiAliasType.NORMAL;registeredFonts.length=0;registeredFontClasses.clear();}
     function dispose(){if(disposed)return;reset();for(const fn of domCleanups)fn();domCleanups.length=0;disposed=true;}
     return Object.freeze({
@@ -1624,7 +1626,7 @@
       bindAs2TextEvent:fn=>{as2TextEvent=fn;},
       wheel:(ref,event)=>as2Wheel?.(ref,event)||false,
       notifyLayout:ref=>onUpdate(ref),
-      invalidateCache,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,userInteractionModeChanged,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED
+      invalidateCache,forgetField,pruneDeadFields,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextRenderer,Font,StyleSheet,TextSnapshot,snapshotFor,linkAt,isFontCompatible,TextLineMetrics,info,update,userInteractionModeChanged,layout,get,set,methods,bounds,draw,hit,reset,dispose,UNHANDLED
     });
   }
   const api={create,TextFormat,TextFormatAlign,TextFormatDisplay,TextFieldType,TextFieldAutoSize,AntiAliasType,GridFitType,FontStyle,FontType,TextColorType,TextDisplayMode,TextInteractionMode,CSMSettings,TextLineMetrics,formatPatch,formatCopy,cssFontFamily,cssFont,applyFont,graphemeBoundaries,snapGraphemeFloor,snapGraphemeCeil,prevGrapheme,nextGrapheme,graphemeSafeDiff,sliceFieldRuns};

@@ -440,32 +440,268 @@ struct HtmlResult {
     images: Vec<HtmlImageSpec>,
 }
 
-fn normalize_html_void_tags(source: &str) -> String {
-    let stage1 = source
-        .replace("<br>", "<br/>")
-        .replace("<BR>", "<BR/>")
-        .replace("&nbsp;", "&#160;");
-    // Self-close bare <img ...> tags when no closing </img> is present.
-    if stage1.to_ascii_lowercase().contains("</img") {
-        return stage1;
+fn decode_flash_html_entities(input: &str) -> String {
+    if !input.contains('&') {
+        return input.to_owned();
     }
-    let bytes = stage1.as_bytes();
-    let mut out = String::with_capacity(stage1.len() + 16);
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
     let mut i = 0usize;
     while i < bytes.len() {
-        if bytes[i] == b'<'
-            && i + 4 <= bytes.len()
-            && stage1[i + 1..i + 4].eq_ignore_ascii_case("img")
-            && (i + 4 == bytes.len()
-                || bytes[i + 4].is_ascii_whitespace()
-                || bytes[i + 4] == b'/'
-                || bytes[i + 4] == b'>')
-        {
-            let tag_start = i;
-            i += 4;
+        if bytes[i] == b'&' {
+            let max_end = (i + 16).min(bytes.len());
+            let mut semi = None;
+            let mut j = i + 1;
+            while j < max_end {
+                let b = bytes[j];
+                if b == b';' {
+                    if j > i + 1 {
+                        semi = Some(j);
+                    }
+                    break;
+                }
+                if !(b == b'#' || b.is_ascii_alphanumeric()) {
+                    break;
+                }
+                j += 1;
+            }
+            if let Some(end) = semi {
+                let entity = &input[i + 1..end];
+                let decoded = if let Some(hex) = entity
+                    .strip_prefix("#x")
+                    .or_else(|| entity.strip_prefix("#X"))
+                {
+                    u32::from_str_radix(hex, 16)
+                        .ok()
+                        .and_then(char::from_u32)
+                        .filter(|c| *c != '\0')
+                } else if let Some(dec) = entity.strip_prefix('#') {
+                    dec.parse::<u32>()
+                        .ok()
+                        .and_then(char::from_u32)
+                        .filter(|c| *c != '\0')
+                } else if entity.eq_ignore_ascii_case("amp") {
+                    Some('&')
+                } else if entity.eq_ignore_ascii_case("lt") {
+                    Some('<')
+                } else if entity.eq_ignore_ascii_case("gt") {
+                    Some('>')
+                } else if entity.eq_ignore_ascii_case("quot") {
+                    Some('"')
+                } else if entity.eq_ignore_ascii_case("apos") {
+                    Some('\'')
+                } else if entity.eq_ignore_ascii_case("nbsp") {
+                    Some('\u{00A0}')
+                } else {
+                    None
+                };
+                if let Some(ch) = decoded {
+                    out.push(ch);
+                    i = end + 1;
+                    continue;
+                }
+            }
+            out.push('&');
+            i += 1;
+            continue;
+        }
+        let ch = input[i..].chars().next().expect("valid utf-8");
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+#[derive(Debug)]
+enum FlashHtmlToken {
+    Text(String),
+    StartTag {
+        name: String,
+        attrs: Vec<(String, String)>,
+        self_closing: bool,
+    },
+    EndTag(String),
+}
+
+fn parse_flash_tag_attributes(raw: &str) -> Vec<(String, String)> {
+    let bytes = raw.as_bytes();
+    let mut attrs = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b'/') {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        let name_start = i;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b.is_ascii_whitespace() || matches!(b, b'=' | b'/' | b'>' | b'"' | b'\'') {
+                break;
+            }
+            let ch = raw[i..].chars().next().expect("valid utf-8");
+            i += ch.len_utf8();
+        }
+        if i == name_start {
+            let ch = raw[i..].chars().next().expect("valid utf-8");
+            i += ch.len_utf8();
+            continue;
+        }
+        let name = raw[name_start..i].to_ascii_lowercase();
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let value = if i < bytes.len() && bytes[i] == b'=' {
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i < bytes.len() && (bytes[i] == b'"' || bytes[i] == b'\'') {
+                let quote = bytes[i];
+                i += 1;
+                let val_start = i;
+                while i < bytes.len() && bytes[i] != quote {
+                    let ch = raw[i..].chars().next().expect("valid utf-8");
+                    i += ch.len_utf8();
+                }
+                let slice = &raw[val_start..i];
+                if i < bytes.len() && bytes[i] == quote {
+                    i += 1;
+                }
+                decode_flash_html_entities(slice)
+            } else {
+                let val_start = i;
+                while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'>' {
+                    if bytes[i] == b'/' && i + 1 == bytes.len() {
+                        break;
+                    }
+                    let ch = raw[i..].chars().next().expect("valid utf-8");
+                    i += ch.len_utf8();
+                }
+                decode_flash_html_entities(&raw[val_start..i])
+            }
+        } else {
+            String::new()
+        };
+        attrs.push((name, value));
+    }
+    attrs
+}
+
+fn tokenize_flash_html(source: &str) -> Vec<FlashHtmlToken> {
+    let bytes = source.as_bytes();
+    let mut tokens = Vec::new();
+    let mut literal_buf = String::new();
+    let flush_literal = |buf: &mut String, out: &mut Vec<FlashHtmlToken>| {
+        if !buf.is_empty() {
+            let text = std::mem::take(buf);
+            if let Some(FlashHtmlToken::Text(prev)) = out.last_mut() {
+                prev.push_str(&text);
+            } else {
+                out.push(FlashHtmlToken::Text(text));
+            }
+        }
+    };
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] != b'<' {
+            let start = i;
+            while i < bytes.len() && bytes[i] != b'<' {
+                i += 1;
+            }
+            literal_buf.push_str(&decode_flash_html_entities(&source[start..i]));
+            continue;
+        }
+        // Comment <!-- ... -->
+        if source[i..].starts_with("<!--") {
+            flush_literal(&mut literal_buf, &mut tokens);
+            if let Some(rel) = source[i + 4..].find("-->") {
+                i += 4 + rel + 3;
+            } else {
+                i = bytes.len();
+            }
+            continue;
+        }
+        // CDATA <![CDATA[ ... ]]>
+        if bytes.len() >= i + 9 && source[i..i + 9].eq_ignore_ascii_case("<![cdata[") {
+            if let Some(rel) = source[i + 9..].find("]]>") {
+                literal_buf.push_str(&source[i + 9..i + 9 + rel]);
+                i += 9 + rel + 3;
+            } else {
+                literal_buf.push_str(&source[i + 9..]);
+                i = bytes.len();
+            }
+            continue;
+        }
+        // Processing instruction <?...?> or declaration <!DOCTYPE ...>
+        if i + 1 < bytes.len() && (bytes[i + 1] == b'?' || bytes[i + 1] == b'!') {
+            if let Some(rel) = source[i + 2..].find('>') {
+                flush_literal(&mut literal_buf, &mut tokens);
+                i += 2 + rel + 1;
+                continue;
+            }
+            literal_buf.push('<');
+            i += 1;
+            continue;
+        }
+        // Closing tag </name ...>
+        if i + 2 < bytes.len() && bytes[i + 1] == b'/' && bytes[i + 2].is_ascii_alphabetic() {
+            let name_start = i + 2;
+            let mut j = name_start;
+            while j < bytes.len()
+                && (bytes[j].is_ascii_alphanumeric() || matches!(bytes[j], b'_' | b'-' | b':'))
+            {
+                j += 1;
+            }
+            let name = source[name_start..j].to_ascii_lowercase();
+            let mut close_pos = None;
+            let mut hit_lt = false;
+            let mut k = j;
+            while k < bytes.len() {
+                if bytes[k] == b'>' {
+                    close_pos = Some(k);
+                    break;
+                }
+                if bytes[k] == b'<' {
+                    hit_lt = true;
+                    break;
+                }
+                k += 1;
+            }
+            if !hit_lt && let Some(end) = close_pos {
+                flush_literal(&mut literal_buf, &mut tokens);
+                tokens.push(FlashHtmlToken::EndTag(name));
+                i = end + 1;
+                continue;
+            }
+            literal_buf.push('<');
+            i += 1;
+            continue;
+        }
+        // Opening tag <name ...>
+        if i + 1 < bytes.len() && bytes[i + 1].is_ascii_alphabetic() {
+            let name_start = i + 1;
+            let mut j = name_start;
+            while j < bytes.len()
+                && (bytes[j].is_ascii_alphanumeric() || matches!(bytes[j], b'_' | b'-' | b':'))
+            {
+                j += 1;
+            }
+            if j < bytes.len()
+                && !(bytes[j].is_ascii_whitespace() || bytes[j] == b'/' || bytes[j] == b'>')
+            {
+                literal_buf.push('<');
+                i += 1;
+                continue;
+            }
+            let name = source[name_start..j].to_ascii_lowercase();
             let mut quote: Option<u8> = None;
-            while i < bytes.len() {
-                let b = bytes[i];
+            let mut close_pos = None;
+            let mut hit_unquoted_lt = false;
+            let mut k = j;
+            while k < bytes.len() {
+                let b = bytes[k];
                 if let Some(q) = quote {
                     if b == q {
                         quote = None;
@@ -473,30 +709,88 @@ fn normalize_html_void_tags(source: &str) -> String {
                 } else if b == b'"' || b == b'\'' {
                     quote = Some(b);
                 } else if b == b'>' {
+                    close_pos = Some(k);
+                    break;
+                } else if b == b'<' {
+                    hit_unquoted_lt = true;
                     break;
                 }
-                i += 1;
+                k += 1;
             }
-            if i < bytes.len() && bytes[i] == b'>' {
-                let inner = &stage1[tag_start..i];
-                if inner.trim_end().ends_with('/') {
-                    out.push_str(inner);
-                    out.push('>');
+            if !hit_unquoted_lt && let Some(end) = close_pos {
+                let attr_slice = &source[j..end];
+                let trimmed = attr_slice.trim_end();
+                let self_closing = trimmed.ends_with('/');
+                let clean_attrs = if self_closing {
+                    &trimmed[..trimmed.len() - 1]
                 } else {
-                    out.push_str(inner);
-                    out.push_str("/>");
-                }
-                i += 1;
+                    attr_slice
+                };
+                flush_literal(&mut literal_buf, &mut tokens);
+                tokens.push(FlashHtmlToken::StartTag {
+                    name,
+                    attrs: parse_flash_tag_attributes(clean_attrs),
+                    self_closing,
+                });
+                i = end + 1;
                 continue;
             }
-            out.push_str(&stage1[tag_start..]);
-            break;
         }
-        let ch = stage1[i..].chars().next().expect("valid utf-8");
-        out.push(ch);
-        i += ch.len_utf8();
+        // Bare '<' (e.g. "HP < 10", "<3", unclosed "<foo") renders literally.
+        literal_buf.push('<');
+        i += 1;
     }
-    out
+    flush_literal(&mut literal_buf, &mut tokens);
+    tokens
+}
+
+fn parse_html_number(raw: &str) -> Option<f64> {
+    let trimmed = raw.trim();
+    let stripped = trimmed
+        .strip_suffix("px")
+        .or_else(|| trimmed.strip_suffix("PX"))
+        .or_else(|| trimmed.strip_suffix("pt"))
+        .or_else(|| trimmed.strip_suffix("PT"))
+        .unwrap_or(trimmed)
+        .trim();
+    let v = stripped.parse::<f64>().ok()?;
+    v.is_finite().then_some(v)
+}
+
+fn parse_html_color(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim();
+    let hex = if let Some(h) = trimmed.strip_prefix('#') {
+        h
+    } else if let Some(h) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        h
+    } else if trimmed.len() == 6 && trimmed.bytes().all(|b| b.is_ascii_hexdigit()) {
+        trimmed
+    } else {
+        return None;
+    };
+    if hex.len() == 3 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        let mut expanded = String::with_capacity(6);
+        for ch in hex.chars() {
+            expanded.push(ch);
+            expanded.push(ch);
+        }
+        return u32::from_str_radix(&expanded, 16).ok();
+    }
+    if hex.len() <= 6 && !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return u32::from_str_radix(hex, 16).ok().filter(|v| *v <= 0xffffff);
+    }
+    None
+}
+
+fn canonical_html_tag(tag: &str) -> &str {
+    match tag {
+        "strong" => "b",
+        "em" => "i",
+        other => other,
+    }
 }
 
 fn append_html_slice(
@@ -540,267 +834,392 @@ fn html(
     }
     styles.validate()?;
     base.validate()?;
-    let source = normalize_html_void_tags(source);
-    let tree = crate::parse_xml(&source)
-        .map_err(|e| error(format!("htmlText requires balanced supported tags: {e:?}")))?;
+
+    struct OpenFrame {
+        tag: String,
+        format: TextFormat,
+        is_block: bool,
+        suppress: bool,
+    }
+
+    let tokens = tokenize_flash_html(source);
     let mut result = String::new();
     let mut utf16_cursor = 0u32;
     let mut uniform: Option<TextFormat> = None;
     let mut runs: Vec<TextFormatRun> = Vec::new();
     let mut images: Vec<HtmlImageSpec> = Vec::new();
+    let mut stack: Vec<OpenFrame> = Vec::new();
 
-    #[allow(clippy::too_many_arguments)]
-    fn visit(
-        index: usize,
-        tree: &crate::XmlParseTree,
-        format: &TextFormat,
-        styles: &StyleSheet,
-        condense: bool,
-        multi_run: bool,
-        out: &mut String,
-        utf16_cursor: &mut u32,
-        uniform: &mut Option<TextFormat>,
-        runs: &mut Vec<TextFormatRun>,
-        images: &mut Vec<HtmlImageSpec>,
-    ) -> Result<(), TextError> {
-        let node = &tree.nodes[index];
-        if node.kind == crate::XmlNodeKind::Text {
-            let mut value = node.value.clone();
-            if condense {
-                let mut clean = String::new();
-                let mut space = out.ends_with(char::is_whitespace);
-                for c in value.chars() {
-                    if c.is_whitespace() {
-                        if !space {
-                            clean.push(' ');
+    let close_frame = |frame: OpenFrame,
+                       out: &mut String,
+                       cursor: &mut u32,
+                       out_runs: &mut Vec<TextFormatRun>| {
+        if frame.is_block && !frame.suppress && !out.ends_with('\n') {
+            append_html_slice(out, cursor, out_runs, "\n", &frame.format);
+        }
+    };
+
+    for token in tokens {
+        match token {
+            FlashHtmlToken::Text(mut value) => {
+                let suppress = stack.last().is_some_and(|f| f.suppress);
+                if suppress {
+                    continue;
+                }
+                let active_format = stack.last().map_or(&base, |f| &f.format);
+                if condense {
+                    let mut clean = String::new();
+                    let mut space = result.ends_with(char::is_whitespace);
+                    for c in value.chars() {
+                        if c.is_whitespace() {
+                            if !space {
+                                clean.push(' ');
+                            }
+                            space = true;
+                        } else {
+                            clean.push(c);
+                            space = false;
                         }
-                        space = true;
-                    } else {
-                        clean.push(c);
-                        space = false;
                     }
+                    value = clean;
                 }
-                value = clean;
+                if !value.trim().is_empty() && uniform.is_none() {
+                    uniform = Some(active_format.clone());
+                }
+                append_html_slice(
+                    &mut result,
+                    &mut utf16_cursor,
+                    &mut runs,
+                    &value,
+                    active_format,
+                );
             }
-            if !value.trim().is_empty() {
-                if !multi_run && uniform.as_ref().is_some_and(|existing| existing != format) {
-                    return Err(error(
-                        "htmlText contains mixed formatting; this batch supports one uniform TextFormat across visible text",
-                    ));
+            FlashHtmlToken::StartTag {
+                name: tag,
+                attrs,
+                self_closing,
+            } => {
+                let parent_suppress = stack.last().is_some_and(|f| f.suppress);
+                if matches!(tag.as_str(), "br" | "sbr") {
+                    if !parent_suppress {
+                        let active_format = stack.last().map_or(&base, |f| &f.format);
+                        append_html_slice(
+                            &mut result,
+                            &mut utf16_cursor,
+                            &mut runs,
+                            "\n",
+                            active_format,
+                        );
+                    }
+                    continue;
                 }
-                if uniform.is_none() || !multi_run {
-                    *uniform = Some(format.clone());
-                }
-            }
-            append_html_slice(out, utf16_cursor, runs, &value, format);
-            return Ok(());
-        }
-        if node.kind == crate::XmlNodeKind::Comment {
-            return Ok(());
-        }
-        if node.kind != crate::XmlNodeKind::Element {
-            return Err(error("HTML processing instructions are unsupported"));
-        }
-        let tag = node.name.as_ref().unwrap().local.to_ascii_lowercase();
-        if tag == "br" {
-            append_html_slice(out, utf16_cursor, runs, "\n", format);
-            return Ok(());
-        }
-        if multi_run && tag == "img" {
-            let mut id = None;
-            let mut src = String::new();
-            let mut width = None;
-            let mut height = None;
-            let mut hspace = 8.0;
-            let mut vspace = 8.0;
-            let mut align = String::from("left");
-            for attr in &node.attributes {
-                let name = attr.name.local.to_ascii_lowercase();
-                let value = &attr.value;
-                match name.as_str() {
-                    "id" => id = Some(value.clone()),
-                    "src" => src = value.clone(),
-                    "width" => width = Some(number(&json!(value))?.max(0.0)),
-                    "height" => height = Some(number(&json!(value))?.max(0.0)),
-                    "hspace" => hspace = number(&json!(value))?.max(0.0),
-                    "vspace" => vspace = number(&json!(value))?.max(0.0),
-                    "align" => {
-                        let m = value.to_ascii_lowercase();
-                        if !matches!(m.as_str(), "left" | "right") {
-                            return Err(error("HTML <img> align supports left/right"));
+                if tag == "img" {
+                    if multi_run && !parent_suppress {
+                        let mut id = None;
+                        let mut src = String::new();
+                        let mut width = None;
+                        let mut height = None;
+                        let mut hspace = 8.0;
+                        let mut vspace = 8.0;
+                        let mut align = String::from("left");
+                        for (attr_name, value) in &attrs {
+                            match attr_name.as_str() {
+                                "id" => id = Some(value.clone()),
+                                "src" => src = value.clone(),
+                                "width" => {
+                                    if let Some(v) = parse_html_number(value) {
+                                        width = Some(v.clamp(0.0, 100_000.0));
+                                    }
+                                }
+                                "height" => {
+                                    if let Some(v) = parse_html_number(value) {
+                                        height = Some(v.clamp(0.0, 100_000.0));
+                                    }
+                                }
+                                "hspace" => {
+                                    if let Some(v) = parse_html_number(value) {
+                                        hspace = v.clamp(0.0, 100_000.0);
+                                    }
+                                }
+                                "vspace" => {
+                                    if let Some(v) = parse_html_number(value) {
+                                        vspace = v.clamp(0.0, 100_000.0);
+                                    }
+                                }
+                                "align" => {
+                                    let m = value.trim().to_ascii_lowercase();
+                                    if matches!(m.as_str(), "left" | "right") {
+                                        align = m;
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
-                        align = m;
+                        images.push(HtmlImageSpec {
+                            id,
+                            src,
+                            width,
+                            height,
+                            hspace,
+                            vspace,
+                            align,
+                            char_index: utf16_cursor,
+                        });
                     }
-                    "checkpolicyfile" => {}
-                    _ => {
-                        return Err(error(format!(
-                            "htmlText attribute '{name}' on <img> is unsupported"
-                        )));
-                    }
+                    continue;
                 }
-            }
-            images.push(HtmlImageSpec {
-                id,
-                src,
-                width,
-                height,
-                hspace,
-                vspace,
-                align,
-                char_index: *utf16_cursor,
-            });
-            return Ok(());
-        }
-        let allowed = if multi_run {
-            matches!(
-                tag.as_str(),
-                "p" | "span"
-                    | "b"
-                    | "strong"
-                    | "i"
-                    | "em"
-                    | "u"
-                    | "font"
-                    | "textformat"
-                    | "a"
-                    | "li"
-                    | "ul"
-                    | "ol"
-            )
-        } else {
-            matches!(
-                tag.as_str(),
-                "p" | "span" | "b" | "strong" | "i" | "em" | "u" | "font" | "textformat" | "a"
-            )
-        };
-        if !allowed {
-            return Err(error(format!(
-                "htmlText tag <{tag}> is unsupported; content was not discarded"
-            )));
-        }
-        let mut next = format.clone();
-        if matches!(tag.as_str(), "b" | "strong") {
-            next.bold = true;
-        }
-        if matches!(tag.as_str(), "i" | "em") {
-            next.italic = true;
-        }
-        if tag == "u" {
-            next.underline = true;
-        }
-        if tag == "li" {
-            next.bullet = true;
-        }
-        if let Some(style) = styles.styles.get(&tag) {
-            transform(style)?.apply(&mut next);
-        }
-        for attr in &node.attributes {
-            let name = attr.name.local.to_ascii_lowercase();
-            let value = &attr.value;
-            match name.as_str() {
-                "class" => {
-                    for class in value.split_whitespace() {
-                        if let Some(style) = styles.styles.get(&format!(".{class}")) {
-                            transform(style)?.apply(&mut next);
+                if matches!(
+                    tag.as_str(),
+                    "hr" | "meta" | "link" | "input" | "col" | "area" | "base" | "param" | "wbr"
+                ) {
+                    continue;
+                }
+                // Auto-close open <p> on new <p>, or open <li> on sibling <li>.
+                if tag == "p"
+                    && let Some(pos) = stack.iter().rposition(|f| f.tag == "p")
+                {
+                    while stack.len() > pos {
+                        let f = stack.pop().expect("non-empty");
+                        close_frame(f, &mut result, &mut utf16_cursor, &mut runs);
+                    }
+                } else if tag == "li" {
+                    let list_boundary = stack
+                        .iter()
+                        .rposition(|f| matches!(f.tag.as_str(), "ul" | "ol"))
+                        .map_or(0, |idx| idx + 1);
+                    if let Some(rel) = stack[list_boundary..].iter().rposition(|f| f.tag == "li") {
+                        let pos = list_boundary + rel;
+                        while stack.len() > pos {
+                            let f = stack.pop().expect("non-empty");
+                            close_frame(f, &mut result, &mut utf16_cursor, &mut runs);
                         }
                     }
                 }
-                "align" if tag == "p" => {
-                    let mode = value.to_ascii_lowercase();
-                    next.align = match mode.as_str() {
-                        "left" | "justify" => TextAlign::Left,
-                        "center" => TextAlign::Center,
-                        "right" => TextAlign::Right,
-                        _ => return Err(error("HTML paragraph alignment is unsupported")),
-                    };
-                    if multi_run {
-                        next.set_align_mode((mode == "justify").then_some(mode));
+
+                let parent_suppress = stack.last().is_some_and(|f| f.suppress);
+                let current_format = stack.last().map_or(&base, |f| &f.format).clone();
+                let known = matches!(
+                    tag.as_str(),
+                    "p" | "span"
+                        | "b"
+                        | "strong"
+                        | "i"
+                        | "em"
+                        | "u"
+                        | "font"
+                        | "textformat"
+                        | "a"
+                        | "li"
+                        | "ul"
+                        | "ol"
+                );
+
+                let mut next = current_format.clone();
+                if known {
+                    if matches!(tag.as_str(), "b" | "strong") {
+                        next.bold = true;
                     }
-                }
-                "href" if tag == "a" => next.url = value.clone(),
-                "target" if tag == "a" => next.set_target_str(value.clone()),
-                "letterspacing" if tag == "font" => next.letter_spacing = number(&json!(value))?,
-                "kerning" if tag == "font" => {
-                    next.kerning = Some(match value.as_str() {
-                        "1" | "true" => true,
-                        "0" | "false" => false,
-                        _ => return Err(error("font kerning requires0/1")),
-                    })
-                }
-                "face" if tag == "font" => next.font = value.clone(),
-                "size" if tag == "font" => next.size = number(&json!(value))?,
-                "color" if tag == "font" => next.color = color(&json!(value))?,
-                "leftmargin" if tag == "textformat" => next.left_margin = number(&json!(value))?,
-                "rightmargin" if tag == "textformat" => next.right_margin = number(&json!(value))?,
-                "indent" if tag == "textformat" => next.indent = number(&json!(value))?,
-                "blockindent" if tag == "textformat" => next.block_indent = number(&json!(value))?,
-                "leading" if tag == "textformat" => next.leading = number(&json!(value))?,
-                "tabstops" if tag == "textformat" && multi_run => {
-                    let mut stops = Vec::new();
-                    for part in value
-                        .trim_matches(['[', ']'])
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
+                    if matches!(tag.as_str(), "i" | "em") {
+                        next.italic = true;
+                    }
+                    if tag == "u" {
+                        next.underline = true;
+                    }
+                    if tag == "li" && multi_run {
+                        next.bullet = true;
+                    }
+                    if let Some(style) = styles.styles.get(&tag)
+                        && let Ok(patch) = transform(style)
                     {
-                        stops.push(number(&json!(part))?);
+                        patch.apply(&mut next);
                     }
-                    stops.sort_by(|a, b| a.total_cmp(b));
-                    stops.dedup();
-                    next.tab_stops = stops;
+                    for (name, value) in &attrs {
+                        match name.as_str() {
+                            "class" => {
+                                for class in value.split_whitespace() {
+                                    if let Some(style) = styles.styles.get(&format!(".{class}"))
+                                        && let Ok(patch) = transform(style)
+                                    {
+                                        patch.apply(&mut next);
+                                    }
+                                }
+                            }
+                            "align" if tag == "p" => {
+                                let mode = value.trim().to_ascii_lowercase();
+                                match mode.as_str() {
+                                    "left" => {
+                                        next.align = TextAlign::Left;
+                                        if multi_run {
+                                            next.set_align_mode(None);
+                                        }
+                                    }
+                                    "center" => {
+                                        next.align = TextAlign::Center;
+                                        if multi_run {
+                                            next.set_align_mode(None);
+                                        }
+                                    }
+                                    "right" => {
+                                        next.align = TextAlign::Right;
+                                        if multi_run {
+                                            next.set_align_mode(None);
+                                        }
+                                    }
+                                    "justify" => {
+                                        next.align = TextAlign::Left;
+                                        if multi_run {
+                                            next.set_align_mode(Some(mode));
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            "href" if tag == "a" => {
+                                let clean: String = value
+                                    .chars()
+                                    .filter(|c| !c.is_control())
+                                    .take(4096)
+                                    .collect();
+                                next.url = clean;
+                            }
+                            "target" if tag == "a" => {
+                                let clean: String = value
+                                    .chars()
+                                    .filter(|c| !c.is_control())
+                                    .take(256)
+                                    .collect();
+                                next.set_target_str(clean);
+                            }
+                            "letterspacing" if tag == "font" => {
+                                if let Some(v) = parse_html_number(value) {
+                                    next.letter_spacing = v.clamp(-1000.0, 1000.0);
+                                }
+                            }
+                            "kerning" if tag == "font" => match value.trim() {
+                                "1" | "true" => next.kerning = Some(true),
+                                "0" | "false" => next.kerning = Some(false),
+                                _ => {}
+                            },
+                            "face" if tag == "font" => {
+                                let clean: String =
+                                    value.chars().filter(|c| !c.is_control()).collect();
+                                let trimmed = clean.trim();
+                                if !trimmed.is_empty() && trimmed.len() <= 1024 {
+                                    next.font = trimmed.to_owned();
+                                }
+                            }
+                            "size" if tag == "font" => {
+                                let trimmed = value.trim();
+                                if (trimmed.starts_with('+') || trimmed.starts_with('-'))
+                                    && let Some(delta) = parse_html_number(trimmed)
+                                {
+                                    next.size = (next.size + delta).clamp(1.0, 10000.0);
+                                } else if let Some(sz) = parse_html_number(trimmed)
+                                    && sz > 0.0
+                                {
+                                    next.size = sz.clamp(1.0, 10000.0);
+                                }
+                            }
+                            "color" if tag == "font" => {
+                                if let Some(c) = parse_html_color(value) {
+                                    next.color = c;
+                                }
+                            }
+                            "leftmargin" if tag == "textformat" => {
+                                if let Some(v) = parse_html_number(value) {
+                                    next.left_margin = v.clamp(0.0, 10000.0);
+                                }
+                            }
+                            "rightmargin" if tag == "textformat" => {
+                                if let Some(v) = parse_html_number(value) {
+                                    next.right_margin = v.clamp(0.0, 10000.0);
+                                }
+                            }
+                            "indent" if tag == "textformat" => {
+                                if let Some(v) = parse_html_number(value) {
+                                    next.indent = v.clamp(-10000.0, 10000.0);
+                                }
+                            }
+                            "blockindent" if tag == "textformat" => {
+                                if let Some(v) = parse_html_number(value) {
+                                    next.block_indent = v.clamp(0.0, 10000.0);
+                                }
+                            }
+                            "leading" if tag == "textformat" => {
+                                if let Some(v) = parse_html_number(value) {
+                                    next.leading = v.clamp(-10000.0, 10000.0);
+                                }
+                            }
+                            "tabstops" if tag == "textformat" && multi_run => {
+                                let mut stops = Vec::new();
+                                for part in value
+                                    .trim_matches(['[', ']'])
+                                    .split([',', ' '])
+                                    .map(str::trim)
+                                    .filter(|s| !s.is_empty())
+                                {
+                                    if let Some(v) = parse_html_number(part)
+                                        && (0.0..=100_000.0).contains(&v)
+                                    {
+                                        stops.push(v);
+                                    }
+                                }
+                                stops.sort_by(|a, b| a.total_cmp(b));
+                                stops.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+                                stops.truncate(64);
+                                next.tab_stops = stops;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if next.validate().is_err() {
+                        next = current_format;
+                    }
                 }
-                _ => {
-                    return Err(error(format!(
-                        "htmlText attribute '{name}' on <{tag}> is unsupported"
-                    )));
+
+                let suppress = parent_suppress || (multi_run && next.display() == Some("none"));
+                let is_block = known
+                    && (matches!(tag.as_str(), "p" | "li")
+                        || (multi_run && next.display() == Some("block") && tag == "span"));
+                if is_block && !suppress && !result.is_empty() && !result.ends_with('\n') {
+                    append_html_slice(&mut result, &mut utf16_cursor, &mut runs, "\n", &next);
+                }
+                let frame = OpenFrame {
+                    tag: canonical_html_tag(&tag).to_owned(),
+                    format: next,
+                    is_block,
+                    suppress,
+                };
+                if self_closing {
+                    close_frame(frame, &mut result, &mut utf16_cursor, &mut runs);
+                } else {
+                    stack.push(frame);
+                }
+            }
+            FlashHtmlToken::EndTag(raw_tag) => {
+                let target = canonical_html_tag(&raw_tag);
+                if let Some(pos) = stack.iter().rposition(|f| f.tag == target) {
+                    while stack.len() > pos {
+                        let f = stack.pop().expect("non-empty");
+                        close_frame(f, &mut result, &mut utf16_cursor, &mut runs);
+                    }
                 }
             }
         }
-        next.validate()?;
-        if multi_run && next.display() == Some("none") {
-            return Ok(());
-        }
-        let is_block = matches!(tag.as_str(), "p" | "li")
-            || (multi_run && next.display() == Some("block") && tag == "span");
-        if is_block && !out.is_empty() && !out.ends_with('\n') {
-            append_html_slice(out, utf16_cursor, runs, "\n", &next);
-        }
-        for child in &node.children {
-            visit(
-                *child,
-                tree,
-                &next,
-                styles,
-                condense,
-                multi_run,
-                out,
-                utf16_cursor,
-                uniform,
-                runs,
-                images,
-            )?;
-        }
-        if is_block && !out.ends_with('\n') {
-            append_html_slice(out, utf16_cursor, runs, "\n", &next);
-        }
-        Ok(())
     }
-    for root in &tree.roots {
-        visit(
-            *root,
-            &tree,
-            &base,
-            styles,
-            condense,
-            multi_run,
-            &mut result,
-            &mut utf16_cursor,
-            &mut uniform,
-            &mut runs,
-            &mut images,
-        )?;
+
+    while let Some(frame) = stack.pop() {
+        close_frame(frame, &mut result, &mut utf16_cursor, &mut runs);
     }
-    let representative = uniform.unwrap_or(base);
+
+    let representative = if multi_run {
+        runs.first()
+            .map(|r| r.format.clone())
+            .or(uniform)
+            .unwrap_or(base)
+    } else {
+        uniform.unwrap_or(base)
+    };
     let out_runs = if !multi_run || runs.len() <= 1 {
         Vec::new()
     } else {
@@ -1388,5 +1807,74 @@ mod tests {
             table["state"]["tables"]["Arial\0bold\0dark"][0]["fontSize"],
             12.0
         );
+    }
+
+    #[test]
+    fn permissive_flash_html_handles_malformed_entities_tags_and_base_inheritance() {
+        let mut base = TextFormat {
+            font: "Courier New".into(),
+            size: 13.0,
+            color: 0xBBF7D0,
+            bold: false,
+            italic: true,
+            underline: false,
+            leading: 3.0,
+            align: TextAlign::Center,
+            ..TextFormat::default()
+        };
+        base.set_align_mode(None);
+
+        // Bare '&', bare '<', '<3', unclosed '<foo', unknown tags, mismatched '<b><i>text</b></i>', unclosed '<font>'
+        let parsed = html(
+            "Rats & Brood | HP < 10 | <3 | <custom attr='1'>inner</custom> | <b><i>overlap</b></i> | <font color='#FACC15'>Gold &amp; &#65;&#x42;",
+            base.clone(),
+            &StyleSheet::default(),
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.text,
+            "Rats & Brood | HP < 10 | <3 | inner | overlap | Gold & AB"
+        );
+        assert!(parsed.format_runs.len() >= 3);
+        // Unwrapped prefix inherits base format
+        assert_eq!(parsed.format_runs[0].format.color, 0xBBF7D0);
+        assert_eq!(parsed.format_runs[0].format.font, "Courier New");
+        assert_eq!(parsed.format_runs[0].format.size, 13.0);
+        assert!(parsed.format_runs[0].format.italic);
+        assert_eq!(parsed.format_runs[0].format.align, TextAlign::Center);
+        assert_eq!(parsed.format_runs[0].format.leading, 3.0);
+        // Gold run overrides color while inheriting base font, size, italic, align, leading
+        let gold_run = parsed.format_runs.last().unwrap();
+        assert_eq!(gold_run.format.color, 0xFACC15);
+        assert_eq!(gold_run.format.font, "Courier New");
+        assert_eq!(gold_run.format.size, 13.0);
+        assert!(gold_run.format.italic);
+
+        // Unclosed '<foo' at end of string renders literally without throwing
+        let unclosed = html(
+            "Alert <foo",
+            base.clone(),
+            &StyleSheet::default(),
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(unclosed.text, "Alert <foo");
+        assert_eq!(unclosed.format.color, 0xBBF7D0);
+
+        // Single-run mode (multi_run == false) coalesces mixed formatting cleanly without throwing
+        let coalesced = html(
+            "Plain <b>Bold</b> <font color='#FF0000'>Red</font>",
+            base.clone(),
+            &StyleSheet::default(),
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(coalesced.text, "Plain Bold Red");
+        assert!(coalesced.format_runs.is_empty());
+        assert_eq!(coalesced.format.color, 0xBBF7D0);
     }
 }

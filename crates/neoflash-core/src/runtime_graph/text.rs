@@ -219,14 +219,16 @@ impl Player {
         reference: &ObjectRef,
         color: u32,
     ) -> bool {
+        let color_patch = TextFormatPatch {
+            color: Some(color),
+            ..TextFormatPatch::default()
+        };
         self.object_text_update(
             project,
             reference,
             &TextPatch {
-                format: Some(TextFormatPatch {
-                    color: Some(color),
-                    ..TextFormatPatch::default()
-                }),
+                format: Some(color_patch.clone()),
+                default_format: Some(color_patch),
                 ..TextPatch::default()
             },
         )

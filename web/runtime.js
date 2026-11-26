@@ -1392,7 +1392,57 @@
     try { Object.defineProperty(global, 'NeoFlashFormatTrace', { value: Object.freeze({ formatTraceValue, formatTraceArgs }), configurable: true }); } catch (_) {}
   }
   if (typeof document === 'undefined') return;
+  const nativeConsoleError = typeof console?.error === 'function' ? console.error.bind(console) : null;
   global.NeoFlashPreview?.installOutputRelay?.(global);
+
+  function setNeoflashDocState(docObj, stateValue) {
+    const targets = [docObj?.documentElement, typeof document !== 'undefined' ? document?.documentElement : null];
+    for (const rootEl of targets) {
+      if (!rootEl) continue;
+      try {
+        if (rootEl.dataset) rootEl.dataset.neoflashState = stateValue;
+        rootEl.setAttribute?.('data-neoflash-state', stateValue);
+      } catch (_) {}
+    }
+  }
+  let reportingFatalConsole = false;
+  function emitFatalTelemetry(docObj, rawError) {
+    setNeoflashDocState(docObj, 'failed');
+    const rawCause = rawError && typeof rawError === 'object' && 'cause' in rawError && rawError.cause !== undefined
+      ? rawError.cause
+      : rawError;
+    const cause = unwrapScriptThrow(rawCause);
+    const message = describeThrown(rawError);
+    if (!reportingFatalConsole) {
+      reportingFatalConsole = true;
+      const prevSuppress = global.__neoflashSuppressConsoleRelay;
+      global.__neoflashSuppressConsoleRelay = false;
+      try {
+        if (typeof console?.error === 'function') console.error(rawError);
+        else nativeConsoleError?.(rawError);
+      } catch (_) {
+        try { nativeConsoleError?.(message, cause); } catch (__) {}
+      } finally {
+        global.__neoflashSuppressConsoleRelay = prevSuppress;
+        reportingFatalConsole = false;
+      }
+    }
+    try {
+      const detail = { message, error: cause };
+      let evt = null;
+      if (typeof global.CustomEvent === 'function') {
+        evt = new global.CustomEvent('neoflash-fatal-error', { cancelable: true, detail });
+      } else if (typeof CustomEvent === 'function') {
+        evt = new CustomEvent('neoflash-fatal-error', { cancelable: true, detail });
+      } else if (typeof Event === 'function') {
+        evt = new Event('neoflash-fatal-error', { cancelable: true });
+        evt.detail = detail;
+      }
+      if (evt && typeof global.dispatchEvent === 'function') {
+        global.dispatchEvent(evt);
+      }
+    } catch (_) {}
+  }
 
   const errorElement = document.getElementById('error');
   let failed = false;
@@ -1414,9 +1464,9 @@
     const frames = sourceFrames(error);
     const location = sourceLocationText(frames[0]);
     errorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
+    emitFatalTelemetry(document, error);
     global.__neoflashSuppressConsoleRelay = true;
     try {
-      console.error(error);
       try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
     } finally {
       global.__neoflashSuppressConsoleRelay = false;
@@ -1979,9 +2029,9 @@
         const location = sourceLocationText(frames[0]);
         instanceErrorElement.textContent = 'NeoFlash could not run this project.\n\n' + (location ? location + '\n' : '') + describeThrown(error, true) + hint;
       }
+      emitFatalTelemetry(instanceDoc, error);
       global.__neoflashSuppressConsoleRelay = true;
       try {
-        console.error(error);
         try { stopAsyncOnFailure(); } catch (cleanupError) { console.error(cleanupError); }
       } finally {
         global.__neoflashSuppressConsoleRelay = false;
@@ -2418,9 +2468,10 @@
           getStage3Ds:()=>fte3dHost?.getStage3Ds()||[],getStageVideos:()=>as3MediaEventsHost?as3MediaEventsHost.getStageVideos():(fte3dHost?.getStageVideos()||[]),getSoftKeyboardRect:()=>fte3dHost?fte3dHost.getSoftKeyboardRect():new geometryHost.Rectangle(0,0,0,0),
           numChildren:()=>{if(!display||(typeof player.runtime_snapshot_json!=='function'&&typeof player.display_nodes_json!=='function'))return 1;return graphMode?display.stageContainer.numChildren():(display.nodes().filter(node=>node.on_stage!==false&&node.path.length===0).length||1);},
           frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
-          canvas:typeof canvas==='undefined'?null:canvas,pointerLockTarget:(typeof isDomModeBundle!=='undefined'&&isDomModeBundle)?(typeof stageSurface!=='undefined'&&stageSurface?stageSurface:(typeof viewport==='undefined'?null:viewport)):(typeof canvas==='undefined'?null:canvas),keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
+          canvas:typeof canvas==='undefined'?null:canvas,surface:typeof stageSurface!=='undefined'?stageSurface:null,pointerLockTarget:(typeof isDomModeBundle!=='undefined'&&isDomModeBundle)?(typeof stageSurface!=='undefined'&&stageSurface?stageSurface:(typeof viewport==='undefined'?null:viewport)):(typeof canvas==='undefined'?null:canvas),keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
           fallbackWindowKeys:typeof isStandaloneInstance!=='undefined'&&Boolean(isStandaloneInstance),
           hasLegacyKeyListeners:()=>Boolean(legacyHost?.hasKeyListeners?.()),
+          shouldSuppressContextMenu:()=>Boolean(as2StageHost?.suppressesNativeContextMenu?.()||legacyHost?.hasRightMouseListeners?.()),
           parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
           onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},onMouseChanged:updateCursor,
           onScaleModeChanged:()=>{enableHostStageLayout(true);if(typeof context!=='undefined')render();},
@@ -2445,7 +2496,7 @@
             exitPointerLock:()=>stageHost?.exitOptInPointerLock?.(),
             isPointerLocked:()=>stageHost?.isPointerLocked?.(),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
-          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,wmode:hostPlayerConfig.wmode,acceleration:runtimeAccel,wmodeGPU:isWmodeGpu,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),getLoop:()=>loopTimeline,toggleLoop:()=>{loopTimeline=!loopTimeline;hostPlayerConfig.loop_timeline=loopTimeline;return loopTimeline;},toggleQuality:()=>display.toggleHighQuality(),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
+          if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,wmode:hostPlayerConfig.wmode,acceleration:runtimeAccel,wmodeGPU:isWmodeGpu,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,stageSurface:typeof stageSurface!=='undefined'?stageSurface:null,display,getRoot:()=>proxyFor([]),getLoop:()=>loopTimeline,toggleLoop:()=>{loopTimeline=!loopTimeline;hostPlayerConfig.loop_timeline=loopTimeline;return loopTimeline;},toggleQuality:()=>display.toggleHighQuality(),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
         }
       }
@@ -5165,6 +5216,7 @@
       failed = false;
       if (isStandaloneInstance) mountOptions.setExternalFailed?.(false);
       if (instanceErrorElement?.style) instanceErrorElement.style.display = 'none';
+      setNeoflashDocState(instanceDoc, 'ready');
       accumulated = 0; lastTime = null; resetMeasuredFps();
       if (instanceEventHost !== global) emitScriptMessage('restart', 'Player restarted', [], instanceEventHost);
       emitScriptMessage('restart', 'Player restarted', []);
@@ -5360,6 +5412,7 @@
     const [preRenderW, preRenderH] = measureViewport();
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.
+    setNeoflashDocState(instanceDoc, 'ready');
     try {
       initializeProgram();
       dispatchScripts();

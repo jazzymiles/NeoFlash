@@ -356,7 +356,7 @@ fn runtime_component_keeps_identity_geometry_and_order_through_its_lifecycle() {
     );
     assert!(
         player
-            .graphics_apply(&shape, &vec![GraphicsOp::Clear; MAX_GRAPHICS_OPS + 1])
+            .graphics_apply(&shape, &vec![GraphicsOp::Clear; 65_536 + 1])
             .is_err()
     );
     assert_eq!(

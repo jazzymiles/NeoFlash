@@ -97,8 +97,11 @@
     }
     function render(ref,state,source){
       const field=text.info(ref),styles=state.style?record(state.style).state:{styles:{}};
-      const parsed=execute({op:'html',source,format:field.default_format,styles,condense_white:state.condense,multi_run:true});
-      text.update(ref,{text:parsed.text,format:parsed.format,format_runs:parsed.format_runs||[]});state.source=source;state.revision=text.info(ref).revision;state.runs=null;state.runsRevision=null;state.baseAlign=null;
+      const baseFormat={...field.default_format};
+      if(state.defaultAlign==='justify')baseFormat.alignMode='justify';
+      else if(state.defaultAlign&&['left','center','right'].includes(state.defaultAlign)){baseFormat.align=state.defaultAlign;delete baseFormat.alignMode;}
+      const parsed=execute({op:'html',source,format:baseFormat,styles,condense_white:state.condense,multi_run:true});
+      text.update(ref,{text:parsed.text,format:parsed.format,format_runs:parsed.format_runs||[]});state.source=source;state.revision=text.info(ref).revision;state.runs=null;state.runsRevision=null;state.baseAlign=parsed.format?.alignMode||(state.defaultAlign==='justify'&&(!parsed.format_runs||!parsed.format_runs.length)?'justify':null);
     }
     function changed(sheet){
       for(const [ref,state]of fields)if(state.style===sheet&&state.source!==null){try{if(!player.object_alive(ref)){fields.delete(ref);continue;}render(ref,state,state.source);}catch(error){throw new Error('StyleSheet change could not reflow its TextField: '+String(error),{cause:error});}}
@@ -237,9 +240,11 @@
     Object.defineProperties(TextRenderer,{__nfIs:{value:()=>false},__nfInitialize:{value:()=>{throw new TypeError('TextRenderer cannot be subclassed.');}}});
     Object.freeze(TextRenderer);
     function textEvent(ref,name,args){if(name==='onChanged'&&reflow(ref))text.notifyLayout(ref);if(!['onChanged','onScroller'].includes(name))return;const state=fields.get(ref);if(state?.broadcaster&&player.object_alive(ref))state.broadcaster.broadcastMessage(name,...args);}
+    function forgetField(ref){fields.delete(ref);}
+    function pruneDeadFields(){if(typeof player.object_alive!=='function')return;for(const ref of [...fields.keys()])if(!player.object_alive(ref))fields.delete(ref);}
     function reset(){generation++;for(const operation of loads)try{operation.loader.close();}catch(_){}loads.clear();fields.clear();syncRenderer(defaultRenderer());broadcasters.reset();}
     function dispose(){if(disposed)return;reset();broadcasters.dispose();disposed=true;}
-    return Object.freeze({StyleSheet,TextSnapshot,TextRenderer,getFontList,snapshotFor,as2Ref,textEvent,wheel,link,execute,reset,dispose});
+    return Object.freeze({StyleSheet,TextSnapshot,TextRenderer,getFontList,snapshotFor,as2Ref,textEvent,wheel,link,execute,forgetField,pruneDeadFields,reset,dispose});
   }
   const api={create};if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAS2Text=api;
 })(globalThis);

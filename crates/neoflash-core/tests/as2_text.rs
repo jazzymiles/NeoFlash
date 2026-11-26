@@ -67,13 +67,17 @@ fn stylesheet_uniform_html_and_paragraph_layout_share_one_text_model() {
     let malformed = call(json!({"op":"parse_css","state":state,"source":"p { font-size 20; }"}));
     assert_eq!(malformed["result"], false);
     assert_eq!(malformed["state"], *state);
-    let mixed=serde_json::from_value::<Request>(json!({"op":"html","source":"plain <b>bold</b>","format":format,"styles":{"styles":{}},"condense_white":false})).unwrap();
-    assert!(
-        execute(mixed)
-            .unwrap_err()
-            .to_string()
-            .contains("mixed formatting")
-    );
+    let mixed = serde_json::from_value::<Request>(json!({
+        "op":"html",
+        "source":"plain <b>bold</b>",
+        "format":format,
+        "styles":{"styles":{}},
+        "condense_white":false
+    }))
+    .unwrap();
+    let mixed_out = execute(mixed).unwrap();
+    assert_eq!(mixed_out["text"], "plain bold");
+    assert!(mixed_out.get("format_runs").is_none());
     let canonical = call(json!({"op":"serialize_html","text":"A < B","format":field.format}));
     let roundtrip = call(
         json!({"op":"html","source":canonical["result"],"format":format,"styles":{"styles":{}},"condense_white":false}),

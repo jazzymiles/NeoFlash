@@ -2156,15 +2156,45 @@
       invalidate: { value() { if (!invalidated) { invalidated = true; options.onInvalidate?.(); } } },
       toString: { value: () => '[NeoFlash Stage]' },
     });
+    const RIGHT_MOUSE_EVENT_TYPES = new Set([
+      MouseEvent.RIGHT_CLICK || 'rightClick',
+      MouseEvent.RIGHT_MOUSE_DOWN || 'rightMouseDown',
+      MouseEvent.RIGHT_MOUSE_UP || 'rightMouseUp',
+    ]);
+    const stageUserRightListeners = new Map();
+    function hasUserStageRightClickListener() {
+      for (const entries of stageUserRightListeners.values()) {
+        if (entries.length > 0) return true;
+      }
+      return false;
+    }
     const stageMethods = hub.methods(stage);
     Object.assign(stage, {
       ...stageMethods,
       addEventListener(type, listener, capture = false, priority = 0, weak = false) {
         stageMethods.addEventListener(type, listener, capture, priority, weak);
-        if (String(type) === 'stageVideoAvailability') {
+        const key = String(type);
+        if (RIGHT_MOUSE_EVENT_TYPES.has(key) && typeof listener === 'function' && !listener.__nfInternalBridge) {
+          let list = stageUserRightListeners.get(key);
+          if (!list) { list = []; stageUserRightListeners.set(key, list); }
+          const cap = Boolean(capture);
+          if (!list.some(e => e.fn === listener && e.capture === cap)) list.push({ fn: listener, capture: cap });
+        }
+        if (key === 'stageVideoAvailability') {
           const store = Stage.prototype[Symbol.for('neoflash.mediaEvents.stageHooks')];
           const fn = store?.availByStage?.get(stage) || store?.availFallback;
           if (typeof fn === 'function') fn(stage);
+        }
+      },
+      removeEventListener(type, listener, capture = false) {
+        stageMethods.removeEventListener(type, listener, capture);
+        const key = String(type);
+        const list = stageUserRightListeners.get(key);
+        if (list) {
+          const cap = Boolean(capture);
+          const next = list.filter(e => !(e.fn === listener && e.capture === cap));
+          if (next.length) stageUserRightListeners.set(key, next);
+          else stageUserRightListeners.delete(key);
         }
       },
     });
@@ -2268,8 +2298,31 @@
       for(const item of [...next].reverse())if(!old.includes(item)&&alive(item))deliver(item,mouse(MouseEvent.ROLL_OVER,item,domEvent,previous),domEvent);
       if(target!==stage&&alive(target))deliver(target,mouse(MouseEvent.MOUSE_OVER,target,domEvent,previous),domEvent);
     }
+    let rightPressedTarget = null, suppressNextAuxRightClick = false;
+    function hasRightClickListenersOnTarget(target) {
+      if (hasUserStageRightClickListener()) return true;
+      const candidates = target && target !== stage ? chain(target) : [];
+      for (const item of candidates) {
+        if (!item || !alive(item)) continue;
+        for (const t of RIGHT_MOUSE_EVENT_TYPES) {
+          if (typeof item.hasEventListener === 'function' && item.hasEventListener(t)) return true;
+        }
+      }
+      return false;
+    }
+    function isRightClickHijacked(domEvent = {}) {
+      if (options.shouldSuppressContextMenu?.(domEvent)) return true;
+      if (!enabled()) return false;
+      updatePoint(domEvent);
+      const hitTarget = targetAt(domEvent);
+      return hasRightClickListenersOnTarget(hitTarget);
+    }
+    function shouldSuppressContextMenu(domEvent = {}) {
+      if (!showDefaultContextMenu) return true;
+      return isRightClickHijacked(domEvent);
+    }
     function handlePointer(type, domEvent = {}, explicitTarget = null, physicalPick = false) {
-      if(['pointercancel','lostpointercapture','cancel'].includes(type)){if((type!=='lostpointercapture'||captured!==null)&&cancelPointer())options.afterInput?.();return true;}
+      if(['pointercancel','lostpointercapture','cancel'].includes(type)){rightPressedTarget=null;suppressNextAuxRightClick=false;if((type!=='lostpointercapture'||captured!==null)&&cancelPointer())options.afterInput?.();return true;}
       if(!enabled()||domEvent.pointerType==='touch')return true;
       if(domEvent.isPrimary===false&&/^(?:pointerdown|pointerup|pointermove)$/.test(type))return true;
       if (type === 'mouseLeave') {
@@ -2279,12 +2332,16 @@
         return true;
       }
       const isPointerLeave = type === 'pointerleave';
+      const wasRawAuxRightClick = type === 'auxclick' && domEvent.button === 2;
       if((type==='pointerdown'||type==='mousedown')&&domEvent.button===1)type='middleMouseDown';
       else if((type==='pointerdown'||type==='mousedown')&&domEvent.button===2)type='rightMouseDown';
       else if((type==='pointerup'||type==='mouseup')&&domEvent.button===1)type='middleMouseUp';
       else if((type==='pointerup'||type==='mouseup')&&domEvent.button===2)type='rightMouseUp';
       else if(type==='auxclick'&&domEvent.button===1)type='middleClick';
-      else if(type==='auxclick'&&domEvent.button===2)type='rightClick';
+      else if(wasRawAuxRightClick){
+        if(suppressNextAuxRightClick){suppressNextAuxRightClick=false;return true;}
+        type='rightClick';
+      }
       const mapped={pointerdown:'mouseDown',pointerup:'mouseUp',pointermove:'mouseMove',pointerleave:'mouseMove',mousedown:'mouseDown',mouseup:'mouseUp',mousemove:'mouseMove',dblclick:'doubleClick',wheel:'mouseWheel'};
       type=mapped[type]||type;
       if(!['mouseDown','mouseUp','mouseMove','mouseWheel','click','doubleClick','middleMouseDown','middleMouseUp','middleClick','rightMouseDown','rightMouseUp','rightClick','contextMenu','releaseOutside'].includes(type))throw new Error(`Unsupported native mouse event '${type}'.`);
@@ -2295,6 +2352,10 @@
       const target=isPointerLeave?stage:targetAt(domEvent,explicitTarget),primary=domEvent.button===undefined||domEvent.button===0;
       if(type==='doubleClick'&&target?.doubleClickEnabled===false)return true;
       if(type==='click'&&(!explicitTarget||physicalPick)&&hadPress&&clickTarget!==target)return false;
+      if(type==='rightMouseDown'){
+        rightPressedTarget=target;
+        suppressNextAuxRightClick=false;
+      }
       if(type===MouseEvent.MOUSE_DOWN&&primary){
         pressedTarget=target;clickTarget=null;hadPress=true;
         if(domEvent.target===options.canvas&&Number.isInteger(domEvent.pointerId)&&options.canvas?.setPointerCapture&&!doc()?.pointerLockElement){try{options.canvas.setPointerCapture(domEvent.pointerId);captured=domEvent.pointerId;}catch{}}
@@ -2303,6 +2364,14 @@
       }
       if(type===MouseEvent.MOUSE_MOVE||type===MouseEvent.MOUSE_DOWN)hover(target,domEvent);
       if(target!==stage&&!alive(target)){over=null;options.afterInput?.();return true;}
+      let synthesizeRightClick=false;
+      if(type==='rightMouseUp'){
+        if(rightPressedTarget!==null){
+          synthesizeRightClick=(rightPressedTarget===target);
+          suppressNextAuxRightClick=true;
+          rightPressedTarget=null;
+        }
+      }
       if(type===MouseEvent.MOUSE_UP&&primary){
         const oldPressed=pressedTarget;
         clickTarget=(oldPressed===target||Boolean(hadPress&&target&&target!==stage&&target.trackAsMenu===true))?target:null;pressedTarget=null;releaseCapture();
@@ -2313,7 +2382,14 @@
       const result=deliver(target,mouse(type,target,domEvent),domEvent);
       if (isPointerLeave) hub.dispatch(stage, new Event(Event.MOUSE_LEAVE || 'mouseLeave', false, false));
       if(target===stage||alive(target))options.onLegacyInput?.(type,target,domEvent);
-      options.onPointerTarget?.(target,type);options.afterInput?.();return result;
+      options.onPointerTarget?.(target,type);
+      if(synthesizeRightClick&&(target===stage||alive(target))){
+        const rightClickType=MouseEvent.RIGHT_CLICK||'rightClick';
+        deliver(target,mouse(rightClickType,target,domEvent),domEvent);
+        if(target===stage||alive(target))options.onLegacyInput?.(rightClickType,target,domEvent);
+        options.onPointerTarget?.(target,rightClickType);
+      }
+      options.afterInput?.();return result;
     }
     const activeTouches = new Map();
     let imeComposing = false, imeText = '';
@@ -2948,18 +3024,28 @@
     function attach() {
       if (attached) return;
       attached = true;
-      for (const type of ['pointerdown','pointerup','pointermove','pointercancel','lostpointercapture','pointerleave']) listen(options.canvas,type,event=>handlePointer(type,event));
+      for (const type of ['pointerdown','pointerup','pointermove','pointercancel','lostpointercapture','pointerleave','auxclick']) listen(options.canvas,type,event=>handlePointer(type,event));
       for (const type of ['touchstart','touchmove','touchend','touchcancel']) listen(options.canvas, type, event => handleTouch(type, event), { passive: false });
       const outside=options.pointerTarget||global;
-      for(const type of ['pointermove','pointerup','pointercancel'])listen(outside,type,event=>{if(event.target!==options.canvas&&(captured!==null||pressedTarget!==null||options.hasDrag?.()))handlePointer(type,event);});
-      listen(outside,'blur',()=>{if(cancelPointer())options.afterInput?.();});
+      for(const type of ['pointermove','pointerup','pointercancel'])listen(outside,type,event=>{if(event.target!==options.canvas&&(captured!==null||pressedTarget!==null||rightPressedTarget!==null||options.hasDrag?.()))handlePointer(type,event);});
+      listen(outside,'blur',()=>{rightPressedTarget=null;suppressNextAuxRightClick=false;if(cancelPointer())options.afterInput?.();});
       listen(options.canvas, 'wheel', event => handlePointer('wheel', event), { passive: false });
-      listen(options.canvas, 'contextmenu', event => {
-        if (!showDefaultContextMenu) event.preventDefault?.();
-        if (!options.canvas?.__nfHasAs3ContextMenu) {
+      const onContextMenu = event => {
+        const hijacked = isRightClickHijacked(event);
+        const suppress = !showDefaultContextMenu || hijacked;
+        if (suppress) event.preventDefault?.();
+        if (!hijacked && !options.canvas?.__nfHasAs3ContextMenu) {
           openContextMenu(event);
         }
-      });
+      };
+      listen(options.canvas, 'contextmenu', onContextMenu);
+      const surface = options.surface || options.canvas?.parentElement || null;
+      if (surface && surface !== options.canvas) {
+        listen(surface, 'contextmenu', event => {
+          if (event.target === options.canvas) return;
+          if (shouldSuppressContextMenu(event)) event.preventDefault?.();
+        });
+      }
       if (doc()) {
         const onFsChange = () => {
           const fsEl = docFullscreenElement();
@@ -3087,6 +3173,7 @@
       if (options.setFrameRate) options.setFrameRate(initial.frameRate);
       frameRate = initial.frameRate;
       resetState();
+      stageUserRightListeners.clear();
       hub.release(stage);
     }
     return Object.freeze({ stage, Keyboard, Mouse, mouseState: () => ({ cursor: mouseStateRecord.cursor, visible: mouseStateRecord.visible }),
@@ -3110,7 +3197,7 @@
         exitStagePointerLock();
       },
       isPointerLocked: () => Boolean(mouseLock || optInPointerLock),
-      broadcastPhase, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
+      broadcastPhase, flushRender, handlePointer, handleTouch, handleComposition, handleKey, shouldSuppressContextMenu, cancelPointer, changeFocus, resize, attach, dispose, reset,
       openContextMenu, closeContextMenu, getActiveContextMenu, imeInputElement: () => standaloneImeInput,
       resolveAccessibilityOverlayNodes: (entries = [], extraOptions = {}) => resolveAccessibilityOverlayNodes(
         entries,

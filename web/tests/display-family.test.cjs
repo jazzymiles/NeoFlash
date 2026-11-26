@@ -146,7 +146,7 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     }
     scene.swapChildren(left,right);assert.equal(scene.getChildIndex(right),prefix);
     scene.setChildIndex(left,prefix);assert.equal(scene.getChildAt(prefix),left);
-    assert.throws(()=>widget.removeMovieClip(),/AS2.*authored/,'AS2 negative-depth removal remains outside the authored mutation profile');
+    widget.removeMovieClip();assert.equal(widget.parent,scene,'AS2 negative-depth removeMovieClip is a Flash-compliant no-op');
     const widgetIdentity=widget.toJSON().object_ref,widgetTransform=[widget.x,widget.y,widget.scaleX,widget.scaleY,widget.rotation],authoredEvents=[];
     widget.addEventListener('removed',event=>authoredEvents.push(['removed',event.target===widget,event.currentTarget===widget]));
     widget.addEventListener('added',event=>authoredEvents.push(['added',event.target===widget,event.currentTarget===widget]));
@@ -413,7 +413,7 @@ trace("AS2 as3only deleted", delete classic.soundTransform, delete classic.upSta
     const {host:linked,traceCalls:linkedTraces}=createRuntimeHost(root,player,Array.from(linkedBundle.scripts,item=>({script:{language:item.language,source:item.source},code:item.code,location:item.location})),{bundle:linkedBundle,context:{measureText:line=>({width:line.length*8})}});
     linked.dispatchScripts();
     const document=linked.proxyFor([]),a=document.a,b=document.b,classic=document.classic;
-    assert.throws(()=>classic.badge.removeMovieClip(),/AS2.*authored/,'linked authored descendants retain the AS2 removal boundary');
+    classic.badge.removeMovieClip();assert.equal(classic.badge.parent,classic,'linked authored descendants at negative depth ignore AS2 removeMovieClip');
     assert.deepEqual(linkedTraces.find(row=>row[0]==='AS2 metadata initial'),['AS2 metadata initial','init label',true,true]);
     assert.deepEqual(linkedTraces.find(row=>row[0]==='AS2 metadata values'),['AS2 metadata values','legacy label','legacy scene','root custom']);
     assert.deepEqual(linkedTraces.find(row=>row[0]==='AS2 metadata deleted'),['AS2 metadata deleted',true,true,true,true]);

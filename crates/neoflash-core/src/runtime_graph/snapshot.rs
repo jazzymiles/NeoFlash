@@ -9,6 +9,7 @@ struct SnapshotEvalInputs {
     camera_by_ref: HashMap<ObjectRef, ([f64; 6], ColorTransform)>,
     metadata: HashMap<ObjectRef, Accessibility>,
     linked_roots: HashMap<ObjectRef, DisplayNode>,
+    promoted_symbol_draws: HashMap<ObjectRef, Vec<DrawItem>>,
 }
 
 struct ResolvedSnapshotNode {
@@ -25,6 +26,7 @@ struct SnapshotDrawContext<'a> {
     source_path: Option<&'a [Id]>,
     concatenated_color_transform: ColorTransform,
     items: &'a HashMap<ObjectRef, DrawItem>,
+    promoted_symbol_draws: &'a HashMap<ObjectRef, Vec<DrawItem>>,
     video: Option<&'a VideoState>,
     text: Option<&'a TextFieldState>,
     bitmap: Option<&'a PixelDescriptor>,
@@ -254,6 +256,17 @@ impl Player {
             })
             .collect();
         let mut linked_roots = HashMap::new();
+        let mut promoted_symbol_draws: HashMap<ObjectRef, Vec<DrawItem<ElementKind>>> =
+            HashMap::new();
+        for (reference, (sym_id, sym_frame)) in &self.graph.promoted_symbols {
+            if !self.graph.namespaces.contains_key(reference) {
+                let eval =
+                    crate::evaluate::snapshot(project, sym_id, *sym_frame, &|_| Some(0), &|_| None);
+                if !eval.items.is_empty() {
+                    promoted_symbol_draws.insert(reference.clone(), eval.items);
+                }
+            }
+        }
         for (namespace, scope) in &self.graph.namespaces {
             let source = scope.player.authored_snapshot(project);
             for node in scope.player.display_nodes_from_evaluation(project, &source) {
@@ -298,6 +311,7 @@ impl Player {
             camera_by_ref,
             metadata,
             linked_roots,
+            promoted_symbol_draws,
         }
     }
 
@@ -351,6 +365,10 @@ impl Player {
                         .map(|address| address.namespace.clone())
                 };
                 let mut merged = node.clone();
+                if let Some(meta) = self.graph.as2_promoted.get(reference) {
+                    merged.visible = meta.visible;
+                    merged.name = meta.name.clone();
+                }
                 if let Some(source) = linked {
                     merged.frame = source.frame;
                     merged.total_frames = source.total_frames;
@@ -718,6 +736,38 @@ impl Player {
                 },
             });
         }
+        if let Some(sym_items) = ctx.promoted_symbol_draws.get(reference) {
+            for (index, source_item) in sym_items.iter().enumerate() {
+                if matches!(
+                    source_item.kind,
+                    ElementKind::Bitmap { .. }
+                        | ElementKind::Video { .. }
+                        | ElementKind::Text { .. }
+                        | ElementKind::TextBox { .. }
+                ) {
+                    continue;
+                }
+                let item_ct = source_item
+                    .color_transform
+                    .with_alpha(source_item.alpha)
+                    .then(concatenated_color_transform);
+                let mut item = source_item.clone().map_kind(RuntimeDrawKind::Element);
+                item.element_id = format!("runtime-{}-sym-{index}", reference.id);
+                item.transform = affine_multiply(display.world, source_item.transform);
+                item.alpha = 1.;
+                item.color_transform = ColorTransform::default();
+                if let RuntimeDrawKind::Element(kind) = &mut item.kind {
+                    item_ct.transform_kind(kind);
+                }
+                draws.push(RuntimeDrawItem {
+                    owner_ref: reference.clone(),
+                    clip_ids: vec![],
+                    filter_id: None,
+                    procedural_graphics: false,
+                    item,
+                });
+            }
+        }
         if let Some(runs) = self.graph.fte_draws.get(reference) {
             for (index, run) in runs.iter().enumerate() {
                 if let Some(mut field) = TextFieldState::from_kind(&ElementKind::Text {
@@ -970,6 +1020,7 @@ impl Player {
                         source_path: resolved.source_path.as_deref(),
                         concatenated_color_transform,
                         items: &inputs.items,
+                        promoted_symbol_draws: &inputs.promoted_symbol_draws,
                         video: video.as_ref(),
                         text: text.as_ref(),
                         bitmap: bitmap.as_ref(),

@@ -1,8 +1,8 @@
 //! Runtime identity and dynamic display graph. Authored documents stay immutable.
-use crate::runtime_graphics::{GraphicsState, MAX_GRAPHICS_COMMANDS, MAX_GRAPHICS_OPS};
+use crate::runtime_graphics::{GraphicsState, MAX_GRAPHICS_COMMANDS};
 use crate::*;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 mod as2_display;
 pub use as2_display::{As2AccProps, As2AccUpdateEntry};
@@ -377,6 +377,23 @@ pub(crate) struct AuthoredPlacement {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct PromotedAuthoredMeta {
+    pub name: String,
+    pub transform: Transform,
+    pub visible: bool,
+    pub kind: Option<ElementKind>,
+    pub symbol_id: Option<Id>,
+    pub frame: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct RetiredAuthoredSlot {
+    pub namespace: Option<ObjectRef>,
+    pub path: Vec<Id>,
+    pub lifetime: u64,
+}
+
+#[derive(Clone, Debug)]
 struct Authored {
     reference: ObjectRef,
     lifetime: u64,
@@ -447,6 +464,10 @@ pub(crate) struct RuntimeGraph {
     stage_order: Vec<ObjectRef>,
     dynamic: BTreeMap<ObjectRef, DynamicObject>,
     as2_depths: HashMap<ObjectRef, (ObjectRef, i32)>,
+    as2_promoted: BTreeMap<ObjectRef, PromotedAuthoredMeta>,
+    retired_promoted_slots: BTreeSet<RetiredAuthoredSlot>,
+    promoted_symbols: BTreeMap<ObjectRef, (Id, u32)>,
+    as2_removed_shells: VecDeque<ObjectRef>,
     as2_settings: as2_input::As2Settings,
     as2_input_states: HashMap<ObjectRef, as2_input::As2Input>,
     as2_accessibility: BTreeMap<ObjectRef, as2_display::As2AccProps>,
@@ -501,6 +522,10 @@ impl RuntimeGraph {
         self.stage_order.clear();
         self.dynamic.clear();
         self.as2_depths.clear();
+        self.as2_promoted.clear();
+        self.retired_promoted_slots.clear();
+        self.promoted_symbols.clear();
+        self.as2_removed_shells.clear();
         self.as2_settings = as2_input::As2Settings::default();
         self.as2_input_states.clear();
         self.as2_accessibility.clear();
@@ -525,14 +550,191 @@ impl RuntimeGraph {
             generation: self.generation.to_string(),
         }
     }
+    pub(crate) fn evict_removed_shells_if_needed(&mut self) {
+        while self.dynamic.len() >= MAX_DYNAMIC_OBJECTS {
+            let Some(shell) = self.as2_removed_shells.pop_front() else {
+                break;
+            };
+            if self.parent(&shell).is_none() && self.children(&shell).is_empty() {
+                let single = BTreeSet::from([shell]);
+                self.retire_dynamic_descendants(&single);
+            }
+        }
+    }
+
+    pub(crate) fn retire_dynamic_descendants(&mut self, retired: &BTreeSet<ObjectRef>) {
+        if retired.is_empty() {
+            return;
+        }
+        for id in retired {
+            if let Some(obj) = self.dynamic.remove(id) {
+                self.graphics_cost = self.graphics_cost.saturating_sub(obj.graphics.cost());
+            }
+            if let Some(path) = self.paths.remove(id) {
+                self.authored.remove(&path);
+            }
+            if let Some(addr) = self.linked_paths.remove(id) {
+                self.linked_authored.remove(&addr);
+            }
+            self.as2_depths.remove(id);
+            self.as2_promoted.remove(id);
+            self.promoted_symbols.remove(id);
+            self.bitmap_states.remove(id);
+            self.fte_draws.remove(id);
+            self.affines.remove(id);
+            self.color_transforms.remove(id);
+            self.as2_input_states.remove(id);
+            self.as2_accessibility.remove(id);
+            self.as2_render_states.remove(id);
+            self.as2_snapshot_selection.remove(id);
+            self.prefix.remove(id);
+            self.suffix.remove(id);
+        }
+        for list in self.prefix.values_mut() {
+            list.retain(|id| !retired.contains(id));
+        }
+        for list in self.suffix.values_mut() {
+            list.retain(|id| !retired.contains(id));
+        }
+        self.retire_hierarchy(retired);
+        self.retire_text(retired);
+        self.retire_video(retired);
+        self.retire_input(retired);
+        self.retire_filters(retired);
+        self.retire_clipping(retired);
+    }
+
+    pub(crate) fn convert_removed_target_to_shell(&mut self, reference: &ObjectRef) {
+        let single = BTreeSet::from([reference.clone()]);
+        self.bitmap_states.remove(reference);
+        self.fte_draws.remove(reference);
+        self.retire_text(&single);
+        self.retire_video(&single);
+        self.retire_filters(&single);
+        self.retire_clipping(&single);
+        self.as2_depths.remove(reference);
+        self.promoted_symbols.remove(reference);
+        self.prefix.remove(reference);
+        self.suffix.remove(reference);
+        self.child_order.remove(reference);
+
+        let meta = self.as2_promoted.remove(reference);
+        if let Some(path) = self.paths.remove(reference) {
+            self.authored.remove(&path);
+        }
+        if let Some(addr) = self.linked_paths.remove(reference) {
+            self.linked_authored.remove(&addr);
+        }
+        self.parent_overrides.remove(reference);
+
+        if let Some(obj) = self.dynamic.get_mut(reference) {
+            self.graphics_cost = self.graphics_cost.saturating_sub(obj.graphics.cost());
+            obj.graphics = GraphicsState::default();
+            obj.authored_kind = None;
+            obj.parent = None;
+        } else {
+            let (name, transform, visible) = meta.map_or_else(
+                || (String::new(), Transform::default(), false),
+                |m| (m.name, m.transform, m.visible),
+            );
+            self.dynamic.insert(
+                reference.clone(),
+                DynamicObject {
+                    kind: DynamicKind::MovieClip,
+                    parent: None,
+                    transform,
+                    visible,
+                    name,
+                    playing: false,
+                    graphics: GraphicsState::default(),
+                    authored_kind: None,
+                },
+            );
+        }
+        self.as2_removed_shells.push_back(reference.clone());
+    }
+
     pub(crate) fn reconcile(
         &mut self,
         placements: &[AuthoredPlacement],
     ) -> Vec<crate::SoundCommand> {
-        let active: HashMap<_, _> = placements
+        let raw_active: HashMap<&[Id], u64> = placements
             .iter()
             .map(|p| (p.path.as_slice(), p.lifetime))
             .collect();
+        self.retired_promoted_slots.retain(|slot| {
+            slot.namespace.is_some() || raw_active.get(slot.path.as_slice()) == Some(&slot.lifetime)
+        });
+        let effective_placements: Vec<&AuthoredPlacement> = placements
+            .iter()
+            .filter(|p| {
+                !(1..=p.path.len()).any(|k| {
+                    let prefix_slice = &p.path[..k];
+                    raw_active.get(prefix_slice).is_some_and(|lt| {
+                        self.retired_promoted_slots.contains(&RetiredAuthoredSlot {
+                            namespace: None,
+                            path: prefix_slice.to_vec(),
+                            lifetime: *lt,
+                        })
+                    })
+                })
+            })
+            .collect();
+        let active: HashMap<_, _> = effective_placements
+            .iter()
+            .map(|p| (p.path.as_slice(), p.lifetime))
+            .collect();
+
+        // Transition any positive-depth promoted authored MovieClip whose timeline span ended
+        // into `self.dynamic` so it survives across blank keyframes without snapping or retiring.
+        let promoted_survivors: Vec<(Vec<Id>, ObjectRef)> = self
+            .authored
+            .iter()
+            .filter(|(path, node)| {
+                active.get(path.as_slice()) != Some(&node.lifetime)
+                    && self.as2_promoted.contains_key(&node.reference)
+                    && self
+                        .as2_depths
+                        .get(&node.reference)
+                        .is_some_and(|(_, d)| *d >= 0)
+                    && self.parent(&node.reference).is_some()
+            })
+            .map(|(path, node)| (path.clone(), node.reference.clone()))
+            .collect();
+        for (path, reference) in promoted_survivors {
+            let parent = self.parent(&reference);
+            let meta = self
+                .as2_promoted
+                .remove(&reference)
+                .expect("promoted metadata");
+            self.authored.remove(&path);
+            self.paths.remove(&reference);
+            self.parent_overrides.remove(&reference);
+            if let Some(ref sym_id) = meta.symbol_id {
+                self.promoted_symbols
+                    .insert(reference.clone(), (sym_id.clone(), meta.frame));
+            }
+            self.dynamic.insert(
+                reference.clone(),
+                DynamicObject {
+                    kind: DynamicKind::MovieClip,
+                    parent: parent.clone(),
+                    transform: meta.transform,
+                    visible: meta.visible,
+                    name: meta.name,
+                    playing: true,
+                    graphics: GraphicsState::default(),
+                    authored_kind: meta.kind,
+                },
+            );
+            if let Some(parent_ref) = parent {
+                let suffix = self.suffix.entry(parent_ref).or_default();
+                if !suffix.contains(&reference) {
+                    suffix.push(reference);
+                }
+            }
+        }
+
         let retired_info: Vec<_> = {
             let mut list: Vec<_> = self
                 .authored
@@ -595,7 +797,7 @@ impl RuntimeGraph {
         self.color_transforms
             .retain(|reference, _| !retired.contains(reference));
         let mut added_paths = Vec::new();
-        for p in placements {
+        for p in &effective_placements {
             if !self.authored.contains_key(&p.path) {
                 let reference = self.allocate();
                 self.paths.insert(reference.clone(), p.path.clone());
@@ -614,13 +816,15 @@ impl RuntimeGraph {
         self.prefix.retain(|reference, _| {
             !self.paths.contains_key(reference) || self.namespaces.contains_key(reference)
         });
-        for p in placements {
-            if !p.path.is_empty() {
-                let parent = &self.authored[&p.path[..p.path.len() - 1]].reference;
+        for p in &effective_placements {
+            if !p.path.is_empty()
+                && let Some(parent_node) = self.authored.get(&p.path[..p.path.len() - 1])
+                && let Some(child_node) = self.authored.get(&p.path)
+            {
                 self.prefix
-                    .entry(parent.clone())
+                    .entry(parent_node.reference.clone())
                     .or_default()
-                    .push(self.authored[&p.path].reference.clone());
+                    .push(child_node.reference.clone());
             }
         }
         for path in added_paths {
@@ -839,6 +1043,7 @@ impl Player {
         self.graph.alive(reference)
     }
     pub fn create_display(&mut self, kind: DynamicKind) -> Result<ObjectRef, DisplayError> {
+        self.graph.evict_removed_shells_if_needed();
         if self.graph.dynamic.len() >= MAX_DYNAMIC_OBJECTS {
             return Err(error(
                 "Dynamic display object limit reached (4096, including detached objects)",

@@ -171,9 +171,23 @@
       return staticTextLifetimes.get(id);
     }
     let snapshotCache=null,nodesCache=null,childMapCache=null,as2SettingsCache=null;
-    const extMasks=new Map(),explicitBitmapCache=new Map(),pendingGraphicsOps=new Map();
+    const extMasks=new Map(),explicitBitmapCache=new Map(),pendingGraphicsOps=new Map(),graphicsDrawStates=new Map();
     const ownerCache=new Map(),descriptorCache=new Map();
     let flushingGraphics=false;
+    const GRAPHICS_CHUNK_THRESHOLD=2048;
+    function flushTargetGraphics(k){
+      if(flushingGraphics)return;
+      const ops=pendingGraphicsOps.get(k);
+      if(!ops||!ops.length){pendingGraphicsOps.delete(k);return;}
+      pendingGraphicsOps.delete(k);
+      if(typeof player.object_alive==='function'&&!player.object_alive(k))return;
+      flushingGraphics=true;
+      try{
+        player.graphics_apply(k,JSON.stringify(ops));
+      }finally{
+        flushingGraphics=false;
+      }
+    }
     function flushGraphics(){
       if(flushingGraphics||pendingGraphicsOps.size===0)return;
       flushingGraphics=true;
@@ -349,7 +363,7 @@
         nodesCache=null;
       }
       if(!visualOnly)childMapCache=null;
-      if(isReset){pendingGraphicsOps.clear();ownerCache.clear();descriptorCache.clear();as2SettingsCache=null;extMasks.clear();explicitBitmapCache.clear();}
+      if(isReset){pendingGraphicsOps.clear();graphicsDrawStates.clear();ownerCache.clear();descriptorCache.clear();as2SettingsCache=null;extMasks.clear();explicitBitmapCache.clear();}
     });
     if(Array.isArray(player.__nfGraphicsFlushers))player.__nfGraphicsFlushers.push(flushGraphics);
     function invalidateDisplayCaches(){
@@ -891,10 +905,39 @@
       const apply=op=>{
         ownerInfo(target);
         const k=referenceOf(target).key;
+        let st=graphicsDrawStates.get(k);
+        if(!st){st={inFill:false,lineStyle:null,linePaint:null,penX:0,penY:0};graphicsDrawStates.set(k,st);}
         let q=pendingGraphicsOps.get(k);
         if(!q){q=[];pendingGraphicsOps.set(k,q);}
-        if(op.op==='clear')q.length=0;
+        if(op.op==='clear'){
+          q.length=0;
+          st.inFill=false;
+          st.lineStyle=null;
+          st.linePaint=null;
+          st.penX=0;
+          st.penY=0;
+        }else if(op.op==='begin_fill'||op.op==='begin_gradient_fill'||op.op==='begin_bitmap_fill'){
+          st.inFill=true;
+        }else if(op.op==='end_fill'){
+          st.inFill=false;
+        }else if(op.op==='line_style'){
+          st.lineStyle=op;
+          st.linePaint=null;
+        }else if(op.op==='line_gradient_style'||op.op==='line_bitmap_style'){
+          st.linePaint=op;
+        }else if(op.op==='move_to'||op.op==='line_to'||op.op==='curve_to'||op.op==='cubic_curve_to'){
+          st.penX=op.x;
+          st.penY=op.y;
+        }
         q.push(op);
+        if(q.length>=GRAPHICS_CHUNK_THRESHOLD&&!st.inFill&&(op.op==='end_fill'||op.op==='clear'||op.op==='draw_rect'||op.op==='draw_round_rect'||op.op==='draw_round_rect_complex'||op.op==='draw_ellipse'||op.op==='draw_path'||op.op==='line_style'||op.op==='move_to')){
+          flushTargetGraphics(k);
+        }else if(q.length>=GRAPHICS_CHUNK_THRESHOLD&&!st.inFill&&(op.op==='line_to'||op.op==='curve_to'||op.op==='cubic_curve_to')){
+          const resumeX=st.penX,resumeY=st.penY;
+          flushTargetGraphics(k);
+          const nextQ=[{op:'move_to',x:resumeX,y:resumeY}];
+          pendingGraphicsOps.set(k,nextQ);
+        }
         snapshotCache=null;
         nodesCache=null;
         player.__nfRawSnapshot=null;
@@ -1277,16 +1320,45 @@
       if(!Number.isInteger(value)||value<0||value>1048575)throw new RangeError('AS2 runtime depth requires an integer from 0 through 1048575.');
       return value;
     }
+    function swapDepth(value) {
+      if(!Number.isInteger(value)||value<-16384||value>1048575)throw new RangeError('AS2 swapDepths depth requires an integer from -16384 through 1048575.');
+      return value;
+    }
+    function pruneDeadHostFields(retiredRefs=null) {
+      const th=getText?.(),as2Th=getAS2Text?.(),sh=getStageHost?.();
+      if(Array.isArray(retiredRefs)){
+        for(const r of retiredRefs){
+          const rk=typeof r==='string'?r:JSON.stringify(r);
+          pendingGraphicsOps.delete(rk);
+          graphicsDrawStates.delete(rk);
+          th?.forgetField?.(rk);
+          as2Th?.forgetField?.(rk);
+        }
+      }else{
+        th?.pruneDeadFields?.();
+        as2Th?.pruneDeadFields?.();
+      }
+      const focusTarget=sh?.stage?.focus;
+      if(focusTarget&&focusTarget!==sh?.stage&&!alive(focusTarget)){
+        try{sh.changeFocus(null);}catch(_){}
+      }
+    }
     function createDynamic(allocation) {
       const ref=JSON.parse(player.create_display(allocation));
+      snapshotCache=null;nodesCache=null;childMapCache=null;player.__nfRawSnapshot=null;
+      const owner=allocation==='text_field'?'text':allocation;
+      if(ref?.generation!==undefined)ownerCache.set(`${JSON.stringify(ref)}\0${ref.generation}`,{owner,staticText:false});
       const proxy=proxyForRef(ref);
       const r=referenceOf(proxy);
-      if(r)ownerCache.set(`${r.key}\0${r.lifetime}`,{owner:allocation==='text_field'?'text':allocation,staticText:false});
+      if(r)ownerCache.set(`${r.key}\0${r.lifetime}`,{owner,staticText:false});
       return proxy;
     }
     function placeAtDepth(parent,child,depth,deliver=true) {
       requireContainer(parent);ownerInfo(child);
+      nodes();
       const packet=JSON.parse(player.as2_place_depth(referenceOf(parent).key,referenceOf(child).key,legacyDepth(depth)));
+      snapshotCache=null;nodesCache=null;childMapCache=null;player.__nfRawSnapshot=null;
+      pruneDeadHostFields();
       if(deliver)onMutation(packet.events);return packet.events;
     }
     function initValues(value) {
@@ -1380,11 +1452,16 @@
             if(parentSpace(other)!==parentSpace(target))throw new TypeError('swapDepths requires siblings in the same container.');
             depth=player.as2_get_depth(referenceOf(other).key);
           }
-          player.as2_swap_depth(referenceOf(target).key,legacyDepth(depth));
+          flushGraphics();
+          player.as2_swap_depth(referenceOf(target).key,swapDepth(depth));
+          snapshotCache=null;nodesCache=null;childMapCache=null;player.__nfRawSnapshot=null;
         },
         duplicateMovieClip:(name,depth,initObject)=>{
           descriptor(target);if(typeof name!=='string')throw new TypeError('duplicateMovieClip requires a string instance name.');
+          nodes();
           const values=initValues(initObject),packet=JSON.parse(player.as2_duplicate(referenceOf(target).key,name,legacyDepth(depth)));
+          snapshotCache=null;nodesCache=null;childMapCache=null;player.__nfRawSnapshot=null;
+          pruneDeadHostFields();
           const clip=proxyForRef(packet.object_ref);initializeLegacy(clip,values);onMutation(packet.events);return clip;
         },
         attachBitmap:(data,depth,pixelSnapping='auto',smoothing=false)=>{
@@ -1406,9 +1483,26 @@
           placeAtDepth(target,clip,depth);return clip;
         },
         removeMovieClip:()=>{
-          const node=descriptor(target);
-          if(node.authored_path!=null||node.source_path?.length)throw new TypeError('AS2 removeMovieClip cannot remove authored timeline placements.');
-          const parent=parentSpace(target);if(parent&&parent!==getStage())containerMethods(parent).removeChild(target);
+          descriptor(target);
+          const parent=parentSpace(target);
+          if(!parent||parent===getStage())return;
+          const key=referenceOf(target).key;
+          const depth=player.as2_get_depth(key);
+          if(depth<0||depth>1048575)return;
+          nodes();
+          const sh=getStageHost?.();
+          if(sh?.stage?.focus===target){try{sh.changeFocus(null);}catch(_){}}
+          const packet=JSON.parse(player.as2_depth_manager(key,JSON.stringify({op:'remove'})));
+          const normRef=r=>r&&typeof r==='object'?{id:String(r.id),generation:String(r.generation)}:r;
+          const retired=(packet.retired||[]).map(normRef);
+          const events=(packet.events||[]).map(ev=>({...ev,target_ref:normRef(ev.target_ref),route:Array.isArray(ev.route)?ev.route.map(normRef):[]}));
+          pendingGraphicsOps.delete(key);
+          graphicsDrawStates.delete(key);
+          getText?.()?.forgetField?.(key);
+          getAS2Text?.()?.forgetField?.(key);
+          pruneDeadHostFields(retired);
+          snapshotCache=null;nodesCache=null;childMapCache=null;player.__nfRawSnapshot=null;
+          if(events.length)onMutation(events);
         },
         attachMovie:(identifier,name,depth,initObject)=>{
           requireContainer(target);
@@ -1416,7 +1510,9 @@
           if(typeof name!=='string'||new TextEncoder().encode(name).length>4096)throw new TypeError('attachMovie requires a name of at most 4096 UTF-8 bytes.');
           legacyDepth(depth);
           const values=initValues(initObject);
-          const clip=proxyForRef(JSON.parse(player.create_linked(identifier)));clip.name=name;
+          const linkedRef=JSON.parse(player.create_linked(identifier));
+          snapshotCache=null;nodesCache=null;childMapCache=null;player.__nfRawSnapshot=null;
+          const clip=proxyForRef(linkedRef);clip.name=name;
           initializeLegacy(clip,values);
           const events=placeAtDepth(target,clip,depth,false);
           prepareLinked(clip,false,identifier);onMutation(events);return clip;
@@ -2595,7 +2691,9 @@
       if((allocation||name==='SimpleButton')&&graph)NativeDisplay.__nfAllocate=({className}={})=>{
         const symbol=project?.symbols.find(symbol=>symbol.linkage_id&&symbol.class_name===className);
         if(!symbol)return allocate();
-        const receiver=proxyForRef(JSON.parse(player.create_linked(symbol.linkage_id)));
+        const linkedRef=JSON.parse(player.create_linked(symbol.linkage_id));
+        snapshotCache=null;nodesCache=null;childMapCache=null;player.__nfRawSnapshot=null;
+        const receiver=proxyForRef(linkedRef);
         prepareLinked(receiver,true);return receiver;
       };
       NativeDisplay.__nfIs=value=>{

@@ -1,6 +1,8 @@
 //! Display-list hierarchy mutations, stage children mutations, graphics commands, and display properties.
 use super::*;
 
+pub const MAX_GRAPHICS_BATCH_OPS: usize = 65_536;
+
 impl Player {
     pub fn display_mutate(
         &mut self,
@@ -532,8 +534,8 @@ impl Player {
                 "Bitmap, Video, TextField, Loader and SimpleButton do not own Graphics",
             ));
         }
-        if operations.len() > MAX_GRAPHICS_OPS {
-            return Err(error("Graphics batch exceeds 4096 operations"));
+        if operations.len() > MAX_GRAPHICS_BATCH_OPS {
+            return Err(error("Graphics batch exceeds 65536 operations"));
         }
         let old = object.graphics.cost();
         let mut reservation = old;
@@ -565,7 +567,13 @@ impl Player {
             if matches!(op, GraphicsOp::Clear) {
                 reservation = 0;
             } else {
-                reservation = reservation.saturating_add(op.reservation());
+                let step = match op {
+                    GraphicsOp::LineTo { .. }
+                    | GraphicsOp::CurveTo { .. }
+                    | GraphicsOp::CubicCurveTo { .. } => 2 + usize::from(has_stroke) * 2,
+                    _ => op.reservation(),
+                };
+                reservation = reservation.saturating_add(step);
             }
             if self.graph.graphics_cost - old + reservation > MAX_GRAPHICS_COMMANDS {
                 return Err(error(
@@ -744,6 +752,10 @@ impl Player {
         }
     }
     pub fn object_set_visible(&mut self, reference: &ObjectRef, value: bool) -> bool {
+        if let Some(meta) = self.graph.as2_promoted.get_mut(reference) {
+            meta.visible = value;
+            return true;
+        }
         if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
             return self
                 .graph
@@ -763,6 +775,9 @@ impl Player {
         true
     }
     pub fn object_visible(&self, project: &Project, reference: &ObjectRef) -> Option<bool> {
+        if let Some(meta) = self.graph.as2_promoted.get(reference) {
+            return Some(meta.visible);
+        }
         if let Some(address) = self.graph.linked_paths.get(reference) {
             return self
                 .graph
@@ -777,6 +792,12 @@ impl Player {
         self.graph.dynamic.get(reference).map(|node| node.visible)
     }
     pub fn object_set_name(&mut self, reference: &ObjectRef, name: &str) -> bool {
+        if let Some(meta) = self.graph.as2_promoted.get_mut(reference) {
+            if name.len() > 4096 {
+                return false;
+            }
+            meta.name = name.into();
+        }
         if let Some(address) = self.graph.linked_paths.get(reference).cloned() {
             return self
                 .graph
