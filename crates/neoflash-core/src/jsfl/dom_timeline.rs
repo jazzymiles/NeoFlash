@@ -395,6 +395,7 @@ impl<'a> JsflVm<'a> {
                     doc,
                     item_id: sym_id,
                     is_folder: false,
+                    is_resource: false,
                 }))
             }
             "moveSelectionBy" => {

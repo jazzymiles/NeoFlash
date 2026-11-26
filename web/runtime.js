@@ -164,34 +164,52 @@
     const match = String(stack || '').match(/neoflash-offset\.js:(\d+):\d+/);
     return match ? Number(match[1]) - 1 : null;
   }
-  function scriptFunction(script, bindings) {
+  function hydrateAsPrelude(code, prelude) {
+    if (typeof code !== 'string' || typeof prelude !== 'string' || !prelude) return code;
+    const marker = '/*__NF_AS_PRELUDE__*/';
+    const idx = code.indexOf(marker);
+    if (idx < 0) return code;
+    let nlCount = 0;
+    for (let i = 0; i < prelude.length; i++) {
+      if (prelude.charCodeAt(i) === 10) nlCount++;
+    }
+    let end = idx + marker.length;
+    while (nlCount > 0 && code.charCodeAt(end) === 10) {
+      end++;
+      nlCount--;
+    }
+    return code.slice(0, idx) + prelude + code.slice(end);
+  }
+  function scriptFunction(script, bindings, prelude) {
+    const resolvedCode = hydrateAsPrelude(script.code, prelude);
     const url = /^neoflash-script-\d+\.js$/.test(script.source_url || '') ? script.source_url : 'neoflash-user-script.js';
     const domFn = tryCompileDomScriptUnit(
       script,
       bindings,
       ['"use strict";', 'return (function () {'],
-      script.code,
+      resolvedCode,
       '}).call(this);\n};',
       url,
     );
     if (domFn) return domFn;
-    return new Function(...bindings, '"use strict";\nreturn (function () {\n' + script.code + '\n}).call(this);\n//# sourceURL=' + url);
+    return new Function(...bindings, '"use strict";\nreturn (function () {\n' + resolvedCode + '\n}).call(this);\n//# sourceURL=' + url);
   }
-  function compileProgramUnit(programUnit) {
+  function compileProgramUnit(programUnit, prelude) {
+    const resolvedCode = hydrateAsPrelude(programUnit.code, prelude);
     const url = programUnit?.source_url || 'neoflash-project.js';
     const domFn = tryCompileDomScriptUnit(
       programUnit,
       ['__nfBuiltins'],
       [''],
-      programUnit.code,
+      resolvedCode,
       '};',
       url,
     );
     if (domFn) return domFn;
-    return new Function('__nfBuiltins', programUnit.code + '\n//# sourceURL=' + url);
+    return new Function('__nfBuiltins', resolvedCode + '\n//# sourceURL=' + url);
   }
   const runtimeInternalHostFiles = new Set([
-    'runtime.js', 'preview.js', 'neoflash_web.js', 'display.js', 'stage.js', 'events.js',
+    'runtime.js', 'preview.js', 'neoflash_web.js', 'neoflash_wasm_fallback.js', 'display.js', 'stage.js', 'events.js',
     'text.js', 'text-input.js', 'audio.js', 'video.js', 'bitmap.js', 'path.js', 'filters.js',
     'geom.js', 'geom3d.js', 'net.js', 'xml.js', 'loader.js', 'storage.js', 'external.js',
     'air.js', 'legacy-input.js', 'dom-layout.js', 'accessibility.js', 'byte-array.js',
@@ -1738,6 +1756,30 @@
       }
     };
 
+    const ensureFallbackBase64Wasm = async () => {
+      if (typeof global.NeoFlashWasmBase64 === 'string') return global.NeoFlashWasmBase64;
+      const rawWasmUrl = typeof bundle.wasm_url === 'string' ? bundle.wasm_url : '';
+      const fallbackUrl = rawWasmUrl
+        ? rawWasmUrl.replace(/[^/?#]+(?=[?#]|$)/, 'neoflash_wasm_fallback.js')
+        : 'neoflash_wasm_fallback.js';
+      const activeDoc = instanceDoc || global.document || null;
+      const parentEl = activeDoc?.head || activeDoc?.documentElement || activeDoc?.body || null;
+      if (!activeDoc || typeof activeDoc.createElement !== 'function' || !parentEl?.appendChild) return null;
+      await new Promise(resolve => {
+        const scriptEl = activeDoc.createElement('script');
+        const finish = () => {
+          scriptEl.onload = null;
+          scriptEl.onerror = null;
+          resolve();
+        };
+        scriptEl.onload = finish;
+        scriptEl.onerror = finish;
+        scriptEl.src = fallbackUrl;
+        parentEl.appendChild(scriptEl);
+      });
+      return typeof global.NeoFlashWasmBase64 === 'string' ? global.NeoFlashWasmBase64 : null;
+    };
+
     try {
       const canCacheWasmModule = typeof WebAssembly !== 'undefined'
         && typeof WebAssembly.compile === 'function'
@@ -1746,17 +1788,20 @@
         let compiledModule;
         if (typeof bundle.wasm === 'string') {
           compiledModule = await compileWasmBase64Once(bundle.wasm);
-        } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '') && typeof global.NeoFlashWasmBase64 === 'string') {
-          compiledModule = await compileWasmBase64Once(global.NeoFlashWasmBase64);
-        } else {
-          if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+        } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+          const fallbackB64 = await ensureFallbackBase64Wasm();
+          if (typeof fallbackB64 === 'string') {
+            compiledModule = await compileWasmBase64Once(fallbackB64);
+          } else {
             throw new Error('This export loads its WebAssembly runtime from a separate file, which browsers block for pages opened from disk. Serve the folder over HTTP(S), or publish at the Full size level to open index.html directly.');
           }
+        } else {
           try {
             compiledModule = await compileWasmUrlOnce(bundle.wasm_url);
           } catch (wasmErr) {
-            if (typeof global.NeoFlashWasmBase64 === 'string') {
-              compiledModule = await compileWasmBase64Once(global.NeoFlashWasmBase64);
+            const fallbackB64 = await ensureFallbackBase64Wasm();
+            if (typeof fallbackB64 === 'string') {
+              compiledModule = await compileWasmBase64Once(fallbackB64);
             } else {
               throw wasmErr;
             }
@@ -1773,18 +1818,20 @@
         await initPromise;
       } else if (typeof bundle.wasm === 'string') {
         await instanceWasm({ module_or_path: Uint8Array.from(atob(bundle.wasm), character => character.charCodeAt(0)) });
-      } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '') && typeof global.NeoFlashWasmBase64 === 'string') {
-        await instanceWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
-      } else {
-        // Smaller size levels ship WebAssembly as its own file, which pages opened from disk cannot fetch without a script fallback.
-        if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+      } else if (global.location?.protocol === 'file:' && !/^https?:/i.test(bundle.wasm_url || '')) {
+        const fallbackB64 = await ensureFallbackBase64Wasm();
+        if (typeof fallbackB64 === 'string') {
+          await instanceWasm({ module_or_path: Uint8Array.from(atob(fallbackB64), character => character.charCodeAt(0)) });
+        } else {
           throw new Error('This export loads its WebAssembly runtime from a separate file, which browsers block for pages opened from disk. Serve the folder over HTTP(S), or publish at the Full size level to open index.html directly.');
         }
+      } else {
         try {
           await instanceWasm({ module_or_path: bundle.wasm_url });
         } catch (wasmErr) {
-          if (typeof global.NeoFlashWasmBase64 === 'string') {
-            await instanceWasm({ module_or_path: Uint8Array.from(atob(global.NeoFlashWasmBase64), character => character.charCodeAt(0)) });
+          const fallbackB64 = await ensureFallbackBase64Wasm();
+          if (typeof fallbackB64 === 'string') {
+            await instanceWasm({ module_or_path: Uint8Array.from(atob(fallbackB64), character => character.charCodeAt(0)) });
           } else {
             throw wasmErr;
           }
@@ -1976,15 +2023,16 @@
     let lastTrace = '', lastTraceLocation = '';
     const bindings = ['event', '_root', '_parent', 'trace', 'play', 'stop', 'gotoAndPlay', 'gotoAndStop', 'nextFrame', 'prevFrame', '__nfAs2Method', '__nfAs2Value', '__nfProgram', '__nfDisplay', '__nfLegacy', '__nfXML'];
     let compiledProgramFn = null;
+    const bundleAsPrelude = typeof bundle.as_prelude === 'string' ? bundle.as_prelude : null;
     try {
       compiledProgramFn = bundle.program ? (() => {
-        try { return compileProgramUnit(bundle.program); }
+        try { return compileProgramUnit(bundle.program, bundleAsPrelude); }
         catch (error) { throw new Error(`Project script syntax error: ${describeThrown(error)}`, { cause: error }); }
       })() : null;
       for (const script of (bundle.scripts || [])) {
         try {
           functions.set(sourceKey(script), {
-            fn: scriptFunction(script, bindings),
+            fn: scriptFunction(script, bindings, bundleAsPrelude),
             location: script.location,
           });
         } catch (error) { throw new Error(`Script syntax error in ${script.location}: ${describeThrown(error)}`, { cause: error }); }
@@ -2369,6 +2417,8 @@
           numChildren:()=>{if(!display||(typeof player.runtime_snapshot_json!=='function'&&typeof player.display_nodes_json!=='function'))return 1;return graphMode?display.stageContainer.numChildren():(display.nodes().filter(node=>node.on_stage!==false&&node.path.length===0).length||1);},
           frameRate:runtimeFrameRate,getFrameRate:()=>runtimeFrameRate,setFrameRate:value=>{runtimeFrameRate=value;},alive:target=>alive(target)&&(target===stageHost?.stage||display.descriptor(target).on_stage!==false),localPoint:local,
           canvas:typeof canvas==='undefined'?null:canvas,keyboardTarget:typeof viewport==='undefined'?null:viewport,pointerTarget:global,
+          fallbackWindowKeys:typeof isStandaloneInstance!=='undefined'&&Boolean(isStandaloneInstance),
+          hasLegacyKeyListeners:()=>Boolean(legacyHost?.hasKeyListeners?.()),
           parentOf:target=>display.parentSpace(target),resolveInput:target=>display.resolveInput(target),beforePointer:()=>display.updateDrag(),hasDrag:()=>display.hasDrag(),cancelPointer:()=>display.cancelPointer(),
           onPointerTarget:target=>{pointerOverContent=display.handCursor(target);updateCursor();},onMouseChanged:updateCursor,
           onScaleModeChanged:()=>{enableHostStageLayout(true);if(typeof context!=='undefined')render();},
@@ -2389,6 +2439,9 @@
           legacyHost=global.NeoFlashLegacyInput.create({stage:stageHost.stage,platform:as2PlatformHost,
             keyTarget:typeof instanceKeyTarget!=='undefined'?instanceKeyTarget:(typeof global.addEventListener==='function'?global:null),
             alive:listener=>!references.has(listener)||display.alive(listener),
+            requestPointerLock:()=>stageHost?.requestOptInPointerLock?.(),
+            exitPointerLock:()=>stageHost?.exitOptInPointerLock?.(),
+            isPointerLocked:()=>stageHost?.isPointerLocked?.(),
             onVisibility:visible=>{legacyCursorVisible=visible;updateCursor();},onError:inputFailure});
           if(global.NeoFlashAS2Stage)as2StageHost=global.NeoFlashAS2Stage.create({wasm,legacy:legacyHost,geometry:geometryHost,width:typeof project==='undefined'?800:project.width,height:typeof project==='undefined'?600:project.height,scaleMode:initialFlashScaleMode,align:initialFlashAlign,allowsFullScreen:allowFullscreen,wmode:hostPlayerConfig.wmode,acceleration:runtimeAccel,wmodeGPU:isWmodeGpu,preview:typeof preview==='undefined'?null:preview,viewport:typeof viewport==='undefined'?null:viewport,canvas:typeof canvas==='undefined'?null:canvas,display,getRoot:()=>proxyFor([]),getLoop:()=>loopTimeline,toggleLoop:()=>{loopTimeline=!loopTimeline;hostPlayerConfig.loop_timeline=loopTimeline;return loopTimeline;},toggleQuality:()=>display.toggleHighQuality(),contextTarget:event=>{if(typeof hitAt==='function')return hitAt(event,true)?.target||proxyFor([]);const p=stagePointFromEvent(event);if(p&&p.inside&&display?.pickDetails)return display.pickDetails(p.x,p.y)?.target||proxyFor([]);return proxyFor([]);},onError:inputFailure,afterEvent:afterTimerEvent});
           legacyGlobals=Object.freeze({Key:legacyHost.Key,Mouse:legacyHost.Mouse,Stage:as2StageHost?.Stage||legacyHost.Stage,...(as2StageHost?{ContextMenu:as2StageHost.ContextMenu,ContextMenuItem:as2StageHost.ContextMenuItem}:{})});
@@ -3058,12 +3111,13 @@
           __nfSwfTagInstance,__nfSwfSetClassMeta,__nfSwfSlotMeta,__nfSwfGetSlot,__nfSwfSetSlot,
         ];
         const fullDynamicBindings=[...dynamicScriptBindings,...swfHelperNames,'__nfSwfGetURL','__nfSwfEnv'];
-        const compileDynamicBundleScript=(unit,swfEnv)=>{
+        const compileDynamicBundleScript=(unit,swfEnv,preludeOverride)=>{
+          const effPrelude=preludeOverride||bundle?.as_prelude;
           let rawFn;
-          if(typeof scriptFunction==='function')rawFn=scriptFunction(unit,fullDynamicBindings);
+          if(typeof scriptFunction==='function')rawFn=scriptFunction(unit,fullDynamicBindings,effPrelude);
           else{
             const url=/^neoflash-script-\d+\.js$/.test(unit.source_url||'')?unit.source_url:'neoflash-user-script.js';
-            rawFn=new Function(...fullDynamicBindings,'"use strict";\nreturn (function () {\n'+unit.code+'\n}).call(this);\n//# sourceURL='+url);
+            rawFn=new Function(...fullDynamicBindings,'"use strict";\nreturn (function () {\n'+hydrateAsPrelude(unit.code,effPrelude)+'\n}).call(this);\n//# sourceURL='+url);
           }
           const boundSwfGetURL=hardenSwfCallable((owner,url,target,flags)=>runSwfGetURL(owner,url,target,flags,swfEnv),null);
           return function(...args){
@@ -3271,9 +3325,10 @@
               }
             }
             let childProgram=program;
+            const childPrelude=childBundle?.as_prelude||bundle?.as_prelude;
             if(childBundle.program?.code&&typeof currentBuiltins==='object'&&currentBuiltins){
               try{
-                childProgram=(typeof compileProgramUnit==='function'?compileProgramUnit(childBundle.program):new Function('__nfBuiltins',childBundle.program.code+'\n//# sourceURL='+(childBundle.program.source_url||'neoflash-child-project.js')))(currentBuiltins);
+                childProgram=(typeof compileProgramUnit==='function'?compileProgramUnit(childBundle.program,childPrelude):new Function('__nfBuiltins',hydrateAsPrelude(childBundle.program.code,childPrelude)+'\n//# sourceURL='+(childBundle.program.source_url||'neoflash-child-project.js')))(currentBuiltins);
                 if(childProgram?.classes){
                   for(const [cq,cctor] of Object.entries(childProgram.classes)){
                     if(typeof cctor!=='function')continue;
@@ -3292,13 +3347,13 @@
             const initReceiver=mut.content_ref?proxyForRef(mut.content_ref):proxyFor([]);
             for(const unit of childBundle.scripts||[]){
               if(unit.location==='avm2-abc-init'){
-                const initFn=compileDynamicBundleScript(unit,swfEnv);
+                const initFn=compileDynamicBundleScript(unit,swfEnv,childPrelude);
                 initFn.call(initReceiver,null,initReceiver,initReceiver._parent,trace,initReceiver.play,initReceiver.stop,initReceiver.gotoAndPlay,initReceiver.gotoAndStop,initReceiver.nextFrame,initReceiver.prevFrame,as2.method,as2.value,childProgram,display,legacyGlobals,xmlHost);
                 continue;
               }
               const item=unit.script?unit:{...unit,language:unit.language,source:unit.source};
               const k=sourceKey(item.script||item);
-              functions.set(k,{fn:compileDynamicBundleScript(unit,swfEnv),location:unit.location||'published-bundle',prefix:mountedPrefix});
+              functions.set(k,{fn:compileDynamicBundleScript(unit,swfEnv,childPrelude),location:unit.location||'published-bundle',prefix:mountedPrefix});
               scriptKeys.push(k);
             }
             if(swfEnv.classes&&targetAppDomain){
@@ -3679,7 +3734,7 @@
         }
         return null;
       };
-      program=typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program):new Function('__nfBuiltins', bundle.program.code + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : {
+      program=typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program,bundle.as_prelude):new Function('__nfBuiltins', (typeof bundle.as_prelude==='string'&&bundle.as_prelude?String(bundle.program.code||'').replace('/*__NF_AS_PRELUDE__*/',()=>bundle.as_prelude):bundle.program.code) + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : {
         type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
         is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
       };
@@ -4735,6 +4790,7 @@
     }
     function dispatchScripts(clickTarget = null) {
       const wasInDispatch = inDispatch;
+      if (!wasInDispatch) lifecycleStepCount = 0;
       inDispatch = true;
       try {
       syncResetGeneration();
@@ -5066,6 +5122,15 @@
     });
     canvas.addEventListener('pointermove',guardHostCallback(event=>{const hit=hitAt(event);pointerOverContent=Boolean(hit&&display.handCursor(graphMode?proxyForRef(hit):proxyFor(hit)));updateCursor();}));
     canvas.addEventListener('pointerleave', guardHostCallback(() => { pointerOverContent=false;updateCursor(); }));
+    function restoreStageFocus(fromControl = null) {
+      if (familyDisposed || (typeof runtimeDisposed !== 'undefined' && runtimeDisposed) || !canvas || typeof canvas.focus !== 'function') return;
+      const active = instanceDoc?.activeElement || null;
+      if (active && textInputHost?.owns?.(active)) return;
+      if (fromControl && active === fromControl && typeof fromControl.blur === 'function') {
+        try { fromControl.blur(); } catch (_) {}
+      }
+      try { canvas.focus({ preventScroll: true }); } catch (_) { try { canvas.focus(); } catch (_) {} }
+    }
     toggle?.addEventListener('click', guardHostCallback(() => {
       player.set_playing(!player.is_playing());
       drainSounds();drainVideos();
@@ -5073,6 +5138,7 @@
       accumulated = 0;
       resetMeasuredFps();
       render();
+      restoreStageFocus(toggle);
     }));
     function restartInstance() {
       if (familyDisposed || runtimeDisposed) return;
@@ -5083,11 +5149,13 @@
       if (instanceEventHost !== global) emitScriptMessage('restart', 'Player restarted', [], instanceEventHost);
       emitScriptMessage('restart', 'Player restarted', []);
       try { resetProject(); render(); } catch (error) { fail(error); }
+      restoreStageFocus(restartButton);
     }
     restartButton?.addEventListener('click', restartInstance);
     audioToggleButton?.addEventListener('click',guardHostCallback(()=>{
       const services=[audioHost,videoHost].filter(host=>{if(!host)return false;const state=host.status();return state.state!=='idle'&&state.audible!==false;}),mute=services.length&&services.every(host=>{const state=host.status();return (state.unlocked||state.requiresGesture===false)&&!state.muted&&state.state!=='awaiting_gesture';});
       for(const host of services)mediaGesture(host,mute?'setMuted':'resumeFromGesture',...(mute?[true]:[]));
+      restoreStageFocus(audioToggleButton);
     }));
     addOwnedListener(global, 'resize', guardHostCallback(() => { resize(); render(); }));
     addOwnedListener(instanceDoc, 'visibilitychange', () => { lastTime = null; accumulated = 0; resetMeasuredFps(); });
@@ -5107,7 +5175,7 @@
       preview.mode = initialMode;
       if (zoomSelect && (initialMode === 'fit' || initialMode === '1')) zoomSelect.value = initialMode;
     }
-    panButton?.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); });
+    panButton?.addEventListener('click', () => { preview.setPan(!preview.panMode); panButton.setAttribute('aria-pressed', String(preview.panMode)); updateCursor(); restoreStageFocus(panButton); });
     if (fullscreenToggle) {
       if (!allowFullscreen) fullscreenToggle.hidden = true;
       const syncFullscreenToggle = () => {
@@ -5192,6 +5260,7 @@
         const open = sizeReportElement.style.display !== 'block';
         sizeReportElement.style.display = open ? 'block' : 'none';
         reportToggle.setAttribute('aria-pressed', String(open));
+        restoreStageFocus(reportToggle);
       });
     }
     let runtimeDisposed = false;
@@ -5279,6 +5348,12 @@
       if (postRenderW !== preRenderW || postRenderH !== preRenderH) {
         resize();
         if (!failed) render();
+      }
+      if (isStandaloneInstance) {
+        const active = instanceDoc?.activeElement || null;
+        if (!active || active === instanceDoc?.body || active === instanceDoc?.documentElement || active === viewport) {
+          restoreStageFocus();
+        }
       }
     } catch (error) { fail(error); }
     if (typeof ResizeObserver === 'function' && viewport) {

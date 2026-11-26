@@ -181,3 +181,112 @@ test('scenes play as one main timeline with scene-aware goto in AS3 and AS2', as
       ['Scene 2', 4, [['Scene 1', 3, [['begin', 1]]], ['Scene 2', 4, [['middle', 2]]]]]);
   } finally { player.free(); }
 });
+
+test('DM-00..DM-04 + DM-08: >1500 frames reset lifecycleStepCount, AS2 BitmapData signed ARGB & lock/unlock, Matrix slots, batched Graphics, and as_prelude hydration', async () => {
+  const vm = require('node:vm');
+  const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
+  const { runtimeWasm } = await import('../../crates/neoflash-script/tests/rust-runtime-host.mjs');
+  const localCargo = resolve(homedir(), '.cargo/bin/cargo');
+  const cargo = process.env.CARGO || (fs.existsSync(localCargo) ? localCargo : 'cargo');
+  const tmpDir = fs.mkdtempSync(resolve(root, 'target/doom-rt-reg-'));
+  const as2Src = `
+    import flash.display.BitmapData;
+    import flash.geom.Matrix;
+    import flash.geom.Rectangle;
+    stop();
+    var bmp:BitmapData = new BitmapData(16.9, 16.2, true, (0xFF << 24) | 0x112233);
+    bmp.lock();
+    bmp.setPixel32(2.7, 3.9, (0xFF << 24) | 0xCC5511);
+    bmp.fillRect(new Rectangle(4.2, 4.8, 4.6, 4.1), (0xFF << 24) | 0x22AA44);
+    bmp.unlock();
+    var px:Number = bmp.getPixel(2, 3);
+    var pxRect:Number = bmp.getPixel(5, 5);
+    var view:MovieClip = createEmptyMovieClip("view", 10);
+    var mat:Matrix = new Matrix();
+    var ticks:Number = 0;
+    onEnterFrame = function():Void {
+      ticks++;
+      mat.a = 1; mat.d = 1; mat.tx = ticks & 7; mat.ty = 0;
+      view.clear();
+      view.beginBitmapFill(bmp, mat, true, false);
+      view.moveTo(0, 0);
+      view.lineTo(32, 0);
+      view.lineTo(32, 32);
+      view.lineTo(0, 32);
+      view.endFill();
+      view.beginFill((0xFF << 24) | 0x4488CC, 100);
+      view.moveTo(0, 0);
+      view.lineTo(8, 0);
+      view.lineTo(8, 8);
+      view.endFill();
+    };
+    trace("init:" + px.toString(16) + ":" + pxRect.toString(16));
+  `;
+  const project = {
+    format_version: 6,
+    name: 'DoomRuntimeRegression',
+    width: 64,
+    height: 64,
+    fps: 30,
+    background: [0, 0, 0, 255],
+    script_language: 'action_script2',
+    root: 'scene-1',
+    symbols: [{
+      id: 'scene-1',
+      name: 'Scene 1',
+      kind: 'movie_clip',
+      timeline: {
+        frame_count: 2,
+        layers: [{ id: 'l1', name: 'Layer 1', visible: true, locked: false, keyframes: [{ frame: 0, elements: [], label: '', tween: null }] }],
+        scripts: [{ frame: 0, script: { language: 'action_script2', source: as2Src } }],
+      },
+    }],
+  };
+  let player;
+  try {
+    const nflashPath = resolve(tmpDir, 'doom-reg.nflash');
+    const outDir = resolve(tmpDir, 'html5');
+    fs.writeFileSync(nflashPath, JSON.stringify(project));
+    const exported = spawnSync(
+      cargo,
+      ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--', nflashPath, '--output', outDir],
+      { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
+    );
+    assert.equal(exported.status, 0, exported.error?.message || exported.stderr);
+    const ctx = vm.createContext({});
+    vm.runInContext(fs.readFileSync(resolve(outDir, 'bundle.js'), 'utf8'), ctx);
+    const bundle = vm.runInContext('globalThis.NeoFlashBundle', ctx);
+    assert.ok(typeof bundle.as_prelude === 'string' && bundle.as_prelude.length > 10000, 'exported bundle includes shared as_prelude');
+    assert.ok(bundle.scripts[0].code.includes('/*__NF_AS_PRELUDE__*/'), 'script code uses deduplicated prelude marker');
+
+    player = new runtimeWasm.WebPlayer(JSON.stringify(bundle.project));
+    const scripts = bundle.scripts.map(item => ({
+      script: { language: item.language, source: item.source },
+      code: item.code,
+      location: item.location,
+    }));
+    let runtimeHost;
+    try {
+      const created = createRuntimeHost(root, player, scripts, { bundle });
+      runtimeHost = created.host;
+      runtimeHost.dispatchScripts();
+      assert.deepEqual(created.traceCalls, [['init:cc5511:22aa44']]);
+
+      // Run 1,500 consecutive frames (> 6,000 lifecycle phases, well past the old 4,096 cap at 34.1s!)
+      for (let f = 0; f < 1500; f++) {
+        player.tick();
+        runtimeHost.dispatchScripts();
+        runtimeHost.broadcastFrame();
+      }
+      const rootClip = runtimeHost.proxyFor([]);
+      assert.equal(rootClip.ticks, 1500, 'all 1,500 onEnterFrame ticks executed without Script event limit exceeded');
+      const snap = runtimeHost.display().snapshot();
+      assert.ok(Array.isArray(snap.draws) && snap.draws.length >= 2, 'batched Graphics commands flushed into rendered scene');
+    } finally {
+      runtimeHost?.disposeFamily?.();
+    }
+  } finally {
+    if (player) player.free();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

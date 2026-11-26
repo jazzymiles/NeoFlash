@@ -1045,6 +1045,7 @@ async function verifySafariWebKit(fullDir, balancedDir, modes) {
   const audioJs = fs.readFileSync(path.join(fullDir, 'audio.js'), 'utf8');
   const videoJs = fs.readFileSync(path.join(fullDir, 'video.js'), 'utf8');
   const balancedWebJs = fs.readFileSync(path.join(balancedDir, 'neoflash_web.js'), 'utf8');
+  const balancedFallbackJs = fs.readFileSync(path.join(balancedDir, 'neoflash_wasm_fallback.js'), 'utf8');
   const staticChecks = {
     webkitFullscreenFallback:
       runtimeJs.includes('webkitFullscreenElement') &&
@@ -1056,7 +1057,8 @@ async function verifySafariWebKit(fullDir, balancedDir, modes) {
     webkitFileProtocolBase64WasmLoader:
       runtimeJs.includes("location?.protocol === 'file:'") &&
       runtimeJs.includes('NeoFlashWasmBase64') &&
-      balancedWebJs.includes('globalThis.NeoFlashWasmBase64 ='),
+      !balancedWebJs.includes('NeoFlashWasmBase64') &&
+      balancedFallbackJs.includes('globalThis.NeoFlashWasmBase64 ='),
     webkitInlineVideoAttributes:
       videoJs.includes('media.playsInline=true') && videoJs.includes('media.muted=true'),
   };

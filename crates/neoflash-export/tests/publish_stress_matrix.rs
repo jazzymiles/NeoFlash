@@ -222,8 +222,15 @@ fn pass1_size_levels_fonts_and_audio_policies_across_real_projects() {
                         let bindings =
                             fs::read_to_string(out.join("neoflash_web.js")).expect("bindings");
                         assert!(
-                            bindings.contains("globalThis.NeoFlashWasmBase64 = \""),
-                            "{} must embed NeoFlashWasmBase64 for direct file:// opening",
+                            !bindings.contains("NeoFlashWasmBase64"),
+                            "{} must keep neoflash_web.js free of inline base64 WASM",
+                            level.name()
+                        );
+                        let fallback = fs::read_to_string(out.join("neoflash_wasm_fallback.js"))
+                            .expect("neoflash_wasm_fallback.js");
+                        assert!(
+                            fallback.contains("globalThis.NeoFlashWasmBase64 = \""),
+                            "{} must emit neoflash_wasm_fallback.js for direct file:// opening",
                             level.name()
                         );
                     }

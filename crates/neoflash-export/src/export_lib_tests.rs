@@ -1405,6 +1405,7 @@ fn html_publish_config_drives_clean_publish_preview_chrome_templates_scale_jpeg_
         sequence_policy: SequencePublishPolicy::KeepFrames,
         render_mode: neoflash_core::HtmlRenderMode::Canvas,
         breakpoints: Vec::new(),
+        omit_file_fallback: false,
     };
     export_project_with_config(&project, &out_hud, &rt, &options, &hud_cfg).unwrap();
     let html_hud = fs::read_to_string(out_hud.join("index.html")).unwrap();
@@ -1603,19 +1604,26 @@ fn compact_and_balanced_packages_embed_file_protocol_wasm_fallback_for_authored_
             export_project_with_config(scene, &out, &rt, &options, &cfg)
                 .unwrap_or_else(|e| panic!("failed exporting {label} at {}: {e}", level.name()));
             let bindings = fs::read_to_string(out.join(BINDINGS_FILE)).unwrap();
+            assert!(
+                !bindings.contains("NeoFlashWasmBase64"),
+                "neoflash_web.js stays pure JS glue without inline base64 WASM ({label}, {})",
+                level.name()
+            );
             if level.wasm_inline() {
                 assert!(
-                    !bindings.contains("NeoFlashWasmBase64"),
-                    "Full level inlines wasm in bundle.js, not neoflash_web.js ({label})"
+                    !out.join(WASM_FALLBACK_FILE).exists(),
+                    "Full level inlines wasm in bundle.js and omits neoflash_wasm_fallback.js ({label})"
                 );
             } else {
                 let expected_b64 =
                     STANDARD.encode(fs::read(out.join(WASM_FILE)).expect("wasm file"));
+                let fallback = fs::read_to_string(out.join(WASM_FALLBACK_FILE))
+                    .expect("neoflash_wasm_fallback.js");
                 assert!(
-                    bindings.contains(&format!(
+                    fallback.contains(&format!(
                         "globalThis.NeoFlashWasmBase64 = \"{expected_b64}\";"
                     )),
-                    "{} level must embed NeoFlashWasmBase64 fallback in neoflash_web.js for direct file:// opening ({label})",
+                    "{} level must emit NeoFlashWasmBase64 in neoflash_wasm_fallback.js for direct file:// opening ({label})",
                     level.name()
                 );
             }
@@ -1640,9 +1648,11 @@ fn compact_and_balanced_packages_embed_file_protocol_wasm_fallback_for_authored_
     let shared_dir = dir.join("shared-runtime");
     export_shared_runtime(&shared_dir, &rt).unwrap();
     let shared_bindings = fs::read_to_string(shared_dir.join(BINDINGS_FILE)).unwrap();
+    assert!(!shared_bindings.contains("NeoFlashWasmBase64"));
+    let shared_fallback = fs::read_to_string(shared_dir.join(WASM_FALLBACK_FILE)).unwrap();
     assert!(
-        shared_bindings.contains("globalThis.NeoFlashWasmBase64 = \"AGFzbQEAAAA=\";"),
-        "shared runtime also embeds NeoFlashWasmBase64 for local relative-path file:// setups"
+        shared_fallback.contains("globalThis.NeoFlashWasmBase64 = \"AGFzbQEAAAA=\";"),
+        "shared runtime emits neoflash_wasm_fallback.js for local relative-path file:// setups"
     );
 
     fs::remove_dir_all(dir).unwrap();
@@ -2769,6 +2779,98 @@ fn t320_atomic_publish_and_secondary_exporters_edge_case_hardening() {
         fs::read_to_string(ok_aep_path)
             .unwrap()
             .contains("app.project.save")
+    );
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn t488_as_prelude_dedup_omit_file_fallback_and_script_linked_resource_warnings() {
+    let dir = temp();
+    let rt = dir.join("runtime");
+    runtime(&rt);
+
+    let mut project = Project::blank();
+    project.script_language = Some(ScriptLanguage::ActionScript2);
+    project.sources.push(neoflash_core::SourceUnit {
+        id: "src1".into(),
+        path: "doom/LevelData.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "class doom.LevelData { public static var W:Number = 16; }".into(),
+    });
+    project.symbols[0].timeline.frame_count = 2;
+    project.symbols[0].timeline.scripts.push(neoflash_core::FrameScript {
+        layer: None,
+        frame: 0,
+        script: neoflash_core::Script {
+            language: ScriptLanguage::ActionScript2,
+            source: "import doom.LevelData;\nvar s:Sound = new Sound();\ns.attachSound(\"shotgun\");\ntrace(LevelData.W);\nstop();".into(),
+        },
+    });
+    project.symbols[0]
+        .timeline
+        .scripts
+        .push(neoflash_core::FrameScript {
+            layer: None,
+            frame: 1,
+            script: neoflash_core::Script {
+                language: ScriptLanguage::ActionScript2,
+                source: "trace(\"frame2\");".into(),
+            },
+        });
+    project.resources.push(
+        neoflash_core::ResourceUnit::from_bytes(
+            "res_shotgun",
+            "audio/shotgun.wav",
+            "audio/wav",
+            b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x00\x00\x00\x00",
+        )
+        .unwrap(),
+    );
+    project.upgrade_format_for_features();
+
+    // [DM-16]: attachSound("shotgun") marks audio/shotgun.wav as referenced -> 0 unused warnings
+    let warnings = crate::export_warnings(&project);
+    assert!(
+        warnings
+            .iter()
+            .all(|w| !w.contains("available by their relative paths")),
+        "script-referenced attachSound resource should not trigger unused-resource warning: {warnings:?}"
+    );
+
+    // [DM-07] + [DM-08] + [DM-10]: Compact + omit_file_fallback omits neoflash_wasm_fallback.js and deduplicates AS prelude
+    let out = dir.join("compact-http");
+    let options = PublishOptions {
+        fonts: FontExportPolicy::Embed,
+        size: SizeLevel::Compact,
+        audio: AudioExportPolicy::Original,
+    };
+    let mut cfg = HtmlPublishConfig::clean_publish_default();
+    cfg.omit_file_fallback = true;
+    export_project_with_config(&project, &out, &rt, &options, &cfg).unwrap();
+    assert!(
+        !out.join(WASM_FALLBACK_FILE).exists(),
+        "omit_file_fallback=true omits neoflash_wasm_fallback.js"
+    );
+    let html = fs::read_to_string(out.join("index.html")).unwrap();
+    assert!(
+        html.contains("#viewport:focus { outline: none; }"),
+        "HTML5 template suppresses unintended focus ring on #viewport"
+    );
+    let bundle_text = fs::read_to_string(out.join("bundle.js")).unwrap();
+    assert!(
+        bundle_text.contains("\"as_prelude\":"),
+        "bundle.js emits single shared as_prelude field"
+    );
+    let marker_hits = bundle_text.matches("/*__NF_AS_PRELUDE__*/").count();
+    assert_eq!(
+        marker_hits, 3,
+        "program + 2 frame scripts each reference /*__NF_AS_PRELUDE__*/ instead of duplicating ~340 KB"
+    );
+    assert!(
+        bundle_text.len() < 550_000,
+        "deduplicated bundle.js with 3 AS2 units must stay under 550 KB, got {} B",
+        bundle_text.len()
     );
 
     fs::remove_dir_all(dir).unwrap();

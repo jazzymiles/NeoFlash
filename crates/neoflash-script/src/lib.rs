@@ -611,6 +611,12 @@ pub fn compile_with_program(
     }
 }
 
+/// Shared JavaScript helper prelude emitted for ActionScript 1.0/2.0/3.0 units.
+#[must_use]
+pub fn as_runtime_prelude_js() -> String {
+    actionscript::embedded_helpers()
+}
+
 /// Compile one frame/object handler into a JavaScript function body.
 ///
 /// The browser calls this body with `this` bound to the current display object.

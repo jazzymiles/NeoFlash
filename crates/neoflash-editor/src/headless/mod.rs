@@ -86,6 +86,13 @@ pub(crate) struct InspectOptions {
     pub(crate) no_resources: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum EvalVmMode {
+    #[default]
+    Preview,
+    Swf,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct EvalOptions {
     pub(crate) scene: Option<String>,
@@ -93,6 +100,8 @@ pub(crate) struct EvalOptions {
     pub(crate) start_frame: u32,
     pub(crate) end_frame: u32,
     pub(crate) scripts: bool,
+    pub(crate) strict: bool,
+    pub(crate) vm: EvalVmMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2572,6 +2581,8 @@ fn run_cmd_eval<W1: Write>(
     let mut frame_arg: Option<u32> = None;
     let mut frames_arg: Option<(u32, u32)> = None;
     let mut scripts = false;
+    let mut strict = false;
+    let mut vm = EvalVmMode::Preview;
 
     let mut i = 0usize;
     while i < args.len() {
@@ -2590,6 +2601,23 @@ fn run_cmd_eval<W1: Write>(
                 frames_arg = Some(parse_frame_range_str(&raw)?);
             }
             "--scripts" => scripts = true,
+            "--strict" => strict = true,
+            "--vm" => {
+                let raw = take_flag_value(args, &mut i, "--vm")?;
+                vm = match raw.trim().to_ascii_lowercase().as_str() {
+                    "preview" | "authored" => EvalVmMode::Preview,
+                    "swf" | "avm" | "bytecode" => EvalVmMode::Swf,
+                    other => {
+                        return Err(CliError::usage(
+                            "invalid_argument",
+                            format!("Unsupported --vm '{other}' (expected preview|swf)"),
+                        ));
+                    }
+                };
+                if vm == EvalVmMode::Swf {
+                    scripts = true;
+                }
+            }
             other => {
                 return Err(CliError::usage(
                     "unknown_flag",
@@ -2627,6 +2655,8 @@ fn run_cmd_eval<W1: Write>(
             start_frame,
             end_frame,
             scripts,
+            strict,
+            vm,
         },
     )?;
 
@@ -2680,6 +2710,9 @@ pub(crate) fn evaluate_loaded_project_frame(
     let hydrated =
         crate::app::standalone_script::hydrate_project_includes_from_disk(project, base_dir);
     let project = hydrated.as_ref();
+    if opts.vm == EvalVmMode::Swf {
+        return evaluate_loaded_project_swf_vm(project, opts);
+    }
     let (eval_project, sym_id): (Cow<'_, Project>, String) = if let Some(ref sym_sel) = opts.symbol
     {
         let sym = resolve_symbol(project, sym_sel)?;
@@ -2713,6 +2746,12 @@ pub(crate) fn evaluate_loaded_project_frame(
 
     let mut all_traces: Vec<String> = Vec::new();
     let mut all_diagnostics: Vec<String> = Vec::new();
+    if opts.scripts && !eval_project.sources.is_empty() {
+        all_diagnostics.push(format!(
+            "project defines {} class/module source file(s) outside the bounded native stage preview subset — use `--headless eval --vm swf` or HTML5 export for full runtime execution.",
+            eval_project.sources.len()
+        ));
+    }
     let mut frames_out: Vec<Value> = Vec::new();
 
     for step_frame in opts.start_frame..=opts.end_frame {
@@ -2722,7 +2761,16 @@ pub(crate) fn evaluate_loaded_project_frame(
         let actual_frame = playback.frame();
         let halted = playback.is_root_halted_by_script();
         let step_traces = playback.drain_traces();
-        let step_diags = playback.drain_diagnostics();
+        let step_diags: Vec<String> = playback
+            .drain_diagnostics()
+            .into_iter()
+            .map(|d| {
+                d.replace(
+                    " — use Test Movie (Cmd+Return) for full runtime execution.",
+                    " — use `--headless eval --vm swf` or HTML5 export for full runtime execution.",
+                )
+            })
+            .collect();
         all_traces.extend(step_traces.iter().cloned());
         all_diagnostics.extend(step_diags.iter().cloned());
 
@@ -2746,7 +2794,8 @@ pub(crate) fn evaluate_loaded_project_frame(
         }));
     }
 
-    Ok(json!({
+    let report = json!({
+        "vm": "preview",
         "symbol_id": sym.id,
         "symbol_name": sym.name,
         "fps": eval_project.fps,
@@ -2757,7 +2806,128 @@ pub(crate) fn evaluate_loaded_project_frame(
         "trace_lines": all_traces,
         "script_diagnostics": all_diagnostics,
         "frames": frames_out,
-    }))
+    });
+    if opts.strict && !all_diagnostics.is_empty() {
+        return Err(CliError::runtime_with_details(
+            "eval_strict_failed",
+            format!(
+                "Strict preview evaluation produced {} diagnostic(s); use --vm swf for full AVM1/AVM2 bytecode execution",
+                all_diagnostics.len()
+            ),
+            report,
+        ));
+    }
+    Ok(report)
+}
+
+fn evaluate_loaded_project_swf_vm(
+    project: &Project,
+    opts: &EvalOptions,
+) -> Result<Value, CliError> {
+    if opts.scene.is_some() || opts.symbol.is_some() {
+        return Err(CliError::usage(
+            "unsupported_flag",
+            "'eval --vm swf' evaluates the published movie root timeline; omit --scene/--symbol",
+        ));
+    }
+    let resolved = project.with_resolved_script_language();
+    let eff_lang = resolved.effective_script_language();
+    let profile = match eff_lang {
+        ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2 => {
+            neoflash_export::SwfPublishProfile::FlashPlayer8Avm1
+        }
+        ScriptLanguage::ActionScript3 => neoflash_export::SwfPublishProfile::FlashPlayer10Avm2,
+        other => {
+            return Err(CliError::usage(
+                "unsupported_language",
+                format!(
+                    "'eval --vm swf' supports ActionScript 1/2/3 projects (found {})",
+                    other.display_label()
+                ),
+            ));
+        }
+    };
+    static EVAL_SWF_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let seq = EVAL_SWF_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp_swf =
+        std::env::temp_dir().join(format!("neoflash-eval-vm-{}-{seq}.swf", std::process::id()));
+    let swf_opts = neoflash_export::SwfPublishOptions {
+        profile,
+        scriptless_mode: false,
+        outline_text: false,
+        ..neoflash_export::SwfPublishOptions::default()
+    };
+    let compile_res = neoflash_export::publish_swf(&resolved, &tmp_swf, &swf_opts);
+    if let Err(err) = compile_res {
+        let _ = fs::remove_file(&tmp_swf);
+        return Err(CliError::runtime(
+            "eval_swf_compile_failed",
+            err.to_string(),
+        ));
+    }
+    let player_res = neoflash_import::SwfBytecodePlayer::from_path(&tmp_swf);
+    let _ = fs::remove_file(&tmp_swf);
+    let mut player =
+        player_res.map_err(|e| CliError::runtime("eval_swf_load_failed", e.to_string()))?;
+
+    let root_sym = resolved
+        .symbol(&resolved.root)
+        .ok_or_else(|| CliError::runtime("symbol_not_found", "Root symbol missing"))?;
+    let total_frames = player.total_frames().max(1);
+    let mut all_traces: Vec<String> = Vec::new();
+    let mut all_audio_events: Vec<String> = Vec::new();
+    let mut all_diagnostics: Vec<String> = Vec::new();
+    let mut frames_out: Vec<Value> = Vec::new();
+
+    for tick_idx in 0..=opts.end_frame {
+        let state = player.step_frame();
+        if tick_idx >= opts.start_frame {
+            let step_audio: Vec<String> = state
+                .audio_events
+                .iter()
+                .map(|ev| format!("{ev:?}"))
+                .collect();
+            all_traces.extend(state.traces.iter().cloned());
+            all_audio_events.extend(step_audio.iter().cloned());
+            all_diagnostics.extend(state.unsupported_diagnostics.iter().cloned());
+            frames_out.push(json!({
+                "frame": tick_idx,
+                "playback_frame": state.frame,
+                "halted_by_script": !state.playing,
+                "traces": state.traces,
+                "audio_events": step_audio,
+                "diagnostics": state.unsupported_diagnostics,
+                "display_count": state.display_list.len(),
+            }));
+        }
+    }
+
+    let report = json!({
+        "vm": "swf",
+        "swf_version": player.swf_version(),
+        "symbol_id": root_sym.id,
+        "symbol_name": root_sym.name,
+        "fps": resolved.fps,
+        "total_frames": total_frames,
+        "start_frame": opts.start_frame,
+        "end_frame": opts.end_frame,
+        "scripts_executed": true,
+        "trace_lines": all_traces,
+        "audio_events": all_audio_events,
+        "script_diagnostics": all_diagnostics,
+        "frames": frames_out,
+    });
+    if opts.strict && !all_diagnostics.is_empty() {
+        return Err(CliError::runtime_with_details(
+            "eval_strict_failed",
+            format!(
+                "Strict SWF VM evaluation produced {} diagnostic(s)",
+                all_diagnostics.len()
+            ),
+            report,
+        ));
+    }
+    Ok(report)
 }
 
 fn resolve_scene_symbol<'a>(project: &'a Project, selector: &str) -> Result<&'a Symbol, CliError> {

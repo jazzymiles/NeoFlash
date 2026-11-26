@@ -19,8 +19,7 @@ use super::{
 use neoflash_core::{
     AuthoringCommandStep, Color, Element, ElementKind, FillRule, FrameScript, InstancePlayback,
     Keyframe, Layer, LayerProperties, LayerRole, ObjectScript, PathCommand, Project, Script,
-    ScriptLanguage, SourceUnit, Symbol, TextFormat, Timeline, Transform,
-    apply_command_steps_to_elements, new_id,
+    SourceUnit, Symbol, TextFormat, Timeline, Transform, apply_command_steps_to_elements, new_id,
 };
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
@@ -296,6 +295,21 @@ struct AddElementSpec {
     font_family: Option<String>,
     font_size: Option<f64>,
     color: Option<String>,
+    align: Option<String>,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    underline: Option<bool>,
+    letter_spacing: Option<f64>,
+    leading: Option<f64>,
+    field_type: Option<String>,
+    selectable: Option<bool>,
+    border: Option<bool>,
+    border_color: Option<String>,
+    background: Option<bool>,
+    background_color: Option<String>,
+    variable: Option<String>,
+    html: Option<bool>,
+    embed_fonts: Option<bool>,
     #[serde(default)]
     word_wrap: bool,
     #[serde(default)]
@@ -1077,6 +1091,21 @@ fn execute_batch_op(
                 fill_rule,
                 symbol_id: target_sym_sel,
                 playback,
+                align,
+                bold,
+                italic,
+                underline,
+                letter_spacing,
+                leading,
+                field_type,
+                selectable,
+                border,
+                border_color,
+                background,
+                background_color,
+                variable,
+                html,
+                embed_fonts,
             } = *spec;
             let owner_sym_id = match symbol.as_deref() {
                 Some(sel) => resolve_symbol(project, sel)?.id.clone(),
@@ -1168,6 +1197,100 @@ fn execute_batch_op(
                     if let Some(ref c_str) = color {
                         let [r, g, b, _] = parse_color(c_str)?;
                         fmt.color = u32::from_be_bytes([0, r, g, b]);
+                    }
+                    if let Some(ref al_str) = align {
+                        let (next_align, next_mode) = match al_str
+                            .trim()
+                            .to_ascii_lowercase()
+                            .as_str()
+                        {
+                            "left" => (neoflash_core::TextAlign::Left, None),
+                            "center" => (neoflash_core::TextAlign::Center, None),
+                            "right" => (neoflash_core::TextAlign::Right, None),
+                            "justify" => {
+                                (neoflash_core::TextAlign::Left, Some("justify".to_owned()))
+                            }
+                            other => {
+                                return Err(CliError::usage(
+                                    "invalid_argument",
+                                    format!(
+                                        "Unsupported text_box align '{other}' (expected left|center|right|justify)"
+                                    ),
+                                ));
+                            }
+                        };
+                        fmt.align = next_align;
+                        fmt.set_align_mode(next_mode);
+                    }
+                    if let Some(b) = bold {
+                        fmt.bold = b;
+                    }
+                    if let Some(it) = italic {
+                        fmt.italic = it;
+                    }
+                    if let Some(ul) = underline {
+                        fmt.underline = ul;
+                    }
+                    if let Some(ls) = letter_spacing {
+                        fmt.letter_spacing = ls;
+                    }
+                    if let Some(ld) = leading {
+                        fmt.leading = ld;
+                    }
+                    let mut field_opts = fmt.field_options().unwrap_or_default();
+                    let mut touched_opts = false;
+                    if let Some(ref ft_str) = field_type {
+                        field_opts.field_type = match ft_str.trim().to_ascii_lowercase().as_str() {
+                            "dynamic" | "static" => neoflash_core::TextFieldType::Dynamic,
+                            "input" => neoflash_core::TextFieldType::Input,
+                            other => {
+                                return Err(CliError::usage(
+                                    "invalid_argument",
+                                    format!(
+                                        "Unsupported text_box field_type '{other}' (expected dynamic|input)"
+                                    ),
+                                ));
+                            }
+                        };
+                        touched_opts = true;
+                    }
+                    if let Some(sel) = selectable {
+                        field_opts.selectable = sel;
+                        touched_opts = true;
+                    }
+                    if let Some(bdr) = border {
+                        field_opts.border = bdr;
+                        touched_opts = true;
+                    }
+                    if let Some(ref bc_str) = border_color {
+                        let [r, g, b, _] = parse_color(bc_str)?;
+                        field_opts.border_color = u32::from_be_bytes([0, r, g, b]);
+                        touched_opts = true;
+                    }
+                    if let Some(bg) = background {
+                        field_opts.background = bg;
+                        touched_opts = true;
+                    }
+                    if let Some(ref bgc_str) = background_color {
+                        let [r, g, b, _] = parse_color(bgc_str)?;
+                        field_opts.background_color = u32::from_be_bytes([0, r, g, b]);
+                        touched_opts = true;
+                    }
+                    if let Some(var_name) = variable {
+                        field_opts.variable =
+                            (!var_name.trim().is_empty()).then(|| var_name.trim().to_owned());
+                        touched_opts = true;
+                    }
+                    if let Some(is_html) = html {
+                        field_opts.html = is_html;
+                        touched_opts = true;
+                    }
+                    if let Some(emb) = embed_fonts {
+                        field_opts.embed_fonts = emb;
+                        touched_opts = true;
+                    }
+                    if touched_opts {
+                        fmt.set_field_options((!field_opts.is_default()).then_some(field_opts));
                     }
                     ElementKind::TextBox {
                         text: text_str,
@@ -1300,10 +1423,14 @@ fn execute_batch_op(
         } => {
             let explicit_lang = language.as_deref().map(parse_language).transpose()?;
             let project_default_lang = project
-                .symbol(&project.root)
-                .and_then(|s| s.timeline.scripts.first())
-                .map(|fs| fs.script.language)
-                .unwrap_or(ScriptLanguage::ActionScript3);
+                .script_language
+                .or_else(|| {
+                    project
+                        .symbol(&project.root)
+                        .and_then(|s| s.timeline.scripts.first())
+                        .map(|fs| fs.script.language)
+                })
+                .unwrap_or_else(|| project.effective_script_language());
 
             if let Some(src_path) = path {
                 project.enable_program();
@@ -1331,13 +1458,15 @@ fn execute_batch_op(
                 Some(sel) => resolve_symbol(project, sel)?.id.clone(),
                 None => project.root.clone(),
             };
-            let sym = resolve_symbol_mut(project, &sym_id)?;
-            let sym_default_lang = sym
-                .timeline
-                .scripts
-                .first()
-                .map(|s| s.script.language)
+            let sym_first_script_lang = project
+                .symbol(&sym_id)
+                .and_then(|s| s.timeline.scripts.first())
+                .map(|s| s.script.language);
+            let sym_default_lang = project
+                .script_language
+                .or(sym_first_script_lang)
                 .unwrap_or(project_default_lang);
+            let sym = resolve_symbol_mut(project, &sym_id)?;
 
             if let Some(el_sel) = element {
                 if frame >= sym.timeline.frame_count {
@@ -1677,6 +1806,8 @@ fn execute_batch_op(
                     start_frame,
                     end_frame,
                     scripts,
+                    strict: false,
+                    vm: super::EvalVmMode::Preview,
                 },
             )
         }
@@ -1751,6 +1882,7 @@ fn parse_instance_playback(raw: Option<&str>) -> Result<InstancePlayback, CliErr
 #[cfg(test)]
 mod t414_batch_tests {
     use super::*;
+    use neoflash_core::ScriptLanguage;
 
     #[test]
     fn t414_headless_batch_validate_compile_and_eval_hydrate_disk_includes() {

@@ -12,14 +12,36 @@
   function create(wasm,{getVector3D=()=>null}={}){
     if(typeof wasm?.Geom2dValue!=='function')throw new Error('Rust 2D geometry bindings are missing. Rebuild and re-export this project.');
     const native=new WeakMap();
+    function slotsOf(receiver){
+      const entry=native.get(receiver);
+      if(!entry)throw new TypeError('Geometry method has an invalid receiver.');
+      return entry;
+    }
     function read(value,keys){
       if(value===null||typeof value!=='object')throw new TypeError('Geometry requires an object with the expected numeric coordinates.');
+      const entry=native.get(value);
+      if(entry&&entry.keys===keys)return entry.slots.slice();
       return keys.map(key=>finite(value[key]));
     }
+    const mutatingOps=new Set(['copyFrom','setTo','offset','normalize','setEmpty','offsetPoint','inflate','inflatePoint','identity','concat','invert','rotate','scale','translate','createBox','createGradientBox','copyRowFrom','copyColumnFrom','transformer:matchInternalPointWithExternal','transformer:setScaleX','transformer:setScaleY','transformer:setSkewX','transformer:setSkewXRadians','transformer:setSkewY','transformer:setSkewYRadians','transformer:setRotation','transformer:setRotationRadians','transformer:rotateAroundInternalPoint','transformer:rotateAroundExternalPoint','motion:setBrightness','motion:setTintColor','motion:setTintMultiplier','motion:setTint','legacy:setRGB','legacy:setTransform']);
     function invoke(receiver,operation,args=[]){
-      const state=native.get(receiver);if(!state)throw new TypeError('Geometry method has an invalid receiver.');
-      try{return JSON.parse(state.call(operation,JSON.stringify(args)));}
-      catch(error){throw new RangeError(String(error));}
+      const entry=slotsOf(receiver);
+      try{
+        let state=entry.wasmState;
+        if(!state||entry.dirty){
+          if(state&&typeof state.free==='function'){try{state.free();}catch(_){}}
+          state=new wasm.Geom2dValue(entry.kind,JSON.stringify(entry.slots));
+          entry.wasmState=state;
+          entry.dirty=false;
+        }
+        const out=JSON.parse(state.call(operation,JSON.stringify(args)));
+        if(operation.startsWith('set:')||mutatingOps.has(operation)){
+          const snap=JSON.parse(state.snapshot());
+          if(Array.isArray(snap))entry.slots=snap;
+          else if(Array.isArray(snap?.data))entry.slots=snap.data;
+        }
+        return out;
+      }catch(error){throw new RangeError(String(error));}
     }
     function calculate(kind,data,operation,args,output){
       try{const value=JSON.parse(wasm.Geom2dValue.calculate(kind,JSON.stringify(data),operation,JSON.stringify(args)));return output===undefined?wrap(value):pointOutput(value,output);}
@@ -28,9 +50,15 @@
     function initialize(receiver,kind,keys,args,defaults){
       if(native.has(receiver))throw new TypeError('Native geometry initialization may occur only once.');
       const values=defaults.map((fallback,i)=>args[i]===undefined?fallback:finite(args[i]));
-      let state;try{state=new wasm.Geom2dValue(kind,JSON.stringify(values));}catch(error){throw new RangeError(String(error));}
-      native.set(receiver,state);
-      for(const key of keys)Object.defineProperty(receiver,key,{enumerable:true,get:()=>invoke(receiver,key),set:value=>{invoke(receiver,'set:'+key,[finite(value)]);}});
+      const entry={kind,keys,slots:values,wasmState:null,dirty:true};
+      native.set(receiver,entry);
+      keys.forEach((key,idx)=>{
+        Object.defineProperty(receiver,key,{
+          enumerable:true,
+          get:()=>slotsOf(receiver).slots[idx],
+          set:value=>{const e=slotsOf(receiver);e.slots[idx]=finite(value);e.dirty=true;},
+        });
+      });
     }
     function wrap(value){
       if(value?.type==='Point')return new Point(...value.data);
@@ -42,20 +70,20 @@
     function pointOutput(value,output){
       if(output==null)return wrap(value);
       if(!Point.__nfIs(output))throw new TypeError('Geometry output requires a Point instance or null.');
-      invoke(output,'setTo',value.data);return output;
+      const e=slotsOf(output);e.slots=[finite(value.data[0]),finite(value.data[1])];e.dirty=true;return output;
     }
     class Point {
       constructor(x=0,y=0){initialize(this,'Point',pointKeys,[x,y],[0,0]);}
-      get length(){return invoke(this,'length');}
-      clone(){return wrap(invoke(this,'clone'));}
-      copyFrom(point){invoke(this,'copyFrom',[read(point,pointKeys)]);}
-      setTo(x,y){invoke(this,'setTo',[finite(x),finite(y)]);}
-      add(point){return wrap(invoke(this,'add',[read(point,pointKeys)]));}
-      subtract(point){return wrap(invoke(this,'subtract',[read(point,pointKeys)]));}
-      addToOutput(point,output=null){return pointOutput(invoke(this,'add',[read(point,pointKeys)]),output);}
-      subtractToOutput(point,output=null){return pointOutput(invoke(this,'subtract',[read(point,pointKeys)]),output);}
-      equals(point){return invoke(this,'equals',[read(point,pointKeys)]);}
-      offset(dx,dy){invoke(this,'offset',[finite(dx),finite(dy)]);}
+      get length(){const s=slotsOf(this).slots;return Math.hypot(s[0],s[1]);}
+      clone(){const s=slotsOf(this).slots;return new Point(s[0],s[1]);}
+      copyFrom(point){const e=slotsOf(this),[x,y]=read(point,pointKeys);e.slots[0]=x;e.slots[1]=y;e.dirty=true;}
+      setTo(x,y){const e=slotsOf(this),nx=finite(x),ny=finite(y);e.slots[0]=nx;e.slots[1]=ny;e.dirty=true;}
+      add(point){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return new Point(finite(s[0]+px),finite(s[1]+py));}
+      subtract(point){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return new Point(finite(s[0]-px),finite(s[1]-py));}
+      addToOutput(point,output=null){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return pointOutput({type:'Point',data:[finite(s[0]+px),finite(s[1]+py)]},output);}
+      subtractToOutput(point,output=null){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return pointOutput({type:'Point',data:[finite(s[0]-px),finite(s[1]-py)]},output);}
+      equals(point){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return s[0]===px&&s[1]===py;}
+      offset(dx,dy){const e=slotsOf(this),nx=finite(e.slots[0]+finite(dx)),ny=finite(e.slots[1]+finite(dy));e.slots[0]=nx;e.slots[1]=ny;e.dirty=true;}
       normalize(thickness){invoke(this,'normalize',[finite(thickness)]);}
       toString(){return invoke(this,'toString');}
       static distance(first,second){return calculate('Point',read(first,pointKeys),'distance',[read(second,pointKeys)]);}
@@ -66,20 +94,20 @@
     }
     class Rectangle {
       constructor(x=0,y=0,width=0,height=0){initialize(this,'Rectangle',rectKeys,[x,y,width,height],[0,0,0,0]);}
-      clone(){return wrap(invoke(this,'clone'));}
-      copyFrom(rectangle){invoke(this,'copyFrom',[read(rectangle,rectKeys)]);}
-      setTo(x,y,width,height){invoke(this,'setTo',[finite(x),finite(y),finite(width),finite(height)]);}
-      setEmpty(){invoke(this,'setEmpty');}
-      isEmpty(){return invoke(this,'isEmpty');}
-      equals(rectangle){return invoke(this,'equals',[read(rectangle,rectKeys)]);}
+      clone(){const s=slotsOf(this).slots;return new Rectangle(s[0],s[1],s[2],s[3]);}
+      copyFrom(rectangle){const e=slotsOf(this),vals=read(rectangle,rectKeys);e.slots=vals;e.dirty=true;}
+      setTo(x,y,width,height){const e=slotsOf(this),vals=[finite(x),finite(y),finite(width),finite(height)];e.slots=vals;e.dirty=true;}
+      setEmpty(){const e=slotsOf(this);e.slots=[0,0,0,0];e.dirty=true;}
+      isEmpty(){const s=slotsOf(this).slots;return s[2]<=0||s[3]<=0;}
+      equals(rectangle){const s=slotsOf(this).slots,r=read(rectangle,rectKeys);return s[0]===r[0]&&s[1]===r[1]&&s[2]===r[2]&&s[3]===r[3];}
       contains(x,y){return invoke(this,'contains',[finite(x),finite(y)]);}
       containsPoint(point){return invoke(this,'containsPoint',[read(point,pointKeys)]);}
       containsRect(rectangle){return invoke(this,'containsRect',[read(rectangle,rectKeys)]);}
       intersection(rectangle){return wrap(invoke(this,'intersection',[read(rectangle,rectKeys)]));}
       intersects(rectangle){return invoke(this,'intersects',[read(rectangle,rectKeys)]);}
       union(rectangle){return wrap(invoke(this,'union',[read(rectangle,rectKeys)]));}
-      offset(dx,dy){invoke(this,'offset',[finite(dx),finite(dy)]);}
-      offsetPoint(point){invoke(this,'offsetPoint',[read(point,pointKeys)]);}
+      offset(dx,dy){const e=slotsOf(this),nx=finite(e.slots[0]+finite(dx)),ny=finite(e.slots[1]+finite(dy));e.slots[0]=nx;e.slots[1]=ny;e.dirty=true;}
+      offsetPoint(point){const e=slotsOf(this),[dx,dy]=read(point,pointKeys),nx=finite(e.slots[0]+dx),ny=finite(e.slots[1]+dy);e.slots[0]=nx;e.slots[1]=ny;e.dirty=true;}
       inflate(dx,dy){invoke(this,'inflate',[finite(dx),finite(dy)]);}
       inflatePoint(point){invoke(this,'inflatePoint',[read(point,pointKeys)]);}
       toString(){return invoke(this,'toString');}
@@ -94,19 +122,19 @@
     }
     class Matrix {
       constructor(a=1,b=0,c=0,d=1,tx=0,ty=0){initialize(this,'Matrix',matrixKeys,[a,b,c,d,tx,ty],[1,0,0,1,0,0]);}
-      clone(){return wrap(invoke(this,'clone'));}
-      copyFrom(matrix){invoke(this,'copyFrom',[read(matrix,matrixKeys)]);}
-      setTo(a,b,c,d,tx,ty){invoke(this,'setTo',[a,b,c,d,tx,ty].map(finite));}
-      identity(){invoke(this,'identity');}
+      clone(){const s=slotsOf(this).slots;return new Matrix(s[0],s[1],s[2],s[3],s[4],s[5]);}
+      copyFrom(matrix){const e=slotsOf(this),vals=read(matrix,matrixKeys);e.slots=vals;e.dirty=true;}
+      setTo(a,b,c,d,tx,ty){const e=slotsOf(this),vals=[a,b,c,d,tx,ty].map(finite);e.slots=vals;e.dirty=true;}
+      identity(){const e=slotsOf(this);e.slots=[1,0,0,1,0,0];e.dirty=true;}
       concat(matrix){invoke(this,'concat',[read(matrix,matrixKeys)]);}
-      transformPoint(point){return wrap(invoke(this,'transformPoint',[read(point,pointKeys)]));}
-      deltaTransformPoint(point){return wrap(invoke(this,'deltaTransformPoint',[read(point,pointKeys)]));}
-      transformPointToOutput(point,output=null){return pointOutput(invoke(this,'transformPoint',[read(point,pointKeys)]),output);}
-      deltaTransformPointToOutput(point,output=null){return pointOutput(invoke(this,'deltaTransformPoint',[read(point,pointKeys)]),output);}
+      transformPoint(point){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return new Point(finite(s[0]*px+s[2]*py+s[4]),finite(s[1]*px+s[3]*py+s[5]));}
+      deltaTransformPoint(point){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return new Point(finite(s[0]*px+s[2]*py),finite(s[1]*px+s[3]*py));}
+      transformPointToOutput(point,output=null){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return pointOutput({type:'Point',data:[finite(s[0]*px+s[2]*py+s[4]),finite(s[1]*px+s[3]*py+s[5])]},output);}
+      deltaTransformPointToOutput(point,output=null){const s=slotsOf(this).slots,[px,py]=read(point,pointKeys);return pointOutput({type:'Point',data:[finite(s[0]*px+s[2]*py),finite(s[1]*px+s[3]*py)]},output);}
       invert(){invoke(this,'invert');}
       rotate(angle){invoke(this,'rotate',[finite(angle)]);}
-      scale(sx,sy){invoke(this,'scale',[finite(sx),finite(sy)]);}
-      translate(dx,dy){invoke(this,'translate',[finite(dx),finite(dy)]);}
+      scale(sx,sy){const e=slotsOf(this),fx=finite(sx),fy=finite(sy),s=e.slots,next=[finite(s[0]*fx),finite(s[1]*fy),finite(s[2]*fx),finite(s[3]*fy),finite(s[4]*fx),finite(s[5]*fy)];e.slots=next;e.dirty=true;}
+      translate(dx,dy){const e=slotsOf(this),fx=finite(dx),fy=finite(dy),nx=finite(e.slots[4]+fx),ny=finite(e.slots[5]+fy);e.slots[4]=nx;e.slots[5]=ny;e.dirty=true;}
       createBox(sx,sy,rotation=0,tx=0,ty=0){invoke(this,'createBox',[sx,sy,rotation,tx,ty].map(finite));}
       createGradientBox(width,height,rotation=0,tx=0,ty=0){invoke(this,'createGradientBox',[width,height,rotation,tx,ty].map(finite));}
       copyRowFrom(index,source){invoke(this,'copyRowFrom',[finite(index),vector(source)]);}

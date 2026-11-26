@@ -893,6 +893,7 @@ impl PublishPrefs {
             chrome,
             render_mode: self.render_mode,
             breakpoints: Vec::new(),
+            omit_file_fallback: false,
         }
     }
 
@@ -923,6 +924,7 @@ impl PublishPrefs {
             chrome,
             render_mode: self.render_mode,
             breakpoints: Vec::new(),
+            omit_file_fallback: true,
         }
     }
 }

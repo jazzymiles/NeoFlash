@@ -26,7 +26,7 @@
     }
     const keyListeners = new Set(), mouseListeners = new Set(), stageListeners = new Set();
     const pressed = new Set(), subscriptions = [];
-    let disposed = false, generation = 0, code = 0, ascii = 0, visible = true;
+    let disposed = false, generation = 0, code = 0, ascii = 0, visible = true, lastMovementX = 0, lastMovementY = 0;
     const listenerLimit = 1024;
     function active() { if (disposed) throw new Error('This legacy input adapter has been disposed.'); }
     function add(listeners, listener) {
@@ -82,7 +82,11 @@
       subscribe('keyUp', event => key(event, false));
       subscribe('mouseDown', () => broadcast(mouseListeners, 'onMouseDown'));
       subscribe('mouseUp', () => broadcast(mouseListeners, 'onMouseUp'));
-      subscribe('mouseMove', () => broadcast(mouseListeners, 'onMouseMove'));
+      subscribe('mouseMove', event => {
+        lastMovementX = Number(event?.movementX) || 0;
+        lastMovementY = Number(event?.movementY) || 0;
+        broadcast(mouseListeners, 'onMouseMove', [lastMovementX, lastMovementY]);
+      });
       subscribe('mouseWheel', event => broadcast(mouseListeners, 'onMouseWheel', [event.delta, event.target]));
       subscribe('resize', () => broadcast(stageListeners, 'onResize'));
     }
@@ -97,7 +101,7 @@
     function clear() {
       generation++;
       keyListeners.clear(); mouseListeners.clear(); stageListeners.clear();
-      pressed.clear(); code = 0; ascii = 0;
+      pressed.clear(); code = 0; ascii = 0; lastMovementX = 0; lastMovementY = 0;
     }
     function blur() { pressed.clear(); }
     const Key = Object.freeze({ ...constants,
@@ -113,6 +117,11 @@
       addListener(listener) { add(mouseListeners, listener); },
       removeListener(listener) { return mouseListeners.delete(listener); },
       hide() { return setVisible(false); }, show() { return setVisible(true); },
+      lock() { active(); return Boolean(options.requestPointerLock?.()); },
+      unlock() { active(); options.exitPointerLock?.(); },
+      get isLocked() { return Boolean(options.isPointerLocked?.()); },
+      get movementX() { return lastMovementX; },
+      get movementY() { return lastMovementY; },
     });
     const Stage = Object.freeze({
       get width() { return stage.stageWidth; }, get height() { return stage.stageHeight; },
@@ -137,7 +146,7 @@
     bind(); options.keyTarget?.addEventListener?.('blur', blur);
     options.keyTarget?.addEventListener?.('keydown', observeKey, true);
     options.keyTarget?.addEventListener?.('keyup', observeKey, true);
-    return Object.freeze({ Key, Mouse, Stage, reset, dispose,broadcastStage:(name,args=[])=>{active();broadcast(stageListeners,name,args);} });
+    return Object.freeze({ Key, Mouse, Stage, reset, dispose, hasKeyListeners: () => keyListeners.size > 0 || pressed.size > 0, broadcastStage:(name,args=[])=>{active();broadcast(stageListeners,name,args);} });
   }
   const api = Object.freeze({ create });
   global.NeoFlashLegacyInput = api;

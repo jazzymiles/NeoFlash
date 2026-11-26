@@ -262,9 +262,33 @@ const HOST_MODULES: &[(&str, &str)] = &[
 ];
 const WASM_FILE: &str = "neoflash_web_bg.wasm";
 const BINDINGS_FILE: &str = "neoflash_web.js";
+const WASM_FALLBACK_FILE: &str = "neoflash_wasm_fallback.js";
 const NOTICES_FILE: &str = "THIRD_PARTY_NOTICES.txt";
 const RUNTIME_ID_FILE: &str = "runtime-id.js";
 const MODULE_FILE: &str = "module.mjs";
+pub(crate) const AS_PRELUDE_MARKER: &str = "/*__NF_AS_PRELUDE__*/";
+
+pub(crate) fn replace_as_prelude_once(code: &str, prelude: &str) -> (String, bool) {
+    if !prelude.is_empty()
+        && let Some(pos) = code.find(prelude)
+    {
+        let nl_count = prelude.as_bytes().iter().filter(|&&b| b == b'\n').count();
+        let mut out = String::with_capacity(
+            code.len()
+                .saturating_sub(prelude.len())
+                .saturating_add(AS_PRELUDE_MARKER.len() + nl_count),
+        );
+        out.push_str(&code[..pos]);
+        out.push_str(AS_PRELUDE_MARKER);
+        for _ in 0..nl_count {
+            out.push('\n');
+        }
+        out.push_str(&code[pos + prelude.len()..]);
+        (out, true)
+    } else {
+        (code.to_owned(), false)
+    }
+}
 
 pub(crate) fn static_runtime_js_bytes() -> usize {
     HOST.len()
@@ -294,6 +318,9 @@ struct Bundle<'a> {
     /// Absent when a smaller size level drops the prelude of a project without scripts.
     #[serde(skip_serializing_if = "Option::is_none")]
     program: Option<ProgramBundle<'a>>,
+    /// Shared ActionScript runtime prelude deduplicated out of `program.code` and `scripts[*].code`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    as_prelude: Option<String>,
     /// Base64 WebAssembly at the Full level; otherwise the runtime fetches `wasm_url`.
     #[serde(skip_serializing_if = "Option::is_none")]
     wasm: Option<String>,
@@ -454,7 +481,55 @@ pub fn export_warnings_without_foreign_scripts(project: &Project) -> Vec<String>
                 "Font '{font}' is referenced by name, not embedded. Visitors need this font installed; otherwise the browser uses a fallback."
             )),
     );
-    let non_font_resources = project
+    let mut placed_or_linked_resources = BTreeSet::<String>::new();
+    for symbol in &project.symbols {
+        for layer in &symbol.timeline.layers {
+            for key in &layer.keyframes {
+                for element in &key.elements {
+                    if let ElementKind::Bitmap { resource_id, .. } = &element.kind {
+                        placed_or_linked_resources.insert(resource_id.clone());
+                    }
+                }
+                for fill in &key.bitmap_fills {
+                    placed_or_linked_resources.insert(fill.resource_id.clone());
+                }
+                if let Some(sound) = &key.sound {
+                    placed_or_linked_resources.insert(sound.resource.clone());
+                }
+                if let Some(video) = &key.video {
+                    placed_or_linked_resources.insert(video.resource.clone());
+                }
+            }
+        }
+    }
+    let script_corpus = publish::script_corpus(project);
+    if !script_corpus.trim().is_empty() {
+        for res in &project.resources {
+            if is_font_resource(res) {
+                continue;
+            }
+            let normalized = res
+                .path
+                .trim()
+                .replace('\\', "/")
+                .trim_start_matches("./")
+                .trim_start_matches('/')
+                .to_owned();
+            let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
+            let stem = basename
+                .rsplit_once('.')
+                .map(|(s, _)| s)
+                .unwrap_or(basename);
+            let referenced = [&res.id, normalized.as_str(), basename, stem]
+                .into_iter()
+                .filter(|cand| !cand.is_empty())
+                .any(|cand| script_corpus.contains(cand));
+            if referenced {
+                placed_or_linked_resources.insert(res.id.clone());
+            }
+        }
+    }
+    let unreferenced_non_font_resources = project
         .resources
         .iter()
         .filter(|res| {
@@ -462,18 +537,11 @@ pub fn export_warnings_without_foreign_scripts(project: &Project) -> Vec<String>
                 && !res
                     .path
                     .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
+                && !placed_or_linked_resources.contains(&res.id)
         })
         .count();
-    if non_font_resources > 0 {
-        let user_resource_total = project
-            .resources
-            .iter()
-            .filter(|res| {
-                !res.path
-                    .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
-            })
-            .count();
-        warnings.push(format!("{} project resource(s) are embedded and available by their relative paths. Embedding bytes alone does not create display placements or install fonts.", user_resource_total));
+    if unreferenced_non_font_resources > 0 {
+        warnings.push(format!("{} project resource(s) are embedded and available by their relative paths. Embedding bytes alone does not create display placements or install fonts.", unreferenced_non_font_resources));
     }
     if project.html_render_mode() == HtmlRenderMode::Dom {
         warnings.extend(dom_publish_diagnostics(project));
@@ -1304,6 +1372,7 @@ fn reserved_publish_path(path: &str) -> bool {
     const GENERATED: &[&str] = &[
         MARKER,
         BINDINGS_FILE,
+        WASM_FALLBACK_FILE,
         WASM_FILE,
         RUNTIME_ID_FILE,
         NOTICES_FILE,
@@ -1757,15 +1826,10 @@ pub(crate) fn assemble_with_config(
         &prepared.wasm
     };
     let reusable_bindings = wrap_reusable_wasm_bindings(&prepared.bindings);
-    let bindings_bytes = if shared_url.is_none() && !level.wasm_inline() {
-        format!(
-            "{reusable_bindings}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
-            STANDARD.encode(wasm)
-        )
-        .into_bytes()
-    } else {
-        reusable_bindings.into_bytes()
-    };
+    let bindings_bytes = reusable_bindings.into_bytes();
+    let emit_wasm_fallback = shared_url.is_none()
+        && !level.wasm_inline()
+        && !config.is_some_and(|c| c.omit_file_fallback);
     let runtime_js_bytes = if shared_url.is_some() {
         0
     } else {
@@ -1788,7 +1852,7 @@ pub(crate) fn assemble_with_config(
         .bundle_source_map
         .as_ref()
         .map(|map| apply_publish_source_map_shift(map, program_map_shift));
-    let effective_scripts: Vec<CompiledScript> = prepared
+    let mut effective_scripts: Vec<CompiledScript> = prepared
         .scripts
         .iter()
         .cloned()
@@ -1800,6 +1864,33 @@ pub(crate) fn assemble_with_config(
             script
         })
         .collect();
+    let precomputed_fallback_map = config
+        .is_some_and(|c| c.source_maps)
+        .then(|| build_fallback_bundle_source_map(&effective_scripts, &effective_program_code));
+    // Without scripts or classes the compiled prelude has nothing to run; the runtime supplies
+    // its built-in class lookup instead.
+    let scriptless = publish::script_corpus(&prepared.published)
+        .trim()
+        .is_empty()
+        && prepared.program.class_names.is_empty();
+    let ships_program = !(scriptless && level.trims_content());
+    let raw_as_prelude = neoflash_script::as_runtime_prelude_js();
+    let mut uses_as_prelude = false;
+    let effective_program_code = if ships_program {
+        let (deduped, hit) = replace_as_prelude_once(&effective_program_code, &raw_as_prelude);
+        uses_as_prelude |= hit;
+        deduped
+    } else {
+        effective_program_code
+    };
+    for script in &mut effective_scripts {
+        let (deduped, hit) = replace_as_prelude_once(&script.code, &raw_as_prelude);
+        if hit {
+            script.code = deduped;
+            uses_as_prelude = true;
+        }
+    }
+    let bundle_as_prelude = uses_as_prelude.then_some(raw_as_prelude);
     let (size_report, load_summary) = size_report_from(
         &prepared.published,
         &prepared.program,
@@ -1814,13 +1905,6 @@ pub(crate) fn assemble_with_config(
         .collect();
     let mut warnings = prepared.warnings.clone();
     warnings.extend(level_tradeoffs(level, &omitted_titles));
-    // Without scripts or classes the compiled prelude has nothing to run; the runtime supplies
-    // its built-in class lookup instead.
-    let scriptless = publish::script_corpus(&prepared.published)
-        .trim()
-        .is_empty()
-        && prepared.program.class_names.is_empty();
-    let ships_program = !(scriptless && level.trims_content());
     let mapped_program_code = (ships_program && config.is_some_and(|config| config.source_maps))
         .then(|| {
             format!(
@@ -2085,6 +2169,7 @@ pub(crate) fn assemble_with_config(
         scripts: effective_scripts.iter().collect(),
         scriptless,
         program,
+        as_prelude: bundle_as_prelude.clone(),
         wasm: level.wasm_inline().then(|| STANDARD.encode(wasm)),
         wasm_url: match (level, &shared_url) {
             (SizeLevel::Full, _) => None,
@@ -2147,6 +2232,16 @@ pub(crate) fn assemble_with_config(
         files.push((NOTICES_FILE.into(), ALGORITHM_NOTICES.as_bytes().to_vec()));
         if !level.wasm_inline() {
             files.push((WASM_FILE.into(), wasm.to_vec()));
+            if emit_wasm_fallback {
+                files.push((
+                    WASM_FALLBACK_FILE.into(),
+                    format!(
+                        "globalThis.NeoFlashWasmBase64 = \"{}\";\n",
+                        STANDARD.encode(wasm)
+                    )
+                    .into_bytes(),
+                ));
+            }
         }
     }
     if config.is_some_and(|c| c.source_maps) {
@@ -2155,7 +2250,9 @@ pub(crate) fn assemble_with_config(
             .filter(|m| !m.mappings.is_empty())
             .cloned()
             .unwrap_or_else(|| {
-                build_fallback_bundle_source_map(&effective_scripts, &effective_program_code)
+                precomputed_fallback_map.unwrap_or_else(|| {
+                    build_fallback_bundle_source_map(&effective_scripts, &effective_program_code)
+                })
             });
         let mut map_value = serde_json::to_value(&resolved_map)?;
         if let Some(map) = map_value.as_object_mut() {
@@ -2273,9 +2370,10 @@ pub(crate) fn assemble_with_config(
         .map(|resource| resource.data_base64.as_ref())
         .collect();
     let content_bytes = project_json.len().saturating_sub(resources.len());
-    let script_text: String = ships_program
-        .then_some(effective_program_code.as_str())
+    let script_text: String = bundle_as_prelude
+        .as_deref()
         .into_iter()
+        .chain(ships_program.then_some(effective_program_code.as_str()))
         .chain(effective_scripts.iter().map(|script| script.code.as_str()))
         .collect();
     let fonts_json = serde_json::to_string(&prepared.fonts)?;
@@ -2613,8 +2711,8 @@ export default mount;
 
 fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(String, Vec<u8>)> {
     let reusable = wrap_reusable_wasm_bindings(bindings);
-    let bindings_with_fallback = format!(
-        "{reusable}\nglobalThis.NeoFlashWasmBase64 = \"{}\";\n",
+    let fallback_js = format!(
+        "globalThis.NeoFlashWasmBase64 = \"{}\";\n",
         STANDARD.encode(wasm)
     );
     let mut files = vec![
@@ -2622,7 +2720,8 @@ fn shared_runtime_files_from(bindings: &str, wasm: &[u8], id: &str) -> Vec<(Stri
             RUNTIME_ID_FILE.to_owned(),
             format!("globalThis.NeoFlashRuntimeId = \"{id}\";\n").into_bytes(),
         ),
-        (BINDINGS_FILE.into(), bindings_with_fallback.into_bytes()),
+        (BINDINGS_FILE.into(), reusable.into_bytes()),
+        (WASM_FALLBACK_FILE.into(), fallback_js.into_bytes()),
         ("runtime.js".into(), HOST.as_bytes().to_vec()),
         (WASM_FILE.into(), wasm.to_vec()),
         (NOTICES_FILE.into(), ALGORITHM_NOTICES.as_bytes().to_vec()),
@@ -2681,8 +2780,12 @@ fn measure(
     } else {
         file_gzip(&|name| name == WASM_FILE)
     };
-    let runtime_js_gzip =
-        file_gzip(&|name| name.ends_with(".js") && name != "bundle.js" && name != RUNTIME_ID_FILE);
+    let runtime_js_gzip = file_gzip(&|name| {
+        name.ends_with(".js")
+            && name != "bundle.js"
+            && name != RUNTIME_ID_FILE
+            && name != WASM_FALLBACK_FILE
+    });
     let mut parts = vec![
         SizePart {
             kind: "wasm",
@@ -2695,6 +2798,13 @@ fn measure(
             gzip_bytes: runtime_js_gzip,
         },
     ];
+    if let Some((_, fb_bytes)) = package.files.iter().find(|(n, _)| n == WASM_FALLBACK_FILE) {
+        parts.push(SizePart {
+            kind: "wasm_fallback",
+            bytes: fb_bytes.len(),
+            gzip_bytes: file_gzip(&|name| name == WASM_FALLBACK_FILE),
+        });
+    }
     parts.extend(package.embedded.iter().cloned());
     let is_external_resource =
         |n: &str| n.starts_with("assets/") || n == "sprite_sheet.png" || n == "sprite_sheet.json";
@@ -3404,7 +3514,8 @@ fn html_document_with_config(
     :root {{ color-scheme: dark; font: 13px system-ui, sans-serif; }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}{clean_css}{template_css}
-    #viewport {{ position: relative; overflow: hidden; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; }}
+    #viewport {{ position: relative; overflow: hidden; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; outline: none; }}
+    #viewport:focus {{ outline: none; }}
     #viewport:fullscreen, #viewport:-webkit-full-screen {{ background: #000; width: 100vw; height: 100vh; overflow: hidden; }}
     #stage-space {{ position: relative; }}
     #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}

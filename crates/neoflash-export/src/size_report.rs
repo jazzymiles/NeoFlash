@@ -177,7 +177,16 @@ fn build_size_report_and_summary(
                 .join("\n"),
         )
     })?;
-    let compiled_scripts = compile_scripts(project, &program)?;
+    let mut compiled_scripts = compile_scripts(project, &program)?;
+    let raw_as_prelude = neoflash_script::as_runtime_prelude_js();
+    if !raw_as_prelude.is_empty() && program.code.contains(&raw_as_prelude) {
+        for script in &mut compiled_scripts {
+            let (deduped, hit) = super::replace_as_prelude_once(&script.code, &raw_as_prelude);
+            if hit {
+                script.code = deduped;
+            }
+        }
+    }
     size_report_from(project, &program, &compiled_scripts, runtime)
 }
 

@@ -8,6 +8,7 @@ impl<'a> JsflVm<'a> {
                 doc,
                 item_id: folder,
                 is_folder: true,
+                is_resource: false,
             }));
         }
         let scene_ids: HashSet<Id> = self.project.scene_ids().into_iter().collect();
@@ -19,9 +20,51 @@ impl<'a> JsflVm<'a> {
                 doc,
                 item_id: sym.id.clone(),
                 is_folder: false,
+                is_resource: false,
+            }));
+        }
+        for res in &self.project.resources {
+            if res
+                .path
+                .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
+                || res.path.eq_ignore_ascii_case("neoflash/fonts.json")
+            {
+                continue;
+            }
+            items.push(JsflValue::Item(ItemHandle {
+                doc,
+                item_id: res.id.clone(),
+                is_folder: false,
+                is_resource: true,
             }));
         }
         items
+    }
+
+    pub(super) fn find_library_resource_by_path(&self, name_path: &str) -> Option<Id> {
+        let trimmed = name_path.trim().trim_matches('/');
+        for res in &self.project.resources {
+            if res
+                .path
+                .eq_ignore_ascii_case(Project::PUBLISH_SETTINGS_RESOURCE_PATH)
+                || res.path.eq_ignore_ascii_case("neoflash/fonts.json")
+            {
+                continue;
+            }
+            let norm = res.path.replace('\\', "/");
+            let stem = Path::new(&norm)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            let fname = Path::new(&norm)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+            if res.id == trimmed || norm == trimmed || fname == trimmed || stem == trimmed {
+                return Some(res.id.clone());
+            }
+        }
+        None
     }
 
     pub(super) fn find_library_symbol_by_path(&self, name_path: &str) -> Option<Id> {
@@ -61,6 +104,7 @@ impl<'a> JsflVm<'a> {
                     .unwrap_or_default();
                 let trimmed = path.trim().trim_matches('/');
                 let exists = self.find_library_symbol_by_path(trimmed).is_some()
+                    || self.find_library_resource_by_path(trimmed).is_some()
                     || self
                         .project
                         .library_folder_paths()
@@ -82,6 +126,26 @@ impl<'a> JsflVm<'a> {
                             if ih.item_id == trimmed {
                                 found = i as i64;
                                 break;
+                            }
+                        } else if ih.is_resource {
+                            if let Some(res) = self.project.resource(&ih.item_id) {
+                                let norm = res.path.replace('\\', "/");
+                                let stem = Path::new(&norm)
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("");
+                                let fname = Path::new(&norm)
+                                    .file_name()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("");
+                                if res.id == trimmed
+                                    || norm == trimmed
+                                    || fname == trimmed
+                                    || stem == trimmed
+                                {
+                                    found = i as i64;
+                                    break;
+                                }
                             }
                         } else if let Some(sym) = self.project.symbol(&ih.item_id) {
                             let full = if sym.folder.is_empty() {
@@ -222,12 +286,21 @@ impl<'a> JsflVm<'a> {
                             doc,
                             item_id: id.clone(),
                             is_folder: true,
+                            is_resource: false,
                         }));
                     } else if self.project.symbol(id).is_some() {
                         out.push(JsflValue::Item(ItemHandle {
                             doc,
                             item_id: id.clone(),
                             is_folder: false,
+                            is_resource: false,
+                        }));
+                    } else if self.project.resource(id).is_some() {
+                        out.push(JsflValue::Item(ItemHandle {
+                            doc,
+                            item_id: id.clone(),
+                            is_folder: false,
+                            is_resource: true,
                         }));
                     }
                 }

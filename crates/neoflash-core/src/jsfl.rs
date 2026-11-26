@@ -324,12 +324,14 @@ impl std::error::Error for JsflDiagnostic {}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DocHandle(pub u64);
 
-/// Opaque Library item handle (`Symbol` or logical folder).
+/// Opaque Library item handle (`Symbol`, logical folder, or imported media `ResourceUnit`).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ItemHandle {
     pub doc: DocHandle,
     pub item_id: Id,
     pub is_folder: bool,
+    #[serde(default)]
+    pub is_resource: bool,
 }
 
 /// Opaque Timeline handle referencing a scene or symbol timeline.

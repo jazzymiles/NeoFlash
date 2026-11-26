@@ -793,7 +793,7 @@ pub(crate) fn compile_legacy(script: &Script) -> Result<String, Diagnostic> {
 
 // One helper profile for standalone handlers and project methods. Helpers are
 // lexically captured per compiled unit; JavaScript/TypeScript remain untouched.
-fn embedded_helpers() -> String {
+pub(crate) fn embedded_helpers() -> String {
     [
         include_str!("actionscript/exceptions.js"),
         include_str!("actionscript/intrinsics.js"),

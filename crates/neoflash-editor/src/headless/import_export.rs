@@ -136,6 +136,10 @@ pub(crate) struct ExportSpec {
     #[serde(default)]
     pub(crate) assets_folder: bool,
     #[serde(default)]
+    pub(crate) no_file_fallback: bool,
+    #[serde(default)]
+    pub(crate) frame_index: Option<u32>,
+    #[serde(default)]
     pub(crate) scale_mode: Option<String>,
     #[serde(default)]
     pub(crate) stage_align: Option<String>,
@@ -642,6 +646,7 @@ pub(crate) fn resolve_web_runtime(explicit: Option<&Path>) -> Result<PathBuf, Cl
 #[derive(Clone, Debug, Default)]
 struct ImportTargetOptions {
     library_only: bool,
+    resource_id: Option<String>,
     symbol: Option<String>,
     layer: Option<String>,
     frame: u32,
@@ -664,6 +669,8 @@ pub(crate) struct BatchImportSpec {
     inputs: Vec<PathBuf>,
     #[serde(default)]
     library_only: bool,
+    #[serde(default, alias = "id", alias = "linkage_id")]
+    resource_id: Option<String>,
     #[serde(default)]
     symbol: Option<String>,
     #[serde(default)]
@@ -710,8 +717,21 @@ pub(crate) fn import_project_with_spec(
         ));
     }
 
+    if spec.resource_id.is_some() && inputs.len() > 1 {
+        return Err(CliError::usage(
+            "conflicting_fields",
+            "batch import 'resource_id' requires a single 'input'",
+        ));
+    }
+
     let opts = ImportTargetOptions {
         library_only: spec.library_only,
+        resource_id: spec
+            .resource_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned),
         symbol: spec.symbol.clone(),
         layer: spec.layer.clone(),
         frame: spec.frame,
@@ -738,7 +758,7 @@ pub(crate) fn import_project_with_spec(
     let mut result = json!({
         "inputs": inputs.iter().map(|path| path.display().to_string()).collect::<Vec<_>>(),
         "library_only": opts.library_only,
-        "report": report,
+        "report": normalize_import_report_json(&report, &inputs),
         "project": {
             "name": project.name,
             "format_version": project.format_version,
@@ -842,6 +862,17 @@ fn run_cmd_import<W1: Write>(
             }
             "--in-place" => in_place = true,
             "--library-only" | "--to-library" => opts.library_only = true,
+            "--id" | "--resource-id" | "--linkage-id" => {
+                let raw = take_flag_value(args, &mut i, "--resource-id")?;
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return Err(CliError::usage(
+                        "invalid_argument",
+                        "--resource-id cannot be empty",
+                    ));
+                }
+                opts.resource_id = Some(trimmed.to_owned());
+            }
             "--symbol" => opts.symbol = Some(take_flag_value(args, &mut i, "--symbol")?),
             "--layer" => opts.layer = Some(take_flag_value(args, &mut i, "--layer")?),
             "--frame" => {
@@ -886,6 +917,12 @@ fn run_cmd_import<W1: Write>(
         return Err(CliError::usage(
             "missing_flag",
             "'import' requires at least one --input <path>",
+        ));
+    }
+    if opts.resource_id.is_some() && inputs.len() > 1 {
+        return Err(CliError::usage(
+            "conflicting_flags",
+            "--resource-id requires a single --input file",
         ));
     }
     if out_path.is_some() && in_place {
@@ -943,7 +980,7 @@ fn run_cmd_import<W1: Write>(
                 "in_place": in_place,
                 "library_only": opts.library_only,
                 "inputs": inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-                "report": report,
+                "report": normalize_import_report_json(&report, &inputs),
                 "project": {
                     "name": project.name,
                     "width": project.width,
@@ -1054,6 +1091,72 @@ fn is_internal_metadata_resource(path: &str) -> bool {
         || lower == "swatches/custom.json"
         || lower == "publish/profiles.json"
         || lower == "publish/html-render-mode.txt"
+}
+
+fn normalize_import_report_json(report: &ImportReport, inputs: &[PathBuf]) -> Value {
+    let mut val = json!(report);
+    if let Some(obj) = val.as_object_mut() {
+        if report.format == ImportFormat::Unknown
+            && let Some(ver) = report.version.as_deref()
+        {
+            let lower = ver.trim().to_ascii_lowercase();
+            let normalized = if lower == "audio/wav" || lower == "audio/x-wav" || lower == "wav" {
+                Some("wav")
+            } else if lower == "audio/mpeg" || lower == "mp3" {
+                Some("mp3")
+            } else if lower.starts_with("audio/") {
+                Some("audio")
+            } else if lower.starts_with("font/") {
+                Some("font")
+            } else if lower.starts_with("video/") {
+                Some("video")
+            } else if matches!(
+                lower.as_str(),
+                "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff"
+            ) || lower.starts_with("image/")
+            {
+                Some("image")
+            } else if matches!(lower.as_str(), "act" | "clr" | "ase") {
+                Some("palette")
+            } else if lower.starts_with("nflash-") {
+                Some("nflash")
+            } else {
+                None
+            };
+            if let Some(fmt_label) = normalized {
+                obj.insert("format".to_owned(), Value::String(fmt_label.to_owned()));
+            }
+        }
+        if inputs.len() > 1 {
+            obj.insert(
+                "sources".to_owned(),
+                Value::Array(
+                    inputs
+                        .iter()
+                        .map(|p| Value::String(p.display().to_string()))
+                        .collect(),
+                ),
+            );
+        }
+    }
+    val
+}
+
+fn assign_explicit_resource_id(
+    existing: &[ResourceUnit],
+    unit: &mut ResourceUnit,
+    explicit: Option<&str>,
+) -> Result<(), CliError> {
+    if let Some(req) = explicit {
+        if existing.iter().any(|r| r.id == req) {
+            return Err(CliError::runtime(
+                "duplicate_resource_id",
+                format!("Resource ID '{req}' already exists in project"),
+            ));
+        }
+        unit.id = req.to_owned();
+    }
+    Ok(())
 }
 
 fn import_err(err: ImportError) -> CliError {
@@ -1286,6 +1389,7 @@ fn import_single_raster_into_project(
     let remaining = remaining_resource_budget(project)?;
     let mut unit =
         read_resource(path, remaining).map_err(|e| CliError::runtime("import_failed", e))?;
+    assign_explicit_resource_id(&project.resources, &mut unit, opts.resource_id.as_deref())?;
     unit.path = unique_resource_path(&project.resources, &unit.path);
     let decoded = unit
         .decode_image()
@@ -1411,6 +1515,7 @@ fn import_audio_into_project(
     let remaining = remaining_resource_budget(project)?;
     let mut unit =
         read_audio_resource(path, remaining).map_err(|e| CliError::runtime("import_failed", e))?;
+    assign_explicit_resource_id(&project.resources, &mut unit, opts.resource_id.as_deref())?;
     unit.path = unique_resource_path(&project.resources, &unit.path);
     if standalone_name {
         project.name = stem_string(path);
@@ -2524,6 +2629,11 @@ fn run_cmd_export<W1: Write>(
             "--sprite-sheets" | "--pack-sprite-sheet" => spec.sprite_sheets = true,
             "--no-sprite-sheets" => spec.sprite_sheets = false,
             "--assets-folder" => spec.assets_folder = true,
+            "--no-file-fallback" | "--omit-file-fallback" => spec.no_file_fallback = true,
+            "--frame-index" => {
+                let raw = take_flag_value(args, &mut i, "--frame-index")?;
+                spec.frame_index = Some(parse_u32_flag("--frame-index", &raw)?);
+            }
             "--scale-mode" => {
                 spec.scale_mode = Some(take_flag_value(args, &mut i, "--scale-mode")?);
             }
@@ -3024,6 +3134,7 @@ fn build_html_publish_config(
         })
         .transpose()?;
     let host_override = spec.clean
+        || spec.no_file_fallback
         || spec.scale_mode.is_some()
         || spec.stage_align.is_some()
         || spec.allow_fullscreen.is_some()
@@ -3051,10 +3162,20 @@ fn build_html_publish_config(
     if spec.assets_folder {
         cfg.assets_folder = true;
     }
+    if spec.no_file_fallback {
+        cfg.omit_file_fallback = true;
+    }
     Ok((cfg, host_override))
 }
 
 fn fla_report_json(report: &FlaCompatibilityReport) -> Value {
+    compatibility_report_json_with_label(report, report.profile.label())
+}
+
+fn compatibility_report_json_with_label(
+    report: &FlaCompatibilityReport,
+    profile_label: &str,
+) -> Value {
     let items: Vec<Value> = report
         .items
         .iter()
@@ -3069,7 +3190,7 @@ fn fla_report_json(report: &FlaCompatibilityReport) -> Value {
         })
         .collect();
     json!({
-        "profile": report.profile.label(),
+        "profile": profile_label,
         "blocking_count": report.blocking_items().len(),
         "item_count": items.len(),
         "items": items,
@@ -3405,7 +3526,10 @@ pub(crate) fn export_project_with_spec(
             } else {
                 effective_project.html_render_mode()
             };
-            let use_custom_cfg = (host_override || spec.sprite_sheets || spec.assets_folder)
+            let use_custom_cfg = (host_override
+                || spec.sprite_sheets
+                || spec.assets_folder
+                || spec.no_file_fallback)
                 && !(explicit_render_mode == Some(neoflash_core::HtmlRenderMode::Canvas)
                     && cfg == HtmlPublishConfig::default());
             let index = if use_custom_cfg {
@@ -3568,7 +3692,7 @@ pub(crate) fn export_project_with_spec(
                 "swf_target": target_slug,
                 "swf_version": opts.profile.swf_version(),
                 "scriptless": opts.scriptless_mode,
-                "compatibility": fla_report_json(&report),
+                "compatibility": compatibility_report_json_with_label(&report, opts.profile.label()),
             }))
         }
         ExportTarget::Image => {
@@ -3580,25 +3704,43 @@ pub(crate) fn export_project_with_spec(
                 },
             };
             let total_frames = effective_timeline_frame_count(project, symbol_id.as_deref());
-            let frame_zero_based = match spec.frame {
-                Some(0) => {
-                    return Err(CliError::usage(
-                        "invalid_argument",
-                        "--frame for '--target image' is 1-based (>= 1)",
+            if spec.frame.is_some() && spec.frame_index.is_some() {
+                return Err(CliError::usage(
+                    "conflicting_flags",
+                    "--frame and --frame-index are mutually exclusive",
+                ));
+            }
+            let frame_zero_based = if let Some(idx) = spec.frame_index {
+                if idx >= total_frames {
+                    return Err(CliError::runtime(
+                        "frame_out_of_range",
+                        format!(
+                            "0-based --frame-index {idx} exceeds timeline range 0..{total_frames}"
+                        ),
                     ));
                 }
-                Some(one_based) => {
-                    if one_based > total_frames {
-                        return Err(CliError::runtime(
-                            "frame_out_of_range",
-                            format!(
-                                "1-based --frame {one_based} exceeds timeline length ({total_frames} frame(s))"
-                            ),
+                idx
+            } else {
+                match spec.frame {
+                    Some(0) => {
+                        return Err(CliError::usage(
+                            "invalid_argument",
+                            "--frame for '--target image' is 1-based (>= 1); pass --frame 1 or 0-based --frame-index 0",
                         ));
                     }
-                    one_based - 1
+                    Some(one_based) => {
+                        if one_based > total_frames {
+                            return Err(CliError::runtime(
+                                "frame_out_of_range",
+                                format!(
+                                    "1-based --frame {one_based} exceeds timeline length ({total_frames} frame(s))"
+                                ),
+                            ));
+                        }
+                        one_based - 1
+                    }
+                    None => 0,
                 }
-                None => 0,
             };
             let mut opts = ImageExportOptions::for_project(project, frame_zero_based);
             opts.format = img_fmt;
@@ -3639,6 +3781,7 @@ pub(crate) fn export_project_with_spec(
                 "output_path": primary_path.display().to_string(),
                 "files": report.files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
                 "frame": frame_zero_based + 1,
+                "frame_index": frame_zero_based,
                 "total_bytes": report.total_bytes,
                 "width": report.width,
                 "height": report.height,

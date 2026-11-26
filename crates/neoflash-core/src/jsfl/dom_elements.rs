@@ -139,6 +139,138 @@ impl<'a> JsflVm<'a> {
                 el.visible = b;
                 Ok(())
             }
+            "align" => {
+                let raw = val.to_display_string().to_ascii_lowercase();
+                let (next_align, next_mode) = match raw.as_str() {
+                    "left" => (crate::TextAlign::Left, None),
+                    "center" => (crate::TextAlign::Center, None),
+                    "right" => (crate::TextAlign::Right, None),
+                    "justify" => (crate::TextAlign::Left, Some("justify".to_owned())),
+                    _ => {
+                        return Err(self.err(
+                            span,
+                            format!("Unsupported Element.align '{raw}' (expected left|center|right|justify)."),
+                        ));
+                    }
+                };
+                let el = self.resolve_element_mut(eh, span)?;
+                if let ElementKind::TextBox { format, .. } = &mut el.kind {
+                    format.align = next_align;
+                    format.set_align_mode(next_mode);
+                    self.project.upgrade_format_for_features();
+                    Ok(())
+                } else {
+                    Err(self.err(span, "Element.align can only be set on a TextBox."))
+                }
+            }
+            "bold" => {
+                let b = val.is_truthy();
+                let el = self.resolve_element_mut(eh, span)?;
+                if let ElementKind::TextBox { format, .. } = &mut el.kind {
+                    format.bold = b;
+                    self.project.upgrade_format_for_features();
+                    Ok(())
+                } else {
+                    Err(self.err(span, "Element.bold can only be set on a TextBox."))
+                }
+            }
+            "italic" => {
+                let b = val.is_truthy();
+                let el = self.resolve_element_mut(eh, span)?;
+                if let ElementKind::TextBox { format, .. } = &mut el.kind {
+                    format.italic = b;
+                    self.project.upgrade_format_for_features();
+                    Ok(())
+                } else {
+                    Err(self.err(span, "Element.italic can only be set on a TextBox."))
+                }
+            }
+            "face" => {
+                let f = val.to_display_string();
+                let el = self.resolve_element_mut(eh, span)?;
+                match &mut el.kind {
+                    ElementKind::Text { font_family, .. } => {
+                        *font_family = f;
+                        Ok(())
+                    }
+                    ElementKind::TextBox { format, .. } => {
+                        format.font = f;
+                        Ok(())
+                    }
+                    _ => Err(self.err(span, "Element.face can only be set on a Text element.")),
+                }
+            }
+            "size" => {
+                let sz = val
+                    .as_number()
+                    .ok_or_else(|| self.err(span, "Element.size must be a number."))?;
+                if !sz.is_finite() || sz <= 0.0 {
+                    return Err(self.err(span, "Element.size must be positive."));
+                }
+                let el = self.resolve_element_mut(eh, span)?;
+                match &mut el.kind {
+                    ElementKind::Text { font_size, .. } => {
+                        *font_size = sz;
+                        Ok(())
+                    }
+                    ElementKind::TextBox { format, .. } => {
+                        format.size = sz;
+                        Ok(())
+                    }
+                    _ => Err(self.err(span, "Element.size can only be set on a Text element.")),
+                }
+            }
+            "selectable" => {
+                let b = val.is_truthy();
+                let el = self.resolve_element_mut(eh, span)?;
+                if let ElementKind::TextBox { format, .. } = &mut el.kind {
+                    let mut opts = format.field_options().unwrap_or_default();
+                    opts.selectable = b;
+                    format.set_field_options((!opts.is_default()).then_some(opts));
+                    self.project.upgrade_format_for_features();
+                    Ok(())
+                } else {
+                    Err(self.err(span, "Element.selectable can only be set on a TextBox."))
+                }
+            }
+            "embedFonts" => {
+                let b = val.is_truthy();
+                let el = self.resolve_element_mut(eh, span)?;
+                if let ElementKind::TextBox { format, .. } = &mut el.kind {
+                    let mut opts = format.field_options().unwrap_or_default();
+                    opts.embed_fonts = b;
+                    format.set_field_options((!opts.is_default()).then_some(opts));
+                    self.project.upgrade_format_for_features();
+                    Ok(())
+                } else {
+                    Err(self.err(span, "Element.embedFonts can only be set on a TextBox."))
+                }
+            }
+            "textType" => {
+                let raw = val.to_display_string().to_ascii_lowercase();
+                let next_ft = match raw.as_str() {
+                    "dynamic" => crate::TextFieldType::Dynamic,
+                    "input" => crate::TextFieldType::Input,
+                    _ => {
+                        return Err(self.err(
+                            span,
+                            format!(
+                                "Unsupported TextBox.textType '{raw}' (expected dynamic|input)."
+                            ),
+                        ));
+                    }
+                };
+                let el = self.resolve_element_mut(eh, span)?;
+                if let ElementKind::TextBox { format, .. } = &mut el.kind {
+                    let mut opts = format.field_options().unwrap_or_default();
+                    opts.field_type = next_ft;
+                    format.set_field_options((!opts.is_default()).then_some(opts));
+                    self.project.upgrade_format_for_features();
+                    Ok(())
+                } else {
+                    Err(self.err(span, "Element.textType can only be set on a TextBox."))
+                }
+            }
             "blendMode" => {
                 let s = val.to_display_string().to_lowercase();
                 let bm = BlendMode::from_name(&s).ok_or_else(|| {

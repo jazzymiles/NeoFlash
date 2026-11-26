@@ -2627,12 +2627,28 @@
             rootFg,
           });
         } else {
-          const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : `idx:${i}`;
+          const ownKey = item.owner_ref ? JSON.stringify(item.owner_ref) : null;
+          const groupDraws = [item];
+          if (ownKey) {
+            while (i + 1 < draws.length) {
+              const nextItem = draws[i + 1];
+              const nextReason = islandReasonForDraw(nextItem, filterGroupsById, clipsById, alphaMaskClipIds, rootGroupReasons, fgAncestry);
+              if (!nextReason) break;
+              const nextFg = nextItem.filter_id ? fgAncestry(nextItem.filter_id)[0] : null;
+              const nextOwnKey = nextItem.owner_ref ? JSON.stringify(nextItem.owner_ref) : null;
+              if (!nextFg && nextOwnKey === ownKey) {
+                groupDraws.push(draws[++i]);
+              } else {
+                break;
+              }
+            }
+          }
+          const keySuffix = groupDraws.length > 1 ? 'batch' : (item.element_id || i);
           renderQueue.push({
             type: 'island',
-            islandKey: `draw:${ownKey}:${item.element_id || i}`,
+            islandKey: `draw:${ownKey || `idx:${i}`}:${keySuffix}`,
             reason,
-            draws: [item],
+            draws: groupDraws,
             rootFg: null,
           });
         }

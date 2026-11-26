@@ -1720,7 +1720,7 @@
     const initialScaleMode = SCALE_MODES.has(options.scaleMode) ? options.scaleMode : 'showAll';
     const initialAlign = normalizeAlign(options.align);
     let scaleMode = initialScaleMode, align = initialAlign, quality = 'HIGH', displayState = 'normal', colorCorrection = 'default';
-    let fullScreenSourceRect = null, mouseLock = false;
+    let fullScreenSourceRect = null, mouseLock = false, optInPointerLock = false, optInPointerLockRequested = false;
     let stageColor = stageRgbValue(options.color ?? 0xffffff), colorAssigned = false;
     let mouseChildren = true, tabChildren = true, doubleClickEnabled = false, showDefaultContextMenu = true, stageFocusRect = true, invalidated = false;
     const initial = { width, height, frameRate, color: stageColor, scaleMode: initialScaleMode, align: initialAlign };
@@ -2224,7 +2224,7 @@
         [mouseX, mouseY] = point;
         lastDeltaX = mouseX - prevX;
         lastDeltaY = mouseY - prevY;
-      } else if (mouseLock && (Number.isFinite(domEvent.movementX) || Number.isFinite(domEvent.movementY))) {
+      } else if ((mouseLock || optInPointerLock) && (Number.isFinite(domEvent.movementX) || Number.isFinite(domEvent.movementY))) {
         const dx = Number(domEvent.movementX) || 0;
         const dy = Number(domEvent.movementY) || 0;
         mouseX = Math.max(0, Math.min(width, mouseX + dx));
@@ -2243,9 +2243,9 @@
         Boolean((domEvent.buttons || 0) & 1), type === MouseEvent.MOUSE_WHEEL ? -Math.sign(domEvent.deltaY || 0) : 0,
         domEvent.metaKey, domEvent.ctrlKey, domEvent.detail || 0);
       if (Number.isFinite(domEvent.movementX)) event.movementX = Number(domEvent.movementX);
-      else if (mouseLock && type === MouseEvent.MOUSE_MOVE) event.movementX = lastDeltaX;
+      else if ((mouseLock || optInPointerLock) && type === MouseEvent.MOUSE_MOVE) event.movementX = lastDeltaX;
       if (Number.isFinite(domEvent.movementY)) event.movementY = Number(domEvent.movementY);
-      else if (mouseLock && type === MouseEvent.MOUSE_MOVE) event.movementY = lastDeltaY;
+      else if ((mouseLock || optInPointerLock) && type === MouseEvent.MOUSE_MOVE) event.movementY = lastDeltaY;
       if (related && options.isObjectInaccessible?.(related)) {
         event.relatedObject = null;
         event.isRelatedObjectInaccessible = true;
@@ -2910,6 +2910,9 @@
         Boolean(domEvent.ctrlKey || domEvent.metaKey), domEvent.altKey, domEvent.shiftKey, domEvent.ctrlKey, domEvent.metaKey);
       const result = deliver(target, event, domEvent);
       if (target === stage || alive(target)) options.onLegacyInput?.(type, target, domEvent);
+      if (domEvent.cancelable !== false && options.hasLegacyKeyListeners?.() && [32, 37, 38, 39, 40].includes(event.keyCode)) {
+        domEvent.preventDefault?.();
+      }
       options.afterInput?.();
       return result;
     }
@@ -2976,12 +2979,15 @@
         const onPointerLockChange = () => {
           const lockTarget = pointerLockTarget();
           const lockedEl = doc()?.pointerLockElement || null;
-          if (!lockedEl && mouseLock) {
+          if (!lockedEl && (mouseLock || optInPointerLock)) {
             mouseLock = false;
+            optInPointerLock = false;
             if (options.canvas?.dataset) options.canvas.dataset.mouseLock = 'false';
             options.onMouseLockChanged?.(false);
-          } else if (lockedEl && lockedEl === lockTarget && displayState === 'fullScreenInteractive' && !mouseLock) {
-            mouseLock = true;
+          } else if (lockedEl && lockedEl === lockTarget && (displayState === 'fullScreenInteractive' || optInPointerLockRequested) && !mouseLock) {
+            if (displayState === 'fullScreenInteractive') mouseLock = true;
+            else optInPointerLock = true;
+            optInPointerLockRequested = false;
             if (options.canvas?.dataset) options.canvas.dataset.mouseLock = 'true';
             options.onMouseLockChanged?.(true);
           }
@@ -2989,11 +2995,28 @@
         listen(doc(), 'fullscreenchange', onFsChange);
         listen(doc(), 'webkitfullscreenchange', onFsChange);
         listen(doc(), 'pointerlockchange', onPointerLockChange);
-        listen(doc(), 'pointerlockerror', () => clearMouseLockState());
+        listen(doc(), 'pointerlockerror', () => { optInPointerLockRequested = false; optInPointerLock = false; clearMouseLockState(); });
       }
       // Existing runtime click owns authored Click dispatch; opt in only for standalone use.
       if (options.attachClick) listen(options.canvas, 'click', event => handlePointer('click', event));
-      for (const type of ['keydown', 'keyup']) listen(options.keyboardTarget || options.canvas, type, event => handleKey(type, event));
+      const deliveredKeyEvents = new WeakSet();
+      const keyTarget = options.keyboardTarget || options.canvas;
+      for (const type of ['keydown', 'keyup']) {
+        listen(keyTarget, type, event => {
+          if (event && typeof event === 'object') deliveredKeyEvents.add(event);
+          handleKey(type, event);
+        });
+        if (options.fallbackWindowKeys && global !== keyTarget && typeof global?.addEventListener === 'function') {
+          listen(global, type, event => {
+            if (event && typeof event === 'object' && deliveredKeyEvents.has(event)) return;
+            const d = doc();
+            const active = d?.activeElement || null;
+            if (active && active !== d?.body && active !== d?.documentElement && active !== options.viewport && active !== options.canvas) return;
+            if (event && typeof event === 'object') deliveredKeyEvents.add(event);
+            handleKey(type, event);
+          });
+        }
+      }
       for (const type of ['compositionstart', 'compositionupdate', 'compositionend']) listen(options.keyboardTarget || options.canvas, type, event => handleComposition(type, event));
       if (options.getSize) listen(options.resizeTarget || global, 'resize', () => {
         const dimensions = options.getSize(); resize(dimensions[0], dimensions[1]);
@@ -3027,9 +3050,9 @@
       return true;
     }
     function resetState() {
-      const wasLocked = mouseLock;
+      const wasLocked = mouseLock || optInPointerLock;
       scaleMode = initial.scaleMode; align = initial.align; quality = 'HIGH'; displayState = 'normal'; colorCorrection = 'default';
-      fullScreenSourceRect = null; mouseLock = false;
+      fullScreenSourceRect = null; mouseLock = false; optInPointerLock = false; optInPointerLockRequested = false;
       if (wasLocked) exitStagePointerLock();
       applyQualitySurface(quality);
       applyColorCorrectionSurface();
@@ -3071,7 +3094,23 @@
       colorCorrectionActive: () => isColorCorrectionActive(),
       focusReason: () => (focus && alive(focus) ? focusReason : null),
       fullScreenSourceRect: () => (fullScreenSourceRect ? { ...fullScreenSourceRect } : null),
-      colorAssigned: () => colorAssigned, broadcastPhase, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
+      colorAssigned: () => colorAssigned,
+      requestOptInPointerLock: () => {
+        const target = pointerLockTarget();
+        if (!target || (typeof target.requestPointerLock !== 'function' && typeof options.requestPointerLock !== 'function')) return false;
+        optInPointerLockRequested = true;
+        requestStagePointerLock();
+        const d = doc();
+        if (d?.pointerLockElement === target) { optInPointerLock = true; optInPointerLockRequested = false; }
+        return true;
+      },
+      exitOptInPointerLock: () => {
+        optInPointerLockRequested = false;
+        optInPointerLock = false;
+        exitStagePointerLock();
+      },
+      isPointerLocked: () => Boolean(mouseLock || optInPointerLock),
+      broadcastPhase, flushRender, handlePointer, handleTouch, handleComposition, handleKey, cancelPointer, changeFocus, resize, attach, dispose, reset,
       openContextMenu, closeContextMenu, getActiveContextMenu, imeInputElement: () => standaloneImeInput,
       resolveAccessibilityOverlayNodes: (entries = [], extraOptions = {}) => resolveAccessibilityOverlayNodes(
         entries,

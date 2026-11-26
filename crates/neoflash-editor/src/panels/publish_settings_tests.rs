@@ -679,9 +679,12 @@ fn publish_button_in_publish_settings_persists_all_edited_settings_without_reset
             "Publish produces clean stage output without technical preview bar"
         );
         let bindings = std::fs::read_to_string(publish_dir.join("neoflash_web.js")).unwrap();
+        assert!(!bindings.contains("NeoFlashWasmBase64"));
+        let fallback =
+            std::fs::read_to_string(publish_dir.join("neoflash_wasm_fallback.js")).unwrap();
         assert!(
-            bindings.contains("globalThis.NeoFlashWasmBase64 ="),
-            "Compact publish includes direct file:// WASM fallback"
+            fallback.contains("globalThis.NeoFlashWasmBase64 ="),
+            "Compact publish includes direct file:// WASM fallback in neoflash_wasm_fallback.js"
         );
         assert!(publish_dir.join("bundle.js.map").is_file());
     }

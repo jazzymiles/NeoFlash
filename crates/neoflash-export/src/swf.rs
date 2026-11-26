@@ -228,6 +228,16 @@ impl SwfPublishProfile {
         matches!(self, Self::FlashPlayer9Avm2 | Self::FlashPlayer10Avm2)
     }
 
+    /// Human-readable label for diagnostics and CLI compatibility reports.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::FlashPlayer8Avm1 => "Flash Player 8 (SWF v8, AVM1)",
+            Self::FlashPlayer9Avm2 => "Flash Player 9 (SWF v9, AVM2)",
+            Self::FlashPlayer10Avm2 => "Flash Player 10+ (SWF v10, AVM2)",
+        }
+    }
+
     /// Whether this profile supports `DefineShape4` (tag 83) stroke caps/joins/miter.
     #[must_use]
     pub const fn supports_define_shape4(self) -> bool {

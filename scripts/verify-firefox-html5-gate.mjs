@@ -2338,7 +2338,9 @@ function assertExportedPackageStructure(dir, sizeLevel, isScriptless = false) {
     assert.ok(fs.existsSync(path.join(dir, 'neoflash_web_bg.wasm')), 'Balanced must emit neoflash_web_bg.wasm');
     assert.ok(fs.existsSync(path.join(dir, 'air.js')), 'Balanced must keep all optional families');
     const bindings = fs.readFileSync(path.join(dir, 'neoflash_web.js'), 'utf8');
-    assert.ok(bindings.includes('globalThis.NeoFlashWasmBase64 ='), 'Balanced must include file:// WASM fallback');
+    assert.ok(!bindings.includes('NeoFlashWasmBase64'), 'Balanced neoflash_web.js must not inline base64 WASM');
+    const fallback = fs.readFileSync(path.join(dir, 'neoflash_wasm_fallback.js'), 'utf8');
+    assert.ok(fallback.includes('globalThis.NeoFlashWasmBase64 ='), 'Balanced must include file:// WASM fallback');
   } else if (sizeLevel === 'compact') {
     assert.ok(fs.existsSync(path.join(dir, 'neoflash_web_bg.wasm')), 'Compact must emit neoflash_web_bg.wasm');
     assert.ok(!fs.existsSync(path.join(dir, 'air.js')), 'Compact must omit unused air.js family');
@@ -2348,7 +2350,9 @@ function assertExportedPackageStructure(dir, sizeLevel, isScriptless = false) {
       assert.ok(!fs.existsSync(path.join(dir, 'timers.js')), 'Scriptless Compact must omit timers.js');
     }
     const bindings = fs.readFileSync(path.join(dir, 'neoflash_web.js'), 'utf8');
-    assert.ok(bindings.includes('globalThis.NeoFlashWasmBase64 ='), 'Compact must include file:// WASM fallback');
+    assert.ok(!bindings.includes('NeoFlashWasmBase64'), 'Compact neoflash_web.js must not inline base64 WASM');
+    const fallback = fs.readFileSync(path.join(dir, 'neoflash_wasm_fallback.js'), 'utf8');
+    assert.ok(fallback.includes('globalThis.NeoFlashWasmBase64 ='), 'Compact must include file:// WASM fallback');
   } else if (sizeLevel === 'shared') {
     assert.ok(
       bundleText.includes('"wasm_url":"/shared-runtime/neoflash_web_bg.wasm"'),

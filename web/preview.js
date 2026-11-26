@@ -96,7 +96,7 @@
     return slash>=0?clean.slice(slash+1):clean;
   }
   const INTERNAL_HOST_FILES=new Set([
-    'runtime.js','preview.js','neoflash_web.js','display.js','stage.js','events.js',
+    'runtime.js','preview.js','neoflash_web.js','neoflash_wasm_fallback.js','display.js','stage.js','events.js',
     'text.js','text-input.js','audio.js','video.js','bitmap.js','path.js','filters.js',
     'geom.js','geom3d.js','net.js','xml.js','loader.js','storage.js','external.js',
     'air.js','legacy-input.js','dom-layout.js','accessibility.js','byte-array.js',

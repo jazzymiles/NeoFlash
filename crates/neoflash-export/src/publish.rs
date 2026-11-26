@@ -413,6 +413,9 @@ pub struct HtmlPublishConfig {
     /// Optional responsive breakpoints evaluated by the DOM/Canvas layout controller (`T-307`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub breakpoints: Vec<neoflash_core::PublishBreakpoint>,
+    /// When `true`, omits the `neoflash_wasm_fallback.js` base64 script for HTTP-only deployments.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub omit_file_fallback: bool,
 }
 
 impl Default for HtmlPublishConfig {
@@ -438,6 +441,7 @@ impl Default for HtmlPublishConfig {
             chrome: PlayerChromeConfig::preview_default(),
             render_mode: neoflash_core::HtmlRenderMode::Canvas,
             breakpoints: Vec::new(),
+            omit_file_fallback: false,
         }
     }
 }

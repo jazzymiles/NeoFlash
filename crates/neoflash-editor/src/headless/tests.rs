@@ -3551,4 +3551,142 @@ fn t412_headless_cli_hydrates_disk_includes_across_validate_compile_eval_and_exp
     ]);
     assert_eq!(code, 0, "export swf failed: {val} stderr={err}");
     assert!(swf_out.is_file());
+    assert_eq!(
+        val["compatibility"]["profile"],
+        "Flash Player 8 (SWF v8, AVM1)"
+    );
+}
+
+#[test]
+fn t488_headless_as2_default_lang_text_box_jsfl_media_and_swf_vm_eval() {
+    let tmp = TempDirGuard::new("t488_headless_doom_fixes");
+    let wav_a = tmp.path.join("pistol.wav");
+    let wav_b = tmp.path.join("shotgun.wav");
+    let pcm_wav = b"RIFF,\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00D\xac\x00\x00\x88X\x01\x00\x02\x00\x10\x00data\x08\x00\x00\x00\x00\x00\x10\x00\x00\x00\xf0\xff";
+    fs::write(&wav_a, pcm_wav).unwrap();
+    fs::write(&wav_b, pcm_wav).unwrap();
+
+    let proj_path = tmp.path.join("doom_probe.nflash");
+    let ops = json!([
+        { "op": "new", "name": "DoomProbe", "width": 320, "height": 200, "fps": 30, "script_language": "as2" },
+        {
+            "op": "import",
+            "inputs": [wav_a.to_str().unwrap(), wav_b.to_str().unwrap()],
+            "library_only": true
+        },
+        {
+            "op": "add_element",
+            "kind": "text_box",
+            "name": "txtHealth",
+            "x": 10.0,
+            "y": 160.0,
+            "width": 80.0,
+            "height": 24.0,
+            "text": "100%",
+            "font_family": "Courier New",
+            "font_size": 18.0,
+            "color": "#CC2222",
+            "align": "center",
+            "bold": true,
+            "field_type": "dynamic",
+            "selectable": false
+        },
+        {
+            "op": "set_script",
+            "path": "doom/Cfg.as",
+            "source": "class doom.Cfg { public static var SAFE_SPAWN:Boolean = true; public static var COLS:Number = 320; }\n"
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "source": "import doom.Cfg;\nstop();\nvar snd:Sound = new Sound();\nsnd.attachSound('shotgun');\ntrace('vm:' + Cfg.SAFE_SPAWN + ':' + Cfg.COLS);\n"
+        },
+        { "op": "validate", "strict": true },
+        { "op": "compile", "strict": true }
+    ]);
+    let (code, stdout, stderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--out",
+            proj_path.to_str().unwrap(),
+        ],
+        &serde_json::to_string(&ops).unwrap(),
+    );
+    assert_eq!(code, 0, "batch failed: stdout={stdout} stderr={stderr}");
+    let batch_json: Value = serde_json::from_str(&stdout).unwrap();
+    let import_step = &batch_json["results"][1]["result"]["report"];
+    assert_eq!(import_step["format"], "wav");
+    assert_eq!(import_step["sources"].as_array().unwrap().len(), 2);
+
+    let run_json = |args: &[&str]| -> (i32, Value, String) {
+        let (code, stdout, stderr) = run_args(args, "");
+        let parsed: Value = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+        (code, parsed, stderr)
+    };
+    // JSFL sees media resources in doc.library.items and text attributes on Element
+    let (code, jsfl_val, err) = run_json(&[
+        "--headless",
+        "jsfl",
+        "--project",
+        proj_path.to_str().unwrap(),
+        "--eval",
+        "var doc = fl.getDocumentDOM(); var items = doc.library.items; var sounds = 0; for (var i = 0; i < items.length; i++) { if (items[i].itemType == 'sound') sounds++; } var el = doc.getTimeline().layers[0].frames[0].elements[0]; fl.trace(sounds + ':' + el.align + ':' + el.bold + ':' + el.textType + ':' + el.selectable);",
+    ]);
+    assert_eq!(code, 0, "jsfl failed: {jsfl_val} stderr={err}");
+    assert_eq!(jsfl_val["traces"], json!(["2:center:true:dynamic:false"]));
+
+    // Preview --strict fails cleanly without GUI 'Cmd+Return' copy when AS2 class import exceeds preview subset
+    let (code, strict_out, _) = run_args(
+        &[
+            "--headless",
+            "eval",
+            "--project",
+            proj_path.to_str().unwrap(),
+            "--scripts",
+            "--strict",
+        ],
+        "",
+    );
+    assert_eq!(
+        code, 1,
+        "eval --scripts --strict should exit 1: {strict_out}"
+    );
+    assert!(!strict_out.contains("Cmd+Return"));
+
+    // --vm swf compiles & runs real AVM1 bytecode in headless mode!
+    let (code, swf_eval, err) = run_json(&[
+        "--headless",
+        "eval",
+        "--project",
+        proj_path.to_str().unwrap(),
+        "--vm",
+        "swf",
+        "--strict",
+    ]);
+    assert_eq!(code, 0, "eval --vm swf failed: {swf_eval} stderr={err}");
+    assert_eq!(swf_eval["vm"], "swf");
+    assert_eq!(swf_eval["trace_lines"], json!(["vm:true:320"]));
+
+    // --target image accepts 0-based --frame-index 0
+    let png_out = tmp.path.join("stage0.png");
+    let (code, img_val, err) = run_json(&[
+        "--headless",
+        "export",
+        "--project",
+        proj_path.to_str().unwrap(),
+        "--target",
+        "image",
+        "--frame-index",
+        "0",
+        "--out",
+        png_out.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        code, 0,
+        "image export --frame-index 0 failed: {img_val} stderr={err}"
+    );
+    assert_eq!(img_val["frame_index"], 0);
+    assert_eq!(img_val["frame"], 1);
 }

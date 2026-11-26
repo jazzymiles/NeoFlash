@@ -171,8 +171,18 @@
       return staticTextLifetimes.get(id);
     }
     let snapshotCache=null,nodesCache=null,childMapCache=null,as2SettingsCache=null;
-    const extMasks=new Map(),explicitBitmapCache=new Map();
+    const extMasks=new Map(),explicitBitmapCache=new Map(),pendingGraphicsOps=new Map();
     const ownerCache=new Map(),descriptorCache=new Map();
+    function flushGraphics(){
+      if(pendingGraphicsOps.size===0)return;
+      const entries=[...pendingGraphicsOps.entries()];
+      pendingGraphicsOps.clear();
+      for(const [k,ops] of entries){
+        if(!ops.length)continue;
+        if(typeof player.object_alive==='function'&&!player.object_alive(k))continue;
+        player.graphics_apply(k,JSON.stringify(ops));
+      }
+    }
     const readOnlyPlayerMethods=new Set([
       'runtime_snapshot_json','display_nodes_json','scene_json','accessibility_json',
       // Draining lifecycle packets and changing transport do not change the displayed frame.
@@ -213,6 +223,7 @@
     ]);
     if(!player.__nfInvalidators){
       player.__nfInvalidators=[];
+      player.__nfGraphicsFlushers=[];
       player.__nfRawSnapshot=null;
       const methodNames=new Set();
       for(let cur=player;cur&&cur!==Object.prototype;cur=Object.getPrototypeOf(cur)){
@@ -228,10 +239,22 @@
           Object.defineProperty(player,'runtime_snapshot_json',{
             configurable:true,writable:true,
             value:function(...args){
+              for(const fl of (player.__nfGraphicsFlushers||[]))fl();
               if(player.__nfRawSnapshot!==null)return player.__nfRawSnapshot;
               const raw=orig.apply(this,args);
               player.__nfRawSnapshot=raw;
               return raw;
+            },
+          });
+          continue;
+        }
+        if(methodName==='scene_json'||methodName==='display_nodes_json'){
+          const orig=player[methodName];
+          Object.defineProperty(player,methodName,{
+            configurable:true,writable:true,
+            value:function(...args){
+              for(const fl of (player.__nfGraphicsFlushers||[]))fl();
+              return orig.apply(this,args);
             },
           });
           continue;
@@ -313,8 +336,9 @@
         nodesCache=null;
       }
       if(!visualOnly)childMapCache=null;
-      if(isReset){ownerCache.clear();descriptorCache.clear();as2SettingsCache=null;extMasks.clear();explicitBitmapCache.clear();}
+      if(isReset){pendingGraphicsOps.clear();ownerCache.clear();descriptorCache.clear();as2SettingsCache=null;extMasks.clear();explicitBitmapCache.clear();}
     });
+    if(Array.isArray(player.__nfGraphicsFlushers))player.__nfGraphicsFlushers.push(flushGraphics);
     function invalidateDisplayCaches(){
       snapshotCache=null;
       nodesCache=null;
@@ -558,6 +582,7 @@
     }
     function snapshot(){
       if(!graph)return null;
+      flushGraphics();
       if(!snapshotCache){
         snapshotCache=JSON.parse(player.runtime_snapshot_json());
         nodesCache=indexNodes(snapshotCache.objects);
@@ -566,6 +591,7 @@
       return snapshotCache;
     }
     function nodes() {
+      flushGraphics();
       if(nodesCache)return nodesCache;
       if(graph)return snapshot().objects;
       nodesCache=indexNodes(JSON.parse(player.display_nodes_json()));
@@ -849,7 +875,17 @@
       const number=(value,name)=>{if(typeof value!=='number'||!Number.isFinite(value))throw new TypeError(`Graphics ${name} must be a finite number.`);return value;};
       const rgb=value=>{if(!Number.isInteger(value)||value<0||value>0xffffff)throw new RangeError('Graphics color requires an RGB integer from 0 through 0xffffff.');return value;};
       const opacity=value=>{number(value,'alpha');if(value<0||value>1)throw new RangeError('Graphics alpha requires 0 through 1.');return value;};
-      const apply=op=>{ownerInfo(target);player.graphics_apply(referenceOf(target).key,JSON.stringify([op]));};
+      const apply=op=>{
+        ownerInfo(target);
+        const k=referenceOf(target).key;
+        let q=pendingGraphicsOps.get(k);
+        if(!q){q=[];pendingGraphicsOps.set(k,q);}
+        if(op.op==='clear')q.length=0;
+        q.push(op);
+        snapshotCache=null;
+        nodesCache=null;
+        player.__nfRawSnapshot=null;
+      };
       const rectangle=(op,x,y,width,height)=>apply({op,x:number(x,'x'),y:number(y,'y'),width:number(width,'width'),height:number(height,'height')});
       // AIR Graphics/GraphicsPathCommand and the Adobe AS2 MovieClip reference
       // define stop ranges, the 1638.4 gradient square and WIDE_* dummy pairs.
@@ -1075,7 +1111,7 @@
           }
           return graphicsVectors.dataVector(items);
         },
-        copyFrom:source=>{const owner=graphicsTargets.get(source);if(!owner)throw new TypeError('Graphics.copyFrom requires a Graphics facade from the same player.');ownerInfo(target);ownerInfo(owner);player.graphics_copy_from(referenceOf(target).key,referenceOf(owner).key);},
+        copyFrom:source=>{const owner=graphicsTargets.get(source);if(!owner)throw new TypeError('Graphics.copyFrom requires a Graphics facade from the same player.');flushGraphics();ownerInfo(target);ownerInfo(owner);player.graphics_copy_from(referenceOf(target).key,referenceOf(owner).key);},
         drawEllipse:(x,y,width,height)=>rectangle('draw_ellipse',x,y,width,height),
         drawCircle:(x,y,radius)=>{number(radius,'radius');if(radius<0)throw new RangeError('Graphics radius must be nonnegative.');rectangle('draw_ellipse',number(x,'x')-radius,number(y,'y')-radius,radius*2,radius*2);},
       };
@@ -1302,11 +1338,20 @@
           if(!mask||!referenceOf(mask))return false;
           set(target,'mask',mask);return true;
         },
-        beginFill:(color,alpha=100)=>drawing.beginFill(color,alpha/100),
+        beginFill:(color,alpha=100)=>{
+          if(color===undefined||color===null){drawing.endFill();return;}
+          const c=typeof color==='number'&&Number.isFinite(color)?((color>>>0)&0xffffff):color;
+          const a=typeof alpha==='number'&&Number.isFinite(alpha)?Math.max(0,Math.min(100,alpha))/100:alpha/100;
+          drawing.beginFill(c,a);
+        },
         beginBitmapFill:(bitmap,matrix=null,repeat=true,smoothing=false)=>drawing.beginBitmapFill(bitmap,matrix??null,Boolean(repeat),Boolean(smoothing)),
         beginGradientFill:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>as2GradientHelpers.get(drawing)('begin_gradient_fill',type,colors,alphas,ratios,matrix,spread,interpolation,focal),
         lineGradientStyle:(type,colors,alphas,ratios,matrix,spread='pad',interpolation='RGB',focal=0)=>as2GradientHelpers.get(drawing)('line_gradient_style',type,colors,alphas,ratios,matrix,spread,interpolation,focal),
-        endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>drawing.lineStyle(width,color,alpha/100,...options),
+        endFill:drawing.endFill,lineStyle:(width,color=0,alpha=100,...options)=>{
+          const c=typeof color==='number'&&Number.isFinite(color)?((color>>>0)&0xffffff):color;
+          const a=typeof alpha==='number'&&Number.isFinite(alpha)?Math.max(0,Math.min(100,alpha))/100:alpha/100;
+          drawing.lineStyle(width,c,a,...options);
+        },
         moveTo:drawing.moveTo,lineTo:drawing.lineTo,curveTo:drawing.curveTo,clear:drawing.clear,
         getTextSnapshot:()=>{const host=getAS2Text();if(!host)throw new Error('AS2 text snapshot service is missing; re-export the project.');descriptor(target);return host.snapshotFor(referenceOf(target).key);},
         getNextHighestDepth:()=>{requireContainer(target);return player.as2_next_depth(referenceOf(target).key);},

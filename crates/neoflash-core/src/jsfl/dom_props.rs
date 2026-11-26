@@ -240,6 +240,44 @@ impl<'a> JsflVm<'a> {
                         _ => Err(self.err(span, format!("Unsupported Folder Item property '{prop}'."))),
                     };
                 }
+                if ih.is_resource {
+                    let res = self.project.resource(&ih.item_id).ok_or_else(|| {
+                        self.err(
+                            span,
+                            format!("Stale ItemHandle '{}': resource no longer exists.", ih.item_id),
+                        )
+                    })?;
+                    let norm = res.path.replace('\\', "/");
+                    let stem = Path::new(&norm)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(&res.id)
+                        .to_owned();
+                    let kind = if res.is_audio() {
+                        "sound"
+                    } else if res.is_image() {
+                        "bitmap"
+                    } else if res.media_type.starts_with("video/") {
+                        "video"
+                    } else if res.media_type.starts_with("font/")
+                        || norm.ends_with(".ttf")
+                        || norm.ends_with(".otf")
+                        || norm.ends_with(".woff")
+                        || norm.ends_with(".woff2")
+                    {
+                        "font"
+                    } else {
+                        "resource"
+                    };
+                    return match prop {
+                        "name" | "sourceFilePath" => Ok(JsflValue::String(norm)),
+                        "itemType" => Ok(JsflValue::String(kind.to_owned())),
+                        "linkageIdentifier" => Ok(JsflValue::String(stem)),
+                        "linkageExportForAS" => Ok(JsflValue::Bool(res.is_audio() || res.is_image())),
+                        "timeline" => Ok(JsflValue::Undefined),
+                        _ => Err(self.err(span, format!("Unsupported Resource Item property '{prop}'."))),
+                    };
+                }
                 let sym = self.symbol_ref(&ih.item_id, span)?;
                 match prop {
                     "name" => {
@@ -336,6 +374,13 @@ impl<'a> JsflVm<'a> {
                             doc: eh.doc,
                             item_id: symbol_id.clone(),
                             is_folder: false,
+                            is_resource: false,
+                        })),
+                        ElementKind::Bitmap { resource_id, .. } => Ok(JsflValue::Item(ItemHandle {
+                            doc: eh.doc,
+                            item_id: resource_id.clone(),
+                            is_folder: false,
+                            is_resource: true,
                         })),
                         _ => Ok(JsflValue::Null),
                     },
@@ -453,6 +498,63 @@ impl<'a> JsflVm<'a> {
                                 Ok(JsflValue::String(format_hex_color(*stroke)))
                             }
                         }
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "textType" => match &el.kind {
+                        ElementKind::Text { .. } => Ok(JsflValue::String("static".to_owned())),
+                        ElementKind::TextBox { format, .. } => {
+                            let ft = format
+                                .field_options()
+                                .map(|o| match o.field_type {
+                                    crate::TextFieldType::Dynamic => "dynamic",
+                                    crate::TextFieldType::Input => "input",
+                                })
+                                .unwrap_or("dynamic");
+                            Ok(JsflValue::String(ft.to_owned()))
+                        }
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "align" => match &el.kind {
+                        ElementKind::Text { .. } => Ok(JsflValue::String("left".to_owned())),
+                        ElementKind::TextBox { format, .. } => {
+                            Ok(JsflValue::String(format.effective_align_mode().to_owned()))
+                        }
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "bold" => match &el.kind {
+                        ElementKind::Text { .. } => Ok(JsflValue::Bool(false)),
+                        ElementKind::TextBox { format, .. } => Ok(JsflValue::Bool(format.bold)),
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "italic" => match &el.kind {
+                        ElementKind::Text { .. } => Ok(JsflValue::Bool(false)),
+                        ElementKind::TextBox { format, .. } => Ok(JsflValue::Bool(format.italic)),
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "face" => match &el.kind {
+                        ElementKind::Text { font_family, .. } => {
+                            Ok(JsflValue::String(font_family.clone()))
+                        }
+                        ElementKind::TextBox { format, .. } => {
+                            Ok(JsflValue::String(format.font.clone()))
+                        }
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "size" => match &el.kind {
+                        ElementKind::Text { font_size, .. } => Ok(JsflValue::Number(*font_size)),
+                        ElementKind::TextBox { format, .. } => Ok(JsflValue::Number(format.size)),
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "selectable" => match &el.kind {
+                        ElementKind::TextBox { format, .. } => Ok(JsflValue::Bool(
+                            format.field_options().is_none_or(|o| o.selectable),
+                        )),
+                        _ => Ok(JsflValue::Undefined),
+                    },
+                    "embedFonts" => match &el.kind {
+                        ElementKind::TextBox { format, .. } => Ok(JsflValue::Bool(
+                            format.field_options().is_some_and(|o| o.embed_fonts),
+                        )),
                         _ => Ok(JsflValue::Undefined),
                     },
                     _ => Err(self.err(span, format!("Unsupported Element property '{prop}'."))),

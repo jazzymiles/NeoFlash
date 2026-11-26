@@ -28,7 +28,7 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
   const functions = options.functions instanceof Map ? options.functions : new Map();
   for (const unit of sourceUnits) {
     const hostGlobal=options.external?.hostGlobal||globalThis;
-    const compiled = scriptFunction(unit, [...bindings, 'console', 'globalThis', 'window', 'document']);
+    const compiled = scriptFunction(unit, [...bindings, 'console', 'globalThis', 'window', 'document'], options.bundle?.as_prelude);
     const fn = function(...args) { return compiled.call(this, ...args,
       {log: (...values) => scriptConsole.push(values)}, hostGlobal, hostGlobal, hostGlobal.document); };
     functions.set(sourceKey(unit.script), { fn, location: unit.location });
