@@ -685,6 +685,10 @@ self.host?.trackEvent(name: "scene_boot")"#
 }
 
 fn assert_plutil_lint(path: &Path) {
+    assert!(path.is_file(), "missing project file: {}", path.display());
+    if !cfg!(target_os = "macos") {
+        return;
+    }
     let out = Command::new("/usr/bin/plutil")
         .arg("-lint")
         .arg(path)
@@ -720,8 +724,10 @@ fn assert_xcodebuild_succeeds(xcodeproj_path: &Path, scheme: &str, derived_data_
         .arg(scheme)
         .arg("-configuration")
         .arg("Debug")
-        .arg("-destination")
-        .arg("platform=macOS,arch=arm64")
+        .arg("-sdk")
+        .arg("macosx")
+        .arg("-arch")
+        .arg("arm64")
         .arg("-derivedDataPath")
         .arg(derived_data_dir)
         .arg("CODE_SIGNING_ALLOWED=NO")

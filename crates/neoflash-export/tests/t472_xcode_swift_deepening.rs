@@ -67,6 +67,37 @@ fn sdk_path(sdk_name: &str) -> Option<String> {
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
+fn ios_simulator_destination_available(xcodeproj_path: &Path, scheme: &str) -> bool {
+    let Ok(out) = Command::new("/usr/bin/xcodebuild")
+        .arg("-project")
+        .arg(xcodeproj_path)
+        .arg("-scheme")
+        .arg(scheme)
+        .arg("-showdestinations")
+        .output()
+    else {
+        return false;
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("Unable to find a destination") {
+        return false;
+    }
+    let available = stdout
+        .split("Ineligible destinations")
+        .next()
+        .unwrap_or(&stdout);
+    available.lines().any(|line| {
+        line.contains("platform:iOS Simulator")
+            && line.contains("Any iOS Simulator Device")
+            && !line.contains("error:")
+            && !line.contains("not installed")
+    })
+}
+
 fn assert_plutil_lint(path: &Path) {
     assert!(path.is_file(), "missing project file: {}", path.display());
     if !cfg!(target_os = "macos") {
@@ -1086,33 +1117,36 @@ final class AppSwiftHost: SwiftHostProtocol {
         String::from_utf8_lossy(&mac_build.stderr)
     );
 
-    // 5. Real `/usr/bin/xcodebuild` compilation (`SWIFT_STRICT_CONCURRENCY=complete`) AND
-    //    `swiftc -typecheck -warnings-as-errors` for iOS Simulator (`iphonesimulator`)!
+    // 5. Real `/usr/bin/xcodebuild` compilation (`SWIFT_STRICT_CONCURRENCY=complete`) when the
+    //    downloadable iOS Simulator platform is installed, plus `swiftc -typecheck -warnings-as-errors`
+    //    for iOS Simulator (`iphonesimulator`)!
     if let Some(ios_sdk) = sdk_path("iphonesimulator") {
-        let ios_build = Command::new("/usr/bin/xcodebuild")
-            .arg("-project")
-            .arg(&reexport.xcodeproj_path)
-            .arg("-scheme")
-            .arg(&reexport.scheme_name)
-            .arg("-configuration")
-            .arg("Debug")
-            .arg("-sdk")
-            .arg("iphonesimulator")
-            .arg("-destination")
-            .arg("generic/platform=iOS Simulator")
-            .arg("-derivedDataPath")
-            .arg(&derived_ios)
-            .arg("SWIFT_STRICT_CONCURRENCY=complete")
-            .arg("CODE_SIGNING_ALLOWED=NO")
-            .arg("build")
-            .output()
-            .expect("run iphonesimulator xcodebuild");
-        assert!(
-            ios_build.status.success(),
-            "iOS Simulator xcodebuild (SWIFT_STRICT_CONCURRENCY=complete) failed:\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&ios_build.stdout),
-            String::from_utf8_lossy(&ios_build.stderr)
-        );
+        if ios_simulator_destination_available(&reexport.xcodeproj_path, &reexport.scheme_name) {
+            let ios_build = Command::new("/usr/bin/xcodebuild")
+                .arg("-project")
+                .arg(&reexport.xcodeproj_path)
+                .arg("-scheme")
+                .arg(&reexport.scheme_name)
+                .arg("-configuration")
+                .arg("Debug")
+                .arg("-sdk")
+                .arg("iphonesimulator")
+                .arg("-destination")
+                .arg("generic/platform=iOS Simulator")
+                .arg("-derivedDataPath")
+                .arg(&derived_ios)
+                .arg("SWIFT_STRICT_CONCURRENCY=complete")
+                .arg("CODE_SIGNING_ALLOWED=NO")
+                .arg("build")
+                .output()
+                .expect("run iphonesimulator xcodebuild");
+            assert!(
+                ios_build.status.success(),
+                "iOS Simulator xcodebuild (SWIFT_STRICT_CONCURRENCY=complete) failed:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&ios_build.stdout),
+                String::from_utf8_lossy(&ios_build.stderr)
+            );
+        }
 
         let ios_typecheck = Command::new("/usr/bin/swiftc")
             .arg("-typecheck")

@@ -882,8 +882,13 @@ function benchmarkFrames(label, runFrame) {{
     }}
     const cpuElapsed = readCpuUsage(cpuStart);
     const wallMs = performance.now() - wallStart;
+    const totalCpuUs = cpuElapsed.user + cpuElapsed.system;
+    // Win32 GetThreadTimes updates only on the 15.625 ms (64 Hz) clock interrupt, where +/-1 tick
+    // exceeds check-performance-ab.py's 5% ratio gate; use high-resolution QPC wallMs on Windows.
     const rawCpuMsPerFrame =
-      (cpuElapsed.user + cpuElapsed.system) / 1000 / FRAMES_PER_SAMPLE;
+      process.platform === 'win32'
+        ? wallMs / FRAMES_PER_SAMPLE
+        : totalCpuUs / 1000 / FRAMES_PER_SAMPLE;
     assert.ok(
       Number.isFinite(wallMs) && wallMs > 0 &&
         Number.isFinite(rawCpuMsPerFrame) && rawCpuMsPerFrame > 0,

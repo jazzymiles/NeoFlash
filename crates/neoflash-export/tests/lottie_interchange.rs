@@ -77,12 +77,16 @@ fn run_chrome_dump_dom(html_path: &Path) -> Option<String> {
     let chrome = find_headless_chrome()?;
     let url = url::Url::from_file_path(html_path).ok()?;
     let profile_dir = TempTestDir::new("chrome-profile");
-    let out = Command::new(chrome)
-        .arg("--headless=new")
+    let mut cmd = Command::new(chrome);
+    cmd.arg("--headless=new")
         .arg("--disable-gpu")
         .arg("--no-first-run")
         .arg("--no-default-browser-check")
-        .arg("--allow-file-access-from-files")
+        .arg("--allow-file-access-from-files");
+    if cfg!(target_os = "linux") {
+        cmd.arg("--no-sandbox").arg("--disable-dev-shm-usage");
+    }
+    let out = cmd
         .arg(format!("--user-data-dir={}", profile_dir.path().display()))
         .arg("--virtual-time-budget=2500")
         .arg("--dump-dom")

@@ -991,13 +991,13 @@ fn t474_library_and_detached_floating_timeline_and_library_drops_plus_file_url_q
     let before_detached = editor.project.clone();
 
     // Queue a `public.file-url` drop targeting floating `"Library — NeoFlash"`.
-    if let Ok(mut q) = crate::native_windows::global_file_drag_queue().lock() {
+    crate::native_windows::with_test_file_drag_queue(|q| {
         *q = NativeWindowFileDragQueue::default();
         q.push_dropped(
             NativeDragWindowTarget::FloatingTitle("Library — NeoFlash".into()),
             vec![wav_path.clone(), avi_path.clone()],
         );
-    }
+    });
     run_full_window_drop(&ctx, &mut editor, None, vec![]);
     assert!(
         editor.project.resources.iter().any(|r| r.is_audio())
@@ -1014,12 +1014,12 @@ fn t474_library_and_detached_floating_timeline_and_library_drops_plus_file_url_q
     assert_eq!(editor.project, before_detached);
 
     // Queue a `public.file-url` drop targeting floating `"Timeline — NeoFlash"`.
-    if let Ok(mut q) = crate::native_windows::global_file_drag_queue().lock() {
+    crate::native_windows::with_test_file_drag_queue(|q| {
         q.push_dropped(
             NativeDragWindowTarget::FloatingTitle("Timeline — NeoFlash".into()),
             vec![wav_path.clone(), png_path.clone()],
         );
-    }
+    });
     run_full_window_drop(&ctx, &mut editor, None, vec![]);
     assert!(
         editor
@@ -1045,12 +1045,12 @@ fn t474_library_and_detached_floating_timeline_and_library_drops_plus_file_url_q
 
     // Queue a `public.file-url` drop targeting floating `"Color — NeoFlash"` (non-Timeline, non-Library panel):
     // must reject cleanly with the updated guidance message and zero project mutation!
-    if let Ok(mut q) = crate::native_windows::global_file_drag_queue().lock() {
+    crate::native_windows::with_test_file_drag_queue(|q| {
         q.push_dropped(
             NativeDragWindowTarget::FloatingTitle("Color — NeoFlash".into()),
             vec![png_path.clone()],
         );
-    }
+    });
     run_full_window_drop(&ctx, &mut editor, None, vec![]);
     assert_eq!(
         editor.status,

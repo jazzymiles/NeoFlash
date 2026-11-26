@@ -2350,26 +2350,63 @@ impl Drop for PreviewHttpServer {
     }
 }
 
-static SHARED_PREVIEW_SERVER: std::sync::Mutex<Option<PreviewHttpServer>> =
-    std::sync::Mutex::new(None);
-static SHARED_PREVIEW_REPAINT_CTX: std::sync::Mutex<Option<eframe::egui::Context>> =
-    std::sync::Mutex::new(None);
-static SHARED_PREVIEW_DOC_SESSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-static SHARED_PREVIEW_ACTIVE_RUN_ID: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+#[derive(Default)]
+struct SharedPreviewState {
+    server: Option<PreviewHttpServer>,
+    repaint_ctx: Option<eframe::egui::Context>,
+    doc_session: Option<String>,
+    active_run_id: Option<String>,
+}
+
+impl Drop for SharedPreviewState {
+    fn drop(&mut self) {
+        if let Some(mut srv) = self.server.take() {
+            srv.shutdown();
+        }
+    }
+}
+
+#[cfg(not(test))]
+static SHARED_PREVIEW_STATE: std::sync::Mutex<SharedPreviewState> =
+    std::sync::Mutex::new(SharedPreviewState {
+        server: None,
+        repaint_ctx: None,
+        doc_session: None,
+        active_run_id: None,
+    });
+
+#[cfg(test)]
+thread_local! {
+    static TEST_SHARED_PREVIEW_STATE: std::cell::RefCell<SharedPreviewState> =
+        std::cell::RefCell::new(SharedPreviewState::default());
+}
+
 static NEXT_PREVIEW_RUN_COUNTER: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(1);
+
+fn with_shared_preview_state<R>(f: impl FnOnce(&mut SharedPreviewState) -> R) -> Result<R, String> {
+    #[cfg(not(test))]
+    {
+        let mut guard = SHARED_PREVIEW_STATE
+            .lock()
+            .map_err(|_| "Preview HTTP server lock poisoned.".to_owned())?;
+        Ok(f(&mut guard))
+    }
+    #[cfg(test)]
+    {
+        Ok(TEST_SHARED_PREVIEW_STATE.with(|cell| f(&mut cell.borrow_mut())))
+    }
+}
 
 /// Register the editor's `egui::Context` so background `POST /__neoflash/output` requests wake
 /// `Editor::update` immediately while the browser window owns OS focus (`T-356`).
 pub(crate) fn register_shared_preview_repaint_context(ctx: &eframe::egui::Context) {
-    if let Ok(mut saved) = SHARED_PREVIEW_REPAINT_CTX.lock() {
-        *saved = Some(ctx.clone());
-    }
-    if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
-        && let Some(srv) = guard.as_ref()
-    {
-        srv.set_repaint_context(ctx.clone());
-    }
+    let _ = with_shared_preview_state(|state| {
+        state.repaint_ctx = Some(ctx.clone());
+        if let Some(srv) = state.server.as_ref() {
+            srv.set_repaint_context(ctx.clone());
+        }
+    });
 }
 
 /// Clear stale queued preview output items, allocate a fresh monotonic `run_id`, and record the
@@ -2380,92 +2417,83 @@ pub(crate) fn begin_shared_preview_output_session(document_session: Option<&str>
         "nf-run-{}",
         NEXT_PREVIEW_RUN_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
-    if let Ok(mut doc_guard) = SHARED_PREVIEW_DOC_SESSION.lock() {
-        *doc_guard = document_session.map(str::to_owned);
-    }
-    if let Ok(mut run_guard) = SHARED_PREVIEW_ACTIVE_RUN_ID.lock() {
-        *run_guard = Some(run_id.clone());
-    }
-    if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
-        && let Some(srv) = guard.as_ref()
-    {
-        srv.set_active_run_id(Some(run_id.clone()));
-    }
+    let _ = with_shared_preview_state(|state| {
+        state.doc_session = document_session.map(str::to_owned);
+        state.active_run_id = Some(run_id.clone());
+        if let Some(srv) = state.server.as_ref() {
+            srv.set_active_run_id(Some(run_id.clone()));
+        }
+    });
     run_id
 }
 
 pub(crate) fn current_shared_preview_run_id() -> Option<String> {
-    SHARED_PREVIEW_ACTIVE_RUN_ID
-        .lock()
+    with_shared_preview_state(|state| state.active_run_id.clone())
         .ok()
-        .and_then(|g| g.clone())
+        .flatten()
 }
 
 /// Permanently drop any queued-but-not-yet-drained items from the shared preview server when the
 /// user clicks `Clear output` (`🗑`), while keeping the active `run_id` and per-session sequence
 /// cursor intact so cleared logs can never replay (`T-379`).
 pub(crate) fn purge_shared_preview_output_on_clear(document_session: &str) {
-    if let Ok(owner) = SHARED_PREVIEW_DOC_SESSION.lock()
-        && owner
+    let _ = with_shared_preview_state(|state| {
+        if state
+            .doc_session
             .as_deref()
             .is_none_or(|owner| owner == document_session)
-        && let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
-        && let Some(srv) = guard.as_ref()
-    {
-        srv.purge_output_on_clear();
-    }
+            && let Some(srv) = state.server.as_ref()
+        {
+            srv.purge_output_on_clear();
+        }
+    });
 }
 
 /// Drain any pending browser `trace()` / runtime error items from the shared preview HTTP server,
 /// returning `(active_document_session_id, items)`.
 pub(crate) fn drain_shared_preview_output() -> (Option<String>, Vec<PreviewOutputItem>) {
-    let items = if let Ok(guard) = SHARED_PREVIEW_SERVER.lock()
-        && let Some(srv) = guard.as_ref()
-    {
-        srv.drain_output_items()
-    } else {
-        Vec::new()
-    };
-    if items.is_empty() {
-        return (None, items);
-    }
-    let doc_session = SHARED_PREVIEW_DOC_SESSION
-        .lock()
-        .ok()
-        .and_then(|g| g.clone());
-    (doc_session, items)
+    with_shared_preview_state(|state| {
+        let items = if let Some(srv) = state.server.as_ref() {
+            srv.drain_output_items()
+        } else {
+            Vec::new()
+        };
+        if items.is_empty() {
+            (None, items)
+        } else {
+            (state.doc_session.clone(), items)
+        }
+    })
+    .unwrap_or_else(|_| (None, Vec::new()))
 }
 
 /// Ensure the process-wide `PreviewHttpServer` is running, mount `index_file`, and return its
 /// `http://127.0.0.1:<port>/...` URL (reusing the same server and mount across repeated `⌘Return` runs).
 pub(crate) fn serve_preview_index(index_file: &std::path::Path) -> Result<String, String> {
-    let saved_ctx = SHARED_PREVIEW_REPAINT_CTX
-        .lock()
-        .ok()
-        .and_then(|g| g.clone());
-    let saved_run_id = current_shared_preview_run_id();
-    let mut guard = SHARED_PREVIEW_SERVER
-        .lock()
-        .map_err(|_| "Preview HTTP server lock poisoned.".to_owned())?;
-    let needs_restart = guard.as_ref().is_none_or(|srv| !srv.is_running());
-    if needs_restart {
-        if let Some(mut old) = guard.take() {
-            old.shutdown();
-        }
-        let srv = PreviewHttpServer::start()
-            .map_err(|e| format!("Cannot start local preview HTTP server: {e}"))?;
-        if let Some(ctx) = saved_ctx {
+    with_shared_preview_state(|state| {
+        let saved_ctx = state.repaint_ctx.clone();
+        let saved_run_id = state.active_run_id.clone();
+        let needs_restart = state.server.as_ref().is_none_or(|srv| !srv.is_running());
+        if needs_restart {
+            if let Some(mut old) = state.server.take() {
+                old.shutdown();
+            }
+            let srv = PreviewHttpServer::start()
+                .map_err(|e| format!("Cannot start local preview HTTP server: {e}"))?;
+            if let Some(ctx) = saved_ctx {
+                srv.set_repaint_context(ctx);
+            }
+            srv.set_active_run_id(saved_run_id);
+            state.server = Some(srv);
+        } else if let (Some(srv), Some(ctx)) = (state.server.as_ref(), saved_ctx) {
             srv.set_repaint_context(ctx);
         }
-        srv.set_active_run_id(saved_run_id);
-        *guard = Some(srv);
-    } else if let (Some(srv), Some(ctx)) = (guard.as_ref(), saved_ctx) {
-        srv.set_repaint_context(ctx);
-    }
-    guard
-        .as_ref()
-        .expect("preview server initialized")
-        .mount_index_file(index_file)
+        state
+            .server
+            .as_ref()
+            .expect("preview server initialized")
+            .mount_index_file(index_file)
+    })?
 }
 
 /// Serve `index_file` on the reusable loopback HTTP server (with `Cache-Control: no-store`) and
@@ -2487,15 +2515,14 @@ pub(crate) fn open_preview_in_browser(index_file: &std::path::Path) -> Result<St
 }
 
 pub(crate) fn shutdown_shared_preview_server() {
-    if let Ok(mut run_guard) = SHARED_PREVIEW_ACTIVE_RUN_ID.lock() {
-        *run_guard = None;
-    }
-    if let Ok(mut doc_guard) = SHARED_PREVIEW_DOC_SESSION.lock() {
-        *doc_guard = None;
-    }
-    if let Ok(mut guard) = SHARED_PREVIEW_SERVER.lock()
-        && let Some(mut srv) = guard.take()
-    {
+    let server = with_shared_preview_state(|state| {
+        state.active_run_id = None;
+        state.doc_session = None;
+        state.server.take()
+    })
+    .ok()
+    .flatten();
+    if let Some(mut srv) = server {
         srv.shutdown();
     }
 }

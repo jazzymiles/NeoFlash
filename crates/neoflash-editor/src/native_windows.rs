@@ -210,13 +210,24 @@ impl NativeWindowFileDragQueue {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(all(target_os = "macos", not(test)))]
 static NATIVE_DRAG_QUEUE: OnceLock<Mutex<NativeWindowFileDragQueue>> = OnceLock::new();
 static WAKEUP_CONTEXT: OnceLock<Mutex<Option<eframe::egui::Context>>> = OnceLock::new();
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(all(target_os = "macos", not(test)))]
 pub fn global_file_drag_queue() -> &'static Mutex<NativeWindowFileDragQueue> {
     NATIVE_DRAG_QUEUE.get_or_init(|| Mutex::new(NativeWindowFileDragQueue::default()))
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_FILE_DRAG_QUEUE: std::cell::RefCell<NativeWindowFileDragQueue> =
+        std::cell::RefCell::new(NativeWindowFileDragQueue::default());
+}
+
+#[cfg(test)]
+pub fn with_test_file_drag_queue<R>(f: impl FnOnce(&mut NativeWindowFileDragQueue) -> R) -> R {
+    TEST_FILE_DRAG_QUEUE.with(|cell| f(&mut cell.borrow_mut()))
 }
 
 pub fn register_wakeup_context(ctx: &eframe::egui::Context) {
@@ -236,7 +247,7 @@ fn request_drag_repaint() {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(all(target_os = "macos", not(test)))]
 pub fn drain_file_drag_into_context(
     ctx: &eframe::egui::Context,
     floating_title: Option<&str>,
@@ -246,6 +257,14 @@ pub fn drain_file_drag_into_context(
     } else {
         false
     }
+}
+
+#[cfg(test)]
+pub fn drain_file_drag_into_context(
+    ctx: &eframe::egui::Context,
+    floating_title: Option<&str>,
+) -> bool {
+    with_test_file_drag_queue(|queue| queue.drain_into_context(ctx, floating_title))
 }
 
 #[cfg(not(any(target_os = "macos", test)))]

@@ -22,9 +22,8 @@ import sys
 from typing import Any
 
 
-# Remote technical-branch equivalent of local product commit 11136c5. Only the
-# later performance harness changed before this baseline was blessed.
-BASELINE_REVISION = "5fac0290d20ffa0970541882cacf6eee6661fb3c"
+# Published v0.1.0-beta.1 release tag baseline (build 605).
+BASELINE_REVISION = "d1d529a1e72983917e8ce318ec842ca531954033"
 EXPECTED_NODE = "v22.23.5"
 PERF_TEST = "exported_games_and_stress_suites_meet_html5_frame_time_budgets"
 PAIR_COUNT = 6

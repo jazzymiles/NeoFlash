@@ -3573,12 +3573,14 @@ mod skipped_foreign_export_tests {
         let vp6a_flv = build_synthetic_vp6_flv(true);
 
         // 1. Native Stage / offline export decode path (`decode_video_stream_bytes`).
-        let decoded =
-            crate::video::decode_video_stream_bytes("legacy-video-1", "video/x-flv", &vp6_flv)
-                .expect("decode FLV stream via ffprobe_ffmpeg");
-        assert_eq!(decoded.width, 16);
-        assert_eq!(decoded.height, 16);
-        assert!(!decoded.frames.is_empty());
+        if crate::video::detect_ffmpeg().is_some() {
+            let decoded =
+                crate::video::decode_video_stream_bytes("legacy-video-1", "video/x-flv", &vp6_flv)
+                    .expect("decode FLV stream via ffprobe_ffmpeg");
+            assert_eq!(decoded.width, 16);
+            assert_eq!(decoded.height, 16);
+            assert!(!decoded.frames.is_empty());
+        }
 
         // 2. HTML5 transcode: VP6 -> MP4 (video/mp4), VP6A -> WebM (video/webm with alpha).
         let mut project = Project::blank();

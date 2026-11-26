@@ -90,6 +90,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
+            ffmpeg fonts-dejavu-core fonts-liberation \
             libasound2-dev libegl1-mesa-dev libfontconfig1-dev libfreetype6-dev \
             libgl1-mesa-dev libudev-dev libwayland-dev libx11-xcb-dev \
             libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
