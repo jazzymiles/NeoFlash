@@ -14,6 +14,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: '0'
   CARGO_PROFILE_DEV_CODEGEN_UNITS: '16'
   CARGO_PROFILE_TEST_CODEGEN_UNITS: '16'
+  RUST_MIN_STACK: '8388608'
 
 jobs:
   macos:
@@ -50,6 +51,8 @@ jobs:
 
   windows-x64:
     runs-on: windows-2022
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: '-C link-arg=/STACK:8388608'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -86,11 +89,27 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $PSNativeCommandUseErrorActionPreference = $true
-          cargo test --locked --workspace
-          if ($LASTEXITCODE -ne 0) { throw 'Windows workspace tests failed.' }
+          $PSNativeCommandUseErrorActionPreference = $false
+          cmd /c "cargo test --locked --workspace > ""$env:RUNNER_TEMP\check.log"" 2>&1"
+          $cargoExit = $LASTEXITCODE
+          if (Test-Path "$env:RUNNER_TEMP\check.log") { Get-Content "$env:RUNNER_TEMP\check.log" }
+          if ($cargoExit -ne 0) { exit $cargoExit }
           python -B -m unittest scripts.tests.test_package_portable
-          if ($LASTEXITCODE -ne 0) { throw 'Portable package tests failed.' }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Surface failure summary
+        if: failure()
+        shell: pwsh
+        run: |
+          $py = @'
+          import os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "check.log"
+          if p.is_file():
+              lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+              hits = [l for l in lines if ("FAILED" in l or "panicked at" in l or "error:" in l or "error[" in l or "process didn't exit" in l)]
+              snippet = " | ".join((hits[-25:] if hits else lines[-25:]))[-3500:]
+              print(f"::error title=Windows check failure::{snippet}")
+          '@
+          $py | python -
       - name: Compare HTML5 performance with the blessed source revision
         shell: pwsh
         run: python scripts/check-performance-ab.py

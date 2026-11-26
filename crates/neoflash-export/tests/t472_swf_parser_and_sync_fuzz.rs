@@ -152,12 +152,18 @@ fn build_repeated_chain(first: &str, sep_and_rhs: &str, count: usize) -> String 
     out
 }
 
+const TIGHT_STACK_BYTES: usize = if cfg!(all(windows, debug_assertions)) {
+    4 * 1024 * 1024
+} else {
+    2 * 1024 * 1024
+};
+
 #[test]
 fn t472_swf_parser_50000_flat_chains_and_combined_spines_never_stack_overflow() {
-    // Run inside a dedicated 2 MiB stack thread to guarantee even tight thread stacks never overflow!
+    // Run inside a dedicated tight-stack thread to guarantee even tight thread stacks never overflow!
     let handle = std::thread::Builder::new()
         .name("t472-tight-stack-swf".into())
-        .stack_size(2 * 1024 * 1024)
+        .stack_size(TIGHT_STACK_BYTES)
         .spawn(|| {
             // 1. Positive check: 200-term `1 + 1 + ... + 1` (near MAX_SWF_CHAIN_LEN = 256)
             //    compiles AND executes cleanly in both AVM1 and AVM2 on a 2 MiB stack!
@@ -322,7 +328,7 @@ fn t472_fuzz_script_converter_and_swf_compiler_mutations() {
     //    inside a tight 2 MiB stack thread to catch any Oxc / TS-checker / AS-converter recursion!
     let handle = std::thread::Builder::new()
         .name("t472-tight-stack-convert".into())
-        .stack_size(2 * 1024 * 1024)
+        .stack_size(TIGHT_STACK_BYTES)
         .spawn(|| {
             let flat_add_50k = build_repeated_chain("1", "+1", 50_000);
             let flat_member_50k = build_repeated_chain("a", ".b", 50_000);

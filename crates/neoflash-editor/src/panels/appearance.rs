@@ -2995,42 +2995,92 @@ mod appearance_tests {
             "expected extended ARIA attributes in published index.html, got: {index_html}"
         );
 
-        // 6. Live browser verification in headless Google Chrome (when installed)
-        let chrome_bin =
-            std::path::Path::new("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome");
-        if chrome_bin.exists() {
-            let file_url = format!("file://{}", html_path.display());
-            let chrome_profile = tmp_dir.join("chrome-profile");
-            std::fs::create_dir_all(&chrome_profile).expect("create chrome profile dir");
-            let user_data_arg = format!("--user-data-dir={}", chrome_profile.display());
-            let out = std::process::Command::new(chrome_bin)
-                .args([
-                    "--headless=new",
-                    "--disable-gpu",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--allow-file-access-from-files",
-                    &user_data_arg,
-                    "--virtual-time-budget=25000",
-                    "--dump-dom",
-                    &file_url,
-                ])
-                .output()
-                .expect("run headless Google Chrome on published index.html");
-            assert!(
-                out.status.success(),
-                "headless Chrome failed: {}",
-                String::from_utf8_lossy(&out.stderr)
+        // 6. Live browser verification in headless Google Chrome (when installed).
+        // Drive Chrome over the real wall-clock DevTools pipe (`BrowserPipe`) rather than
+        // `--virtual-time-budget`: Chromium advances virtual time without waiting for V8's
+        // background WASM compiler threads, which races on loaded CI runners.
+        #[cfg(unix)]
+        {
+            let chrome_bin = std::path::Path::new(
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
             );
-            let dom = String::from_utf8_lossy(&out.stdout);
-            assert!(
-                dom.contains("id=\"stage-a11y-overlay\"") && dom.contains("Launch Demo Button"),
-                "expected live #stage-a11y-overlay in Chrome DOM, got: {dom}"
-            );
-            assert!(
-                dom.contains("E2E:false:true:true:false:51"),
-                "expected live script trace 'E2E:false:true:true:false:51' in Chrome DOM, got: {dom}"
-            );
+            if chrome_bin.exists() {
+                let file_url = crate::platform_open::file_url(&html_path).expect("file URL");
+                let mut pipe = crate::debugger_transport::BrowserPipe::launch(chrome_bin, true)
+                    .expect("launch headless Google Chrome via DevTools pipe");
+                pipe.send(&serde_json::json!({
+                    "id": 1,
+                    "method": "Target.createTarget",
+                    "params": { "url": file_url }
+                }))
+                .expect("send Target.createTarget");
+
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                let mut session_id: Option<String> = None;
+                let mut next_eval_id: u64 = 10;
+                let mut pending_eval_id: Option<u64> = None;
+                let mut last_eval_sent = std::time::Instant::now()
+                    .checked_sub(std::time::Duration::from_secs(1))
+                    .unwrap_or_else(std::time::Instant::now);
+                let mut dom = String::new();
+
+                while std::time::Instant::now() < deadline {
+                    if let Some(ref sid) = session_id
+                        && pending_eval_id.is_none()
+                        && last_eval_sent.elapsed() >= std::time::Duration::from_millis(50)
+                    {
+                        let req_id = next_eval_id;
+                        next_eval_id += 1;
+                        pipe.send(&serde_json::json!({
+                            "id": req_id,
+                            "sessionId": sid,
+                            "method": "Runtime.evaluate",
+                            "params": {
+                                "expression": "document.documentElement ? document.documentElement.outerHTML : ''",
+                                "returnByValue": true
+                            }
+                        }))
+                        .expect("send Runtime.evaluate");
+                        pending_eval_id = Some(req_id);
+                        last_eval_sent = std::time::Instant::now();
+                    }
+
+                    if let Some(msg) = pipe.receive().expect("receive CDP message") {
+                        if msg.get("id").and_then(|v| v.as_u64()) == Some(1) {
+                            let target_id = msg["result"]["targetId"]
+                                .as_str()
+                                .expect("targetId from Target.createTarget");
+                            pipe.send(&serde_json::json!({
+                                "id": 2,
+                                "method": "Target.attachToTarget",
+                                "params": { "targetId": target_id, "flatten": true }
+                            }))
+                            .expect("send Target.attachToTarget");
+                        } else if msg.get("id").and_then(|v| v.as_u64()) == Some(2) {
+                            session_id = msg["result"]["sessionId"].as_str().map(str::to_owned);
+                        } else if pending_eval_id.is_some()
+                            && msg.get("id").and_then(|v| v.as_u64()) == pending_eval_id
+                        {
+                            pending_eval_id = None;
+                            if let Some(html) = msg["result"]["result"]["value"].as_str() {
+                                dom = html.to_owned();
+                                if dom.contains("E2E:false:true:true:false:51") {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                assert!(
+                    dom.contains("id=\"stage-a11y-overlay\"") && dom.contains("Launch Demo Button"),
+                    "expected live #stage-a11y-overlay in Chrome DOM, got: {dom}"
+                );
+                assert!(
+                    dom.contains("E2E:false:true:true:false:51"),
+                    "expected live script trace 'E2E:false:true:true:false:51' in Chrome DOM, got: {dom}"
+                );
+            }
         }
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
