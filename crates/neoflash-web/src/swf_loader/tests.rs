@@ -1182,11 +1182,34 @@ process.stdout.write(JSON.stringify(traces));
         ctor_code = ctor_unit.code,
     );
 
-    let out = std::process::Command::new("node")
-        .arg("-e")
-        .arg(&js_harness)
-        .output()
-        .expect("execute generated SWF AVM2 JS in node");
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let harness_path = std::env::temp_dir().join(format!(
+        "neoflash-swf-avm2-test-{}-{}.cjs",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    std::fs::write(&harness_path, &js_harness).expect("write temporary SWF AVM2 JS harness");
+
+    let exe = if cfg!(windows) { "node.exe" } else { "node" };
+    let node_bin = std::env::var_os("PATH")
+        .and_then(|path_var| {
+            std::env::split_paths(&path_var)
+                .map(|dir| dir.join(exe))
+                .find(|candidate| candidate.is_file())
+        })
+        .or_else(|| {
+            ["/opt/homebrew/bin/node", "/usr/local/bin/node"]
+                .into_iter()
+                .map(std::path::PathBuf::from)
+                .find(|p| p.is_file())
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from(exe));
+
+    let out = std::process::Command::new(node_bin)
+        .arg(&harness_path)
+        .output();
+    let _ = std::fs::remove_file(&harness_path);
+    let out = out.expect("execute generated SWF AVM2 JS in node");
     assert!(
         out.status.success(),
         "node execution failed: {}",
