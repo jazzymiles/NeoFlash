@@ -134,7 +134,8 @@ impl<'a> SwfDictionaryCompiler<'a> {
     }
 
     pub(super) fn ensure_media_resources(&mut self) -> Result<(), ExportError> {
-        let (used_bitmaps, used_sounds) = used_swf_media_resources(self.project);
+        let (used_bitmaps, used_sounds, avm1_linked_resources) =
+            used_swf_media_resources(self.project, self.options);
         for res in &self.project.resources {
             if !used_bitmaps.contains(&res.id) && !used_sounds.contains_key(&res.id) {
                 continue;
@@ -171,6 +172,13 @@ impl<'a> SwfDictionaryCompiler<'a> {
                         res.bitmap_export.map(|s| s.allow_smoothing),
                     ),
                 );
+                if avm1_linked_resources.contains(&res.id) {
+                    self.avm1_exports.extend(
+                        swf_resource_linkage_aliases(res)
+                            .into_iter()
+                            .map(|alias| (bid, alias)),
+                    );
+                }
             }
             if let Some(usage) = used_sounds.get(&res.id) {
                 let mut mp3_frames = Vec::new();
@@ -208,6 +216,13 @@ impl<'a> SwfDictionaryCompiler<'a> {
                     self.sound_ids.insert(res.id.clone(), sid);
                     self.sound_durations_44
                         .insert(res.id.clone(), duration_44.max(1));
+                    if avm1_linked_resources.contains(&res.id) {
+                        self.avm1_exports.extend(
+                            swf_resource_linkage_aliases(res)
+                                .into_iter()
+                                .map(|alias| (sid, alias)),
+                        );
+                    }
                 }
             }
         }

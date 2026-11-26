@@ -354,6 +354,7 @@ pub(super) fn preflight_swf_publish_inner(
         SwfPublishProfile::FlashPlayer10Avm2 => FlaTargetProfile::FlashCS6,
     };
     let mut report = FlaCompatibilityReport::new(equivalent_fla_profile);
+    let published_project_cow = crate::strip_skipped_foreign_scripts(project);
 
     // 1. Document settings & scenes
     report.push(
@@ -433,7 +434,29 @@ pub(super) fn preflight_swf_publish_inner(
                     .any(|s| s.script.language == ScriptLanguage::ActionScript3)
         });
 
-    let (used_bitmaps, used_sounds) = used_swf_media_resources(project);
+    let (used_bitmaps, used_sounds, avm1_linked_resources) =
+        used_swf_media_resources(published_project_cow.as_ref(), options);
+    let mut used_avm1_linkages: BTreeMap<String, String> = BTreeMap::new();
+    for resource in project
+        .resources
+        .iter()
+        .filter(|resource| avm1_linked_resources.contains(&resource.id))
+    {
+        let location = format!("resource:{}", resource.id);
+        for alias in swf_resource_linkage_aliases(resource) {
+            if let Some(previous) = used_avm1_linkages.insert(alias.clone(), location.clone()) {
+                report.push(
+                    "swf_duplicate_linkage_id",
+                    FlaCompatibilityCategory::SymbolsAndLibrary,
+                    FlaCompatibilityStatus::Blocking,
+                    location.clone(),
+                    format!(
+                        "AVM1 library-media linkage alias '{alias}' is ambiguous (already used at {previous}). Rename the resource ID or file stem before publishing."
+                    ),
+                );
+            }
+        }
+    }
     for resource_id in used_bitmaps {
         let location = format!("resource:{resource_id}");
         let Some(resource) = project.resource(&resource_id) else {
@@ -459,12 +482,20 @@ pub(super) fn preflight_swf_publish_inner(
                     FlaCompatibilityStatus::Exact,
                     location,
                     format!(
-                        "Bitmap '{}' embeds as {}.",
+                        "Bitmap '{}' embeds as {}{}.",
                         resource.path,
                         if jpeg {
                             "DefineBitsJPEG2"
                         } else {
                             "DefineBitsLossless2"
+                        },
+                        if avm1_linked_resources.contains(&resource_id) {
+                            format!(
+                                " and exports AVM1 aliases [{}] for BitmapData.loadBitmap",
+                                swf_resource_linkage_aliases(resource).join(", ")
+                            )
+                        } else {
+                            String::new()
                         }
                     ),
                 );
@@ -486,7 +517,7 @@ pub(super) fn preflight_swf_publish_inner(
                 FlaCompatibilityCategory::MediaAndSound,
                 FlaCompatibilityStatus::Blocking,
                 location,
-                format!("Frame sound references missing resource '{resource_id}'."),
+                format!("SWF sound references missing resource '{resource_id}'."),
             );
             continue;
         };
@@ -502,7 +533,7 @@ pub(super) fn preflight_swf_publish_inner(
                 FlaCompatibilityStatus::Blocking,
                 location,
                 format!(
-                    "Frame sound '{}' uses {}; this SWF writer currently embeds only proven PCM WAV and MP3 layouts. Convert it to a supported WAV or MP3 first.",
+                    "Sound resource '{}' uses {}; this SWF writer currently embeds only proven PCM WAV and MP3 layouts. Convert it to a supported WAV or MP3 first.",
                     resource.path, resource.media_type
                 ),
             );
@@ -514,7 +545,10 @@ pub(super) fn preflight_swf_publish_inner(
                 FlaCompatibilityCategory::MediaAndSound,
                 FlaCompatibilityStatus::Blocking,
                 location,
-                format!("Frame sound '{}' has invalid resource data.", resource.path),
+                format!(
+                    "Sound resource '{}' has invalid resource data.",
+                    resource.path
+                ),
             );
             continue;
         };
@@ -525,11 +559,19 @@ pub(super) fn preflight_swf_publish_inner(
                 FlaCompatibilityStatus::Exact,
                 location,
                 format!(
-                    "Frame sound '{}' is embedded with {} samples at {} Hz ({}).",
+                    "Sound resource '{}' is embedded with {} samples at {} Hz ({}){}.",
                     resource.path,
                     info.sample_count,
                     info.sample_rate,
-                    if info.stereo { "stereo" } else { "mono" }
+                    if info.stereo { "stereo" } else { "mono" },
+                    if avm1_linked_resources.contains(&resource_id) {
+                        format!(
+                            " and exports AVM1 aliases [{}] for Sound.attachSound",
+                            swf_resource_linkage_aliases(resource).join(", ")
+                        )
+                    } else {
+                        String::new()
+                    }
                 ),
             ),
             Err(issue) => report.push(
@@ -538,7 +580,7 @@ pub(super) fn preflight_swf_publish_inner(
                 FlaCompatibilityStatus::Blocking,
                 location,
                 format!(
-                    "Frame sound '{}' cannot be embedded without changing or corrupting it: {issue}",
+                    "Sound resource '{}' cannot be embedded without changing or corrupting it: {issue}",
                     resource.path
                 ),
             ),
@@ -563,16 +605,13 @@ pub(super) fn preflight_swf_publish_inner(
             msg,
         );
     }
-    let project_cow = crate::strip_skipped_foreign_scripts(project);
-    let project = project_cow.as_ref();
+    let project = published_project_cow.as_ref();
 
     let mut has_avm1_scripts = false;
     let mut has_avm2_scripts = false;
     let mut parsed_external_as3_classes: BTreeMap<String, AbcClassSpec> = BTreeMap::new();
     let mut source_loc_by_qname: BTreeMap<String, String> = BTreeMap::new();
     let mut used_avm2_symbol_classes: BTreeMap<String, String> = BTreeMap::new();
-    let mut used_avm1_linkages: BTreeMap<String, String> = BTreeMap::new();
-
     let included_source_paths = swf_collect_included_source_paths(project);
 
     // 2. Inspect external sources first so class definitions are available for document/symbol validation

@@ -562,11 +562,47 @@ struct SwfSoundUsage {
     event: bool,
 }
 
+fn project_has_avm1_scripts(project: &Project) -> bool {
+    let is_avm1 = |language: ScriptLanguage, source: &str| {
+        !source.trim().is_empty()
+            && matches!(
+                language,
+                ScriptLanguage::ActionScript1 | ScriptLanguage::ActionScript2
+            )
+    };
+    project
+        .sources
+        .iter()
+        .any(|source| is_avm1(source.language, &source.source))
+        || project.symbols.iter().any(|symbol| {
+            symbol
+                .timeline
+                .scripts
+                .iter()
+                .any(|script| is_avm1(script.script.language, &script.script.source))
+                || symbol.timeline.layers.iter().any(|layer| {
+                    layer.keyframes.iter().any(|keyframe| {
+                        keyframe.elements.iter().any(|element| {
+                            element.scripts.iter().any(|script| {
+                                is_avm1(script.script.language, &script.script.source)
+                            })
+                        })
+                    })
+                })
+        })
+}
+
 fn used_swf_media_resources(
     project: &Project,
-) -> (BTreeSet<String>, BTreeMap<String, SwfSoundUsage>) {
+    options: &SwfPublishOptions,
+) -> (
+    BTreeSet<String>,
+    BTreeMap<String, SwfSoundUsage>,
+    BTreeSet<String>,
+) {
     let mut bitmaps = BTreeSet::new();
     let mut sounds = BTreeMap::<String, SwfSoundUsage>::new();
+    let mut avm1_linked_resources = BTreeSet::new();
     for keyframe in project
         .symbols
         .iter()
@@ -593,7 +629,75 @@ fn used_swf_media_resources(
             }
         }
     }
-    (bitmaps, sounds)
+
+    // AVM1 library media can be reached only from script (`attachSound` /
+    // `BitmapData.loadBitmap`) and therefore has no required timeline
+    // placement. ResourceUnit does not carry a separate linkage flag, while
+    // the NeoFlash AS2 runtime deliberately resolves bundled media by resource
+    // ID and path stem. Preserve that authored contract in executable FP8
+    // movies by exporting every bundled audio/image resource when scripts are
+    // retained. Scriptless and AVM2 publications keep the placement-only
+    // behavior because no AVM1 linkage call can execute there.
+    if !options.profile.is_avm2() && !options.scriptless_mode && project_has_avm1_scripts(project) {
+        for resource in &project.resources {
+            if resource.is_image() {
+                bitmaps.insert(resource.id.clone());
+                avm1_linked_resources.insert(resource.id.clone());
+            } else if resource.is_audio() {
+                sounds.entry(resource.id.clone()).or_default().event = true;
+                avm1_linked_resources.insert(resource.id.clone());
+            }
+        }
+    }
+
+    (bitmaps, sounds, avm1_linked_resources)
+}
+
+/// Deterministic AVM1 names that preserve the identifiers accepted by the
+/// NeoFlash AS2 bundled-media resolvers. Duplicate names across characters are
+/// rejected by preflight instead of leaving Flash Player to choose an asset.
+pub(super) fn swf_resource_linkage_aliases(resource: &neoflash_core::ResourceUnit) -> Vec<String> {
+    let mut aliases = BTreeSet::new();
+    let mut insert = |value: &str| {
+        let value = value.trim();
+        if !value.is_empty() {
+            aliases.insert(value.to_owned());
+        }
+    };
+
+    insert(&resource.id);
+    let normalized = resource
+        .path
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .to_owned();
+    insert(&normalized);
+    let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
+    insert(basename);
+
+    let mut insert_without_extension = |value: &str| {
+        if let Some((stem, extension)) = value.rsplit_once('.')
+            && !stem.is_empty()
+            && !extension.is_empty()
+        {
+            insert(stem);
+        }
+    };
+    insert_without_extension(&normalized);
+    insert_without_extension(basename);
+    // AS2 Sound historically resolves the basename before its first dot,
+    // while BitmapData uses the final extension. Preserve both forms for
+    // multi-dot audio filenames such as `weapon.shot.wav`.
+    if resource.is_audio()
+        && let Some((stem, extension)) = basename.split_once('.')
+        && !stem.is_empty()
+        && !extension.is_empty()
+    {
+        insert(stem);
+    }
+    aliases.into_iter().collect()
 }
 
 pub(super) fn swf_text_outline_issue(element: &Element) -> Option<String> {

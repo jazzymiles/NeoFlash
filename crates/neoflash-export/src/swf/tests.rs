@@ -56,6 +56,65 @@ fn one_frame_mp3() -> Vec<u8> {
     frame
 }
 
+fn collect_uncompressed_swf_tags(bytes: &[u8]) -> Vec<(u16, Vec<u8>)> {
+    assert_eq!(&bytes[..3], b"FWS");
+    let nbits = usize::from(bytes[8] >> 3);
+    let rect_bytes = (5 + nbits * 4).div_ceil(8);
+    let mut position = 8 + rect_bytes + 4;
+    let mut tags = Vec::new();
+    while position + 2 <= bytes.len() {
+        let header = u16::from_le_bytes([bytes[position], bytes[position + 1]]);
+        position += 2;
+        let code = header >> 6;
+        let short_len = usize::from(header & 0x3f);
+        let length = if short_len == 0x3f {
+            let length = u32::from_le_bytes(
+                bytes[position..position + 4]
+                    .try_into()
+                    .expect("long SWF tag length"),
+            ) as usize;
+            position += 4;
+            length
+        } else {
+            short_len
+        };
+        let end = position
+            .checked_add(length)
+            .expect("SWF tag length overflow");
+        assert!(end <= bytes.len(), "truncated SWF tag {code}");
+        tags.push((code, bytes[position..end].to_vec()));
+        position = end;
+        if code == 0 {
+            break;
+        }
+    }
+    tags
+}
+
+fn parse_export_assets(payload: &[u8]) -> Vec<(u16, String)> {
+    assert!(payload.len() >= 2);
+    let count = usize::from(u16::from_le_bytes([payload[0], payload[1]]));
+    let mut position = 2;
+    let mut exports = Vec::with_capacity(count);
+    for _ in 0..count {
+        assert!(position + 2 <= payload.len());
+        let character_id = u16::from_le_bytes([payload[position], payload[position + 1]]);
+        position += 2;
+        let end = payload[position..]
+            .iter()
+            .position(|byte| *byte == 0)
+            .map(|offset| position + offset)
+            .expect("ExportAssets name terminator");
+        exports.push((
+            character_id,
+            String::from_utf8(payload[position..end].to_vec()).expect("ASCII test linkage name"),
+        ));
+        position = end + 1;
+    }
+    assert_eq!(position, payload.len());
+    exports
+}
+
 fn project_with_sound(media_type: &str, extension: &str, bytes: &[u8]) -> Project {
     let mut project = Project::blank();
     project.resources.push(
@@ -134,6 +193,42 @@ fn preflight_checks_only_used_media_and_refuses_unsupported_codecs() {
     let unused_report = preflight_swf_publish(&unused, &SwfPublishOptions::default());
     assert!(unused_report.can_proceed(), "{:#?}", unused_report.items);
 
+    let avm1 = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let unused_avm1_report = preflight_swf_publish(&unused, &avm1);
+    assert!(
+        unused_avm1_report.can_proceed(),
+        "{:#?}",
+        unused_avm1_report.items
+    );
+
+    let mut linked = unused.clone();
+    linked.sources.push(neoflash_core::SourceUnit {
+        id: "dynamic-library-media".into(),
+        path: "DynamicLibraryMedia.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "var linkage:String = _root.requestedLinkage; new Sound().attachSound(linkage);"
+            .into(),
+    });
+    let linked_report = preflight_swf_publish(&linked, &avm1);
+    assert!(linked_report.items.iter().any(|item| {
+        item.code == "swf_sound_codec_unsupported"
+            && item.disposition == FlaCompatibilityStatus::Blocking
+    }));
+    assert!(linked_report.items.iter().any(|item| {
+        item.code == "swf_bitmap_data_unsupported"
+            && item.disposition == FlaCompatibilityStatus::Blocking
+    }));
+    assert!(!linked_report.can_proceed());
+
+    let mut scriptless_avm1 = avm1.clone();
+    scriptless_avm1.scriptless_mode = true;
+    let scriptless_report = preflight_swf_publish(&linked, &scriptless_avm1);
+    assert!(
+        scriptless_report.can_proceed(),
+        "{:#?}",
+        scriptless_report.items
+    );
+
     let mut placed_jpeg = Project::blank();
     placed_jpeg.resources.push(jpeg);
     root_keyframe_mut(&mut placed_jpeg).elements.push(Element {
@@ -166,6 +261,194 @@ fn preflight_checks_only_used_media_and_refuses_unsupported_codecs() {
             .any(|item| item.code == "swf_sound_codec_unsupported")
     );
     assert!(!ogg_report.can_proceed());
+}
+
+#[test]
+fn avm1_library_media_emit_dictionary_tags_export_assets_and_roundtrip() {
+    let mut project = Project::blank();
+    project.resources.extend([
+        neoflash_core::ResourceUnit::from_bytes(
+            "resource-wall",
+            "textures/wall.png",
+            "image/png",
+            &tiny_png(),
+        )
+        .unwrap(),
+        neoflash_core::ResourceUnit::from_bytes(
+            "resource-sfx",
+            "audio/weapon.shot.wav",
+            "audio/wav",
+            &wav_bytes(1, 1, 44_100, 16),
+        )
+        .unwrap(),
+    ]);
+    project.sources.push(neoflash_core::SourceUnit {
+        id: "library-media-script".into(),
+        path: "LibraryMedia.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "import flash.display.BitmapData; var s:Sound = new Sound(); s.attachSound(\"weapon\"); var b:BitmapData = BitmapData.loadBitmap(\"wall\");".into(),
+    });
+
+    let mut options = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    options.compression = SwfCompression::UncompressedFws;
+    let report = preflight_swf_publish(&project, &options);
+    assert!(report.can_proceed(), "{:#?}", report.items);
+    assert!(report.items.iter().any(|item| {
+        item.code == "swf_bitmap_lossless" && item.message.contains("BitmapData.loadBitmap")
+    }));
+    assert!(report.items.iter().any(|item| {
+        item.code == "swf_sound_embedded" && item.message.contains("Sound.attachSound")
+    }));
+
+    let (movie, publish_report) = publish_swf_bytes(&project, &options).unwrap();
+    assert!(publish_report.can_proceed(), "{:#?}", publish_report.items);
+    let tags = collect_uncompressed_swf_tags(&movie);
+    let bitmap_tag = tags
+        .iter()
+        .find(|(code, _)| *code == 36)
+        .expect("DefineBitsLossless2");
+    let sound_tag = tags
+        .iter()
+        .find(|(code, _)| *code == 14)
+        .expect("DefineSound");
+    let export_tag = tags
+        .iter()
+        .find(|(code, _)| *code == 56)
+        .expect("ExportAssets");
+    let bitmap_id = u16::from_le_bytes(bitmap_tag.1[..2].try_into().unwrap());
+    let sound_id = u16::from_le_bytes(sound_tag.1[..2].try_into().unwrap());
+    let exports = parse_export_assets(&export_tag.1);
+    for alias in [
+        "resource-wall",
+        "textures/wall.png",
+        "wall.png",
+        "textures/wall",
+        "wall",
+    ] {
+        assert!(
+            exports.contains(&(bitmap_id, alias.to_owned())),
+            "missing bitmap linkage {alias}: {exports:?}"
+        );
+    }
+    for alias in [
+        "resource-sfx",
+        "audio/weapon.shot.wav",
+        "weapon.shot.wav",
+        "audio/weapon.shot",
+        "weapon.shot",
+        "weapon",
+    ] {
+        assert!(
+            exports.contains(&(sound_id, alias.to_owned())),
+            "missing sound linkage {alias}: {exports:?}"
+        );
+    }
+
+    let recovered = import_swf_bytes(&movie).expect("library media SWF reimports");
+    assert!(
+        recovered
+            .resources
+            .iter()
+            .any(|resource| resource.is_image()),
+        "round-trip keeps the linked bitmap resource"
+    );
+    assert!(
+        recovered
+            .resources
+            .iter()
+            .any(|resource| resource.is_audio()),
+        "round-trip keeps the linked sound resource"
+    );
+}
+
+#[test]
+fn avm1_library_media_reject_ambiguous_export_aliases() {
+    let mut project = Project::blank();
+    project.resources.extend([
+        neoflash_core::ResourceUnit::from_bytes(
+            "first-sound",
+            "audio/one/shot.wav",
+            "audio/wav",
+            &wav_bytes(1, 1, 44_100, 16),
+        )
+        .unwrap(),
+        neoflash_core::ResourceUnit::from_bytes(
+            "second-sound",
+            "audio/two/shot.wav",
+            "audio/wav",
+            &wav_bytes(1, 1, 44_100, 16),
+        )
+        .unwrap(),
+    ]);
+    project.sources.push(neoflash_core::SourceUnit {
+        id: "ambiguous-library-media".into(),
+        path: "AmbiguousLibraryMedia.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "new Sound().attachSound(_root.dynamicLinkage);".into(),
+    });
+    let options = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    let report = preflight_swf_publish(&project, &options);
+    assert!(report.items.iter().any(|item| {
+        item.code == "swf_duplicate_linkage_id"
+            && item.disposition == FlaCompatibilityStatus::Blocking
+            && item.message.contains("shot")
+    }));
+    assert!(!report.can_proceed());
+    assert!(matches!(
+        publish_swf_bytes(&project, &options),
+        Err(ExportError::CompatibilityBlocked { .. })
+    ));
+}
+
+#[test]
+fn avm1_library_media_ignore_skipped_foreign_avm1_scripts() {
+    let mut project = Project::blank();
+    project.script_language = Some(ScriptLanguage::JavaScript);
+    project.also_compile_compatible_scripts = false;
+    project.resources.extend([
+        neoflash_core::ResourceUnit::from_bytes(
+            "unused-wall",
+            "textures/unused-wall.png",
+            "image/png",
+            &tiny_png(),
+        )
+        .unwrap(),
+        neoflash_core::ResourceUnit::from_bytes(
+            "unused-shot",
+            "audio/unused-shot.wav",
+            "audio/wav",
+            &wav_bytes(1, 1, 44_100, 16),
+        )
+        .unwrap(),
+    ]);
+    project.sources.push(neoflash_core::SourceUnit {
+        id: "skipped-library-media".into(),
+        path: "SkippedLibraryMedia.as".into(),
+        language: ScriptLanguage::ActionScript2,
+        source: "new Sound().attachSound('unused-shot'); BitmapData.loadBitmap('unused-wall');"
+            .into(),
+    });
+
+    let mut options = SwfPublishOptions::for_profile(SwfPublishProfile::FlashPlayer8Avm1);
+    options.compression = SwfCompression::UncompressedFws;
+    let report = preflight_swf_publish(&project, &options);
+    assert!(report.can_proceed(), "{:#?}", report.items);
+    assert!(
+        report
+            .items
+            .iter()
+            .any(|item| item.code == "swf_skipped_foreign_script")
+    );
+    assert!(
+        !report.items.iter().any(|item| {
+            item.code == "swf_bitmap_lossless" || item.code == "swf_sound_embedded"
+        })
+    );
+
+    let (movie, publish_report) = publish_swf_bytes(&project, &options).unwrap();
+    assert!(publish_report.can_proceed(), "{:#?}", publish_report.items);
+    let tags = collect_uncompressed_swf_tags(&movie);
+    assert!(!tags.iter().any(|(code, _)| matches!(*code, 14 | 36)));
 }
 
 #[test]

@@ -4,6 +4,8 @@
 
 Download build **605** for Apple Silicon (macOS 15+) or Intel (macOS 12+) as a Developer ID signed and notarized disk image or ZIP. Windows x64 and Ubuntu 24.04 x64 are available as Technical Previews. [Downloads and checksums](https://github.com/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.1)
 
+- Fixed Flash Player 8 SWF publishing of AS2 library-only audio and bitmap assets (`T-489`): supported bundled PCM WAV/MP3 and decodable image media now emit dictionary characters plus deterministic `ExportAssets` aliases for `Sound.attachSound(...)` and `BitmapData.loadBitmap(...)`; ambiguous aliases, unsupported codecs and invalid media block with located compatibility diagnostics instead of silently disappearing.
+
 - Fixed rapid stage resize shaking and flashing scrollbars in HTML5 **Test Movie** / **Test Scene** on Linux and Windows HiDPI browsers with classic non-overlay scrollbars (`T-483`): `#viewport` now defaults to `overflow: hidden` in `Fit` and `Stretch` modes while re-enabling `overflow: auto` for zoomed (`25%–400%` / `Fill`) panning, `Preview.resize()` floors subpixel HiDPI viewport dimensions (`viewportBox`) and clamps IEEE-754 float `Fit` bounds so `#stage-space` never overflows by `0.5px` into a `ResizeObserver` scrollbar loop, and `#trace` in the preview footer stays on a stable single line across `trace()` updates.
 
 - Fixed legacy layerless `FrameScript` migration onto newly created layers and eliminated leading empty frames on newly created media/graphic layers and Finder **Timeline** drops (`T-476`):
