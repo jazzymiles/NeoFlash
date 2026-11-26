@@ -201,6 +201,14 @@ class PerformanceAbTests(unittest.TestCase):
         )
         self.assertTrue(MODULE._is_inconclusive_dispersion(noisy_gstd, noisy_spread))
 
+    def test_pair_first_labels_preserve_abba_balance_and_slice_divisibility(self):
+        first_labels = MODULE._pair_first_labels()
+        self.assertEqual(len(first_labels), MODULE.PAIR_COUNT)
+        self.assertEqual(first_labels.count("current"), MODULE.PAIR_COUNT // 2)
+        self.assertEqual(first_labels.count("baseline"), MODULE.PAIR_COUNT // 2)
+        self.assertEqual(MODULE.EXPECTED_FRAMES % MODULE.INTERLEAVE_SLICE_FRAMES, 0)
+        self.assertEqual(MODULE.EXPECTED_WARMUP_FRAMES % MODULE.INTERLEAVE_SLICE_FRAMES, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

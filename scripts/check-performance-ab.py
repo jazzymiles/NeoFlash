@@ -31,6 +31,7 @@ MAX_DISPERSION_ATTEMPTS = 3
 EXPECTED_SAMPLE_COUNT = 1
 EXPECTED_FRAMES = 480
 EXPECTED_WARMUP_FRAMES = 480
+INTERLEAVE_SLICE_FRAMES = 40
 RATIO_LIMIT = 1.05
 GEOMETRIC_STDDEV_LIMIT = 1.12
 RATIO_SPREAD_LIMIT = 1.35
@@ -335,6 +336,149 @@ def compare_reports(
     return summary
 
 
+def _pair_first_labels() -> tuple[str, ...]:
+    first_labels: list[str] = []
+    for pair_index in range(PAIR_COUNT):
+        entries = [label for label, idx in PAIR_SEQUENCE if idx == pair_index]
+        if len(entries) != 2 or set(entries) != {"current", "baseline"}:
+            raise PerformanceGateError(f"invalid PAIR_SEQUENCE for pair {pair_index}")
+        first_labels.append(entries[0])
+    return tuple(first_labels)
+
+
+def _write_paired_runner(
+    path: Path, *, current_runner: Path, baseline_runner: Path
+) -> Path:
+    current_url = current_runner.resolve().as_uri()
+    baseline_url = baseline_runner.resolve().as_uri()
+    source = f"""import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+const slug = process.env.NEOFLASH_PERF_SUITE;
+const firstLabel = process.env.NEOFLASH_PERF_FIRST_LABEL;
+const frames = Number(process.env.NEOFLASH_PERF_FRAMES);
+const warmupFrames = Number(process.env.NEOFLASH_PERF_WARMUP_FRAMES);
+const sliceFrames = Number(process.env.NEOFLASH_PERF_SLICE_FRAMES);
+const currentReportPath = process.env.NEOFLASH_PERF_CURRENT_REPORT;
+const baselineReportPath = process.env.NEOFLASH_PERF_BASELINE_REPORT;
+const currentLabel = process.env.NEOFLASH_PERF_CURRENT_LABEL || 'current';
+const baselineLabel = process.env.NEOFLASH_PERF_BASELINE_LABEL || 'baseline';
+
+assert.ok(slug, 'NEOFLASH_PERF_SUITE is required');
+assert.ok(firstLabel === 'current' || firstLabel === 'baseline', 'invalid NEOFLASH_PERF_FIRST_LABEL');
+assert.ok(Number.isInteger(frames) && frames >= 60 && frames % sliceFrames === 0, 'invalid frame/slice count');
+assert.ok(Number.isInteger(warmupFrames) && warmupFrames >= 0, 'invalid warmupFrames');
+assert.ok(currentReportPath && baselineReportPath, 'both report paths are required');
+assert.equal(typeof globalThis.gc, 'function', 'paired runner requires Node --expose-gc');
+
+const currentUrl = {json.dumps(current_url)};
+const baselineUrl = {json.dumps(baseline_url)};
+
+// Load and instantiate in pair-first order so AB and BA pairs have symmetric V8 heap placement.
+let currentMod, baselineMod, currentSession, baselineSession;
+if (firstLabel === 'current') {{
+  currentMod = await import(currentUrl);
+  baselineMod = await import(baselineUrl);
+  currentSession = currentMod.createSuiteSession(slug);
+  baselineSession = baselineMod.createSuiteSession(slug);
+}} else {{
+  baselineMod = await import(baselineUrl);
+  currentMod = await import(currentUrl);
+  baselineSession = baselineMod.createSuiteSession(slug);
+  currentSession = currentMod.createSuiteSession(slug);
+}}
+
+const order = firstLabel === 'current'
+  ? [['current', currentSession], ['baseline', baselineSession]]
+  : [['baseline', baselineSession], ['current', currentSession]];
+
+// Interleave warmup slices on the same OS thread so V8/WASM tier-up completes symmetrically.
+for (let base = 0; base < warmupFrames; base += sliceFrames) {{
+  const end = Math.min(warmupFrames, base + sliceFrames);
+  for (const [, session] of order) {{
+    for (let w = base; w < end; w++) session.warmupFrame();
+  }}
+}}
+
+currentSession.resetSnapshotCalls();
+baselineSession.resetSnapshotCalls();
+globalThis.gc();
+
+const minorGc = () => {{
+  try {{
+    globalThis.gc({{ type: 'minor' }});
+  }} catch {{
+    globalThis.gc();
+  }}
+}};
+
+const readCpuUsage = typeof process.threadCpuUsage === 'function'
+  ? process.threadCpuUsage.bind(process)
+  : process.cpuUsage.bind(process);
+
+const totals = {{
+  current: {{ wallMs: 0, cpuUs: 0 }},
+  baseline: {{ wallMs: 0, cpuUs: 0 }},
+}};
+
+// Interleave measured micro-slices on one OS thread so heterogeneous Apple Silicon P/E-core
+// scheduling, DVFS frequency shifts, and co-tenant VM contention affect both sides equally.
+for (let base = 0; base < frames; base += sliceFrames) {{
+  const end = Math.min(frames, base + sliceFrames);
+  for (const [label, session] of order) {{
+    minorGc();
+    const wallStart = performance.now();
+    const cpuStart = readCpuUsage();
+    for (let f = base; f < end; f++) {{
+      session.runFrame(f);
+    }}
+    const cpuElapsed = readCpuUsage(cpuStart);
+    const wallElapsed = performance.now() - wallStart;
+    totals[label].wallMs += wallElapsed;
+    totals[label].cpuUs += cpuElapsed.user + cpuElapsed.system;
+  }}
+}}
+
+function writeReport(label, session, reportPath, reportLabel) {{
+  const wallMs = totals[label].wallMs;
+  const rawCpuMsPerFrame = process.platform === 'win32'
+    ? wallMs / frames
+    : totals[label].cpuUs / 1000 / frames;
+  assert.ok(
+    Number.isFinite(wallMs) && wallMs > 0 &&
+      Number.isFinite(rawCpuMsPerFrame) && rawCpuMsPerFrame > 0,
+    `${{slug}} (${{label}}) produced invalid timing data`
+  );
+  const benchmark = {{
+    frames,
+    totalMs: wallMs,
+    avgMsPerFrame: wallMs / frames,
+    rawCpuMsPerFrame,
+    wallSamples: [wallMs],
+    rawCpuSamples: [rawCpuMsPerFrame],
+  }};
+  const {{ result }} = session.finalize(benchmark, warmupFrames);
+  fs.writeFileSync(reportPath, JSON.stringify({{
+    schema: 1,
+    mode: 'report',
+    label: reportLabel,
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    sample_count: 1,
+    frames_per_sample: frames,
+    warmup_frames: warmupFrames,
+    results: [result],
+  }}, null, 2));
+}}
+
+writeReport('current', currentSession, currentReportPath, currentLabel);
+writeReport('baseline', baselineSession, baselineReportPath, baselineLabel);
+"""
+    path.write_text(source, encoding="utf-8")
+    return path
+
+
 def _prepare_runner(
     source_root: Path,
     fixture_root: Path,
@@ -519,6 +663,13 @@ def run_gate(root: Path) -> dict[str, Any]:
                 log_path=prime_reports / f"prime-{prime_index:02d}-{label}.log",
             )
 
+        paired_runner = _write_paired_runner(
+            prepared_root / "run-paired-suite.mjs",
+            current_runner=current_runner,
+            baseline_runner=baseline_runner,
+        )
+        pair_first_labels = _pair_first_labels()
+
         per_suite_dir = artifact_dir / "per-suite"
         per_suite_dir.mkdir(parents=True, exist_ok=True)
         assembled: dict[tuple[str, int], list[dict[str, Any]]] = {
@@ -530,36 +681,44 @@ def run_gate(root: Path) -> dict[str, Any]:
             accepted_pairs: dict[tuple[str, int], dict[str, Any]] | None = None
             for attempt in range(1, MAX_DISPERSION_ATTEMPTS + 1):
                 attempt_pairs: dict[tuple[str, int], dict[str, Any]] = {}
-                for label, pair_index in PAIR_SEQUENCE:
-                    attempt_suffix = "" if attempt == 1 else f"-retry{attempt - 1}"
-                    suite_report_path = (
+                attempt_suffix = "" if attempt == 1 else f"-retry{attempt - 1}"
+                for pair_index, first_label in enumerate(pair_first_labels):
+                    current_report_path = (
                         per_suite_dir
-                        / f"{slug}-p{pair_index + 1}-{label}{attempt_suffix}.json"
+                        / f"{slug}-p{pair_index + 1}-current{attempt_suffix}.json"
                     )
-                    runner = current_runner if label == "current" else baseline_runner
+                    baseline_report_path = (
+                        per_suite_dir
+                        / f"{slug}-p{pair_index + 1}-baseline{attempt_suffix}.json"
+                    )
                     run_env = current_env.copy()
                     run_env.update(
                         {
                             "NEOFLASH_PERF_MODE": "report",
-                            "NEOFLASH_PERF_REPORT": str(suite_report_path),
-                            "NEOFLASH_PERF_LABEL": f"{label}-pair-{pair_index + 1}-{slug}{attempt_suffix}",
-                            "NEOFLASH_PERF_SAMPLE_COUNT": str(EXPECTED_SAMPLE_COUNT),
+                            "NEOFLASH_PERF_SUITE": slug,
+                            "NEOFLASH_PERF_FIRST_LABEL": first_label,
                             "NEOFLASH_PERF_FRAMES": str(EXPECTED_FRAMES),
                             "NEOFLASH_PERF_WARMUP_FRAMES": str(EXPECTED_WARMUP_FRAMES),
-                            "NEOFLASH_PERF_SUITES": slug,
+                            "NEOFLASH_PERF_SLICE_FRAMES": str(INTERLEAVE_SLICE_FRAMES),
+                            "NEOFLASH_PERF_CURRENT_REPORT": str(current_report_path),
+                            "NEOFLASH_PERF_BASELINE_REPORT": str(baseline_report_path),
+                            "NEOFLASH_PERF_CURRENT_LABEL": f"current-pair-{pair_index + 1}-{slug}{attempt_suffix}",
+                            "NEOFLASH_PERF_BASELINE_LABEL": f"baseline-pair-{pair_index + 1}-{slug}{attempt_suffix}",
                         }
                     )
                     _run(
-                        [node, "--expose-gc", str(runner)],
-                        cwd=root if label == "current" else baseline_root,
+                        [node, "--expose-gc", str(paired_runner)],
+                        cwd=root,
                         env=run_env,
                         log_path=per_suite_dir
-                        / f"{slug}-p{pair_index + 1}-{label}{attempt_suffix}.log",
+                        / f"{slug}-p{pair_index + 1}-paired{attempt_suffix}.log",
                     )
-                    suite_report = _load_report(
-                        suite_report_path, expected_suites=frozenset({slug})
+                    attempt_pairs[("current", pair_index)] = _load_report(
+                        current_report_path, expected_suites=frozenset({slug})
                     )
-                    attempt_pairs[(label, pair_index)] = suite_report
+                    attempt_pairs[("baseline", pair_index)] = _load_report(
+                        baseline_report_path, expected_suites=frozenset({slug})
+                    )
 
                 _, gstd, spread, ratios = _suite_dispersion_stats(
                     [attempt_pairs[("current", i)]["results"][0] for i in range(PAIR_COUNT)],

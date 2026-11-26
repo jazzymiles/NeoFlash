@@ -759,6 +759,7 @@ this.addEventListener("enterFrame", function(ev:Object):void {
 import fs from 'node:fs';
 import {{ createRequire }} from 'node:module';
 import {{ resolve }} from 'node:path';
+import {{ pathToFileURL }} from 'node:url';
 import {{ createRuntimeHost }} from {host_integration_url:?};
 import {{ runtimeWasm }} from {rust_runtime_url:?};
 import webRuntime from {web_runtime_url:?};
@@ -871,10 +872,93 @@ function loadBundle(bundlePath) {{
   }};
 }}
 
+const gameMap = new Map(gameBundles);
+const stressMap = new Map(stressBundles);
+
+export function createSuiteSession(slug) {{
+  const isGame = gameMap.has(slug);
+  const isStress = stressMap.has(slug);
+  assert.ok(isGame || isStress, `unknown performance suite ${{slug}}`);
+  const bundlePath = isGame ? gameMap.get(slug) : stressMap.get(slug);
+  const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
+  const warmupFrame = () => {{
+    env.host.broadcastFrame();
+    paintFrame();
+  }};
+  const runFrame = isGame
+    ? (frame) => {{
+        if (slug.startsWith('snake-')) {{
+          if (clip.gameOver) clip.resetGame();
+          if (frame % 6 === 0) {{
+            const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+            const [dx, dy] = dirs[(frame / 6) % 4];
+            clip.setDirection(dx, dy);
+          }}
+        }} else if (slug.startsWith('arkanoid-')) {{
+          if (clip.gameOver) clip.resetGame();
+          clip.paddleX = Math.max(48, Math.min(592, clip.ballX));
+        }} else if (slug.startsWith('tetris-')) {{
+          if (clip.gameOver) clip.resetGame();
+          if (frame % 8 === 0) clip.moveHorizontal((frame % 16 === 0) ? -1 : 1);
+          if (frame % 12 === 0) clip.rotatePiece();
+        }}
+        env.host.broadcastFrame();
+        paintFrame();
+      }}
+    : () => {{
+        env.host.broadcastFrame();
+        paintFrame();
+      }};
+  const finalize = (benchmark, warmupFrames) => {{
+    const snapshotsPerFrame = getSnapshotCalls() / benchmark.frames;
+    assert.ok(
+      snapshotsPerFrame <= 1.05,
+      `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
+    );
+    if (isGame) {{
+      assert.ok(
+        ctx.stats.fillCalls > benchmark.frames,
+        `${{slug}} Canvas 2D painter must execute fill calls`
+      );
+    }} else {{
+      assert.equal(
+        clip.tickCount,
+        benchmark.frames + warmupFrames,
+        `${{slug}} ran all ${{benchmark.frames + warmupFrames}} enterFrame ticks`
+      );
+      if (slug.startsWith('stress-graphics-')) {{
+        assert.equal(clip.shapesDrawn, 50, `${{slug}} drew 50 procedural shapes per frame`);
+      }}
+    }}
+    const draws = ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls;
+    const budget = isGame ? 2.5 : 3.5;
+    return {{
+      result: {{
+        suite: slug,
+        node: process.version,
+        platform: process.platform,
+        arch: process.arch,
+        frames: benchmark.frames,
+        totalMs: benchmark.totalMs,
+        avgMsPerFrame: benchmark.avgMsPerFrame,
+        rawCpuMsPerFrame: benchmark.rawCpuMsPerFrame,
+        wallSamples: benchmark.wallSamples,
+        rawCpuSamples: benchmark.rawCpuSamples,
+        snapshotsPerFrame,
+        draws,
+      }},
+      budget,
+    }};
+  }};
+  return {{ slug, warmupFrame, runFrame, resetSnapshotCalls, finalize }};
+}}
+
 // Local reference runs retain the numerical 2.5/3.5 ceilings as raw CPU time.
 // Heterogeneous hosted runners use `functional` for semantic coverage and a
 // separate same-machine A/B gate in `scripts/check-performance-ab.py`; no synthetic
 // scalar is portable across the JS, WASM, object and painter workload mix.
+const isEntryModule = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isEntryModule) {{
 const PERF_MODE = process.env.NEOFLASH_PERF_MODE || 'absolute';
 assert.ok(['absolute', 'functional', 'report', 'prepare'].includes(PERF_MODE), `unknown performance mode ${{PERF_MODE}}`);
 const FRAME_SAMPLE_COUNT = Number(process.env.NEOFLASH_PERF_SAMPLE_COUNT || (PERF_MODE === 'absolute' ? 3 : 1));
@@ -942,109 +1026,22 @@ function benchmarkFrames(label, runFrame) {{
 
 const results = [];
 
-function recordResult(slug, benchmark, snapshotsPerFrame, draws, budget) {{
-  const result = {{
-    suite: slug,
-    node: process.version,
-    platform: process.platform,
-    arch: process.arch,
-    frames: benchmark.frames,
-    totalMs: benchmark.totalMs,
-    avgMsPerFrame: benchmark.avgMsPerFrame,
-    rawCpuMsPerFrame: benchmark.rawCpuMsPerFrame,
-    wallSamples: benchmark.wallSamples,
-    rawCpuSamples: benchmark.rawCpuSamples,
-    snapshotsPerFrame,
-    draws,
-  }};
+for (const [slug] of [...gameBundles, ...stressBundles]) {{
+  if (SUITE_FILTER && !SUITE_FILTER.has(slug)) continue;
+  const session = createSuiteSession(slug);
+  for (let w = 0; w < WARMUP_FRAMES; w++) {{
+    session.warmupFrame();
+  }}
+  session.resetSnapshotCalls();
+  const benchmark = benchmarkFrames(slug, session.runFrame);
+  const {{ result, budget }} = session.finalize(benchmark, WARMUP_FRAMES);
   results.push(result);
-  assert.ok(
-    snapshotsPerFrame <= 1.05,
-    `${{slug}} triggered ${{snapshotsPerFrame.toFixed(2)}} runtime_snapshot_json calls/frame (expected <= 1.05)`
-  );
   if (PERF_MODE === 'absolute') {{
     assert.ok(
       benchmark.rawCpuMsPerFrame < budget,
       `${{slug}} CPU frame time ${{benchmark.rawCpuMsPerFrame.toFixed(3)}} ms exceeded ${{budget}} ms/frame budget; samples=${{benchmark.rawCpuSamples.map((sample) => sample.toFixed(3)).join(',')}}`
     );
   }}
-}}
-
-// 1. Benchmark all 6 exported games over gameplay + Canvas 2D samples.
-for (const [slug, bundlePath] of gameBundles) {{
-  if (SUITE_FILTER && !SUITE_FILTER.has(slug)) continue;
-  const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
-
-  for (let w = 0; w < WARMUP_FRAMES; w++) {{
-    env.host.broadcastFrame();
-    paintFrame();
-  }}
-  resetSnapshotCalls();
-  const benchmark = benchmarkFrames(slug, (frame) => {{
-    if (slug.startsWith('snake-')) {{
-      if (clip.gameOver) clip.resetGame();
-      if (frame % 6 === 0) {{
-        const dirs = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-        const [dx, dy] = dirs[(frame / 6) % 4];
-        clip.setDirection(dx, dy);
-      }}
-    }} else if (slug.startsWith('arkanoid-')) {{
-      if (clip.gameOver) clip.resetGame();
-      clip.paddleX = Math.max(48, Math.min(592, clip.ballX));
-    }} else if (slug.startsWith('tetris-')) {{
-      if (clip.gameOver) clip.resetGame();
-      if (frame % 8 === 0) clip.moveHorizontal((frame % 16 === 0) ? -1 : 1);
-      if (frame % 12 === 0) clip.rotatePiece();
-    }}
-    env.host.broadcastFrame();
-    paintFrame();
-  }});
-  const snapshotsPerFrame = getSnapshotCalls() / benchmark.frames;
-  recordResult(
-    slug,
-    benchmark,
-    snapshotsPerFrame,
-    ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
-    2.5
-  );
-  assert.ok(
-    ctx.stats.fillCalls > benchmark.frames,
-    `${{slug}} Canvas 2D painter must execute fill calls`
-  );
-}}
-
-// 2. Benchmark all AS2/AS3 runtime & rendering stress suites.
-for (const [slug, bundlePath] of stressBundles) {{
-  if (SUITE_FILTER && !SUITE_FILTER.has(slug)) continue;
-  const {{ clip, env, ctx, paintFrame, getSnapshotCalls, resetSnapshotCalls }} = loadBundle(bundlePath);
-
-  for (let w = 0; w < WARMUP_FRAMES; w++) {{
-    env.host.broadcastFrame();
-    paintFrame();
-  }}
-  resetSnapshotCalls();
-  const benchmark = benchmarkFrames(slug, () => {{
-    env.host.broadcastFrame();
-    paintFrame();
-  }});
-  const snapshotsPerFrame = getSnapshotCalls() / benchmark.frames;
-
-  assert.equal(
-    clip.tickCount,
-    benchmark.frames + WARMUP_FRAMES,
-    `${{slug}} ran all ${{benchmark.frames + WARMUP_FRAMES}} enterFrame ticks`
-  );
-  if (slug.startsWith('stress-graphics-')) {{
-    assert.equal(clip.shapesDrawn, 50, `${{slug}} drew 50 procedural shapes per frame`);
-  }}
-
-  recordResult(
-    slug,
-    benchmark,
-    snapshotsPerFrame,
-    ctx.stats.fillCalls + ctx.stats.strokeCalls + ctx.stats.textCalls,
-    3.5
-  );
 }}
 
 console.table(results.map((result) => ({{
@@ -1073,6 +1070,7 @@ if (PERF_MODE === 'report') {{
     warmup_frames: WARMUP_FRAMES,
     results,
   }}, null, 2));
+}}
 }}
 "#,
         host_integration_url = host_integration_url,
