@@ -978,7 +978,7 @@ test('Area 8 Conformance 1: Socket, SecureSocket, and XMLSocket over real loopba
     await new Promise(r => wsHttpServer.close(r));
     await new Promise(r => wssHttpsServer.close(r));
     await new Promise(r => blackholeServer.close(r));
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1486,7 +1486,7 @@ test('Area 8 Conformance 3: Compiled AS3 flash.sampler.* & flash.profiler.* real
       player.free();
     }
   } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1857,7 +1857,28 @@ test('Area 8 Conformance 4: NetConnection WebSocket/HTTP RPC, GroupSpecifier aut
 // ============================================================================
 // 5. Real Headless Chrome End-to-End Browser Verification
 // ============================================================================
-async function startSharedObjectRelay(t, origins, store) {
+const RM_SYNC_RETRY_OPTS = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 };
+
+function createCleanupStack(t) {
+  const stack = [];
+  t.after(async () => {
+    let firstError = null;
+    while (stack.length > 0) {
+      const fn = stack.pop();
+      try {
+        await fn();
+      } catch (err) {
+        if (!firstError) firstError = err;
+      }
+    }
+    if (firstError) throw firstError;
+  });
+  return fn => {
+    stack.push(fn);
+  };
+}
+
+async function startSharedObjectRelay(defer, origins, store) {
   execFileSync(findCargoBinary(), ['build','--quiet','--locked','-p','neoflash-sync'], {cwd:repoRoot});
   const relay = spawn(path.join(repoRoot,'target/debug/neoflash-sync'), [
     '--bind','127.0.0.1:0', ...origins.flatMap(origin=>['--origin',origin]), ...(store ? ['--store',store] : []),
@@ -1881,7 +1902,7 @@ async function startSharedObjectRelay(t, origins, store) {
       clearTimeout(killTimer);
     }
   };
-  t.after(stop);
+  defer(stop);
   const lines = createInterface({ input: relay.stdout });
   let timeout;
   try {
@@ -1907,10 +1928,10 @@ async function startSharedObjectRelay(t, origins, store) {
   }
 }
 
-async function openRoom(t, wasm, {url}, origin, legacy = false, persistent = false) {
+async function openRoom(defer, wasm, {url}, origin, legacy = false, persistent = false) {
   class Socket extends NodeRfc6455Client { constructor(endpoint) { super(endpoint,origin); } }
   const host = createArea8LiveHost(wasm,{WebSocket:Socket,url:origin+'/movie',soChannelName:crypto.randomUUID()});
-  t.after(()=>host.dispose());
+  defer(()=>host.dispose());
   const nc = legacy ? new host.video.LegacyNetConnection() : new host.video.NetConnection();
   nc.connect(url);
   await until(()=>nc.connected,'live NetConnection');
@@ -1924,16 +1945,17 @@ async function openRoom(t, wasm, {url}, origin, legacy = false, persistent = fal
 }
 
 test('Remote SharedObject relay merges AS2/AS3 fields, snapshots late joins and persists through restart', async t => {
+  const defer = createCleanupStack(t);
   const wasm = await loadWasmRuntime();
   const origins = ['https://author.example','https://audience.example'];
   const store = fs.mkdtempSync(path.join(os.tmpdir(),'neoflash-rso-'));
-  t.after(()=>fs.rmSync(store,{recursive:true,force:true}));
-  const relay = await startSharedObjectRelay(t,origins,store);
-  const a = await openRoom(t,wasm,relay,origins[0],true,true);
+  defer(()=>fs.rmSync(store,RM_SYNC_RETRY_OPTS));
+  const relay = await startSharedObjectRelay(defer,origins,store);
+  const a = await openRoom(defer,wasm,relay,origins[0],true,true);
   assert.equal(a.nc.isConnected,true);
   a.so.data.score = 7;
   await until(()=>a.events.flat().some(e=>e.name==='score' && e.code==='success'),'server confirms AMF0 mutation');
-  const b = await openRoom(t,wasm,relay,origins[1],false,true);
+  const b = await openRoom(defer,wasm,relay,origins[1],false,true);
   assert.deepEqual(b.so.data,{score:7});
   a.so.data.turn = 'writer-a';
   b.so.setProperty('turn','writer-b');
@@ -1978,8 +2000,8 @@ test('Remote SharedObject relay merges AS2/AS3 fields, snapshots late joins and 
   b.so.close();
   b.nc.close();
   await relay.stop();
-  const restarted = await startSharedObjectRelay(t,origins,store);
-  const c = await openRoom(t,wasm,restarted,origins[0],true,true);
+  const restarted = await startSharedObjectRelay(defer,origins,store);
+  const c = await openRoom(defer,wasm,restarted,origins[0],true,true);
   assert.deepEqual({...c.so.data},{score:9,right:{color:'green'},turn:winningTurn});
   c.so.clear();
   await until(()=>Object.keys(c.so.data).length===0,'authoritative clear');
@@ -1989,18 +2011,19 @@ test('Remote SharedObject relay merges AS2/AS3 fields, snapshots late joins and 
 });
 
 test('Client-persistent AS2/AS3 rooms reopen offline, reconcile dirty fields and report conflicts', async t => {
+  const defer = createCleanupStack(t);
   const wasm = await loadWasmRuntime();
   const origin = 'https://persistent.example';
   const store = fs.mkdtempSync(path.join(os.tmpdir(),'neoflash-offline-'));
-  t.after(()=>fs.rmSync(store,{recursive:true,force:true}));
-  const relay = await startSharedObjectRelay(t,[origin],store);
-  const online = await openRoom(t,wasm,relay,origin,false,true);
+  defer(()=>fs.rmSync(store,RM_SYNC_RETRY_OPTS));
+  const relay = await startSharedObjectRelay(defer,[origin],store);
+  const online = await openRoom(defer,wasm,relay,origin,false,true);
   const entries = new Map();
   const disk = {getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)};
   class Socket extends NodeRfc6455Client { constructor(uri){super(uri,origin);} }
   const create = () => {
     const host = createArea8LiveHost(wasm,{WebSocket:Socket,url:origin+'/movie',storage:disk,soChannelName:crypto.randomUUID()});
-    t.after(()=>host.dispose());
+    defer(()=>host.dispose());
     return host;
   };
   const host = create();
@@ -2071,9 +2094,10 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     t.skip('Headless Chrome binary not installed on this machine');
     return;
   }
+  const defer = createCleanupStack(t);
   ensureFreshExportBinary();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-area8-chrome-'));
-  t.after(() => fs.rmSync(workDir, { recursive: true, force: true }));
+  defer(() => fs.rmSync(workDir, RM_SYNC_RETRY_OPTS));
 
   // Serve exported bundle + crossdomain.xml + HLS stream + RFC 6455 WebSocket echo on one HTTP server!
   let pubDir = '';
@@ -2125,7 +2149,7 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     };
   });
 
-  t.after(async () => {
+  defer(async () => {
     wsHub.destroyAll();
     server.closeAllConnections?.();
     await new Promise(resolve => server.close(resolve));
@@ -2135,8 +2159,8 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
 
   const origin = `http://127.0.0.1:${port}`;
   const secondOrigin = `http://localhost:${port}`;
-  const relay = await startSharedObjectRelay(t,[origin,secondOrigin,'https://author.example'],path.join(workDir,'rooms'));
-  const peer = await openRoom(t,await loadWasmRuntime(),relay,'https://author.example',true,true);
+  const relay = await startSharedObjectRelay(defer,[origin,secondOrigin,'https://author.example'],path.join(workDir,'rooms'));
+  const peer = await openRoom(defer,await loadWasmRuntime(),relay,'https://author.example',true,true);
   peer.so.data.score = 41;
   await until(()=>peer.events.flat().some(e=>e.name==='score' && e.code==='success'),'seed remote room for published player');
   const project = {
@@ -2329,6 +2353,7 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     ],
     { stdio: ['ignore', 'ignore', 'pipe'] }
   );
+  const chromeExited = new Promise(resolve => chromeProc.once('exit', resolve));
 
   let cdpWs = null;
   try {
@@ -2442,18 +2467,34 @@ test('Area 8 Conformance 5: Headless Chrome end-to-end verification (Browser Web
     })()`);
     assert.deepEqual(domCheck, { hasPanel: true, dismissed: true });
   } finally {
+    if (chromeProc.exitCode === null && chromeProc.signalCode === null && cdpWs && cdpWs.readyState === 1) {
+      try {
+        cdpWs.send(JSON.stringify({ id: 999999, method: 'Browser.close', params: {} }));
+      } catch (_) {}
+      await Promise.race([
+        chromeExited,
+        new Promise(resolve => {
+          const tmr = setTimeout(resolve, 750);
+          tmr.unref?.();
+        }),
+      ]);
+    }
     try { cdpWs?.close(); } catch (_) {}
     try { chromeProc.stderr?.destroy(); } catch (_) {}
-    if (chromeProc.exitCode === null) {
+    if (chromeProc.exitCode === null && chromeProc.signalCode === null) {
       try { chromeProc.kill('SIGTERM'); } catch (_) {}
-      await new Promise(resolve => {
-        const t = setTimeout(() => {
-          try { chromeProc.kill('SIGKILL'); } catch (_) {}
-          resolve();
-        }, 2000);
-        t.unref?.();
-        chromeProc.once('exit', () => { clearTimeout(t); resolve(); });
-      });
+      const killTimer = setTimeout(() => {
+        try { chromeProc.kill('SIGKILL'); } catch (_) {}
+      }, 2000);
+      killTimer.unref?.();
+      await Promise.race([
+        chromeExited,
+        new Promise(resolve => {
+          const tmr = setTimeout(resolve, 2500);
+          tmr.unref?.();
+        }),
+      ]);
+      clearTimeout(killTimer);
     }
   }
 });

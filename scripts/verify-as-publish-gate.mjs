@@ -415,7 +415,7 @@ async function launchChrome(chromeBin) {
           }),
         ]);
       }
-      fs.rmSync(userDataDir, { recursive: true, force: true });
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     },
   };
 }
@@ -1054,7 +1054,7 @@ async function main() {
 
   if (!opts.skipExport) {
     console.log('[gate] Exporting HTML5 publish matrix via cargo test publish_gate_exports_and_runtime_contracts...');
-    fs.rmSync(gateDir, { recursive: true, force: true });
+    fs.rmSync(gateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     fs.mkdirSync(gateDir, { recursive: true });
     const env = {
       ...process.env,

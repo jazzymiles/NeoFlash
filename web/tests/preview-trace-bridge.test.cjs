@@ -815,8 +815,8 @@ test('T-356: preview HTML relays Frame-1 trace, onEnterFrame, button click, mapp
       serverInfo.server.closeAllConnections?.();
       await new Promise(resolve => serverInfo.server.close(resolve));
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1167,8 +1167,8 @@ test('T-368: Test Movie relays structured AS2 2D/3D arrays & classes, AS3 Vector
       serverInfo.server.closeAllConnections?.();
       await new Promise(resolve => serverInfo.server.close(resolve));
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1355,7 +1355,7 @@ test('T-382: Safari/WebKit, Chrome/V8, Firefox stack & ErrorEvent SourceMap reso
     assert.ok(!safariReflectNonFn.includes('Reflect.apply'), safariReflectNonFn);
     assert.equal(safariReflectNonFn, "TypeError: 'foo' is not a function (attempted to call a non-function value)");
   } finally {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -1685,7 +1685,7 @@ test('T-379 & T-382: Test Movie relays figure.length() line + sourceLine, catche
       serverInfo.server.closeAllConnections?.();
       await new Promise(resolve => serverInfo.server.close(resolve));
     }
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

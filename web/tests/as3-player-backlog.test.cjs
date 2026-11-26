@@ -674,7 +674,7 @@ test('T-460 Family 2: Worker & WorkerDomain execute AVM2 SWF bytecode and NeoFla
         swHost.disposeFamily();
       }
     } finally {
-      fs.rmSync(workDir, { recursive: true, force: true });
+      fs.rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   } finally {
     h.dispose();
@@ -1790,6 +1790,6 @@ test('T-460 Headless Chrome E2E: Self-worker Web Worker + SharedArrayBuffer Byte
     }
     server.closeAllConnections?.();
     await new Promise(r => server.close(r));
-    fs.rmSync(workDir, { recursive: true, force: true });
+    fs.rmSync(workDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

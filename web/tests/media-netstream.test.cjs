@@ -1682,7 +1682,7 @@ trace("AS2_SND_SHARED=" + (as2Tf.ll == 30 && as2Tf.lr == 70 && as2Tf.rl == 40 &&
         await new Promise((r) => srv.close(r));
       }
     }
-    fs.rmSync(workRoot, { recursive: true, force: true });
+    fs.rmSync(workRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

@@ -501,7 +501,7 @@ test('T-016: generated module.mjs exports manifest and loadBundle() in Node with
       delete globalThis.NeoFlashBundle;
     }
   } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -941,7 +941,7 @@ test('T-016: headless Chrome mounts multiple independent HTML5 modules (AS2 + AS
       for (const s of serverHandle.sockets) s.destroy();
       await new Promise((resolve) => serverHandle.server.close(resolve));
     }
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(tmpRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

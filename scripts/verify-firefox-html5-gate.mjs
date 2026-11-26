@@ -1416,7 +1416,7 @@ async function launchFirefoxBidi(firefoxBin) {
       if (proc.exitCode === null) proc.kill('SIGKILL');
     } catch (_) {}
     try {
-      fs.rmSync(profileDir, { recursive: true, force: true });
+      fs.rmSync(profileDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     } catch (_) {}
   };
 
@@ -2454,7 +2454,7 @@ export async function runFirefoxHtml5Gate(options = {}) {
 
   ensureBuildArtifacts(quiet);
 
-  fs.rmSync(outDir, { recursive: true, force: true });
+  fs.rmSync(outDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   const projectsDir = path.join(outDir, 'projects');
   const fileExportsDir = path.join(outDir, 'file-bundles');
   const httpRootDir = path.join(outDir, 'http-root');
