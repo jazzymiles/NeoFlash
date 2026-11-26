@@ -14,6 +14,32 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 const SEQUENCE_MANIFEST_FILENAME: &str = ".neoflash-sequences.json";
+const SEQUENCE_LOCK_FILENAME: &str = ".neoflash-sequences.lock";
+
+fn is_stable_sequence_lock_name(name: &OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|n| n.eq_ignore_ascii_case(SEQUENCE_LOCK_FILENAME))
+}
+
+fn snapshot_preserves_directory(base: &Path, node: &SnapshotNode, target_dir: &Path) -> bool {
+    let Ok(rel) = target_dir.strip_prefix(base) else {
+        return false;
+    };
+    let mut current = node;
+    for component in rel.components() {
+        let std::path::Component::Normal(name) = component else {
+            return false;
+        };
+        let SnapshotNode::Directory { entries, .. } = current else {
+            return false;
+        };
+        let Some((_, child)) = entries.iter().find(|(n, _)| n == name) else {
+            return false;
+        };
+        current = child;
+    }
+    matches!(current, SnapshotNode::Directory { .. })
+}
 
 #[derive(Debug)]
 enum SnapshotNode {
@@ -99,7 +125,7 @@ struct EffectState {
     planned_numbered_files: Vec<PlannedNumberedFiles>,
     numbered_files_journal: Vec<NumberedFilesJournal>,
     leased_sequence_directories: BTreeSet<PathBuf>,
-    sequence_leases: Vec<SequenceCommitLease>,
+    sequence_leases: Vec<(PathBuf, SequenceCommitLease)>,
     journal: Vec<JournalEntry>,
     backup_dir: Option<PathBuf>,
     next_backup_id: u64,
@@ -190,6 +216,9 @@ impl EffectState {
     }
 
     fn capture_path_and_missing_parents(&mut self, path: &Path) -> io::Result<()> {
+        if path.file_name().is_some_and(is_stable_sequence_lock_name) {
+            return Ok(());
+        }
         if self.numbered_path_was_absent(path) {
             if !self
                 .journal
@@ -244,6 +273,9 @@ impl EffectState {
     }
 
     fn capture_exact_path(&mut self, path: &Path) -> io::Result<()> {
+        if path.file_name().is_some_and(is_stable_sequence_lock_name) {
+            return Ok(());
+        }
         if self
             .journal
             .iter()
@@ -272,7 +304,7 @@ impl EffectState {
             .map_err(|error| io::Error::other(error.to_string()))?;
         self.leased_sequence_directories
             .insert(directory.to_path_buf());
-        self.sequence_leases.push(lease);
+        self.sequence_leases.push((directory.to_path_buf(), lease));
         Ok(())
     }
 
@@ -288,6 +320,21 @@ impl EffectState {
 
         let mut failures = Vec::new();
         for entry in self.journal.iter().rev() {
+            self.sequence_leases.retain(|(dir, _)| {
+                let preserved = match &entry.original {
+                    OriginalPath::Absent => !dir.starts_with(&entry.path),
+                    OriginalPath::Present(node) => {
+                        !dir.starts_with(&entry.path)
+                            || snapshot_preserves_directory(&entry.path, node, dir)
+                    }
+                };
+                if preserved {
+                    true
+                } else {
+                    self.leased_sequence_directories.remove(dir);
+                    false
+                }
+            });
             if let Err(error) = restore_entry(entry) {
                 failures.push(format!("'{}': {error}", entry.path.display()));
             }
@@ -891,7 +938,9 @@ fn snapshot_node(path: &Path, state: &mut EffectState) -> io::Result<SnapshotNod
         children.sort_by_key(fs::DirEntry::file_name);
         let mut entries = Vec::with_capacity(children.len());
         for entry in children {
-            if state.numbered_path_was_absent(&entry.path()) {
+            if is_stable_sequence_lock_name(&entry.file_name())
+                || state.numbered_path_was_absent(&entry.path())
+            {
                 continue;
             }
             entries.push((entry.file_name(), snapshot_node(&entry.path(), state)?));
@@ -1041,15 +1090,16 @@ fn restore_node(path: &Path, node: &SnapshotNode) -> io::Result<()> {
                 .collect::<BTreeSet<_>>();
             for current in fs::read_dir(path)? {
                 let current = current?;
-                let is_stable_sequence_lock = current
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.eq_ignore_ascii_case(".neoflash-sequences.lock"));
-                if !is_stable_sequence_lock && !original_names.contains(&current.file_name()) {
+                if !is_stable_sequence_lock_name(&current.file_name())
+                    && !original_names.contains(&current.file_name())
+                {
                     remove_path_if_present(&current.path())?;
                 }
             }
             for (name, child) in entries {
+                if is_stable_sequence_lock_name(name) {
+                    continue;
+                }
                 restore_node(&path.join(name), child)?;
             }
             if fs::metadata(path)?.permissions() != *permissions {
@@ -1214,8 +1264,23 @@ mod tests {
         fs::write(&frame_two, b"intermediate new tail").unwrap();
 
         // A later package-style export owns the ancestor tree. Its snapshot sees the intermediate
-        // sequence, but rollback must still reach the baseline from before the whole command.
+        // sequence, but rollback must still reach the baseline from before the whole command, and
+        // must never snapshot `.neoflash-sequences.lock` (which holds a mandatory byte-range lock
+        // on Windows via `LockFileEx`).
         tx.plan_tree(&root).unwrap();
+        {
+            let state = tx.state.lock().unwrap();
+            let snap_has_lock = state.journal.iter().any(|entry| match &entry.original {
+                OriginalPath::Present(SnapshotNode::Directory { entries, .. }) => entries
+                    .iter()
+                    .any(|(name, _)| is_stable_sequence_lock_name(name)),
+                _ => false,
+            });
+            assert!(
+                !snap_has_lock,
+                "directory snapshot must never capture .neoflash-sequences.lock"
+            );
+        }
         fs::write(&unrelated, b"after tree operation").unwrap();
         fs::write(root.join("package-only.txt"), b"temporary").unwrap();
         tx.rollback().unwrap();
@@ -1244,12 +1309,17 @@ mod tests {
 
         tx.plan_numbered_files(&root, "frames", ["png"], true, true)
             .unwrap();
+        let nested_seq = root.join("nested_seq");
+        tx.plan_numbered_files(&nested_seq, "subframes", ["png"], true, true)
+            .unwrap();
+        fs::write(nested_seq.join("subframes_0001.png"), b"nested frame").unwrap();
         fs::write(&frame_one, b"new frame").unwrap();
         fs::write(&frame_two, b"new tail").unwrap();
         tx.rollback().unwrap();
 
         assert_eq!(fs::read(&frame_one).unwrap(), b"original frame");
         assert!(!frame_two.exists());
+        assert!(!nested_seq.exists());
         assert_eq!(fs::read(&unrelated).unwrap(), b"original note");
         assert!(root.join(".neoflash-sequences.lock").is_file());
         let _ = fs::remove_dir_all(root);

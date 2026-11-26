@@ -1516,12 +1516,19 @@ mod tests {
         let immediate_fresh = worker.spawn_export(project.clone(), fresh_target, opts);
         if immediate_fresh.is_none() {
             worker.cancel();
-            std::thread::sleep(Duration::from_millis(80));
-            let entries: Vec<_> = std::fs::read_dir(&fresh_dir)
-                .unwrap()
-                .filter_map(Result::ok)
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect();
+            std::thread::sleep(Duration::from_millis(20));
+            let cleanup_deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let entries = loop {
+                let found: Vec<_> = std::fs::read_dir(&fresh_dir)
+                    .unwrap()
+                    .filter_map(Result::ok)
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect();
+                if found.is_empty() || std::time::Instant::now() >= cleanup_deadline {
+                    break found;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
             assert!(
                 entries.is_empty(),
                 "cancelled worker export left files in fresh directory: {entries:?}"

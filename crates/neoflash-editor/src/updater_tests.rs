@@ -876,14 +876,21 @@ fn t298_download_verifies_sha256_fails_closed_on_mismatch_and_supports_cancel() 
     assert!(saw_progress, "expected incremental byte progress");
     ctrl.cancel_download();
     assert!(matches!(&ctrl.state, UpdateState::UpdateAvailable { .. }));
-    // Give worker a moment to observe cancellation and drop its temp file guard.
-    thread::sleep(Duration::from_millis(80));
+    // Poll until the worker observes cancellation and drops its `.part` file guard so slow CI
+    // runner scheduling never races a fixed sleep window.
+    let cleanup_deadline = Instant::now() + Duration::from_secs(5);
+    let leftovers = loop {
+        let found: Vec<_> = std::fs::read_dir(&dir.0)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".part"))
+            .collect();
+        if found.is_empty() || Instant::now() >= cleanup_deadline {
+            break found;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
     assert!(!cancel_dest.exists());
-    let leftovers: Vec<_> = std::fs::read_dir(&dir.0)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().contains(".part"))
-        .collect();
     assert!(leftovers.is_empty(), "temp files leaked: {leftovers:?}");
 }
 
