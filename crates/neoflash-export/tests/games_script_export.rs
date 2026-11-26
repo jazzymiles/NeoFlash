@@ -2201,11 +2201,17 @@ for (const [slug, bundlePath] of bundles) {{
     assert.equal(clip.gameOver, false, 'doom-as2 initial gameOver');
     assert.ok(Array.isArray(clip.enemies) && clip.enemies.length >= 6, 'doom-as2 enemies spawned');
   }} else if (slug === 'fallout-as2') {{
+    assert.equal(clip.gridMode, 'hex', 'fallout-as2 uses 6-sided hexagonal grid');
+    assert.equal(clip.hexNeighborCount, 6, 'fallout-as2 hex neighbor count');
+    assert.equal(clip.MAP_W, 36, 'fallout-as2 expanded 36-col hex cavern');
+    assert.equal(clip.MAP_H, 28, 'fallout-as2 expanded 28-row hex cavern');
     assert.equal(clip.hp, 36, 'fallout-as2 initial Vault Dweller HP');
     assert.equal(clip.ap, 9, 'fallout-as2 initial Action Points');
     assert.equal(clip.inCombat, false, 'fallout-as2 starts in exploration mode');
-    assert.equal(clip.catalog.weapons.pistol10mm.name, '10mm Colt 6520', 'fallout-as2 XML catalog parsed');
-    assert.equal(clip.enemies.length, 8, 'fallout-as2 cavern enemies spawned');
+    assert.equal(clip.catalog.weapons.pistol10mm.name, '10mm Colt 6520', 'fallout-as2 XML pistol parsed');
+    assert.equal(clip.catalog.weapons.shotgun.name, 'Sawed-Off 12ga', 'fallout-as2 XML shotgun parsed');
+    assert.equal(clip.enemies.length, 14, 'fallout-as2 14 multi-zone cavern hostiles spawned');
+    assert.equal(clip.barrels.length, 5, 'fallout-as2 volatile rad-drums spawned');
   }}
 
   env.host.display().enterFrame();
