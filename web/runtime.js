@@ -1465,7 +1465,7 @@
     } catch (_) {}
   }
 
-  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, hydrateAsPrelude, scriptFunction, compileProgramUnit, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts, mount, sharedWasmModules };
+  const helpers = { createScenePainter, localPoint, hitShape, oneBasedFrame, as2Frame, createAs2Methods, sourceKey, describeThrown, unwrapScriptThrow, functionBodyLineOffset, resolveSharedAsPrelude, hydrateAsPrelude, scriptFunction, compileProgramUnit, mapScriptStack, sourceLocationText, mappedErrorFrames, formatTraceValue, formatTraceArgs, emitScriptMessage, completeCleanup, ensureBundleFontsLoaded, mountAfterBundleFonts, mount, sharedWasmModules };
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
   if (global && typeof global === 'object') {
     try { Object.defineProperty(global, 'NeoFlashFormatTrace', { value: Object.freeze({ formatTraceValue, formatTraceArgs }), configurable: true }); } catch (_) {}
@@ -3304,7 +3304,7 @@
                 project:typeof project!=='undefined'?project:null,
                 program:typeof bundle!=='undefined'&&bundle?.program?bundle.program:null,
                 scripts:typeof bundle!=='undefined'&&Array.isArray(bundle?.scripts)?bundle.scripts:(typeof scripts!=='undefined'&&Array.isArray(scripts)?scripts:[]),
-                as_prelude:resolveSharedAsPrelude(typeof bundle!=='undefined'?bundle?.as_prelude:undefined)||undefined,
+                as_prelude:(typeof resolveSharedAsPrelude==='function'?resolveSharedAsPrelude(typeof bundle!=='undefined'?bundle?.as_prelude:undefined):(typeof bundle!=='undefined'&&typeof bundle?.as_prelude==='string'?bundle.as_prelude:(typeof global!=='undefined'&&typeof global?.__neoflashAsIntrinsics==='string'?global.__neoflashAsIntrinsics:undefined)))||undefined,
               };
               const jsonBytes=new TextEncoder().encode('NFWK'+JSON.stringify(payloadObj));
               const totalLen=8+5+6+jsonBytes.length+2;
@@ -4455,12 +4455,16 @@
         // and other parser quirks require their own compatibility implementation.
         if (value === '' || /^[+-]?[A-Za-z]+$/.test(value)) return null;
         if (!/^[+-]?(?:(?:0|[1-9][0-9]*)(?:\.[0-9]*)?|\.[0-9]+)$/.test(value)) {
-          throw new TypeError('AS2 _visible string conversion currently supports plain signed decimal strings without exponent, radix, extra leading zeroes or whitespace. Pass a number or Boolean for other forms.');
+          const err = new TypeError('AS2 _visible string conversion currently supports plain signed decimal strings without exponent, radix, extra leading zeroes or whitespace. Pass a number or Boolean for other forms.');
+          Object.defineProperty(err, '__nfUncatchable', { value: true, configurable: true });
+          throw err;
         }
         value = Number(value);
       }
       if (typeof value !== 'number') {
-        throw new TypeError('AS2 _visible object, function, Symbol and BigInt conversions are not supported. Pass a Boolean, number, or supported decimal string explicitly.');
+        const err = new TypeError('AS2 _visible object, function, Symbol and BigInt conversions are not supported. Pass a Boolean, number, or supported decimal string explicitly.');
+        Object.defineProperty(err, '__nfUncatchable', { value: true, configurable: true });
+        throw err;
       }
       return Number.isNaN(value) ? null : value !== 0;
     }

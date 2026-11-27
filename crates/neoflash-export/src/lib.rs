@@ -1968,7 +1968,7 @@ pub(crate) fn assemble_with_config(
     let emit_wasm_fallback = shared_url.is_none()
         && !level.wasm_inline()
         && !config.is_some_and(|c| c.omit_file_fallback);
-    let slim_bundle = config.is_some_and(|c| c.minify && !c.source_maps);
+    let slim_bundle = level.trims_content() && config.is_none_or(|c| c.minify && !c.source_maps);
     let include_html = config.map(|c| c.include_html).unwrap_or(true);
     let (effective_program_code, program_map_shift) =
         apply_js_publish_transforms(&prepared.program.code, config);

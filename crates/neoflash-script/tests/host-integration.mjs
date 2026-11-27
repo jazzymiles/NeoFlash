@@ -24,9 +24,9 @@ export function createRuntimeHost(root, player, compiledScripts, options = {}) {
       value: globalThis.__neoflashAsIntrinsics,
     });
   }
-  const { completeCleanup, createScenePainter, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, scriptFunction, functionBodyLineOffset, mappedErrorFrames, sourceLocationText, formatTraceValue, formatTraceArgs, emitScriptMessage } = runtimeExports;
-  const hydrateAsPrelude = typeof runtimeExports.hydrateAsPrelude === 'function'
-    ? runtimeExports.hydrateAsPrelude
+  const { completeCleanup, createScenePainter, sourceKey, oneBasedFrame, as2Frame, createAs2Methods, describeThrown, unwrapScriptThrow, resolveSharedAsPrelude, hydrateAsPrelude: exportedHydrateAsPrelude, scriptFunction, functionBodyLineOffset, mappedErrorFrames, sourceLocationText, formatTraceValue, formatTraceArgs, emitScriptMessage } = runtimeExports;
+  const hydrateAsPrelude = typeof exportedHydrateAsPrelude === 'function'
+    ? exportedHydrateAsPrelude
     : function hydrateAsPreludeFallback(code, prelude) {
         if (typeof code !== 'string' || typeof prelude !== 'string' || !prelude) return code;
         const marker = '/*__NF_AS_PRELUDE__*/';
