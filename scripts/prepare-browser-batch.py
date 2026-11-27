@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Export a set of original projects into one browser review dashboard; never builds code.
 
-Usage: prepare-browser-batch.py --exporter target/debug/neoflash-export examples/*.nflash
-JSON manifests accept a list of paths, or {"cases":[{"id":"events","path":"examples/events-stage.nflash",
+Usage: prepare-browser-batch.py --exporter target/debug/neoflash-export examples/*/*.nflash
+JSON manifests accept a list of paths, or {"cases":[{"id":"events","path":"examples/ui-and-text/events-stage.nflash",
 "title":"Events", "checks":["Click the blue pad", "Use arrow keys"]}]}. Manifest paths are repository-relative.
 Exit 1 means at least one case failed export; its dashboard and other cases are still prepared.
 """

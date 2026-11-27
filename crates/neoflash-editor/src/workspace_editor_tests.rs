@@ -325,8 +325,10 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     std::fs::create_dir_all(&graphics_dir).unwrap();
     let vector_file = graphics_dir.join("solid.svg");
     let png_file = graphics_dir.join("picture.png");
-    let pixels =
-        Project::from_json(include_str!("../../../examples/bitmap-pixels.nflash")).unwrap();
+    let pixels = Project::from_json(include_str!(
+        "../../../examples/graphics-and-filters/bitmap-pixels.nflash"
+    ))
+    .unwrap();
     std::fs::write(&png_file, pixels.resources[0].decoded_bytes().unwrap()).unwrap();
     let rich_file = graphics_dir.join("gradient.svg");
     std::fs::write(&vector_file,r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill="#e64b41" d="M10 10H90V90H10Z"/></svg>"##).unwrap();
@@ -442,8 +444,10 @@ fn workspace_changes_preserve_document_selection_history_and_widget_draft() {
     );
 
     // Reuse the resource workflow for native bitmap paint/cache and undo ownership.
-    let image_project =
-        Project::from_json(include_str!("../../../examples/bitmap-pixels.nflash")).unwrap();
+    let image_project = Project::from_json(include_str!(
+        "../../../examples/graphics-and-filters/bitmap-pixels.nflash"
+    ))
+    .unwrap();
     let mut image_editor = Editor::from_project(&ctx, image_project);
     let first = crate::tests::stage_input_frame(&mut image_editor, &ctx, 0., vec![]);
     let uploaded: Vec<_> = first
@@ -983,7 +987,7 @@ fn new_and_open_keep_workspace_preferences_and_save_only_preferences() {
     editor.perform(Pending::New, &ctx);
     assert_eq!(editor.workspace, preferences);
     let opened = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/script-recovery.nflash");
+        .join("../../examples/as3/script-recovery.nflash");
     editor.open_path(opened.clone(), &ctx);
     preferences.general.push_recent(&opened);
     preferences

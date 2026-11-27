@@ -30,4 +30,4 @@ The data model is bounded to 10,000 rows, 256 views, 64 named sorts, 16 fields p
 
 ## Example
 
-[as2-data-batch.nflash](../examples/as2-data-batch.nflash) combines collections, sorting, data-provider updates, local transactions and binding in one visible workflow. Representative browser execution was observed; full historical component behavior remains outside the supported profile.
+[as2-data-batch.nflash](../examples/as2/batches/as2-data-batch.nflash) combines collections, sorting, data-provider updates, local transactions and binding in one visible workflow. Representative browser execution was observed; full historical component behavior remains outside the supported profile.

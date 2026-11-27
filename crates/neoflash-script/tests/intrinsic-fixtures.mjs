@@ -180,7 +180,7 @@ var fractional:Function=(12.5).toString;var nativeFormatting=[fractional(16),(12
 
 // The ordinary authoring document used for browser acceptance. Read its actual
 // scripts rather than maintaining a similar test-only copy of the source.
-const published = JSON.parse(readFileSync(new URL('../../../examples/as-intrinsics.nflash', import.meta.url), 'utf8'));
+const published = JSON.parse(readFileSync(new URL('../../../examples/as3/as-intrinsics.nflash', import.meta.url), 'utf8'));
 export const publishedIntrinsicTraces = {
   as2: [
     ['AS2 octal', 'number', 511],

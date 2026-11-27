@@ -8,13 +8,29 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const GAME_FILES: &[&str] = &[
-    "examples/snake-as2.nflash",
-    "examples/snake-as3.nflash",
-    "examples/arkanoid-as2.nflash",
-    "examples/arkanoid-as3.nflash",
-    "examples/tetris-as2.nflash",
-    "examples/tetris-as3.nflash",
+    "examples/games/snake-as2.nflash",
+    "examples/games/snake-as3.nflash",
+    "examples/games/arkanoid-as2.nflash",
+    "examples/games/arkanoid-as3.nflash",
+    "examples/games/tetris-as2.nflash",
+    "examples/games/tetris-as3.nflash",
 ];
+
+fn resolve_example_path(base: &Path, rel_path: &str) -> PathBuf {
+    let candidate = base.join(rel_path);
+    if candidate.is_file() {
+        return candidate;
+    }
+    // Preserve compatibility when scripts/check-performance-ab.py runs this harness
+    // against baseline worktrees (e.g. v0.1.0-beta.1 / d1d529a1) that predate T-498.
+    if let Some(file_name) = Path::new(rel_path).file_name() {
+        let legacy = base.join("examples").join(file_name);
+        if legacy.is_file() {
+            return legacy;
+        }
+    }
+    candidate
+}
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -79,7 +95,7 @@ fn all_six_games_validate_check_compile_export_and_execute() {
     let mut exported_bundles = Vec::new();
 
     for rel_path in GAME_FILES {
-        let full_path = root.join(rel_path);
+        let full_path = resolve_example_path(&root, rel_path);
         let raw = fs::read_to_string(&full_path)
             .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
         let project: Project = serde_json::from_str(&raw)
@@ -396,7 +412,7 @@ fn exported_games_and_stress_suites_meet_html5_frame_time_budgets() {
 
     let mut exported_games = Vec::new();
     for rel_path in GAME_FILES {
-        let full_path = fixture_root.join(rel_path);
+        let full_path = resolve_example_path(&fixture_root, rel_path);
         let raw = fs::read_to_string(&full_path)
             .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
         let project: Project = serde_json::from_str(&raw)
@@ -2137,11 +2153,14 @@ fn doom_and_fallout_as2_examples_validate_compile_export_and_boot_in_runtime() {
     let runtime_dir = temp_dir.join("runtime");
     write_mock_wasm_runtime(&runtime_dir);
 
-    let retro_games = ["examples/doom-as2.nflash", "examples/fallout-as2.nflash"];
+    let retro_games = [
+        "examples/games/doom-as2.nflash",
+        "examples/games/fallout-as2.nflash",
+    ];
     let mut exported_bundles = Vec::new();
 
     for rel_path in retro_games {
-        let full_path = root.join(rel_path);
+        let full_path = resolve_example_path(&root, rel_path);
         let raw = fs::read_to_string(&full_path)
             .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"));
         let project: Project = serde_json::from_str(&raw)

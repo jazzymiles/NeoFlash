@@ -19,6 +19,6 @@ The channel orientation, independent volume and matrix-to-pan semantics were rev
 
 ## Example and verification boundary
 
-[as2-sound-batch.nflash](../examples/as2-sound-batch.nflash) uses the authored two-tone MP3 with metadata and visible controls for silent playback, matrix changes and reattachment.
+[as2-sound-batch.nflash](../examples/as2/batches/as2-sound-batch.nflash) uses the authored two-tone MP3 with metadata and visible controls for silent playback, matrix changes and reattachment.
 
 Recorded browser observations covered ID3 callbacks, ready state, silent playback, natural completion and fresh callbacks after reattachment. **Audible balance and quality remain unverified.**

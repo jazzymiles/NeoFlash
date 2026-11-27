@@ -3830,12 +3830,12 @@ fn t496c_headless_frames_convert_image_counts_export_profile_protection_and_sequ
     assert_eq!(img_val["path_count"], 2);
     assert_eq!(img_val["element_count"], 2);
 
-    // Also verify [FO-14] on examples/fallout-as2.nflash if present in repo
+    // Also verify [FO-14] on examples/games/fallout-as2.nflash if present in repo
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
         .unwrap();
-    let fallout_example = repo_root.join("examples/fallout-as2.nflash");
+    let fallout_example = repo_root.join("examples/games/fallout-as2.nflash");
     if fallout_example.is_file() {
         let fallout_png = tmp.path.join("fallout_stage.png");
         let (fc, fval, ferr) = run_json(&[
@@ -3864,7 +3864,7 @@ fn t496c_headless_frames_convert_image_counts_export_profile_protection_and_sequ
     }
 
     // 3. [FO-11]: --headless capabilities lists "convert", and --headless convert converts
-    // examples/tetris-as2.nflash -> as3 and js while refusing identical/aliased --out!
+    // examples/games/tetris-as2.nflash -> as3 and js while refusing identical/aliased --out!
     let (cap_code, cap_val, _) = run_json(&["--headless", "capabilities"]);
     assert_eq!(cap_code, 0);
     assert!(
@@ -3882,7 +3882,7 @@ fn t496c_headless_frames_convert_image_counts_export_profile_protection_and_sequ
             .contains_key("convert_script")
     );
 
-    let tetris_as2 = repo_root.join("examples/tetris-as2.nflash");
+    let tetris_as2 = repo_root.join("examples/games/tetris-as2.nflash");
     let tetris_copy = tmp.path.join("tetris-source.nflash");
     fs::copy(&tetris_as2, &tetris_copy).unwrap();
     let tetris_orig_bytes = fs::read(&tetris_copy).unwrap();

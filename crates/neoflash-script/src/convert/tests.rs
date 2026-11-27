@@ -156,7 +156,7 @@ console.log("NODE_TETRIS_OK:" + clip.scoreText.text + ":" + clip.statusText.text
 
 #[test]
 fn convert_tetris_as2_to_as3_and_js_compiles_and_executes() {
-    let tetris_as2 = load_example("tetris-as2.nflash");
+    let tetris_as2 = load_example("games/tetris-as2.nflash");
 
     // 1. AS2 -> AS3
     let (as3_project, as3_report) =
@@ -191,7 +191,7 @@ fn convert_tetris_as2_to_as3_and_js_compiles_and_executes() {
 
 #[test]
 fn convert_tetris_as3_to_as2_and_js_compiles_and_executes() {
-    let tetris_as3 = load_example("tetris-as3.nflash");
+    let tetris_as3 = load_example("games/tetris-as3.nflash");
 
     // 1. AS3 -> AS2
     let (as2_project, as2_report) =
@@ -226,7 +226,7 @@ fn convert_tetris_as3_to_as2_and_js_compiles_and_executes() {
 
 #[test]
 fn convert_arkanoid_as2_key_is_down_shim_to_as3_and_js() {
-    let arkanoid = load_example("arkanoid-as2.nflash");
+    let arkanoid = load_example("games/arkanoid-as2.nflash");
 
     let (as3_proj, as3_rep) = convert_project_scripts(&arkanoid, ConversionTarget::ActionScript3)
         .expect("arkanoid -> AS3");

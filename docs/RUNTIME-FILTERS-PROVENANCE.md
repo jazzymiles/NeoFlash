@@ -81,7 +81,7 @@ existing copy/atomic-assignment behavior; BitmapData.applyFilter and
 One grouped Rust scenario, `filters::tests::filter_extension_family`, covers
 convolution channels/edges, preserved input, bevel light/shadow/knockout, both
 gradient kernels, padding and invalid-state rejection. The ordinary project
-`examples/runtime-filter-extensions.nflash` uses all four classes in authored
+`examples/as3/runtime/runtime-filter-extensions.nflash` uses all four classes in authored
 AS3 and AS2, reads/writes all 43 properties in one family loop, clones each class,
 checks array and display copy isolation, exercises real BitmapData pixels and
 cycles visible styles through alternate/clear/restore. Its browser execution and

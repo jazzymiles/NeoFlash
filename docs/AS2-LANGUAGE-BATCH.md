@@ -14,4 +14,4 @@ The Rust compiler still emits authored executable JavaScript for the current HTM
 
 Contracts were read in Adobe's mirrored [AS2 statements reference](https://open-flash.github.io/mirrors/as2-language-reference/statements.html) and [global functions reference](https://open-flash.github.io/mirrors/as2-language-reference/global_functions.html). This batch adapts the project's own compiler infrastructure; it copies no external source. Existing shared-module attribution remains in THIRD_PARTY_NOTICES.txt.
 
-[as2-language-batch.nflash](../examples/as2-language-batch.nflash) combines accessors, independent instances, dynamic properties, nested with scopes and array/object function forms. Representative browser observations covered initial execution and its visible Run control; they do not establish complete AVM1 behavior.
+[as2-language-batch.nflash](../examples/as2/batches/as2-language-batch.nflash) combines accessors, independent instances, dynamic properties, nested with scopes and array/object function forms. Representative browser observations covered initial execution and its visible Run control; they do not establish complete AVM1 behavior.

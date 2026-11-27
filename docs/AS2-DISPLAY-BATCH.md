@@ -23,4 +23,4 @@ The implementation is adapted to NeoFlash's lifetime-stamped ObjectRefs, native 
 
 ## Example
 
-[as2-display-batch.nflash](../examples/as2-display-batch.nflash) combines depth mutation, replacement, duplication, target paths, bounds, independent drawings and TextField operations. It also demonstrates [uniform text, snapshots and legacy input](AS2-TEXT-DISPLAY-TWO-HOUR.md).
+[as2-display-batch.nflash](../examples/as2/batches/as2-display-batch.nflash) combines depth mutation, replacement, duplication, target paths, bounds, independent drawings and TextField operations. It also demonstrates [uniform text, snapshots and legacy input](AS2-TEXT-DISPLAY-TWO-HOUR.md).

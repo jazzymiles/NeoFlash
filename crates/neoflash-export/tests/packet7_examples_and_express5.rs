@@ -37,8 +37,8 @@ const AS3_REL_PATHS: [&str; 9] = [
     "examples/as3/08-interactive-arcade-miniapp.nflash",
 ];
 
-const EXPRESS5_REL_PATH: &str = "examples/midnight-express-5.nflash";
-const EXPRESS6_REL_PATH: &str = "examples/midnight-express-6.nflash";
+const EXPRESS5_REL_PATH: &str = "examples/animation/midnight-express-5.nflash";
+const EXPRESS6_REL_PATH: &str = "examples/animation/midnight-express-6.nflash";
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

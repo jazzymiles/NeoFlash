@@ -42,7 +42,7 @@ export async function verifySoundPlayback(root,cargo) {
     contexts.push(context);return context;
   }
   try {
-    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/sound-playback.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/video-and-audio/sound-playback.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);
@@ -163,7 +163,7 @@ export async function verifySoundPlayback(root,cargo) {
   console.log('Sound playback: original MP3 transport, AS3/AS2 owners, silent gesture gating, channel transforms, completion/stop/close and Restart passed with an injected audio scheduler; timeline Event/Stream sounds and stopAllSounds ran through the shipped host.');
 }
 
-// Timeline (frame) sounds of examples/timeline-sound.nflash through the exported bundle and
+// Timeline (frame) sounds of examples/video-and-audio/timeline-sound.nflash through the exported bundle and
 // the shipped host: Rust SoundCommands reach Web Audio sources on the (silent) shared bus.
 async function verifyTimelineSound(root,cargo) {
   const directory=mkdtempSync(resolve(root,'target/timeline-sound-'));
@@ -176,7 +176,7 @@ async function verifyTimelineSound(root,cargo) {
     createChannelSplitter:()=>node('splitter'),createChannelMerger:()=>node('merger'),
     createBufferSource(){const source={...node('source'),start(when,offset){this.started=[when,offset];},stop(when){this.stopped=when??now;}};sources.push(source);return source;}};
   try {
-    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/timeline-sound.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/video-and-audio/timeline-sound.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);

@@ -537,8 +537,10 @@ mod tests {
 
     #[test]
     fn moon_tide_keeps_its_embedded_thai_face_and_notice_in_the_creative() {
-        let project =
-            Project::from_json(include_str!("../../../examples/moon-tide-300x250.nflash")).unwrap();
+        let project = Project::from_json(include_str!(
+            "../../../examples/web-and-ads/moon-tide-300x250.nflash"
+        ))
+        .unwrap();
         let (bytes, report) = build_archive(
             &project,
             DEFAULT_CRITEO_MAX_ZIP_BYTES,

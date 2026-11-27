@@ -18,4 +18,4 @@ Reference downloads stay under ignored `target/verification/as2-two-hour-2/text-
 
 ## Example and verification boundary
 
-[as2-text-variable-batch.nflash](../examples/as2-text-variable-batch.nflash) includes an editable field, a mirror and a button that changes the MovieClip variable. Representative browser observations covered actual typing, mirror synchronization, the button update and Restart removing the old input control. Complete historical TextField binding conformance remains unverified.
+[as2-text-variable-batch.nflash](../examples/as2/batches/as2-text-variable-batch.nflash) includes an editable field, a mirror and a button that changes the MovieClip variable. Representative browser observations covered actual typing, mirror synchronization, the button update and Restart removing the old input control. Complete historical TextField binding conformance remains unverified.

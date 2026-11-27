@@ -1150,7 +1150,7 @@ fn range_edits_keep_motion_tweens_valid() {
 
 #[test]
 fn timeline_example_document_is_valid() {
-    let json = include_str!("../../../examples/timeline-tweens.nflash");
+    let json = include_str!("../../../examples/animation/timeline-tweens.nflash");
     let project = Project::from_json(json).unwrap();
     assert_eq!(project.scene_ids().len(), 2);
     // Authoring evaluation draws the title, the morph, the star, the guided dot and the guide.

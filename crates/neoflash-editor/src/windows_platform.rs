@@ -1031,8 +1031,8 @@ mod tests {
         );
         // Relative paths must never be corrupted with `\\?\`.
         assert_eq!(
-            to_windows_extended_length_path("examples/timeline-tweens.nflash"),
-            "examples/timeline-tweens.nflash"
+            to_windows_extended_length_path("examples/animation/timeline-tweens.nflash"),
+            "examples/animation/timeline-tweens.nflash"
         );
 
         // 3. T-280: Atomic create -> save -> overwrite -> reopen -> recovery -> HTML5 publish

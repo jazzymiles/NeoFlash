@@ -74,7 +74,7 @@ Mutation validation preserves the old value and sets an error status.
 One grouped Rust test, `as_number_format::tests::number_formatter_family`, covers
 repeat grouping, negative round-trip parsing, UTF-16 offsets, Arabic digits,
 int/uint conversion, strict rejection and atomic settings. The ordinary project
-`examples/runtime-number-format.nflash` shows English, French and Arabic outputs
+`examples/as3/runtime/runtime-number-format.nflash` shows English, French and Arabic outputs
 and checks all supported member families in one authored program. Its Run again
 and Restart browser results belong to the coordinator's delivery record; source
 creation alone does not constitute browser verification.

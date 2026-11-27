@@ -273,12 +273,18 @@ function loadFixtureAssets() {
     path.join(ROOT_DIR, 'crates', 'neoflash-ui', 'assets', 'fonts', 'Inter-Regular.ttf'),
   );
   const soundExample = JSON.parse(
-    fs.readFileSync(path.join(ROOT_DIR, 'examples', 'timeline-sound.nflash'), 'utf8'),
+    fs.readFileSync(
+      path.join(ROOT_DIR, 'examples', 'video-and-audio', 'timeline-sound.nflash'),
+      'utf8',
+    ),
   );
   const beepWavBase64 = soundExample.resources.find(r => r.id === 'beep').data_base64;
 
   const videoExample = JSON.parse(
-    fs.readFileSync(path.join(ROOT_DIR, 'examples', 'video-playback.nflash'), 'utf8'),
+    fs.readFileSync(
+      path.join(ROOT_DIR, 'examples', 'video-and-audio', 'video-playback.nflash'),
+      'utf8',
+    ),
   );
   const motionMp4Base64 = videoExample.resources.find(r => r.id === 'original-motion').data_base64;
 

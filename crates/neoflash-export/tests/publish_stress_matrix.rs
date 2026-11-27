@@ -114,10 +114,10 @@ fn pass1_size_levels_fonts_and_audio_policies_across_real_projects() {
     let mut projects: Vec<(String, Project)> = vec![("demo".into(), Project::demo())];
 
     for rel in [
-        "examples/timeline-tweens.nflash",
-        "examples/timeline-sound.nflash",
-        "examples/nested-orbit.nflash",
-        "examples/midnight-express-4.nflash",
+        "examples/animation/timeline-tweens.nflash",
+        "examples/video-and-audio/timeline-sound.nflash",
+        "examples/animation/nested-orbit.nflash",
+        "examples/animation/midnight-express-4.nflash",
     ] {
         let p = workspace_root.join(rel);
         if p.is_file() {

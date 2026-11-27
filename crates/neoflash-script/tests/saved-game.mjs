@@ -11,7 +11,7 @@ export async function verifySavedGame(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/saved-game-')),output=resolve(directory,'export'),saved=new Map();let denied=false,player,host;
   const storage={getItem:key=>saved.get(key)??null,setItem(key,value){if(denied)throw new Error('Quota denied by the test storage');saved.set(key,String(value));},removeItem(key){if(denied)throw new Error('Storage denied by the test storage');saved.delete(key);}};
   try{
-    const project=JSON.parse(readFileSync(resolve(root,'examples/saved-game.nflash'),'utf8'));
+    const project=JSON.parse(readFileSync(resolve(root,'examples/games/saved-game.nflash'),'utf8'));
     project.sources[0].source=project.sources[0].source.replace('  public function score()',
       '  public function exportProgress():Object{return save.exportSolBytes();}\n  public function importProgress(value:Object):void{save.importSolBytes(value);report();}\n  public function fromProgress(value:Object):Boolean{return SharedObject.fromSolBytes(value)===save;}\n  public function score()');
     const legacyScript=project.symbols.flatMap(symbol=>symbol.timeline?.scripts||[]).find(entry=>entry.script.language==='action_script2').script;

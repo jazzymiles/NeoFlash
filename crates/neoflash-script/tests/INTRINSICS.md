@@ -1,6 +1,6 @@
 # Bounded intrinsic profiles
 
-`intrinsic-fixtures.mjs` records catalog IDs, pinned sources and typed expected values. Every reference expectation is **documented_only**. These tests execute generated JavaScript and the original `examples/as-intrinsics.nflash` scripts; they do not measure an original Flash runtime. Browser acceptance must publish that document through the ordinary exporter.
+`intrinsic-fixtures.mjs` records catalog IDs, pinned sources and typed expected values. Every reference expectation is **documented_only**. These tests execute generated JavaScript and the original `examples/as3/as-intrinsics.nflash` scripts; they do not measure an original Flash runtime. Browser acceptance must publish that document through the ordinary exporter.
 
 The AS2 `parseInt` adapter follows the parser behavior of [Ruffle AVM1 at fe6cfc5](https://github.com/ruffle-rs/ruffle/blob/fe6cfc545405b888ebb478ce1c211d63147ca49b/core/src/avm1/globals.rs#L150), including complete octal digit strings, signed hexadecimal handling, explicit radix validation and conversion order. The [Adobe AS2 reference](https://open-flash.github.io/mirrors/as2-language-reference/global_functions.html#parseInt()) corroborates the `0777 → 511` example. Ruffle is a named implementation reference, not an original-player oracle. Missing input returns undefined; explicitly supplied radix zero is invalid. Objects still use the frontend's existing JavaScript-backed primitive conversion, so this is not a full SWF-version-specific AVM1 conversion model.
 

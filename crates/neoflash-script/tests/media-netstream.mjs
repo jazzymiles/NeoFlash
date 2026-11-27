@@ -626,10 +626,10 @@ export async function verifyMediaNetStream(root, cargo) {
   const exportDir = resolve(workDir, 'published');
   const harness = createMediaHarness();
 
-  // Extract the real H.264 MP4 fixture from examples/video-playback.nflash and add an MP4 chapter cue point!
-  const exampleProj = JSON.parse(readFileSync(resolve(root, 'examples/video-playback.nflash'), 'utf8'));
+  // Extract the real H.264 MP4 fixture from examples/video-and-audio/video-playback.nflash and add an MP4 chapter cue point!
+  const exampleProj = JSON.parse(readFileSync(resolve(root, 'examples/video-and-audio/video-playback.nflash'), 'utf8'));
   const rawMotionRes = exampleProj.resources.find((r) => r.path === 'media/motion.mp4');
-  assert.ok(rawMotionRes, 'examples/video-playback.nflash must contain media/motion.mp4');
+  assert.ok(rawMotionRes, 'examples/video-and-audio/video-playback.nflash must contain media/motion.mp4');
   const rawMp4 = Buffer.from(rawMotionRes.data_base64, 'base64');
   const cuedMp4 = injectMp4ChapterCue(rawMp4, 0.25, 'chapter_intro');
   const cuedWav = buildCueMarkedStereoWav({ sampleRate: 8000, durationSec: 0.5, cueTimeSec: 0.15, cueLabel: 'beat_1' });

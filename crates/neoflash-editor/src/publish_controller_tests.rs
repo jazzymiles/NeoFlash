@@ -435,8 +435,10 @@ fn t434_direct_publish_switching_from_stored_criteo_restores_workspace_delivery(
             },
         });
     let mut editor = Editor::from_project(&ctx, ordinary);
-    let example =
-        Project::from_json(include_str!("../../../examples/moon-tide-300x250.nflash")).unwrap();
+    let example = Project::from_json(include_str!(
+        "../../../examples/web-and-ads/moon-tide-300x250.nflash"
+    ))
+    .unwrap();
     let archive_name = crate::output_paths::criteo_archive_name(&example);
     let ad_dir = fixture.0.join("banner");
     editor.workspace.publish.output_folder = Some(ad_dir.to_string_lossy().into_owned());

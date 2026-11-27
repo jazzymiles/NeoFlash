@@ -25,9 +25,9 @@ const AS2_PROJECTS: &[&str] = &[
     "examples/as2/06-dynamic-input-html-text.nflash",
     "examples/as2/07-sound-video-loadpublish.nflash",
     "examples/as2/08-interactive-arcade-miniapp.nflash",
-    "examples/snake-as2.nflash",
-    "examples/arkanoid-as2.nflash",
-    "examples/tetris-as2.nflash",
+    "examples/games/snake-as2.nflash",
+    "examples/games/arkanoid-as2.nflash",
+    "examples/games/tetris-as2.nflash",
 ];
 
 const AS3_PROJECTS: &[&str] = &[
@@ -40,9 +40,9 @@ const AS3_PROJECTS: &[&str] = &[
     "examples/as3/06-dynamic-input-html-text.nflash",
     "examples/as3/07-sound-video-loadpublish.nflash",
     "examples/as3/08-interactive-arcade-miniapp.nflash",
-    "examples/snake-as3.nflash",
-    "examples/arkanoid-as3.nflash",
-    "examples/tetris-as3.nflash",
+    "examples/games/snake-as3.nflash",
+    "examples/games/arkanoid-as3.nflash",
+    "examples/games/tetris-as3.nflash",
 ];
 
 fn workspace_root() -> PathBuf {

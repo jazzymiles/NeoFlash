@@ -41,7 +41,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -49,7 +49,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -57,7 +57,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -65,7 +65,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -73,7 +73,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -81,7 +81,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -89,7 +89,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -97,7 +97,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -105,7 +105,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -113,7 +113,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -121,7 +121,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -129,7 +129,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -137,7 +137,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -145,7 +145,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -153,7 +153,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -161,7 +161,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -169,7 +169,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -177,7 +177,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -185,7 +185,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -193,7 +193,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -201,7 +201,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -209,7 +209,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -217,7 +217,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -225,7 +225,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -233,7 +233,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -241,7 +241,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -249,7 +249,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -257,7 +257,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -265,7 +265,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -273,7 +273,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -281,7 +281,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -289,7 +289,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -297,7 +297,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -305,7 +305,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -313,7 +313,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -321,7 +321,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -329,7 +329,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -337,7 +337,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -345,7 +345,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -353,7 +353,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -361,7 +361,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -369,7 +369,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -377,7 +377,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -385,7 +385,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -393,7 +393,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -401,7 +401,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -409,7 +409,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -417,7 +417,7 @@
       "kind": "method",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -425,7 +425,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -433,7 +433,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -441,7 +441,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     },
     {
@@ -449,7 +449,7 @@
       "kind": "property",
       "baseline": "missing",
       "implementation": "partial",
-      "scenario": "examples/reuse-as3.nflash",
+      "scenario": "examples/as3/reuse-as3.nflash",
       "browser_verified": true
     }
   ],

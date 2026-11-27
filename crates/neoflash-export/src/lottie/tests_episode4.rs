@@ -1547,7 +1547,7 @@ this.onEnterFrame = function() {
 
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     if std::env::var_os("NEOFLASH_WRITE_EPISODE4_EXAMPLE").is_some() {
-        let example_path = repo_root.join("examples/midnight-express-4.nflash");
+        let example_path = repo_root.join("examples/animation/midnight-express-4.nflash");
         fs::write(&example_path, p.to_json().unwrap()).unwrap();
     }
 

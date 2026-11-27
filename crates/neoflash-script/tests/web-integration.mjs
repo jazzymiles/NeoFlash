@@ -27,7 +27,7 @@ async function until(predicate,label){const deadline=Date.now()+5000;while(!pred
 export async function verifyWebIntegration(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/web-integration-'));let player,host,server;const requests=[],navigations=[],pending=[],errors=[];const dom=authoredDOM();
   try{
-    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/web-integration.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});assert.equal(exported.status,0,exported.error?.message||exported.stderr);
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/web-and-ads/web-integration.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     server=createServer((request,response)=>{let body='';request.setEncoding('utf8');request.on('data',part=>body+=part);request.on('end',()=>{requests.push({method:request.method,url:request.url,body});response.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});response.end('<!doctype html><title>Receipt</title><p>Accepted</p>');});});
     await new Promise((done,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',done);});const baseURL=`http://127.0.0.1:${server.address().port}/index.html`;
     function navigate(prepared){navigations.push(prepared);const body=prepared.method==='POST'?new URLSearchParams(prepared.fields).toString():undefined;const task=fetch(prepared.url,{method:prepared.method,body,headers:body===undefined?undefined:{'Content-Type':'application/x-www-form-urlencoded'}}).then(response=>response.text());pending.push(task);}

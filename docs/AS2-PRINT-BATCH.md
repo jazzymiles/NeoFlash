@@ -12,4 +12,4 @@ Explicit vector printing and arbitrary timeline frame selection diagnose rather 
 
 The contract reference is Adobe's mirrored [PrintJob documentation](https://open-flash.github.io/mirrors/as2-language-reference/PrintJob.html). New page policy is project Rust code; existing BitmapData capture and platform modules retain their recorded provenance. No print library, foreign-language engine or new runtime dependency is embedded.
 
-The **Print scene** control in [as2-capture-batch.nflash](../examples/as2-capture-batch.nflash) submits two captured raster pages. Recorded browser observations establish page capture/submission and invocation of send. **Visual preview, the system dialog, cancellation and physical printing remain unverified.**
+The **Print scene** control in [as2-capture-batch.nflash](../examples/as2/batches/as2-capture-batch.nflash) submits two captured raster pages. Recorded browser observations establish page capture/submission and invocation of send. **Visual preview, the system dialog, cancellation and physical printing remain unverified.**

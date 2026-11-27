@@ -541,12 +541,12 @@ test('flash.external.ExternalInterface and flash.globalization full suite + exam
   assert.equal(dtf.getDateTimePattern(), 'yyyy-MM-dd');
   assert.equal(dtf.formatUTC(new Date(Date.UTC(2025, 0, 15, 12, 0, 0))), '2025-01-15');
 
-  // Verify examples/runtime-date.nflash and examples/runtime-number-format.nflash exist and are valid JSON
+  // Verify examples/as3/runtime/runtime-date.nflash and examples/as3/runtime/runtime-number-format.nflash exist and are valid JSON
   const dateExample = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, '../../examples/runtime-date.nflash'), 'utf8')
+    fs.readFileSync(path.resolve(__dirname, '../../examples/as3/runtime/runtime-date.nflash'), 'utf8')
   );
   const numExample = JSON.parse(
-    fs.readFileSync(path.resolve(__dirname, '../../examples/runtime-number-format.nflash'), 'utf8')
+    fs.readFileSync(path.resolve(__dirname, '../../examples/as3/runtime/runtime-number-format.nflash'), 'utf8')
   );
   assert.equal(dateExample.symbols.length > 0, true);
   assert.equal(numExample.symbols.length > 0, true);

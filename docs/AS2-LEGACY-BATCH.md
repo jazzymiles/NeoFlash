@@ -12,6 +12,6 @@ Individual opcode contracts and the integer parser were adapted after reading Ru
 
 ## Example and limits
 
-[as2-legacy-batch.nflash](../examples/as2-legacy-batch.nflash) combines legacy operators, eager Boolean evaluation, precedence, UTF-16, integer parsing, target paths, duplicate/remove globals and bounded drag control. Representative browser execution and Restart were observed.
+[as2-legacy-batch.nflash](../examples/as2/batches/as2-legacy-batch.nflash) combines legacy operators, eager Boolean evaluation, precedence, UTF-16, integer parsing, target paths, duplicate/remove globals and bounded drag control. Representative browser execution and Restart were observed.
 
 SWF4 numeric Boolean values, arbitrary AVM coercion, every parser combination and original-player equivalence remain outside this partial profile.

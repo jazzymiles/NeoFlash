@@ -14,14 +14,14 @@ async function until(predicate,label){
 }
 export async function verifyLoaderGallery(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/loader-gallery-'));
-  const fixture=JSON.parse(readFileSync(resolve(root,'examples/loader-gallery.nflash'),'utf8'));
+  const fixture=JSON.parse(readFileSync(resolve(root,'examples/graphics-and-filters/loader-gallery.nflash'),'utf8'));
   const encoded=Buffer.from(fixture.resources[1].data_base64,'base64'),held=[],requests=[];
   const server=createServer((request,response)=>{requests.push(request.url);if(request.url==='/held.png'){held.push(response);return;}if(request.url==='/mini.swf'){const swf=Buffer.from([0x46,0x57,0x53,10,30,0,0,0,0x70,0x00,0x0c,0x80,0x00,0x00,0x96,0x00,0x00,24,2,0,0x44,0x11,0x08,0x00,0x00,0x00,0x40,0x00,0x40,0x00,0x00,0x00]);response.writeHead(200,{'Content-Type':'application/x-shockwave-flash'});response.end(swf);return;}response.writeHead(200,{'Content-Type':'image/png'});response.end(encoded);});
   let player,host;
   try{
     await new Promise((done,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',done);});
     const endpoint=`http://127.0.0.1:${server.address().port}`;
-    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/loader-gallery.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/graphics-and-filters/loader-gallery.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);

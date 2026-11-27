@@ -10,7 +10,7 @@ The shared Rust core supplies bounded standard-library services to AS2 and AS3:
 
 Browser adapters marshal values and connect clocks, references and events. Authored ActionScript still executes through the existing JavaScript-emitting frontend. Full AVM conversion/prototype/error fidelity and every historical version remain unfinished.
 
-Examples: [strings](../examples/runtime-strings.nflash), [geometry](../examples/runtime-geometry.nflash), [easing](../examples/runtime-easing.nflash), [binary](../examples/runtime-binary.nflash) and [Math](../examples/runtime-math.nflash). Each is an ordinary project for the standard HTML5 exporter.
+Examples: [strings](../examples/as3/runtime/runtime-strings.nflash), [geometry](../examples/as3/runtime/runtime-geometry.nflash), [easing](../examples/as3/runtime/runtime-easing.nflash), [binary](../examples/as3/runtime/runtime-binary.nflash) and [Math](../examples/as3/runtime/runtime-math.nflash). Each is an ordinary project for the standard HTML5 exporter.
 
 Individual adapted algorithms retain their pinned sources and licenses in the linked provenance records. [THIRD_PARTY_NOTICES.txt](../THIRD_PARTY_NOTICES.txt) accompanies exports.
 

@@ -16,4 +16,4 @@ Rust owns the bounded field-to-ID table, selected-language lookup and replacemen
 
 ## Evidence
 
-[as2-runtime-language-batch.nflash](../examples/as2-runtime-language-batch.nflash) combines nested includes, supplied arguments, XLIFF resources, automatic/manual replacement, two visible fields and a French reload control. Representative browser observations covered resource includes, actual XLIFF loading and visible replacement.
+[as2-runtime-language-batch.nflash](../examples/as2/batches/as2-runtime-language-batch.nflash) combines nested includes, supplied arguments, XLIFF resources, automatic/manual replacement, two visible fields and a French reload control. Representative browser observations covered resource includes, actual XLIFF loading and visible replacement.

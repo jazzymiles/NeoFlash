@@ -43,6 +43,6 @@ These ideas are adapted to NeoFlash's own bounded text model, Rust XML parser, l
 
 ## Example and verification boundary
 
-[as2-display-batch.nflash](../examples/as2-display-batch.nflash) demonstrates uniform text, snapshots, scrolling and legacy interaction. Representative browser checks covered visible text and pointer, keyboard and Tab focus behavior. Full original-player text/input conformance has not been established. AS2 native-operation diagnostics are not generally recoverable through authored catch; malformed or unsupported rich text can terminate the script.
+[as2-display-batch.nflash](../examples/as2/batches/as2-display-batch.nflash) demonstrates uniform text, snapshots, scrolling and legacy interaction. Representative browser checks covered visible text and pointer, keyboard and Tab focus behavior. Full original-player text/input conformance has not been established. AS2 native-operation diagnostics are not generally recoverable through authored catch; malformed or unsupported rich text can terminate the script.
 
 Coverage decisions and declaration counts are maintained in the [complete ActionScript audit](progress/ACTIONSCRIPT.md). These profiles describe partial support, not full Flash compatibility.

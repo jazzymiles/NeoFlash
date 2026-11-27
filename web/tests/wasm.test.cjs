@@ -136,7 +136,7 @@ test('WASM schedules authored timeline video for the published host boundary',as
 });
 test('WASM timeline sounds reach the Web Audio host as play/stream/stop commands',async()=>{
   await ready;
-  const data=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/timeline-sound.nflash'),'utf8'));
+  const data=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/video-and-audio/timeline-sound.nflash'),'utf8'));
   const player=new wasm.WebPlayer(JSON.stringify(data));
   assert.deepEqual(JSON.parse(player.timeline_sound_resources_json()),['beep','melody']);
   const ops=()=>JSON.parse(player.sound_commands_json()).map(c=>c.op==='stream_start'?`${c.op} ${c.resource} ${c.offset.toFixed(3)}`:c.resource?`${c.op} ${c.resource}`:c.op);
@@ -184,7 +184,7 @@ test('WASM timeline sounds reach the Web Audio host as play/stream/stop commands
 
 test('WASM evaluates Bounce/Elastic/per-property motion eases and emits custom stereo sound envelopes',async()=>{
   await ready;
-  const base=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/timeline-sound.nflash'),'utf8'));
+  const base=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/video-and-audio/timeline-sound.nflash'),'utf8'));
   const customEnvelope=[[0,0.2,0.9],[0.5,1,0.3],[1,0,0.75]];
   const doc={
     format_version:7,
@@ -599,7 +599,7 @@ test('WASM and runtime host fire AS2 on(release) on first click and onClipEvent(
 
 test('WASM multi-scene Graphic playback matches authoring phase and NeoFlashAudio schedules trimmed start durations',async()=>{
   await ready;
-  const base=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/timeline-sound.nflash'),'utf8'));
+  const base=JSON.parse(fs.readFileSync(path.resolve(__dirname,'../../examples/video-and-audio/timeline-sound.nflash'),'utf8'));
   const transform=(x,y=0)=>({
     x,y,scale_x:1,scale_y:1,rotation:0,skew:0,alpha:1,
     color_transform:{multipliers:[1,1,1,1],offsets:[0,0,0,0]},

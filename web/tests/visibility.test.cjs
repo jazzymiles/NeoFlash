@@ -99,7 +99,7 @@ test('published AS2/AS3 fixture filters drawing, click targets and semantics whi
   let player;
   try {
     const exported = spawnSync(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--',
-      'examples/visibility.nflash', '--output', directory], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+      'examples/ui-and-text/visibility.nflash', '--output', directory], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     assert.equal(exported.status, 0, exported.error?.message || exported.stderr);
     const context = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
     vm.runInContext(fs.readFileSync(resolve(directory, 'bundle.js'), 'utf8'), context);
@@ -199,7 +199,7 @@ async function withPublishedCoercionProject(name, verify) {
   let player;
   try {
     const exported = spawnSync(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--',
-      `examples/${name}.nflash`, '--output', directory], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+      `examples/ui-and-text/${name}.nflash`, '--output', directory], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     assert.equal(exported.status, 0, exported.error?.message || exported.stderr);
     const context = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
     vm.runInContext(fs.readFileSync(resolve(directory, 'bundle.js'), 'utf8'), context);

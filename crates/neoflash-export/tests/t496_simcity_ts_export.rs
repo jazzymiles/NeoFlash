@@ -1,4 +1,4 @@
-//! Fast integration regression test for `examples/simcity-ts.nflash` (`T-496E`):
+//! Fast integration regression test for `examples/games/simcity-ts.nflash` (`T-496E`):
 //! - Validates document invariants (`project.validate()`) and strict TypeScript module + handler checking (`0` errors, `0` warnings).
 //! - Exports HTML5 in both `HtmlRenderMode::Dom` and `HtmlRenderMode::Canvas`, verifying `FO-10` pure-TS cleanliness (`as-intrinsics.js` is NOT emitted and `bundle.js` omits ActionScript intrinsics).
 //! - Boots `neoflash_core::Player` across multiple frames cleanly.
@@ -46,10 +46,10 @@ fn write_mock_wasm_runtime(runtime_dir: &Path) {
 #[test]
 fn simcity_ts_validates_typechecks_exports_dom_and_canvas_without_as_intrinsics_and_boots_player() {
     let root = workspace_root();
-    let project_path = root.join("examples/simcity-ts.nflash");
-    let raw = fs::read_to_string(&project_path).expect("read examples/simcity-ts.nflash");
+    let project_path = root.join("examples/games/simcity-ts.nflash");
+    let raw = fs::read_to_string(&project_path).expect("read examples/games/simcity-ts.nflash");
     let project: Project =
-        serde_json::from_str(&raw).expect("parse examples/simcity-ts.nflash as Project");
+        serde_json::from_str(&raw).expect("parse examples/games/simcity-ts.nflash as Project");
 
     assert_eq!(project.width, 800);
     assert_eq!(project.height, 520);
@@ -63,13 +63,13 @@ fn simcity_ts_validates_typechecks_exports_dom_and_canvas_without_as_intrinsics_
     // 1. Validate document model invariants.
     project
         .validate()
-        .expect("examples/simcity-ts.nflash must pass project.validate()");
+        .expect("examples/games/simcity-ts.nflash must pass project.validate()");
 
     // 2. Compile and strictly check TypeScript modules + frame controller (0 errors, 0 warnings).
     let program = neoflash_script::check_project(&project).unwrap_or_else(|diags| {
         let formatted: Vec<String> = diags.iter().map(ToString::to_string).collect();
         panic!(
-            "examples/simcity-ts.nflash failed neoflash_script::check_project:\n{}",
+            "examples/games/simcity-ts.nflash failed neoflash_script::check_project:\n{}",
             formatted.join("\n")
         );
     });
@@ -82,7 +82,7 @@ fn simcity_ts_validates_typechecks_exports_dom_and_canvas_without_as_intrinsics_
     let warnings = neoflash_script::check_project_warnings(&project);
     assert!(
         warnings.is_empty(),
-        "examples/simcity-ts.nflash must compile with 0 warnings, got: {warnings:?}"
+        "examples/games/simcity-ts.nflash must compile with 0 warnings, got: {warnings:?}"
     );
 
     // 3. Multi-frame native Player boot check.

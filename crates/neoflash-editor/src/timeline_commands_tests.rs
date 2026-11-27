@@ -4562,8 +4562,10 @@ fn end_to_end_live_authoring_workflow_from_scratch_to_reopen() {
 #[test]
 fn nested_orbit_direct_key_drag_moves_and_copies_frame_script_atomically() {
     let ctx = egui::Context::default();
-    let nested_orbit =
-        Project::from_json(include_str!("../../../examples/nested-orbit.nflash")).unwrap();
+    let nested_orbit = Project::from_json(include_str!(
+        "../../../examples/animation/nested-orbit.nflash"
+    ))
+    .unwrap();
     let mut editor = Editor::from_project(&ctx, nested_orbit);
     let root = editor.project.root.clone();
 

@@ -21,7 +21,7 @@ Menu copies retain callback references and independently copy item values and su
 
 ## Example and verification boundary
 
-[as2-stage-display-batch.nflash](../examples/as2-stage-display-batch.nflash) combines decoded Video and loaded PNGs, sizing controls, fullscreen, focus/menu dragging, geometry and authored context menus. Representative browser observations covered fullscreen entry/Escape exit, sizing, menu-press transfer, context-menu actions and loaded-image smoothing. Browser permissions and the documented display limits still apply.
+[as2-stage-display-batch.nflash](../examples/as2/batches/as2-stage-display-batch.nflash) combines decoded Video and loaded PNGs, sizing controls, fullscreen, focus/menu dragging, geometry and authored context menus. Representative browser observations covered fullscreen entry/Escape exit, sizing, menu-press transfer, context-menu actions and loaded-image smoothing. Browser permissions and the documented display limits still apply.
 
 ## Provenance
 

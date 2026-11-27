@@ -14,7 +14,7 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
   const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
   let player;
   try {
-    const familyProject=JSON.parse(fs.readFileSync(resolve(root,'examples/display-family.nflash'),'utf8'));
+    const familyProject=JSON.parse(fs.readFileSync(resolve(root,'examples/graphics-and-filters/display-family.nflash'),'utf8'));
     const familyLayer=familyProject.symbols.find(symbol=>symbol.id===familyProject.root).timeline.layers.find(layer=>layer.keyframes[0].elements.some(element=>element.name==='widget'));
     const retiredFrame=JSON.parse(JSON.stringify(familyLayer.keyframes[0]));retiredFrame.frame=100;
     retiredFrame.elements=retiredFrame.elements.filter(element=>element.name!=='widget');familyLayer.keyframes.push(retiredFrame);
@@ -382,7 +382,7 @@ test('published DisplayObject/MovieClip family works through compiled AS2, actua
     // independent authored namespaces, project constructors and AS2 attachMovie.
     player.free();player=null;
     const linkedDirectory=resolve(directory,'linked');
-    const linkedProject=JSON.parse(fs.readFileSync(resolve(root,'examples/linked-movieclips.nflash'),'utf8'));
+    const linkedProject=JSON.parse(fs.readFileSync(resolve(root,'examples/as3/linked-movieclips.nflash'),'utf8'));
     const legacyStart=linkedProject.symbols.find(symbol=>symbol.id===linkedProject.root).timeline.scripts.find(entry=>entry.script.language==='action_script2').script;
     legacyStart.source=legacyStart.source.replace('tag:"init-before-constructor"','tag:"init-before-constructor", currentLabel:"init label"')+`
 trace("AS2 metadata initial", classic.currentLabel, classic.scenes === undefined, this.currentLabel === undefined);

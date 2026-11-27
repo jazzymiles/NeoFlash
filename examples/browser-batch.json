@@ -2,7 +2,7 @@
   "cases": [
     {
       "id": "web-integration",
-      "path": "examples/web-integration.nflash",
+      "path": "examples/web-and-ads/web-integration.nflash",
       "title": "HTML page callbacks, navigation and request dispatch",
       "checks": [
         "Call AS3 and AS2 callbacks from the HTML controls, then call the page from both project controls; confirm synchronous returned values and visible counters.",
@@ -12,7 +12,7 @@
     },
     {
       "id": "drag-drop",
-      "path": "examples/drag-drop.nflash",
+      "path": "examples/ui-and-text/drag-drop.nflash",
       "title": "Dragging, hit tests and pointer targeting",
       "checks": [
         "Drag the AS3 and AS2 cards inside their transformed containers; verify parent-space limits and live collision/drop readouts.",
@@ -22,7 +22,7 @@
     },
     {
       "id": "video-playback",
-      "path": "examples/video-playback.nflash",
+      "path": "examples/video-and-audio/video-playback.nflash",
       "title": "Video, local streams and publication lifecycle",
       "checks": [
         "Play both embedded views, confirm metadata and changing frames; Pause retains the visible frame and Seek moves to the requested position.",
@@ -32,7 +32,7 @@
     },
     {
       "id": "class-packages",
-      "path": "examples/class-packages.nflash",
+      "path": "examples/as3/class-packages.nflash",
       "title": "Class access, package collaboration and dynamic component state",
       "checks": [
         "Advance updates distinct base/derived private values through protected virtual dispatch, package-internal revision reporting and AS2 inherited private state.",
@@ -42,7 +42,7 @@
     },
     {
       "id": "image-pipeline",
-      "path": "examples/image-pipeline.nflash",
+      "path": "examples/graphics-and-filters/image-pipeline.nflash",
       "title": "Bitmap processing, source capture and PNG round-trip",
       "checks": [
         "Process the original image through independent color/filter edits, nested source capture and bulk ARGB transfer.",
@@ -52,7 +52,7 @@
     },
     {
       "id": "function-workflow",
-      "path": "examples/function-workflow.nflash",
+      "path": "examples/as3/function-workflow.nflash",
       "title": "Functions, callbacks and command dispatch",
       "checks": [
         "Invoke the AS3 command workflow with optional arguments, rest forwarding and stable bound callbacks.",
@@ -62,7 +62,7 @@
     },
     {
       "id": "filter-gallery",
-      "path": "examples/filter-gallery.nflash",
+      "path": "examples/graphics-and-filters/filter-gallery.nflash",
       "title": "Subtree filters, copied values and legacy rendering",
       "checks": [
         "Four whole-card filters affect overlapping vectors, captions and shared bitmap views; the shadow card contains a nested color filter.",
@@ -72,7 +72,7 @@
     },
     {
       "id": "text-form",
-      "path": "examples/text-form.nflash",
+      "path": "examples/ui-and-text/text-form.nflash",
       "title": "Text input, focus, selection and saved forms",
       "checks": [
         "Edit both fields through native browser controls; digits are filtered from the name and the # insertion is cancelled from the message.",
@@ -82,7 +82,7 @@
     },
     {
       "id": "saved-game",
-      "path": "examples/saved-game.nflash",
+      "path": "examples/games/saved-game.nflash",
       "title": "SharedObject persistence and AMF object graphs",
       "checks": [
         "ByteArray AMF0/AMF3 round trips retain references/cycles, Date, named arrays and trailing records.",
@@ -92,7 +92,7 @@
     },
     {
       "id": "loader-gallery",
-      "path": "examples/loader-gallery.nflash",
+      "path": "examples/graphics-and-filters/loader-gallery.nflash",
       "title": "Loaded images, LoaderInfo and legacy content replacement",
       "checks": [
         "Embedded Loader, ByteArray loadBytes and AS2 MovieClipLoader display the original two images; legacy placeholder disappears.",
@@ -102,7 +102,7 @@
     },
     {
       "id": "clipped-scene",
-      "path": "examples/clipped-scene.nflash",
+      "path": "examples/animation/clipped-scene.nflash",
       "title": "Vector masks, scroll rectangles and linked identity",
       "checks": [
         "Only visible portions of the linked cards and masked panel accept clicks; the compound mask hole and exterior remain inactive.",
@@ -112,7 +112,7 @@
     },
     {
       "id": "xml-catalog",
-      "path": "examples/xml-catalog.nflash",
+      "path": "examples/web-and-ads/xml-catalog.nflash",
       "title": "E4X selectors, editable XMLList targets and literals",
       "checks": [
         "Both loaders show three catalog items and stock13, with namespace metadata and decoded entity text.",
@@ -122,7 +122,7 @@
     },
     {
       "id": "typed-collections",
-      "path": "examples/typed-collections.nflash",
+      "path": "examples/as3/typed-collections.nflash",
       "title": "Typed Vector models, Dictionary identity and enumeration",
       "checks": [
         "Initial inventory shows INK4 / PAPER6 / FILM3, three typed models and three object keys. Vector JSON includes public stockLabel getters. AS2 for-in totals13.",
@@ -132,7 +132,7 @@
     },
     {
       "id": "display-transforms",
-      "path": "examples/display-transforms.nflash",
+      "path": "examples/graphics-and-filters/display-transforms.nflash",
       "title": "2D Transform, color and shared bitmap views",
       "checks": [
         "Initial nested card visibly retains skew; two differently tinted views share one unchanged BitmapData. The AS2 strip uses Matrix, ColorTransform and a bound Transform.",
@@ -142,7 +142,7 @@
     },
     {
       "id": "data-processing",
-      "path": "examples/data-processing.nflash",
+      "path": "examples/web-and-ads/data-processing.nflash",
       "title": "JSON, RegExp and AS2/AS3 Date data processing",
       "checks": [
         "Embedded JSON becomes three normalized task codes/titles and UTC dates; the AS2 clock begins 2026-10-27.",
@@ -152,7 +152,7 @@
     },
     {
       "id": "sound-playback",
-      "path": "examples/sound-playback.nflash",
+      "path": "examples/video-and-audio/sound-playback.nflash",
       "title": "AS3 and AS2 complete-file Sound playback",
       "checks": [
         "Both sound owners load the original MP3 and display matching byte totals/duration. The example keeps volume zero.",
@@ -162,7 +162,7 @@
     },
     {
       "id": "text-layout",
-      "path": "examples/text-layout.nflash",
+      "path": "examples/ui-and-text/text-layout.nflash",
       "title": "Text boxes, TextFormat and independent AS3/AS2 cards",
       "checks": [
         "The authored instruction TextBox and all three runtime text cards render; the second AS3 card is bold and italic while the AS2 card is teal.",
@@ -172,7 +172,7 @@
     },
     {
       "id": "bitmap-pixels",
-      "path": "examples/bitmap-pixels.nflash",
+      "path": "examples/graphics-and-filters/bitmap-pixels.nflash",
       "title": "Authored PNG, BitmapData and shared bitmap views",
       "checks": [
         "The original PNG, two shared views, independent scroll/copy clone and AS2 attachBitmap image render with their labels.",
@@ -182,7 +182,7 @@
     },
     {
       "id": "resource-loading",
-      "path": "examples/resource-loading.nflash",
+      "path": "examples/web-and-ads/resource-loading.nflash",
       "title": "Portable resources, URLLoader and AS2 LoadVars",
       "checks": [
         "Embedded text, form variables and the 50-byte binary packet update the stage; AS2 LoadVars completes with the decoded values.",
@@ -192,7 +192,7 @@
     },
     {
       "id": "linked-movieclips",
-      "path": "examples/linked-movieclips.nflash",
+      "path": "examples/as3/linked-movieclips.nflash",
       "title": "Linked MovieClips, independent timelines and attachMovie",
       "checks": [
         "Two AS3 instances share one exported symbol but keep separate child identities, frames and click counts; the AS2 instance sees its initObject during construction.",
@@ -202,7 +202,7 @@
     },
     {
       "id": "interfaces-accessors",
-      "path": "examples/interfaces-accessors.nflash",
+      "path": "examples/as3/interfaces-accessors.nflash",
       "title": "AS3 interface contracts and property accessors",
       "checks": [
         "The component model implements inherited project interfaces and typed accessors, including a subclass getter using super.",
@@ -212,7 +212,7 @@
     },
     {
       "id": "dynamic-display",
-      "path": "examples/dynamic-display.nflash",
+      "path": "examples/graphics-and-filters/dynamic-display.nflash",
       "title": "Gradient fills, strokes and shared vector Graphics",
       "checks": [
         "The AS3 card has a linear fill, gradient outline and radial badge; the warm underlay has unequal round corners, the right panel has a cubic wave, and AS2 draws a purple gradient triangle.",
@@ -222,7 +222,7 @@
     },
     {
       "id": "binary-data",
-      "path": "examples/binary-data.nflash",
+      "path": "examples/as3/binary-data.nflash",
       "title": "ByteArray binary packet and text output",
       "checks": [
         "The ordinary project writes, reads and copies its binary/UTF packet and displays the expected decoded values.",
@@ -231,7 +231,7 @@
     },
     {
       "id": "geometry-timer",
-      "path": "examples/geometry-timer.nflash",
+      "path": "examples/as3/geometry-timer.nflash",
       "title": "Geometry, Timer and live display updates",
       "checks": [
         "Four Timer ticks transform a Point with Matrix, move the marker and update the text using typed display bounds.",
@@ -240,7 +240,7 @@
     },
     {
       "id": "as2-project-input",
-      "path": "examples/as2-project-input.nflash",
+      "path": "examples/as2/as2-project-input.nflash",
       "title": "AS2 classes, inherited MovieClips and shared input",
       "checks": [
         "Click both cards: inherited onPress changes each count independently and updates the shared total.",
@@ -250,7 +250,7 @@
     },
     {
       "id": "collections-text",
-      "path": "examples/collections-text.nflash",
+      "path": "examples/ui-and-text/collections-text.nflash",
       "title": "AS2 / AS3 data processing and text output",
       "checks": [
         "Run both leaderboards: both show Zoe:45, Ada:30 and Bob:20 in the expected order; AS3 also shows Total:95.",
@@ -260,7 +260,7 @@
     },
     {
       "id": "project-program",
-      "path": "examples/project-program.nflash",
+      "path": "examples/as3/project-program.nflash",
       "title": "Project classes, linked instances and shared state",
       "checks": [
         "Both linked cards initialize before the document class uses them.",
@@ -270,7 +270,7 @@
     },
     {
       "id": "display-family",
-      "path": "examples/display-family.nflash",
+      "path": "examples/graphics-and-filters/display-family.nflash",
       "title": "MovieClip / DisplayObject family",
       "checks": [
         "Inspect, resize, rotate and rename report coherent bounds, coordinates and child identity.",
@@ -279,7 +279,7 @@
     },
     {
       "id": "events-stage",
-      "path": "examples/events-stage.nflash",
+      "path": "examples/ui-and-text/events-stage.nflash",
       "title": "Stage, events and input",
       "checks": [
         "Click the blue pad and inspect capture/target/bubble output.",
@@ -289,7 +289,7 @@
     },
     {
       "id": "visibility",
-      "path": "examples/visibility.nflash",
+      "path": "examples/ui-and-text/visibility.nflash",
       "title": "Visibility and nested lifecycle",
       "checks": [
         "Hide and restore the clip: pixels and semantic targets agree while its nested clock continues."
@@ -297,7 +297,7 @@
     },
     {
       "id": "as-intrinsics",
-      "path": "examples/as-intrinsics.nflash",
+      "path": "examples/as3/as-intrinsics.nflash",
       "title": "AS2 / AS3 value profiles",
       "checks": [
         "The ordinary export produces its expected intrinsic traces and repeats them after Restart."
@@ -305,7 +305,7 @@
     },
     {
       "id": "keyboard-controls",
-      "path": "examples/keyboard-controls.nflash",
+      "path": "examples/ui-and-text/keyboard-controls.nflash",
       "title": "Keyboard and semantic HTML5 controls",
       "checks": [
         "Tab navigation and Enter/Space activation remain usable at a narrow viewport."
@@ -313,7 +313,7 @@
     },
     {
       "id": "vector-paths",
-      "path": "examples/vector-paths.nflash",
+      "path": "examples/animation/vector-paths.nflash",
       "title": "Vector geometry",
       "checks": [
         "Curves, compound fills and transformed geometry render without runtime errors."
@@ -321,7 +321,7 @@
     },
     {
       "id": "nested-orbit",
-      "path": "examples/nested-orbit.nflash",
+      "path": "examples/animation/nested-orbit.nflash",
       "title": "Nested animation",
       "checks": [
         "Independent nested animation and playback controls still work."

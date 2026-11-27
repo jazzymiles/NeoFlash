@@ -101,7 +101,7 @@
                     },
                     "kind": {
                       "type": "text_box",
-                      "text": "No file selected. Use the tiny authored fixture examples/as2-files-fixture.txt for verification.",
+                      "text": "No file selected. Use the tiny authored fixture examples/as2/batches/as2-files-fixture.txt for verification.",
                       "width": 1020,
                       "height": 110,
                       "word_wrap": true,

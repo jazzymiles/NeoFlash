@@ -583,13 +583,13 @@ that object's unkeyed values to the displayed pose, `prune_motion_guides` drops 
   `web/tests/as2-timeline.test.cjs` covers scenes and `web/tests/wasm.test.cjs` covers multi-object Motion plus sound
   commands; project workflow family `sound-playback` (`crates/neoflash-script/tests/sound-playback.mjs`, run by
   `project-execute.mjs`).
-- Examples: `examples/timeline-tweens.nflash` (shape, motion and guided tweens, two scenes) and
-  `examples/timeline-sound.nflash` (Stream, Event and `SoundMixer.stopAll()` with generated WAV tones).
+- Examples: `examples/animation/timeline-tweens.nflash` (shape, motion and guided tweens, two scenes) and
+  `examples/video-and-audio/timeline-sound.nflash` (Stream, Event and `SoundMixer.stopAll()` with generated WAV tones).
 - Screenshot each slug:
 
   ```bash
   for theme in dark light mid-neutral-gray dark-graphite; do
-    NEOFLASH_OPEN=examples/timeline-tweens.nflash \
+    NEOFLASH_OPEN=examples/animation/timeline-tweens.nflash \
     NEOFLASH_SCREENSHOT_FRAME=2,16 \
     NEOFLASH_WINDOW=1920x1080 \
     NEOFLASH_SCREENSHOT="target/ui-shots/t-${theme}.png" \

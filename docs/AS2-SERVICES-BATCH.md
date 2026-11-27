@@ -34,11 +34,11 @@ The reused parser is quick-xml 0.41.0 (MIT), already pinned in Cargo.lock with c
 
 Representative browser observations covered actual same-origin SOAP POSTs, HTTP 500 Faults, SINGLE/LAST concurrency and raw-XML response mode. This does not establish full SOAP or historical component conformance.
 
-[as2-services-batch.nflash](../examples/as2-services-batch.nflash) uses [as2-services.wsdl](../examples/as2-services.wsdl) and the optional same-origin endpoints below. Its Run service batch button performs the HTTP workflow; a static file server alone cannot supply that backend.
+[as2-services-batch.nflash](../examples/as2/batches/as2-services-batch.nflash) uses [as2-services.wsdl](../examples/as2/batches/as2-services.wsdl) and the optional same-origin endpoints below. Its Run service batch button performs the HTTP workflow; a static file server alone cannot supply that backend.
 
 ## Optional local fixture contract
 
-- GET `/__as2_services.wsdl`: serve `examples/as2-services.wsdl` as XML.
+- GET `/__as2_services.wsdl`: serve `examples/as2/batches/as2-services.wsdl` as XML.
 - POST `/__as2_soap`: accept SOAP 1.1 text/xml with SOAPAction `urn:neoflash:Echo` or `urn:neoflash:Fail`. For Echo, read qualified message and count parameters and return EchoResponse in namespace `urn:neoflash:as2-services`, with result equal to message, accepted=true and the same count. For Fail, return HTTP 500 with a SOAP Fault whose faultcode ends in Server, faultstring is `Deliberate service fault` and detail includes the supplied reason.
 - GET `/__as2_connector`: return `<catalog>\n  <item>Rust &amp; XML</item>\n</catalog>`.
 - POST `/__as2_connector`: validate `<request><message>connector</message></request>` and return `<receipt accepted="true">connector</receipt>`.

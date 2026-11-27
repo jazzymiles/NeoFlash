@@ -422,7 +422,7 @@ test('plain interactive clicks never draw focus-rect chrome while keyboard focus
   vm.runInContext(fs.readFileSync(resolve(root, 'target/web-runtime/neoflash_web.js'), 'utf8'), context);
   context.wasmBytes = fs.readFileSync(resolve(root, 'target/web-runtime/neoflash_web_bg.wasm'));
   const wasm = await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)', context);
-  const project = JSON.parse(fs.readFileSync(resolve(root, 'examples/display-family.nflash'), 'utf8'));
+  const project = JSON.parse(fs.readFileSync(resolve(root, 'examples/graphics-and-filters/display-family.nflash'), 'utf8'));
   project.sources = [];
   delete project.document_class;
   for (const sym of project.symbols) {

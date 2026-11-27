@@ -13,7 +13,7 @@ export async function verifyFunctionWorkflow(root,cargo) {
   try {
     // Extend this existing publication in memory: the actual HTML5 export must
     // execute the new language family inside a linked class and an AS2 frame.
-    const project=JSON.parse(readFileSync(resolve(root,'examples/function-workflow.nflash'),'utf8'));
+    const project=JSON.parse(readFileSync(resolve(root,'examples/as3/function-workflow.nflash'),'utf8'));
     const main=project.sources.find(source=>source.path==='app/Main.as');
     main.source=main.source.replace('public var primary:Counter;','public var coreReport:Object; public var primary:Counter;')
       .replace('borrowed={value:100};','borrowed={value:100}; coreReport=coreBatch();')

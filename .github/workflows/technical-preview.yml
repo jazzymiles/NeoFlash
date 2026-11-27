@@ -296,7 +296,7 @@ jobs:
           dpkg -V neoflash
           (cd /usr/lib/neoflash && sha256sum --quiet -c PACKAGE-SHA256SUMS.txt)
           desktop-file-validate /usr/share/applications/neoflash.desktop
-          test "$(XDG_CURRENT_DESKTOP=GNOME xdg-mime query filetype examples/timeline-tweens.nflash)" = application/x-neoflash-project
+          test "$(XDG_CURRENT_DESKTOP=GNOME xdg-mime query filetype examples/animation/timeline-tweens.nflash)" = application/x-neoflash-project
       - name: Audit packaged Linux dependency closure
         run: |
           root="$PWD/target/technical-preview/linux-unpacked"
@@ -334,7 +334,7 @@ jobs:
             NEOFLASH_WINDOW=1280x800 \
             NEOFLASH_SCREENSHOT_THEME=dark \
             NEOFLASH_SCREENSHOT="$PWD/target/technical-preview/linux-x11-vulkan.png" \
-            xvfb-run --auto-servernum neoflash examples/timeline-tweens.nflash
+            xvfb-run --auto-servernum neoflash examples/animation/timeline-tweens.nflash
           test -s target/technical-preview/linux-x11-vulkan.png
       - name: Capture Wayland GLES headless startup
         run: |
@@ -358,12 +358,12 @@ jobs:
           test -s target/technical-preview/linux-wayland-gles.png
       - name: Remove the Debian package and keep the user project
         run: |
-          cp examples/timeline-tweens.nflash "$HOME/installer-smoke.nflash"
+          cp examples/animation/timeline-tweens.nflash "$HOME/installer-smoke.nflash"
           sudo apt-get remove --yes neoflash
           test ! -e /usr/bin/neoflash
           test ! -e /usr/lib/neoflash
           test ! -e /usr/share/applications/neoflash.desktop
-          cmp examples/timeline-tweens.nflash "$HOME/installer-smoke.nflash"
+          cmp examples/animation/timeline-tweens.nflash "$HOME/installer-smoke.nflash"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: NeoFlash-0.1.0-beta.1-linux-x64-preview-ubuntu24.04

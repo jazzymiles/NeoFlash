@@ -41,4 +41,4 @@ is the LF constant.
   adapted to owned bounded IDs/maps rather than Ruffle GC/Activation/Value types.
   Compiler lowering and integration reuse NeoFlash's own frontend/class registry.
 
-[as2-object-batch.nflash](../examples/as2-object-batch.nflash) combines object behavior, local/path lookup, project classes and a legacy event button. It demonstrates useful partial behavior, not complete AVM1 or original-player equivalence.
+[as2-object-batch.nflash](../examples/as2/batches/as2-object-batch.nflash) combines object behavior, local/path lookup, project classes and a legacy event button. It demonstrates useful partial behavior, not complete AVM1 or original-player equivalence.

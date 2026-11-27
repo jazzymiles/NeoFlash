@@ -37,7 +37,7 @@ export async function verifyImagePipeline(root,cargo){
   const directory=mkdtempSync(resolve(root,'target/image-pipeline-'));let player,host;
   const canvas=recordingCanvas();
   try{
-    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/image-pipeline.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/graphics-and-filters/image-pipeline.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);const bundle=vm.runInContext('NeoFlashBundle',sandbox);
     vm.runInContext(readFileSync(resolve(directory,'neoflash_web.js'),'utf8'),sandbox);sandbox.wasmBytes=Buffer.from(bundle.wasm,'base64');const wasm=await vm.runInContext('NeoFlashWasm({module_or_path:wasmBytes}).then(()=>NeoFlashWasm)',sandbox);player=new wasm.WebPlayer(JSON.stringify(bundle.project));

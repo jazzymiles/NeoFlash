@@ -498,7 +498,7 @@ async function launchCdpSession(chromeBin, userDataDir) {
 
 test('T-327 Node WASM & host unit suite: NetStream reset modes (0/1/2/3), Seek.InvalidTime, SoundTransform 2x2 matrix & StereoPanner, and Sound.isURLInaccessible', async () => {
   const wasm = await loadWasmRuntime();
-  const exampleProj = JSON.parse(fs.readFileSync(path.join(repoRoot, 'examples/video-playback.nflash'), 'utf8'));
+  const exampleProj = JSON.parse(fs.readFileSync(path.join(repoRoot, 'examples/video-and-audio/video-playback.nflash'), 'utf8'));
   const rawMotionRes = exampleProj.resources.find((r) => r.path === 'media/motion.mp4');
   const cuedWav = buildCueMarkedStereoWav();
 
@@ -993,7 +993,7 @@ test('T-327 Real Headless Chrome Canvas + DOM end-to-end suite: AS2/AS3 Video pi
   const chromeProfileDir = path.join(workRoot, 'chrome-profile');
   fs.mkdirSync(chromeProfileDir, { recursive: true });
 
-  const exampleProj = JSON.parse(fs.readFileSync(path.join(repoRoot, 'examples/video-playback.nflash'), 'utf8'));
+  const exampleProj = JSON.parse(fs.readFileSync(path.join(repoRoot, 'examples/video-and-audio/video-playback.nflash'), 'utf8'));
   const rawMotionRes = exampleProj.resources.find((r) => r.path === 'media/motion.mp4');
   const rawMp4 = Buffer.from(rawMotionRes.data_base64, 'base64');
   const cuedMp4 = injectMp4ChapterCue(rawMp4, 0.2, 'mp4_cue_1');

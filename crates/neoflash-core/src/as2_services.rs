@@ -663,7 +663,7 @@ mod tests {
     use super::*;
     #[test]
     fn as2_services_family() {
-        let fixture = include_str!("../../../examples/as2-services.wsdl");
+        let fixture = include_str!("../../../examples/as2/batches/as2-services.wsdl");
         let service = wsdl(fixture).unwrap();
         let op: Operation = serde_json::from_value(service["operations"][0].clone()).unwrap();
         assert_eq!(service["endpoint"], "/__as2_soap");

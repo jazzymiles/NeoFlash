@@ -35,7 +35,7 @@ The resource loader resolves an **exact bundled image resource ID** to a fresh d
 
 ## Example
 
-[as2-bitmap-batch.nflash](../examples/as2-bitmap-batch.nflash) combines pixel operations, bundled-image loading and visible displacement-mode controls. Its stage text describes the demonstrated limits.
+[as2-bitmap-batch.nflash](../examples/as2/batches/as2-bitmap-batch.nflash) combines pixel operations, bundled-image loading and visible displacement-mode controls. Its stage text describes the demonstrated limits.
 
 ## Provenance and licenses
 

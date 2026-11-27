@@ -11,7 +11,7 @@ const root = resolve(__dirname, '../..');
 
 test('AS recovery example keeps instance state, cleanup and independent timelines in the actual host/WASM', async () => {
   const { createRuntimeHost } = await import('../../crates/neoflash-script/tests/host-integration.mjs');
-  const project = JSON.parse(fs.readFileSync(resolve(root, 'examples/script-recovery.nflash'), 'utf8'));
+  const project = JSON.parse(fs.readFileSync(resolve(root, 'examples/as3/script-recovery.nflash'), 'utf8'));
   const scripts = [];
   for (const symbol of project.symbols) {
     scripts.push(...symbol.timeline.scripts.map(item => item.script));

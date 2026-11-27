@@ -68,7 +68,7 @@ The Scene select lists the document's scenes and adds new ones (also **Insert �
 
 The Timeline **Sound** button attaches a library sound or **Import sound…** (`MP3`, `WAV`, `OGG`, `FLAC`, `M4A`, `AAC`, `AIFF`, `CAF`, `OPUS`) to the span's keyframe; layers holding only sounds show as Sound layers. Audio, video (`MP4`, `M4V`, `MOV`, `WebM`, `OGV`, `AVI`), images and numbered image sequences can also be dragged from Finder or the **Library** directly onto a docked or floating **Timeline**: Finder file drops onto **Timeline** (reusing a sole untouched blank scriptless `Layer 1` or creating stem-named tracks) and every newly created layer across **Timeline**, **Stage**, **Import video** and **Import Figma** start immediately at **Frame 1** with no leading empty frames, while dragging a single item from **Library** onto an existing compatible unlocked non-`Actions` layer places it at the hovered frame (or active playhead when dropped on the layer header), expanding the timeline to cover decoded audio/video or sequence duration and committing as one Undo step. Dedicated script-only layers (`Actions` or script-owning empty layers) are never reused for dropped or pasted media, and pre-existing layerless frame scripts stay pinned to their original layer when new layers or upper-layer keyframes are added. Properties ▸ Sound sets Effect, Sync (Event, Start, Stop, Stream), Repeat or Loop, shows file information, plays the sound once and opens **Edit envelope…** and **Sound properties…**.
 
-**Frame view** (⋯ in the Timeline) offers Short rows, Snap playhead to keyframes (⇧ suspends it), Preview and Preview in context (keyframe thumbnails in taller rows) and the Timeline's placement on any dock edge; these are saved with the workspace. Try `examples/timeline-tweens.nflash` and `examples/timeline-sound.nflash`.
+**Frame view** (⋯ in the Timeline) offers Short rows, Snap playhead to keyframes (⇧ suspends it), Preview and Preview in context (keyframe thumbnails in taller rows) and the Timeline's placement on any dock edge; these are saved with the workspace. Try `examples/animation/timeline-tweens.nflash` and `examples/video-and-audio/timeline-sound.nflash`.
 
 ## Creating symbols
 
@@ -99,7 +99,7 @@ Dropping media together with `.as` files on the tab strip places the media befor
 also recognizes Flash containers by their contents. Audio files with matching names get distinct Library resource
 paths. Dragging a Progressive video from Library retains its source URL.
 
-Try `examples/authoring-workspace.nflash` and drag `examples/authoring-badge.svg` onto its stage. Document format 4 and later preserve layer roles and library folders; older documents remain readable.
+Try `examples/graphics-and-filters/authoring-workspace.nflash` and drag `examples/graphics-and-filters/authoring-badge.svg` onto its stage. Document format 4 and later preserve layer roles and library folders; older documents remain readable.
 
 ## Drawing and color
 

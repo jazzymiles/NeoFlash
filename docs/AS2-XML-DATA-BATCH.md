@@ -26,7 +26,7 @@ The browser host marshals the Rust node indices back to existing XMLNode wrapper
 
 ## Example
 
-[as2-xml-data-batch.nflash](../examples/as2-xml-data-batch.nflash) edits an XML tree, round-trips metadata, loads bundled XML/forms and calls the default LoadVars callback. Its **Send XML to local test endpoint** control posts XML to the optional same-origin `/__as2_xml_echo` backend and displays status/data/load results. A static file server alone does not provide that endpoint.
+[as2-xml-data-batch.nflash](../examples/as2/batches/as2-xml-data-batch.nflash) edits an XML tree, round-trips metadata, loads bundled XML/forms and calls the default LoadVars callback. Its **Send XML to local test endpoint** control posts XML to the optional same-origin `/__as2_xml_echo` backend and displays status/data/load results. A static file server alone does not provide that endpoint.
 
 ## Provenance
 

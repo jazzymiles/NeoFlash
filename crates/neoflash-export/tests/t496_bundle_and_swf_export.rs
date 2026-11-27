@@ -79,9 +79,13 @@ fn t496b_bundle_diet_field_initializers_const_defaults_swf_roundtrip_and_multi_k
     };
 
     for (slug, rel_path, max_compiled_script_bytes) in [
-        ("doom-as2", "examples/doom-as2.nflash", 140_000usize),
-        ("snake-as2", "examples/snake-as2.nflash", 14_000usize),
-        ("fallout-as2", "examples/fallout-as2.nflash", 285_000usize),
+        ("doom-as2", "examples/games/doom-as2.nflash", 140_000usize),
+        ("snake-as2", "examples/games/snake-as2.nflash", 14_000usize),
+        (
+            "fallout-as2",
+            "examples/games/fallout-as2.nflash",
+            285_000usize,
+        ),
     ] {
         let raw_json = fs::read_to_string(root.join(rel_path)).unwrap();
         let proj = Project::from_json(&raw_json).unwrap();
@@ -370,7 +374,10 @@ fn t496b_bundle_diet_field_initializers_const_defaults_swf_roundtrip_and_multi_k
     // -------------------------------------------------------------------------
     // 4. [FO-04] FP8 SWF round-trip of `fallout-as2.nflash`, `doom-as2.nflash`, & 60-branch `else if`
     // -------------------------------------------------------------------------
-    for rel_path in ["examples/fallout-as2.nflash", "examples/doom-as2.nflash"] {
+    for rel_path in [
+        "examples/games/fallout-as2.nflash",
+        "examples/games/doom-as2.nflash",
+    ] {
         let raw = fs::read_to_string(root.join(rel_path)).unwrap();
         let orig = Project::from_json(&raw).unwrap();
         let (swf_bytes, swf_rep) = publish_swf_bytes(

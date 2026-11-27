@@ -73,7 +73,7 @@ export async function verifyGeometryTimer(root, cargo) {
     assert.fail('unexpected unbounded timer scheduling');
   }
   try {
-    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/geometry-timer.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
+    const exported=runCargo(cargo,['run','--quiet','--locked','-p','neoflash-export','--','examples/as3/geometry-timer.nflash','--output',directory],{cwd:root,encoding:'utf8',maxBuffer:8*1024*1024});
     assert.equal(exported.status,0,exported.error?.message||exported.stderr);
     const sandbox=vm.createContext({TextEncoder,TextDecoder,WebAssembly,console,URL,Request,Response});
     vm.runInContext(readFileSync(resolve(directory,'bundle.js'),'utf8'),sandbox);

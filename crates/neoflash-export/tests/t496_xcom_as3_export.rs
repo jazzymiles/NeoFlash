@@ -28,15 +28,15 @@ fn write_mock_wasm_runtime(runtime_dir: &Path) {
 #[test]
 fn t496d_xcom_as3_flagship_validates_exports_roundtrips_and_boots() {
     let root = workspace_root();
-    let project_path = root.join("examples/xcom-as3.nflash");
-    let raw = fs::read_to_string(&project_path).expect("read examples/xcom-as3.nflash");
+    let project_path = root.join("examples/games/xcom-as3.nflash");
+    let raw = fs::read_to_string(&project_path).expect("read examples/games/xcom-as3.nflash");
     assert!(
         raw.len() < 350_000,
-        "examples/xcom-as3.nflash must stay compact (< 350 KB), got {} B",
+        "examples/games/xcom-as3.nflash must stay compact (< 350 KB), got {} B",
         raw.len()
     );
 
-    let project = Project::from_json(&raw).expect("parse examples/xcom-as3.nflash");
+    let project = Project::from_json(&raw).expect("parse examples/games/xcom-as3.nflash");
     assert_eq!(project.width, 800);
     assert_eq!(project.height, 520);
     assert_eq!(project.fps, 30);

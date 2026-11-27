@@ -1466,10 +1466,10 @@ fn end_to_end_ast_to_xcodebuild_for_starter_scene_and_tetris_as2_as3() {
         &tmp.path().join("dd-starter"),
     );
 
-    // 2. Real `examples/tetris-as2.nflash` -> AST -> Swift 6 -> xcodebuild!
+    // 2. Real `examples/games/tetris-as2.nflash` -> AST -> Swift 6 -> xcodebuild!
     let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let tetris_as2_json =
-        fs::read_to_string(repo_root.join("examples/tetris-as2.nflash")).expect("read tetris-as2");
+    let tetris_as2_json = fs::read_to_string(repo_root.join("examples/games/tetris-as2.nflash"))
+        .expect("read tetris-as2");
     let tetris_as2 = Project::from_json(&tetris_as2_json).expect("parse tetris-as2");
     let as2_dir = tmp.path().join("TetrisAS2");
     let as2_report =
@@ -1481,9 +1481,9 @@ fn end_to_end_ast_to_xcodebuild_for_starter_scene_and_tetris_as2_as3() {
         &tmp.path().join("dd-as2"),
     );
 
-    // 3. Real `examples/tetris-as3.nflash` -> AST -> Swift 6 -> xcodebuild!
-    let tetris_as3_json =
-        fs::read_to_string(repo_root.join("examples/tetris-as3.nflash")).expect("read tetris-as3");
+    // 3. Real `examples/games/tetris-as3.nflash` -> AST -> Swift 6 -> xcodebuild!
+    let tetris_as3_json = fs::read_to_string(repo_root.join("examples/games/tetris-as3.nflash"))
+        .expect("read tetris-as3");
     let tetris_as3 = Project::from_json(&tetris_as3_json).expect("parse tetris-as3");
     let as3_dir = tmp.path().join("TetrisAS3");
     let as3_report =

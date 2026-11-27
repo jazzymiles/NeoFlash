@@ -25,7 +25,7 @@ Camera encoder bandwidth/quality/keyframes/compressed loopback, Microphone codec
 
 Public contracts were consulted in Adobe's mirrored [Camera reference](https://open-flash.github.io/mirrors/as2-language-reference/Camera.html) and [Microphone reference](https://open-flash.github.io/mirrors/as2-language-reference/Microphone.html). The MIT option of [Ruffle at 07d3e430631333f80f754df01a968bdcd80d98c5](https://github.com/ruffle-rs/ruffle/tree/07d3e430631333f80f754df01a968bdcd80d98c5) supplied individual declaration/default/unsupported-contract references from `core/src/avm1/globals/camera.rs` and `microphone.rs`. Those upstream implementations are largely stubs; none was copied or counted as working support. Existing Ruffle attribution remains in THIRD_PARTY_NOTICES.txt. Downloads and exact SHA-256 provenance are ignored under `target/verification/as2-runtime-two-hour/capture-sources/`.
 
-[as2-capture-batch.nflash](../examples/as2-capture-batch.nflash) demonstrates discovery, settings, attachment controls and cleanup. Recorded browser observations cover metadata, device enumeration, idle detach and Restart; the synthetic adapter scenario covers generated frames and PCM without hardware access. **Real hardware permission, camera images, audible microphone output and hardware quality remain unverified.**
+[as2-capture-batch.nflash](../examples/as2/batches/as2-capture-batch.nflash) demonstrates discovery, settings, attachment controls and cleanup. Recorded browser observations cover metadata, device enumeration, idle detach and Restart; the synthetic adapter scenario covers generated frames and PCM without hardware access. **Real hardware permission, camera images, audible microphone output and hardware quality remain unverified.**
 
 ## Related progressive NetStream extension
 
@@ -33,6 +33,6 @@ The existing shared Rust `ScriptAS2Stream` also gains `bufferTime`/`setBufferTim
 
 Actual native completion now delivers AS2 `onPlayStatus({code:"NetStream.Play.Complete", level:"status"})`. Transition/switch statuses, FLV embedded cue/text metadata, server upload/publishing and unobservable server QOS statistics remain unsupported. No `getInfo` result is fabricated.
 
-[as2-media-batch.nflash](../examples/as2-media-batch.nflash) demonstrates the progressive NetStream buffer target, measured FPS, frame freeze/resume and completion callbacks. Representative browser playback and Restart were observed with the silent fixture; audible quality and every control/error branch remain unverified.
+[as2-media-batch.nflash](../examples/as2/batches/as2-media-batch.nflash) demonstrates the progressive NetStream buffer target, measured FPS, frame freeze/resume and completion callbacks. Representative browser playback and Restart were observed with the silent fixture; audible quality and every control/error branch remain unverified.
 
 Camera/Microphone `instanceof` type tests remain outside the compiler profile; device identity is checked through stable `get()` references and indices.

@@ -32,4 +32,4 @@ The AS2 global `stopAllSounds()` cancels every active or pending channel owned b
 
 ## Example and limits
 
-[as2-platform-batch.nflash](../examples/as2-platform-batch.nflash) demonstrates capability/settings values, global utilities, primitive values, Delegate binding, component event registration and input lifecycle, with visible keyboard and committed IME text. Its unloaded zero-volume Sound checks do not establish audible playback or active-channel behavior.
+[as2-platform-batch.nflash](../examples/as2/batches/as2-platform-batch.nflash) demonstrates capability/settings values, global utilities, primitive values, Delegate binding, component event registration and input lifecycle, with visible keyboard and committed IME text. Its unloaded zero-volume Sound checks do not establish audible playback or active-channel behavior.

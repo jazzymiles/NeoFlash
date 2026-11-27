@@ -4754,10 +4754,19 @@ mod tests {
             .expect("write dummy neoflash_web_bg.wasm");
 
         let golden_examples = [
-            ("timeline-tweens", "examples/timeline-tweens.nflash"),
-            ("text-form", "examples/text-form.nflash"),
-            ("timeline-sound", "examples/timeline-sound.nflash"),
-            ("video-playback", "examples/video-playback.nflash"),
+            (
+                "timeline-tweens",
+                "examples/animation/timeline-tweens.nflash",
+            ),
+            ("text-form", "examples/ui-and-text/text-form.nflash"),
+            (
+                "timeline-sound",
+                "examples/video-and-audio/timeline-sound.nflash",
+            ),
+            (
+                "video-playback",
+                "examples/video-and-audio/video-playback.nflash",
+            ),
             (
                 "as2-arcade",
                 "examples/as2/08-interactive-arcade-miniapp.nflash",

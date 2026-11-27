@@ -23,4 +23,4 @@ the existing URLLoader/ByteArray transport. Primary contracts are the Adobe
 and [MovieClip](https://open-flash.github.io/mirrors/as2-language-reference/MovieClip.html)
 references. No third-party engine or implementation dependency was introduced.
 
-[as2-variables-batch.nflash](../examples/as2-variables-batch.nflash) combines bundled-resource loading with an explicit HTTP POST button. The optional same-origin `/__as2_vars_echo` endpoint is an example backend contract, not a service included in the exported runtime.
+[as2-variables-batch.nflash](../examples/as2/batches/as2-variables-batch.nflash) combines bundled-resource loading with an explicit HTTP POST button. The optional same-origin `/__as2_vars_echo` endpoint is an example backend contract, not a service included in the exported runtime.

@@ -1819,8 +1819,8 @@ fn t347_live_github_release_and_sandboxed_build_605_handoff_verification() {
     // and record exact SHA-256 digests to prove zero mutation/loss across upgrade and rollback.
     let mut prefs = WorkspacePrefs::default();
     prefs.general.recent_files = vec![
-        "/Users/miles/Projects/NeoFlash/examples/fallout-as2.nflash".into(),
-        "/Users/miles/Projects/NeoFlash/examples/doom-as2.nflash".into(),
+        "/Users/miles/Projects/NeoFlash/examples/games/fallout-as2.nflash".into(),
+        "/Users/miles/Projects/NeoFlash/examples/games/doom-as2.nflash".into(),
     ];
     let workspace_json_path = app_support.join("workspace.json");
     let workspace_bytes = serde_json::to_vec_pretty(&prefs).unwrap();

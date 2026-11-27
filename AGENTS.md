@@ -169,7 +169,7 @@ Tweens, motion guides, scenes and frame sounds are finished features with open t
 3. Editor: add an `Editor` method in the matching `timeline_*.rs` file that uses `transact`; extend `timeline_commands_tests.rs`, `timeline_motion_tests.rs`, `timeline_panels_tests.rs` or `timeline_sound_tests.rs` (state + one Undo + `project.validate()`).
 4. UI: enable the existing control (drop only "Not available yet"); no new visuals.
 5. Browser: extend `web/tests/*.test.cjs` (scenes: `as2-timeline.test.cjs`; sound: `wasm.test.cjs`) or the `sound-playback` family in `crates/neoflash-script/tests/sound-playback.mjs`.
-6. Look: open `examples/timeline-tweens.nflash` or `examples/timeline-sound.nflash` and capture both themes: `NEOFLASH_OPEN=examples/timeline-tweens.nflash NEOFLASH_SCREENSHOT_FRAME=2,16 NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light cargo run -p neoflash-editor` (`NEOFLASH_SCREENSHOT_FRAME=<layer index>,<frame>`, zero-based; layer 0 is the bottom row).
+6. Look: open `examples/animation/timeline-tweens.nflash` or `examples/video-and-audio/timeline-sound.nflash` and capture both themes: `NEOFLASH_OPEN=examples/animation/timeline-tweens.nflash NEOFLASH_SCREENSHOT_FRAME=2,16 NEOFLASH_WINDOW=1920x1080 NEOFLASH_SCREENSHOT=target/ui-shots/x.png NEOFLASH_SCREENSHOT_THEME=dark|light cargo run -p neoflash-editor` (`NEOFLASH_SCREENSHOT_FRAME=<layer index>,<frame>`, zero-based; layer 0 is the bottom row).
 7. Docs and progress: update the task card in `docs/NF2-WIRING-PLAN.md` §7.4, the spec entry in `docs/NF2-FUNCTIONAL-SPEC.md`, `docs/progress/product.json` items, CHANGELOG, then the progress scripts above.
 
 ## Experimental R&D — Xcode / Swift export (non-release-blocking, voluntary)

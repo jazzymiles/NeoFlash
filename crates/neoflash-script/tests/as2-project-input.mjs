@@ -89,7 +89,7 @@ export async function verifyAs2ProjectInput(root, cargo) {
   let player, host;
   try {
     const exported = runCargo(cargo, ['run', '--quiet', '--locked', '-p', 'neoflash-export', '--',
-      'examples/as2-project-input.nflash', '--output', directory], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+      'examples/as2/as2-project-input.nflash', '--output', directory], { cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
     assert.equal(exported.status, 0, exported.error?.message || exported.stderr);
     const sandbox = vm.createContext({ TextEncoder, TextDecoder, WebAssembly, console, URL, Request, Response });
     vm.runInContext(readFileSync(resolve(directory, 'bundle.js'), 'utf8'), sandbox);
@@ -188,8 +188,8 @@ export async function verifyAs2ProjectInput(root, cargo) {
 }
 
 async function verifyAs2FoundationSurface(root, cargo, directory) {
-  const project = JSON.parse(readFileSync(resolve(root, 'examples/as2-project-input.nflash'), 'utf8'));
-  const pngResource = JSON.parse(readFileSync(resolve(root, 'examples/bitmap-pixels.nflash'), 'utf8')).resources[0];
+  const project = JSON.parse(readFileSync(resolve(root, 'examples/as2/as2-project-input.nflash'), 'utf8'));
+  const pngResource = JSON.parse(readFileSync(resolve(root, 'examples/graphics-and-filters/bitmap-pixels.nflash'), 'utf8')).resources[0];
   project.format_version = 3;
   const includeResource = {
     id: 'batch4-include-macros',

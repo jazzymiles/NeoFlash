@@ -1051,7 +1051,7 @@ mod tests {
         )
         .unwrap();
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/midnight-express.nflash");
+            .join("../../examples/animation/midnight-express.nflash");
         let assets = tmp.join("profile-assets");
         run_with_args([
             source.to_str().unwrap(),
