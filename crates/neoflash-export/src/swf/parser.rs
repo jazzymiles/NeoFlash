@@ -1370,6 +1370,30 @@ impl SwfParser {
                     out.push(cls_stmt);
                     Ok(())
                 }
+                "dynamic" | "public" | "internal" if !self.is_avm2 && self.function_depth == 0 => {
+                    let mut look = self.pos;
+                    while let Some(SwfToken::Ident(m)) = self.tokens.get(look) {
+                        if matches!(m.as_str(), "dynamic" | "public" | "internal") {
+                            look += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if matches!(
+                        self.tokens.get(look),
+                        Some(SwfToken::Ident(target_kw)) if target_kw == "class"
+                    ) {
+                        self.pos = look;
+                        let cls_stmt = self.parse_as2_class_decl()?;
+                        out.push(cls_stmt);
+                        Ok(())
+                    } else {
+                        let stmt = self.parse_simple_assign_or_expr_stmt()?;
+                        self.consume_optional_semi();
+                        out.push(stmt);
+                        Ok(())
+                    }
+                }
                 "import" => {
                     self.pos += 1;
                     let _ = self.expect_ident()?;
