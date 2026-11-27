@@ -873,7 +873,7 @@ fn windows_file_identity(path: &std::path::Path) -> Option<(u64, u64)> {
     }
     let info = unsafe { info.assume_init() };
     let idx = (u64::from(info.file_index_high) << 32) | u64::from(info.file_index_low);
-    Some((u64::from(info.volume_serial_number), idx))
+    (idx != 0).then_some((u64::from(info.volume_serial_number), idx))
 }
 
 fn write_profile_json_atomically(

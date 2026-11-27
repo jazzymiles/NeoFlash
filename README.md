@@ -25,8 +25,8 @@ Open-source vector animation, interactive media, and application authoring studi
 | Timelines and animation | 84 of 84 | 0 | 0 | 10 / 0 / 0 |
 | HTML5 and interactivity | 111 of 111 | 0 | 0 | 12 / 0 / 0 |
 | Import and file compatibility | 69 of 69 | 0 | 0 | 10 / 0 / 0 |
-| Platform and quality | 66 of 68 | 1 | 1 | 9 / 1 / 0 |
-| **All areas** | 500 of 502 | 1 | 1 | 53 / 1 / 0 |
+| Platform and quality | 67 of 68 | 0 | 1 | 9 / 1 / 0 |
+| **All areas** | 501 of 502 | 0 | 1 | 53 / 1 / 0 |
 
 Each capability group lists its user-visible functions; a group is closed only when all of them work. Counts are functions, not effort or overall product completion.
 
@@ -67,7 +67,7 @@ Download **[NeoFlash Beta 1 (build 605)](https://github.com/jazzymiles/NeoFlash/
 | **Linux · x64** | **Bare-metal Intel Retina laptop** (`MacBookPro11,4` `2880×1800` HiDPI, Ubuntu 24.04.5 LTS `amd64`, X11/Wayland, Vulkan/GLES) · Ubuntu 24.04 ARM64 + Rosetta VM · GitHub Actions `ubuntu-24.04` | `.deb` desktop install & portable `.tar.gz`, GUI authoring, HiDPI Chrome `Test Movie`, bundled static-codec `ffmpeg`/`ffprobe`, headless CLI |
 | **Windows · x64 / ARM64** | **Bare-metal Windows 10 Pro x64** (`Miles-WIN-Test`) · **Windows 11 24H2 ARM64 VM** (UTM, DX12 native `arm64` & `x86_64` emulation) · GitHub Actions `windows-2022` (MSVC + DX12 WARP) | Portable launch, DX12 GUI rendering, headless CLI/JSFL authoring, bundled `ffmpeg`/`ffprobe` H.264 MP4, HTML5 & SWF export |
 
-- **Known Beta 1 limits:** Spoken macOS VoiceOver output is unverified; graphics-tablet pressure, tilt, and eraser switching are experimental; Windows builds are unsigned, lack the connected Chromium `Test Movie` debugger, and await interactive physical Windows 11 desktop sign-off; Linux packages target Ubuntu 24.04 x64 (`glibc 2.39+`); legacy FLA, SWF, and ActionScript remain bounded by [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) and [docs/IMPORTS.md](docs/IMPORTS.md).
+- **Known Beta 1 limits:** Spoken macOS VoiceOver output is unverified; graphics-tablet pressure, tilt, and eraser switching are experimental; Windows builds are unsigned and await interactive physical Windows 11 desktop sign-off (subsequent `main` builds link static MSVC CRT, suppress background GUI consoles, and connect the private Win32 pipe Chromium `Test Movie` debugger); Linux packages target Ubuntu 24.04 x64 (`glibc 2.39+`, with self-contained AppImage staging on `main`); legacy FLA, SWF, and ActionScript remain bounded by [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) and [docs/IMPORTS.md](docs/IMPORTS.md).
 
 ### Build from source
 
@@ -89,7 +89,7 @@ Ordinary `./scripts/package-macos.sh` builds only the ad-hoc-signed `arm64` `dis
 | **Classes, UI, forms & storage** | [Project program](examples/project-program.nflash), [AS2 input](examples/as2-project-input.nflash), [Text form](examples/text-form.nflash), [Saved game](examples/saved-game.nflash), [Drag and drop](examples/drag-drop.nflash), [Web integration](examples/web-integration.nflash) |
 | **Bitmaps, filters, audio & video** | [Loader gallery](examples/loader-gallery.nflash), [Filter gallery](examples/filter-gallery.nflash), [Timeline sound](examples/timeline-sound.nflash), [Sound playback](examples/sound-playback.nflash), [Video playback](examples/video-playback.nflash) |
 | **HTML5 ad banner (`< 8 KB` ZIP)** | [Moon Tide 300×250](examples/moon-tide-300x250.nflash) (`Publish settings ▸ Profile: Criteo · HTML5 ZIP`) |
-| **Playable AS2 / AS3 games** | [Doom: E1M1 Hangar](examples/doom-as2.nflash), [Fallout: Vault 13 Cavern](examples/fallout-as2.nflash), [Tetris AS2](examples/tetris-as2.nflash) / [AS3](examples/tetris-as3.nflash), [Arkanoid AS2](examples/arkanoid-as2.nflash) / [AS3](examples/arkanoid-as3.nflash), [Snake AS2](examples/snake-as2.nflash) / [AS3](examples/snake-as3.nflash), [AS2/AS3 suites](examples/README.md) |
+| **Playable AS2 / AS3 / TS games** | [Doom: E1M1 Hangar (AS2)](examples/doom-as2.nflash), [Fallout: Vault 13 Cavern (AS2)](examples/fallout-as2.nflash), [X-COM: Sector 7 (AS3)](examples/xcom-as3.nflash), [Micropolis 2000 (TS/DOM)](examples/simcity-ts.nflash), [Tetris AS2](examples/tetris-as2.nflash) / [AS3](examples/tetris-as3.nflash), [Arkanoid AS2](examples/arkanoid-as2.nflash) / [AS3](examples/arkanoid-as3.nflash), [Snake AS2](examples/snake-as2.nflash) / [AS3](examples/snake-as3.nflash), [AS2/AS3 suites](examples/README.md) |
 | **Public FLA / XFL / SWF corpus** | [examples/fla-corpus](examples/fla-corpus/README.md) (`21/21` licensed Flash 5–CS6 & XFL imports, `0` refusals, [visual & SWF trace oracles](examples/fla-corpus/VERIFICATION.md)) |
 
 ## Headless CLI & Automation
@@ -105,7 +105,7 @@ neoflash-editor --headless eval --project app.nflash --frames 0..=1 --scripts
 neoflash-editor --headless export --project app.nflash --target html5 --size-level compact --out dist-web
 ```
 
-Supports `inspect`, `validate`, `compile`, `eval` (including `--vm swf`), capability-gated `jsfl` (`FLfile` denied unless `--allow-read`/`--allow-write`/`--allow-delete` are set), `import`, `export`, and transactional 18-operation JSON `batch` pipelines (`--stdin` / `--file`). Details: [docs/WORKSPACE.md](docs/WORKSPACE.md#headless-cli-and-ai-automation) and [docs/JSFL-COMPATIBILITY.md](docs/JSFL-COMPATIBILITY.md).
+Supports `inspect`, `validate`, `compile`, `eval` (including `--vm swf`), deterministic `convert` (`--to as2|as3|js`), capability-gated `jsfl` (`FLfile` denied unless `--allow-read`/`--allow-write`/`--allow-delete` are set), `import`, `export`, and transactional 19-operation JSON `batch` pipelines (`--stdin` / `--file`). Details: [docs/WORKSPACE.md](docs/WORKSPACE.md#headless-cli-and-ai-automation) and [docs/JSFL-COMPATIBILITY.md](docs/JSFL-COMPATIBILITY.md).
 
 ## Project Layout
 

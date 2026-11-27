@@ -918,16 +918,16 @@ impl<'s> TypeChecker<'s> {
 
     /// Check whether `source` is assignable to `target`.
     pub fn is_assignable(&self, source: &TsType, target: &TsType) -> bool {
-        let mut active: Vec<(TsType, TsType, bool)> = Vec::new();
-        self.is_assignable_guarded(source, target, &mut active, false, 0)
+        let mut active: Vec<(TsType, TsType, usize)> = Vec::new();
+        self.is_assignable_guarded(source, target, &mut active, 0, 0)
     }
 
     fn is_assignable_guarded(
         &self,
         source: &TsType,
         target: &TsType,
-        active: &mut Vec<(TsType, TsType, bool)>,
-        productive: bool,
+        active: &mut Vec<(TsType, TsType, usize)>,
+        productive_steps: usize,
         depth: usize,
     ) -> bool {
         if source == target {
@@ -936,15 +936,15 @@ impl<'s> TypeChecker<'s> {
         if depth >= 48 {
             return false;
         }
-        if let Some((_, _, seen_productive)) =
+        if let Some((_, _, pushed_steps)) =
             active.iter().find(|(s, t, _)| s == source && t == target)
         {
-            // Coinductive acceptance holds only after stepping through a guarded structural
-            // constructor (`Object`, `Array`, `Tuple`, `Function`); direct unguarded type-alias
-            // cycles (`type Loop<T> = Loop<T>`) are rejected without overflowing the stack.
-            return productive || *seen_productive;
+            // Coinductive acceptance holds only when at least one guarded structural constructor
+            // (`Object`, `Array`, `Tuple`, `Function`) intervened since the pair was pushed;
+            // unguarded direct or mutually-recursive alias cycles (`Ping<T> = Pong<T>`) return false.
+            return productive_steps > *pushed_steps;
         }
-        active.push((source.clone(), target.clone(), productive));
+        active.push((source.clone(), target.clone(), productive_steps));
         let result = match (source, target) {
             (TsType::Any, _) | (_, TsType::Any) => true,
             (TsType::Never, _) => true,
@@ -955,41 +955,40 @@ impl<'s> TypeChecker<'s> {
             (TsType::LiteralString(_), TsType::String) => true,
             (TsType::LiteralBoolean(_), TsType::Boolean) => true,
             (TsType::Undefined, TsType::Void) | (TsType::Void, TsType::Undefined) => true,
-            (TsType::Union(sources), target) => sources
-                .iter()
-                .all(|s| self.is_assignable_guarded(s, target, active, productive, depth + 1)),
+            (TsType::Union(sources), target) => sources.iter().all(|s| {
+                self.is_assignable_guarded(s, target, active, productive_steps, depth + 1)
+            }),
             (source, TsType::Union(targets)) => {
                 if let TsType::Named(s_name, _) = source
                     && let Some(TsType::Union(sources)) = self.types.get(s_name)
                 {
                     let res = sources.iter().all(|s| {
-                        self.is_assignable_guarded(s, target, active, productive, depth + 1)
+                        self.is_assignable_guarded(s, target, active, productive_steps, depth + 1)
                     });
                     active.pop();
                     return res;
                 }
-                targets
-                    .iter()
-                    .any(|t| self.is_assignable_guarded(source, t, active, productive, depth + 1))
+                targets.iter().any(|t| {
+                    self.is_assignable_guarded(source, t, active, productive_steps, depth + 1)
+                })
             }
-            (TsType::Intersection(sources), target) => sources
-                .iter()
-                .any(|s| self.is_assignable_guarded(s, target, active, productive, depth + 1)),
-            (source, TsType::Intersection(targets)) => targets
-                .iter()
-                .all(|t| self.is_assignable_guarded(source, t, active, productive, depth + 1)),
+            (TsType::Intersection(sources), target) => sources.iter().any(|s| {
+                self.is_assignable_guarded(s, target, active, productive_steps, depth + 1)
+            }),
+            (source, TsType::Intersection(targets)) => targets.iter().all(|t| {
+                self.is_assignable_guarded(source, t, active, productive_steps, depth + 1)
+            }),
             (TsType::Array(s_elem), TsType::Array(t_elem)) => {
-                self.is_assignable_guarded(s_elem, t_elem, active, true, depth + 1)
+                self.is_assignable_guarded(s_elem, t_elem, active, productive_steps + 1, depth + 1)
             }
-            (TsType::Tuple(s_elems), TsType::Array(t_elem)) => s_elems
-                .iter()
-                .all(|s| self.is_assignable_guarded(s, t_elem, active, true, depth + 1)),
+            (TsType::Tuple(s_elems), TsType::Array(t_elem)) => s_elems.iter().all(|s| {
+                self.is_assignable_guarded(s, t_elem, active, productive_steps + 1, depth + 1)
+            }),
             (TsType::Tuple(s_elems), TsType::Tuple(t_elems)) => {
                 s_elems.len() == t_elems.len()
-                    && s_elems
-                        .iter()
-                        .zip(t_elems.iter())
-                        .all(|(s, t)| self.is_assignable_guarded(s, t, active, true, depth + 1))
+                    && s_elems.iter().zip(t_elems.iter()).all(|(s, t)| {
+                        self.is_assignable_guarded(s, t, active, productive_steps + 1, depth + 1)
+                    })
             }
             (TsType::Named(s_name, s_args), TsType::Named(t_name, t_args)) => {
                 if s_name == t_name {
@@ -998,7 +997,13 @@ impl<'s> TypeChecker<'s> {
                     } else {
                         s_args.len() == t_args.len()
                             && s_args.iter().zip(t_args.iter()).all(|(s, t)| {
-                                self.is_assignable_guarded(s, t, active, true, depth + 1)
+                                self.is_assignable_guarded(
+                                    s,
+                                    t,
+                                    active,
+                                    productive_steps + 1,
+                                    depth + 1,
+                                )
                             })
                     };
                     active.pop();
@@ -1037,13 +1042,13 @@ impl<'s> TypeChecker<'s> {
                 });
                 match (s_resolved, t_resolved) {
                     (Some(sr), Some(tr)) => {
-                        self.is_assignable_guarded(&sr, &tr, active, productive, depth + 1)
+                        self.is_assignable_guarded(&sr, &tr, active, productive_steps, depth + 1)
                     }
                     (Some(sr), None) => {
-                        self.is_assignable_guarded(&sr, target, active, productive, depth + 1)
+                        self.is_assignable_guarded(&sr, target, active, productive_steps, depth + 1)
                     }
                     (None, Some(tr)) => {
-                        self.is_assignable_guarded(source, &tr, active, productive, depth + 1)
+                        self.is_assignable_guarded(source, &tr, active, productive_steps, depth + 1)
                     }
                     (None, None) => false,
                 }
@@ -1057,7 +1062,13 @@ impl<'s> TypeChecker<'s> {
                     if &sub == source {
                         false
                     } else {
-                        self.is_assignable_guarded(&sub, target, active, productive, depth + 1)
+                        self.is_assignable_guarded(
+                            &sub,
+                            target,
+                            active,
+                            productive_steps,
+                            depth + 1,
+                        )
                     }
                 } else {
                     is_builtin_type_name(s_name) && matches!(target, TsType::Object(_))
@@ -1068,7 +1079,13 @@ impl<'s> TypeChecker<'s> {
                     let val_target = t_args.get(1).unwrap_or(&TsType::Any);
                     if let TsType::Object(props) = self.resolve_type_bounded(source, depth + 1) {
                         let rec_ok = props.values().all(|p| {
-                            self.is_assignable_guarded(&p.ty, val_target, active, true, depth + 1)
+                            self.is_assignable_guarded(
+                                &p.ty,
+                                val_target,
+                                active,
+                                productive_steps + 1,
+                                depth + 1,
+                            )
                         });
                         active.pop();
                         return rec_ok;
@@ -1082,7 +1099,13 @@ impl<'s> TypeChecker<'s> {
                     if &sub == target {
                         false
                     } else {
-                        self.is_assignable_guarded(source, &sub, active, productive, depth + 1)
+                        self.is_assignable_guarded(
+                            source,
+                            &sub,
+                            active,
+                            productive_steps,
+                            depth + 1,
+                        )
                     }
                 } else {
                     false
@@ -1097,7 +1120,7 @@ impl<'s> TypeChecker<'s> {
                                 &s_prop.ty,
                                 &t_prop.ty,
                                 active,
-                                true,
+                                productive_steps + 1,
                                 depth + 1,
                             ) {
                                 ok = false;
@@ -1110,7 +1133,7 @@ impl<'s> TypeChecker<'s> {
                                     &TsType::Undefined,
                                     &t_prop.ty,
                                     active,
-                                    true,
+                                    productive_steps + 1,
                                     depth + 1,
                                 )
                             {
@@ -1136,7 +1159,7 @@ impl<'s> TypeChecker<'s> {
                                     t_param,
                                     s_param,
                                     active,
-                                    true,
+                                    productive_steps + 1,
                                     depth + 1,
                                 )
                             });
@@ -1149,7 +1172,7 @@ impl<'s> TypeChecker<'s> {
                             &s_sig.return_type,
                             &t_sig.return_type,
                             active,
-                            true,
+                            productive_steps + 1,
                             depth + 1,
                         )
                     }
