@@ -624,7 +624,7 @@ fn tokenize_flash_html(source: &str) -> Vec<FlashHtmlToken> {
             continue;
         }
         // CDATA <![CDATA[ ... ]]>
-        if bytes.len() >= i + 9 && source[i..i + 9].eq_ignore_ascii_case("<![cdata[") {
+        if bytes.len() >= i + 9 && bytes[i..i + 9].eq_ignore_ascii_case(b"<![cdata[") {
             if let Some(rel) = source[i + 9..].find("]]>") {
                 literal_buf.push_str(&source[i + 9..i + 9 + rel]);
                 i += 9 + rel + 3;

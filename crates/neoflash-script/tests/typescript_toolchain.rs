@@ -937,3 +937,99 @@ g.set(0, 0, "wrong-type");
         "expected generic substitution error, got: {errs:?}"
     );
 }
+
+#[test]
+fn recursive_generic_types_and_shadowed_flash_globals_do_not_overflow_or_redeclare() {
+    // [P0-05] (a): Valid structural recursive generic `TreeNode<T>` compiles cleanly without stack overflow.
+    let recursive_ok = script(
+        ScriptLanguage::TypeScript,
+        r#"
+interface TreeNode<T> {
+    value: T;
+    parent: TreeNode<T> | null;
+}
+class MapTile {
+    value: number = 0;
+    parent: MapTile | null = null;
+}
+function visit(n: TreeNode<number>): number {
+    return n.value;
+}
+const out: number = visit(new MapTile());
+"#,
+    );
+    neoflash_script::compile(&recursive_ok)
+        .expect("structural recursive generic TreeNode<number> must typecheck");
+
+    // [P0-05] (b): Cyclic generic type alias `type Loop<T> = Loop<T>` terminates with a type error instead of overflowing stack.
+    let cyclic_bad = script(
+        ScriptLanguage::TypeScript,
+        r#"
+type Loop<T> = Loop<T>;
+const x: Loop<number> = 1;
+"#,
+    );
+    let cyclic_errs = neoflash_script::compile(&cyclic_bad)
+        .expect_err("cyclic alias Loop<number> must reject `1` without stack overflow");
+    assert!(!cyclic_errs.is_empty());
+
+    // [P1-01]: Modular handler importing `Point` alongside native `Sprite` must not trigger SyntaxError redeclaration.
+    let mut proj = Project::blank();
+    proj.sources = vec![source_unit(
+        "geom.ts",
+        ScriptLanguage::TypeScript,
+        "export class Point { constructor(public x: number, public y: number) {} }\n",
+    )];
+    let prog = compile_project(&proj).expect("compile geom.ts");
+    let mod_handler = script(
+        ScriptLanguage::TypeScript,
+        r#"
+import { Point } from "./geom";
+const p = new Point(7, 9);
+const s = new Sprite();
+this.res = `${p.x},${p.y},${typeof s}`;
+"#,
+    );
+    let mod_js = compile_with_program(&mod_handler, &prog)
+        .expect("modular handler shadowing Point must compile");
+    let mod_out = eval_js(&format!(
+        r#"
+const __nfBuiltins = {{
+    "flash.display.Sprite": function Sprite() {{}},
+    "flash.geom.Point": function NativePoint() {{}},
+}};
+const __nfProgram = (function() {{
+    const __nfProgram = Object.create(null);
+    {}
+    return __nfProgram;
+}})();
+const clip = {{}};
+(function(__nfProgram) {{
+    {}
+}}).call(clip, __nfProgram);
+console.log(clip.res);
+"#,
+        prog.web_modules.bundled_code, mod_js
+    ));
+    assert_eq!(mod_out, "7,9,object");
+
+    // [P2-02]: Plain JavaScript handler without JSX/TS also receives native `Point` binding.
+    let js_handler = script(
+        ScriptLanguage::JavaScript,
+        "const pt = new Point(3, 4);\nthis.ptSum = pt.x + pt.y;\n",
+    );
+    let js_code = neoflash_script::compile(&js_handler).expect("plain JS handler with Point");
+    let js_out = eval_js(&format!(
+        r#"
+const __nfBuiltins = {{
+    "flash.geom.Point": function Point(x, y) {{ this.x = x; this.y = y; }},
+}};
+const clip = {{}};
+(function() {{
+    {js_code}
+}}).call(clip);
+console.log(clip.ptSum);
+"#
+    ));
+    assert_eq!(js_out, "7");
+}

@@ -85,6 +85,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Web runtime build failed.' }
           wasm-bindgen --target no-modules --no-modules-global NeoFlashWasm --out-name neoflash_web --out-dir target/web-runtime target/wasm32-unknown-unknown/release/neoflash_web.wasm
           if ($LASTEXITCODE -ne 0) { throw 'wasm-bindgen generation failed.' }
+          Copy-Item -Force web/as-intrinsics.js target/web-runtime/as-intrinsics.js
       - name: Clippy on Windows x64 MSVC
         shell: pwsh
         run: cargo clippy --locked --workspace --all-targets -- -D warnings

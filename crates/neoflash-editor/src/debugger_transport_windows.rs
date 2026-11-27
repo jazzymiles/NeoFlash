@@ -331,7 +331,7 @@ mod win32 {
             lpFileName: *const u16,
             dwDesiredAccess: u32,
             dwShareMode: u32,
-            lpSecurityAttributes: *const SecurityAttributes,
+            lpSecurityAttributes: *const c_void,
             dwCreationDisposition: u32,
             dwFlagsAndAttributes: u32,
             hTemplateFile: Handle,
@@ -572,7 +572,7 @@ mod win32 {
                 NUL_WIDE.as_ptr(),
                 GENERIC_READ | GENERIC_WRITE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
-                &inheritable,
+                (&raw const inheritable).cast::<c_void>(),
                 OPEN_EXISTING,
                 0,
                 null_mut(),
@@ -893,12 +893,12 @@ mod win32 {
                 }
                 self.process.close_now();
             }
-            for attempt in 0..5 {
+            for attempt in 0..30 {
                 if !self.profile.exists() || fs::remove_dir_all(&self.profile).is_ok() {
                     break;
                 }
-                if attempt < 4 {
-                    std::thread::sleep(Duration::from_millis(20));
+                if attempt < 29 {
+                    std::thread::sleep(Duration::from_millis(50));
                 }
             }
         }
@@ -1165,6 +1165,7 @@ fn main() {
 
         let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
         let status = std::process::Command::new(rustc)
+            .arg("--edition=2024")
             .arg(&helper_src)
             .arg("-O")
             .arg("-o")
@@ -1212,6 +1213,27 @@ fn main() {
         assert!(leader_pid > 0 && worker_pid > 0);
 
         drop(pipe);
+        unsafe extern "system" {
+            fn OpenProcess(
+                dwDesiredAccess: u32,
+                bInheritHandle: i32,
+                dwProcessId: u32,
+            ) -> *mut std::ffi::c_void;
+            fn WaitForSingleObject(hHandle: *mut std::ffi::c_void, dwMilliseconds: u32) -> u32;
+            fn CloseHandle(hObject: *mut std::ffi::c_void) -> i32;
+        }
+        const SYNCHRONIZE: u32 = 0x0010_0000;
+        let worker_handle = unsafe { OpenProcess(SYNCHRONIZE, 0, worker_pid) };
+        if !worker_handle.is_null() {
+            let wait_rc = unsafe { WaitForSingleObject(worker_handle, 5_000) };
+            unsafe {
+                let _ = CloseHandle(worker_handle);
+            }
+            assert_eq!(
+                wait_rc, 0,
+                "Job Object KILL_ON_JOB_CLOSE must terminate descendant worker PID {worker_pid}"
+            );
+        }
         assert!(
             !profile_dir.exists(),
             "Drop must clean up private profile dir"

@@ -628,6 +628,10 @@ class PortablePackageTests(unittest.TestCase):
         ):
             package_portable.audit_windows_pe_imports(stub_mz)
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "Linux AppImage shell packager requires POSIX userland",
+    )
     def test_linux_appimage_packager_stages_complete_appdir_and_emits_verified_appimage(self):
         source_root, _ = self.source_tree()
         source_archive = self.archive_tree(source_root, "linux-source.tar.xz")

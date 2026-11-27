@@ -796,6 +796,14 @@ fn cli_paths_refer_to_same_file(a: &std::path::Path, b: &std::path::Path) -> boo
             return true;
         }
     }
+    #[cfg(windows)]
+    {
+        if let (Some(ia), Some(ib)) = (windows_file_identity(a), windows_file_identity(b))
+            && ia == ib
+        {
+            return true;
+        }
+    }
     if let (Ok(ca), Ok(cb)) = (fs::canonicalize(a), fs::canonicalize(b))
         && ca == cb
     {
@@ -823,6 +831,49 @@ fn cli_paths_refer_to_same_file(a: &std::path::Path, b: &std::path::Path) -> boo
         }
     }
     false
+}
+
+#[cfg(windows)]
+fn windows_file_identity(path: &std::path::Path) -> Option<(u64, u64)> {
+    use std::ffi::c_void;
+    use std::mem::MaybeUninit;
+    use std::os::windows::io::AsRawHandle as _;
+
+    #[repr(C)]
+    struct FileTime {
+        low_date_time: u32,
+        high_date_time: u32,
+    }
+
+    #[repr(C)]
+    struct ByHandleFileInformation {
+        file_attributes: u32,
+        creation_time: FileTime,
+        last_access_time: FileTime,
+        last_write_time: FileTime,
+        volume_serial_number: u32,
+        file_size_high: u32,
+        file_size_low: u32,
+        number_of_links: u32,
+        file_index_high: u32,
+        file_index_low: u32,
+    }
+
+    unsafe extern "system" {
+        fn GetFileInformationByHandle(
+            file: *mut c_void,
+            information: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+
+    let file = fs::File::open(path).ok()?;
+    let mut info = MaybeUninit::<ByHandleFileInformation>::uninit();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) } == 0 {
+        return None;
+    }
+    let info = unsafe { info.assume_init() };
+    let idx = (u64::from(info.file_index_high) << 32) | u64::from(info.file_index_low);
+    Some((u64::from(info.volume_serial_number), idx))
 }
 
 fn write_profile_json_atomically(
@@ -1143,6 +1194,21 @@ mod tests {
         ])
         .expect("distinct JSON profile path succeeds");
         assert!(valid_profile_path.is_file());
+        let saved_profile_bytes = fs::read(&valid_profile_path).unwrap();
+        assert_eq!(fs::read(&proj_path).unwrap(), original_bytes);
+
+        // [P2-01]: A failed write (e.g. directory collision) preserves existing profile & source bytes.
+        let dir_collision = tmp.join("dir-target.json");
+        fs::create_dir_all(&dir_collision).unwrap();
+        assert!(
+            run_with_args([
+                proj_path.to_str().unwrap(),
+                "--export-profile",
+                dir_collision.to_str().unwrap(),
+            ])
+            .is_err()
+        );
+        assert_eq!(fs::read(&valid_profile_path).unwrap(), saved_profile_bytes);
         assert_eq!(fs::read(&proj_path).unwrap(), original_bytes);
         let _ = fs::remove_dir_all(tmp);
     }

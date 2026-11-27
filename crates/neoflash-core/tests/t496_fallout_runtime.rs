@@ -351,4 +351,45 @@ fn fo06_and_fo15_recursive_descendant_cleanup_and_large_graphics_batches() {
             .iter()
             .any(|d| d.owner_ref == terrain)
     );
+
+    // [P0-04]: Multi-byte UTF-8 straddling byte index `i + 9` after `<` must never panic in CDATA check.
+    for sample in [
+        "<b>AПривет</b>",
+        "<1234567🎉",
+        "<font color='#BBF7D0'>Статус & <Уровень 5></font>",
+        "<![CDATA[Привет & <мир>]]>",
+    ] {
+        let parsed = execute(
+            serde_json::from_value::<Request>(json!({
+                "op": "html",
+                "source": sample,
+                "format": {
+                    "font": "Courier New",
+                    "size": 12.0,
+                    "color": 0xBBF7D0u32,
+                    "bold": false,
+                    "italic": false,
+                    "leading": 0.0,
+                    "align": "left",
+                    "leftMargin": 0.0,
+                    "rightMargin": 0.0,
+                    "indent": 0.0,
+                    "blockIndent": 0.0,
+                    "underline": false,
+                    "letterSpacing": 0.0,
+                    "kerning": null,
+                    "bullet": false,
+                    "tabStops": [],
+                    "url": "",
+                    "target": ""
+                },
+                "styles": { "styles": {} },
+                "condense_white": false,
+                "multi_run": true
+            }))
+            .unwrap(),
+        )
+        .expect("multi-byte UTF-8 htmlText must never fail or panic");
+        assert!(!parsed["text"].as_str().unwrap_or("").is_empty());
+    }
 }

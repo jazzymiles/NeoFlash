@@ -62,6 +62,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Web runtime build failed." }
     wasm-bindgen --target no-modules --no-modules-global NeoFlashWasm --out-name neoflash_web --out-dir target/web-runtime target/wasm32-unknown-unknown/release/neoflash_web.wasm
     if ($LASTEXITCODE -ne 0) { throw "wasm-bindgen generation failed." }
+    Copy-Item -Force (Join-Path $ProjectRoot "web/as-intrinsics.js") (Join-Path $ProjectRoot "target/web-runtime/as-intrinsics.js")
 
     $SavedRustFlags = $env:RUSTFLAGS
     $HadRustFlags = Test-Path Env:\RUSTFLAGS

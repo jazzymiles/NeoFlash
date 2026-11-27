@@ -1491,12 +1491,15 @@ pub(crate) fn compile_handler_with_modules_mapped(
                 preamble.push_str(web_native_globals_preamble_js());
                 preamble.push('\n');
             }
-            let map = crate::sourcemap::shift_map(
-                &map,
-                preamble.bytes().filter(|c| *c == b'\n').count(),
-                0,
-            );
-            return Ok((format!("{preamble}{code}"), map));
+            let wrapper_header = "function __neoflash_handler__() {\n";
+            let shift_lines = preamble.bytes().filter(|c| *c == b'\n').count() + 1;
+            let map = crate::sourcemap::shift_map(&map, shift_lines, 0);
+            return Ok((
+                format!(
+                    "{preamble}{wrapper_header}{code}\n}}\nreturn __neoflash_handler__.call(this);"
+                ),
+                map,
+            ));
         }
         return Ok((code, map));
     }

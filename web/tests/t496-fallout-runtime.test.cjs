@@ -892,7 +892,7 @@ test('FO-08: Structured fatal HTML5 runtime failure telemetry sets dataset.neofl
     assert.equal(fatalEvents[0].cancelable, true, 'neoflash-fatal-error CustomEvent must be cancelable');
     assert.match(fatalEvents[0].detail.message, /Simulated Pip-Boy Fatal Crash/);
     assert.equal(fatalEvents[0].detail.error?.message, 'Simulated Pip-Boy Fatal Crash');
-    assert.equal(relaySuppressedDuringFatalConsole, false, 'Fatal console.error must fire unsuppressed before relay suppression');
+    assert.equal(relaySuppressedDuringFatalConsole, true, 'Fatal console.error suppresses unmapped preview relay while still invoking console.error once');
     assert.equal(consoleErrors.length, 1, 'Fatal console.error must fire once without recursive loops');
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

@@ -359,6 +359,26 @@ pub fn resolve_numbered_image_sequence_paths<P: AsRef<Path>>(
     if inputs.len() > 1 && detection.items.len() < 2 {
         return Ok(None);
     }
+    let mut seen_numbers: BTreeMap<u32, &Path> = BTreeMap::new();
+    for path in &resolved {
+        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let Some(item) = parse_numbered_image_filename(file_name, 0) else {
+            continue;
+        };
+        if item.prefix == detection.prefix
+            && item.extension == detection.extension
+            && let Some(first_path) = seen_numbers.insert(item.number, path.as_path())
+        {
+            return Err(ImportError::Container(format!(
+                "Duplicate image sequence frame number {} in '{}' and '{}'",
+                item.number,
+                first_path.display(),
+                path.display()
+            )));
+        }
+    }
     Ok(Some((resolved, detection)))
 }
 
@@ -1180,5 +1200,20 @@ mod path_import_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn duplicate_sequence_frame_numbers_are_rejected_with_both_paths() {
+        let inputs = vec![
+            PathBuf::from("walk_1.png"),
+            PathBuf::from("walk_01.png"),
+            PathBuf::from("walk_2.png"),
+        ];
+        let err = resolve_numbered_image_sequence_paths(&inputs, false)
+            .expect_err("colliding zero-padded frame numbers must fail explicitly");
+        let msg = err.to_string();
+        assert!(msg.contains("frame number 1"), "{msg}");
+        assert!(msg.contains("walk_1.png"), "{msg}");
+        assert!(msg.contains("walk_01.png"), "{msg}");
     }
 }

@@ -182,7 +182,9 @@
     const idx = code.indexOf(marker);
     if (idx < 0) return code;
     const resolvedPrelude = resolveSharedAsPrelude(prelude);
-    if (!resolvedPrelude) return code;
+    if (!resolvedPrelude) {
+      throw new Error('Missing shared ActionScript runtime intrinsics (as-intrinsics.js).');
+    }
     let nlCount = 0;
     for (let i = 0; i < resolvedPrelude.length; i++) {
       if (resolvedPrelude.charCodeAt(i) === 10) nlCount++;
@@ -1432,7 +1434,10 @@
     if (!reportingFatalConsole) {
       reportingFatalConsole = true;
       const prevSuppress = global?.__neoflashSuppressConsoleRelay;
-      if (global) global.__neoflashSuppressConsoleRelay = false;
+      // `preview.js` always forwards `console.error` to the native browser console (observable by
+      // DevTools/CDP); `__neoflashSuppressConsoleRelay` only prevents `preview.js` from posting an
+      // unmapped duplicate error before `emitScriptMessage('error', ...)` posts the source-mapped frame.
+      if (global) global.__neoflashSuppressConsoleRelay = true;
       try {
         if (typeof console !== 'undefined' && typeof console?.error === 'function') console.error(rawError);
         else nativeConsoleError?.(rawError);

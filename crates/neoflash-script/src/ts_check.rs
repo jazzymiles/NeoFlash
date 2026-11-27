@@ -674,15 +674,28 @@ impl<'s> TypeChecker<'s> {
     }
 
     fn resolve_type(&self, ty: &TsType) -> TsType {
+        self.resolve_type_bounded(ty, 0)
+    }
+
+    fn resolve_type_bounded(&self, ty: &TsType, depth: usize) -> TsType {
+        if depth >= 32 {
+            return ty.clone();
+        }
         match ty {
             TsType::Named(name, args) => {
                 if let Some(resolved) = self.types.get(name) {
                     if let Some(tparams) = self.generic_type_params.get(name)
                         && !tparams.is_empty()
                     {
-                        let resolved_args: Vec<TsType> =
-                            args.iter().map(|a| self.resolve_type(a)).collect();
-                        return resolved.substitute(tparams, &resolved_args);
+                        let resolved_args: Vec<TsType> = args
+                            .iter()
+                            .map(|a| self.resolve_type_bounded(a, depth + 1))
+                            .collect();
+                        let sub = resolved.substitute(tparams, &resolved_args);
+                        if &sub == ty {
+                            return ty.clone();
+                        }
+                        return sub;
                     }
                     if args.is_empty() {
                         return resolved.clone();
@@ -690,13 +703,21 @@ impl<'s> TypeChecker<'s> {
                 }
                 ty.clone()
             }
-            TsType::Array(inner) => TsType::Array(Box::new(self.resolve_type(inner))),
-            TsType::Union(parts) => {
-                TsType::Union(parts.iter().map(|p| self.resolve_type(p)).collect())
+            TsType::Array(inner) => {
+                TsType::Array(Box::new(self.resolve_type_bounded(inner, depth + 1)))
             }
-            TsType::Intersection(parts) => {
-                TsType::Intersection(parts.iter().map(|p| self.resolve_type(p)).collect())
-            }
+            TsType::Union(parts) => TsType::Union(
+                parts
+                    .iter()
+                    .map(|p| self.resolve_type_bounded(p, depth + 1))
+                    .collect(),
+            ),
+            TsType::Intersection(parts) => TsType::Intersection(
+                parts
+                    .iter()
+                    .map(|p| self.resolve_type_bounded(p, depth + 1))
+                    .collect(),
+            ),
             other => other.clone(),
         }
     }
@@ -897,10 +918,34 @@ impl<'s> TypeChecker<'s> {
 
     /// Check whether `source` is assignable to `target`.
     pub fn is_assignable(&self, source: &TsType, target: &TsType) -> bool {
+        let mut active: Vec<(TsType, TsType, bool)> = Vec::new();
+        self.is_assignable_guarded(source, target, &mut active, false, 0)
+    }
+
+    fn is_assignable_guarded(
+        &self,
+        source: &TsType,
+        target: &TsType,
+        active: &mut Vec<(TsType, TsType, bool)>,
+        productive: bool,
+        depth: usize,
+    ) -> bool {
         if source == target {
             return true;
         }
-        match (source, target) {
+        if depth >= 48 {
+            return false;
+        }
+        if let Some((_, _, seen_productive)) =
+            active.iter().find(|(s, t, _)| s == source && t == target)
+        {
+            // Coinductive acceptance holds only after stepping through a guarded structural
+            // constructor (`Object`, `Array`, `Tuple`, `Function`); direct unguarded type-alias
+            // cycles (`type Loop<T> = Loop<T>`) are rejected without overflowing the stack.
+            return productive || *seen_productive;
+        }
+        active.push((source.clone(), target.clone(), productive));
+        let result = match (source, target) {
             (TsType::Any, _) | (_, TsType::Any) => true,
             (TsType::Never, _) => true,
             (_, TsType::Never) => false,
@@ -910,44 +955,54 @@ impl<'s> TypeChecker<'s> {
             (TsType::LiteralString(_), TsType::String) => true,
             (TsType::LiteralBoolean(_), TsType::Boolean) => true,
             (TsType::Undefined, TsType::Void) | (TsType::Void, TsType::Undefined) => true,
-            (TsType::Union(sources), target) => {
-                sources.iter().all(|s| self.is_assignable(s, target))
-            }
+            (TsType::Union(sources), target) => sources
+                .iter()
+                .all(|s| self.is_assignable_guarded(s, target, active, productive, depth + 1)),
             (source, TsType::Union(targets)) => {
                 if let TsType::Named(s_name, _) = source
                     && let Some(TsType::Union(sources)) = self.types.get(s_name)
                 {
-                    return sources.iter().all(|s| self.is_assignable(s, target));
+                    let res = sources.iter().all(|s| {
+                        self.is_assignable_guarded(s, target, active, productive, depth + 1)
+                    });
+                    active.pop();
+                    return res;
                 }
-                targets.iter().any(|t| self.is_assignable(source, t))
+                targets
+                    .iter()
+                    .any(|t| self.is_assignable_guarded(source, t, active, productive, depth + 1))
             }
-            (TsType::Intersection(sources), target) => {
-                sources.iter().any(|s| self.is_assignable(s, target))
+            (TsType::Intersection(sources), target) => sources
+                .iter()
+                .any(|s| self.is_assignable_guarded(s, target, active, productive, depth + 1)),
+            (source, TsType::Intersection(targets)) => targets
+                .iter()
+                .all(|t| self.is_assignable_guarded(source, t, active, productive, depth + 1)),
+            (TsType::Array(s_elem), TsType::Array(t_elem)) => {
+                self.is_assignable_guarded(s_elem, t_elem, active, true, depth + 1)
             }
-            (source, TsType::Intersection(targets)) => {
-                targets.iter().all(|t| self.is_assignable(source, t))
-            }
-            (TsType::Array(s_elem), TsType::Array(t_elem)) => self.is_assignable(s_elem, t_elem),
-            (TsType::Tuple(s_elems), TsType::Array(t_elem)) => {
-                s_elems.iter().all(|s| self.is_assignable(s, t_elem))
-            }
+            (TsType::Tuple(s_elems), TsType::Array(t_elem)) => s_elems
+                .iter()
+                .all(|s| self.is_assignable_guarded(s, t_elem, active, true, depth + 1)),
             (TsType::Tuple(s_elems), TsType::Tuple(t_elems)) => {
                 s_elems.len() == t_elems.len()
                     && s_elems
                         .iter()
                         .zip(t_elems.iter())
-                        .all(|(s, t)| self.is_assignable(s, t))
+                        .all(|(s, t)| self.is_assignable_guarded(s, t, active, true, depth + 1))
             }
             (TsType::Named(s_name, s_args), TsType::Named(t_name, t_args)) => {
                 if s_name == t_name {
-                    if s_args.is_empty() || t_args.is_empty() {
-                        return true;
-                    }
-                    return s_args.len() == t_args.len()
-                        && s_args
-                            .iter()
-                            .zip(t_args.iter())
-                            .all(|(s, t)| self.is_assignable(s, t));
+                    let same_res = if s_args.is_empty() || t_args.is_empty() {
+                        true
+                    } else {
+                        s_args.len() == t_args.len()
+                            && s_args.iter().zip(t_args.iter()).all(|(s, t)| {
+                                self.is_assignable_guarded(s, t, active, true, depth + 1)
+                            })
+                    };
+                    active.pop();
+                    return same_res;
                 }
                 // Check class inheritance chain (`s_name extends ... -> t_name`)
                 // or interface implementation (`s_name implements t_name`).
@@ -958,11 +1013,13 @@ impl<'s> TypeChecker<'s> {
                         break;
                     }
                     if c == t_name {
+                        active.pop();
                         return true;
                     }
                     if let Some(ifaces) = self.class_interfaces.get(c)
                         && ifaces.iter().any(|i| i == t_name)
                     {
+                        active.pop();
                         return true;
                     }
                     cur = self.class_parents.get(c).map(String::as_str);
@@ -979,9 +1036,15 @@ impl<'s> TypeChecker<'s> {
                         .map_or_else(|| tr.clone(), |tp| tr.substitute(tp, t_args))
                 });
                 match (s_resolved, t_resolved) {
-                    (Some(sr), Some(tr)) => self.is_assignable(&sr, &tr),
-                    (Some(sr), None) => self.is_assignable(&sr, target),
-                    (None, Some(tr)) => self.is_assignable(source, &tr),
+                    (Some(sr), Some(tr)) => {
+                        self.is_assignable_guarded(&sr, &tr, active, productive, depth + 1)
+                    }
+                    (Some(sr), None) => {
+                        self.is_assignable_guarded(&sr, target, active, productive, depth + 1)
+                    }
+                    (None, Some(tr)) => {
+                        self.is_assignable_guarded(source, &tr, active, productive, depth + 1)
+                    }
                     (None, None) => false,
                 }
             }
@@ -991,7 +1054,11 @@ impl<'s> TypeChecker<'s> {
                         .generic_type_params
                         .get(s_name)
                         .map_or_else(|| resolved.clone(), |tp| resolved.substitute(tp, s_args));
-                    self.is_assignable(&sub, target)
+                    if &sub == source {
+                        false
+                    } else {
+                        self.is_assignable_guarded(&sub, target, active, productive, depth + 1)
+                    }
                 } else {
                     is_builtin_type_name(s_name) && matches!(target, TsType::Object(_))
                 }
@@ -999,10 +1066,12 @@ impl<'s> TypeChecker<'s> {
             (source, TsType::Named(t_name, t_args)) => {
                 if t_name == "Record" {
                     let val_target = t_args.get(1).unwrap_or(&TsType::Any);
-                    if let TsType::Object(props) = self.resolve_type(source) {
-                        return props
-                            .values()
-                            .all(|p| self.is_assignable(&p.ty, val_target));
+                    if let TsType::Object(props) = self.resolve_type_bounded(source, depth + 1) {
+                        let rec_ok = props.values().all(|p| {
+                            self.is_assignable_guarded(&p.ty, val_target, active, true, depth + 1)
+                        });
+                        active.pop();
+                        return rec_ok;
                     }
                 }
                 if let Some(resolved) = self.types.get(t_name) {
@@ -1010,47 +1079,86 @@ impl<'s> TypeChecker<'s> {
                         .generic_type_params
                         .get(t_name)
                         .map_or_else(|| resolved.clone(), |tp| resolved.substitute(tp, t_args));
-                    self.is_assignable(source, &sub)
+                    if &sub == target {
+                        false
+                    } else {
+                        self.is_assignable_guarded(source, &sub, active, productive, depth + 1)
+                    }
                 } else {
                     false
                 }
             }
             (TsType::Object(s_props), TsType::Object(t_props)) => {
+                let mut ok = true;
                 for (k, t_prop) in t_props {
                     match s_props.get(k) {
                         Some(s_prop) => {
-                            if !self.is_assignable(&s_prop.ty, &t_prop.ty) {
-                                return false;
+                            if !self.is_assignable_guarded(
+                                &s_prop.ty,
+                                &t_prop.ty,
+                                active,
+                                true,
+                                depth + 1,
+                            ) {
+                                ok = false;
+                                break;
                             }
                         }
                         None => {
                             if !t_prop.optional
-                                && !self.is_assignable(&TsType::Undefined, &t_prop.ty)
+                                && !self.is_assignable_guarded(
+                                    &TsType::Undefined,
+                                    &t_prop.ty,
+                                    active,
+                                    true,
+                                    depth + 1,
+                                )
                             {
-                                return false;
+                                ok = false;
+                                break;
                             }
                         }
                     }
                 }
-                true
+                ok
             }
             (TsType::Function(s_sig), TsType::Function(t_sig)) => {
                 if s_sig.min_params > t_sig.params.len() && !t_sig.has_rest {
-                    return false;
-                }
-                for (s_param, t_param) in s_sig.params.iter().zip(t_sig.params.iter()) {
-                    if !self.is_assignable(t_param, s_param) {
-                        return false;
-                    }
-                }
-                if *t_sig.return_type == TsType::Void {
-                    true
+                    false
                 } else {
-                    self.is_assignable(&s_sig.return_type, &t_sig.return_type)
+                    let params_ok =
+                        s_sig
+                            .params
+                            .iter()
+                            .zip(t_sig.params.iter())
+                            .all(|(s_param, t_param)| {
+                                self.is_assignable_guarded(
+                                    t_param,
+                                    s_param,
+                                    active,
+                                    true,
+                                    depth + 1,
+                                )
+                            });
+                    if !params_ok {
+                        false
+                    } else if *t_sig.return_type == TsType::Void {
+                        true
+                    } else {
+                        self.is_assignable_guarded(
+                            &s_sig.return_type,
+                            &t_sig.return_type,
+                            active,
+                            true,
+                            depth + 1,
+                        )
+                    }
                 }
             }
             _ => false,
-        }
+        };
+        active.pop();
+        result
     }
 
     /// Pre-collect top-level type declarations (interfaces, type aliases, classes, functions)

@@ -968,7 +968,7 @@ fn compile_web_output(
     }
 
     let has_jsx = program_contains_jsx(&program);
-    if !typescript && !has_jsx {
+    if !typescript && !has_jsx && !web_code_uses_flash_globals(&script.source) {
         return Ok((
             script.source.clone(),
             map_name.map(|name| sourcemap::identity_source_map(name, &script.source)),
