@@ -133,6 +133,10 @@ pub(super) enum SwfExpr {
         callee: Box<SwfExpr>,
         args: Vec<SwfExpr>,
     },
+    ApplyType {
+        base: Box<SwfExpr>,
+        type_args: Vec<SwfExpr>,
+    },
     New {
         callee: Box<SwfExpr>,
         args: Vec<SwfExpr>,
@@ -203,7 +207,12 @@ impl SwfExpr {
                 Self::take_box_child(lhs, stack);
                 Self::take_box_child(rhs, stack);
             }
-            Self::Call { callee, args } | Self::New { callee, args } => {
+            Self::Call { callee, args }
+            | Self::ApplyType {
+                base: callee,
+                type_args: args,
+            }
+            | Self::New { callee, args } => {
                 Self::take_box_child(callee, stack);
                 stack.append(args);
             }
@@ -301,7 +310,12 @@ pub(super) fn swf_expr_exceeds_depth(root: &SwfExpr, max_depth: usize) -> bool {
                     stack.push((idx, next));
                 }
             }
-            SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+            SwfExpr::Call { callee, args }
+            | SwfExpr::ApplyType {
+                base: callee,
+                type_args: args,
+            }
+            | SwfExpr::New { callee, args } => {
                 stack.push((callee, next));
                 for a in args {
                     stack.push((a, next));
@@ -2388,6 +2402,12 @@ impl SwfParser {
                         object: Box::new(expr),
                         attr,
                     };
+                } else if self.is_avm2 && self.eat(&SwfToken::Lt) {
+                    let type_args = self.parse_avm2_type_arg_list()?;
+                    expr = SwfExpr::ApplyType {
+                        base: Box::new(expr),
+                        type_args,
+                    };
                 } else if self.is_avm2 && self.eat(&SwfToken::Star) {
                     expr = SwfExpr::Member(Box::new(expr), "*".to_owned());
                 } else if self.is_avm2
@@ -2455,6 +2475,51 @@ impl SwfParser {
             });
         }
         Ok(expr)
+    }
+
+    fn parse_avm2_type_arg_list(&mut self) -> Result<Vec<SwfExpr>, String> {
+        let mut type_args = Vec::new();
+        loop {
+            type_args.push(self.parse_avm2_type_arg_expr()?);
+            if self.eat(&SwfToken::Comma) {
+                continue;
+            }
+            if self.eat(&SwfToken::Gt) {
+                break;
+            }
+            if let Some(tok) = self.tokens.get_mut(self.pos) {
+                if *tok == SwfToken::Shr {
+                    *tok = SwfToken::Gt;
+                    break;
+                } else if *tok == SwfToken::UShr {
+                    *tok = SwfToken::Shr;
+                    break;
+                }
+            }
+            self.expect(&SwfToken::Gt)?;
+            break;
+        }
+        Ok(type_args)
+    }
+
+    fn parse_avm2_type_arg_expr(&mut self) -> Result<SwfExpr, String> {
+        if self.eat(&SwfToken::Star) {
+            return Ok(SwfExpr::Null);
+        }
+        let mut ty = SwfExpr::Ident(self.expect_ident()?);
+        while self.eat(&SwfToken::Dot) {
+            if self.eat(&SwfToken::Lt) {
+                let inner_args = self.parse_avm2_type_arg_list()?;
+                ty = SwfExpr::ApplyType {
+                    base: Box::new(ty),
+                    type_args: inner_args,
+                };
+                break;
+            }
+            let prop = self.expect_ident()?;
+            ty = SwfExpr::Member(Box::new(ty), prop);
+        }
+        Ok(ty)
     }
 
     pub(super) fn parse_arrow_body(&mut self) -> Result<Vec<SwfStmt>, String> {

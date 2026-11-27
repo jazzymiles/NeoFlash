@@ -440,10 +440,13 @@ pub(super) fn find_event_handler_in_expr(expr: &SwfExpr) -> Option<&SwfStmt> {
         SwfExpr::Binary { lhs, rhs, .. } => {
             find_event_handler_in_expr(lhs).or_else(|| find_event_handler_in_expr(rhs))
         }
-        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
-            find_event_handler_in_expr(callee)
-                .or_else(|| args.iter().find_map(find_event_handler_in_expr))
+        SwfExpr::Call { callee, args }
+        | SwfExpr::ApplyType {
+            base: callee,
+            type_args: args,
         }
+        | SwfExpr::New { callee, args } => find_event_handler_in_expr(callee)
+            .or_else(|| args.iter().find_map(find_event_handler_in_expr)),
         SwfExpr::Delete(lv) => match lv.as_ref() {
             SwfLValue::Ident(_) => None,
             SwfLValue::Member(obj, _) => find_event_handler_in_expr(obj),

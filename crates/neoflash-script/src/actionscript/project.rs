@@ -718,7 +718,7 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
             .filter(|(_, m)| m.access.inherited(&m.owner, &c.header.package, as2))
             .cloned()
             .collect();
-        let inherited_contract = contract.clone();
+        let mut inherited_contract = contract.clone();
         let native_base = c
             .base
             .as_ref()
@@ -729,6 +729,12 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 for (key, item) in &builtin_interfaces["flash.events.IEventDispatcher"] {
                     contract.entry(key.clone()).or_insert_with(|| item.clone());
                 }
+            }
+            for (key, item) in self::project_contracts::builtin_event_base_contracts(base) {
+                inherited_contract
+                    .entry(key.clone())
+                    .or_insert_with(|| item.clone());
+                contract.entry(key).or_insert(item);
             }
             for (member, member_offset) in c
                 .fields
@@ -919,8 +925,14 @@ pub fn compile_project(project: &Project) -> Result<ProjectProgram, Vec<Diagnost
                 }
                 if c.header.script.language == ScriptLanguage::ActionScript3 {
                     if let Some(base) = inherited {
+                        let untyped_native_event_override = base.owner.starts_with("flash.events.")
+                            && own_contract.signature.returns == "*"
+                            && own_contract.signature.params.len() == base.signature.params.len()
+                            && own_contract.signature.params.iter().all(|p| p == "*")
+                            && own_contract.signature.rest == base.signature.rest;
                         if !m.override_
-                            || base.signature != own_contract.signature
+                            || (base.signature != own_contract.signature
+                                && !untyped_native_event_override)
                             || base.access != own_contract.access
                             || base.final_
                         {

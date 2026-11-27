@@ -213,7 +213,12 @@ pub(super) fn collect_refs_and_child_free_in_expr(
             collect_refs_and_child_free_in_expr(lhs, direct_refs, child_free);
             collect_refs_and_child_free_in_expr(rhs, direct_refs, child_free);
         }
-        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+        SwfExpr::Call { callee, args }
+        | SwfExpr::ApplyType {
+            base: callee,
+            type_args: args,
+        }
+        | SwfExpr::New { callee, args } => {
             collect_refs_and_child_free_in_expr(callee, direct_refs, child_free);
             for a in args {
                 collect_refs_and_child_free_in_expr(a, direct_refs, child_free);
@@ -676,6 +681,11 @@ fn avm1_compile_expr_bounded(
         }
         SwfExpr::Call { callee, args } => {
             avm1_compile_call_bounded(out, callee, args, false, reg_map, next_depth)?;
+        }
+        SwfExpr::ApplyType { .. } => {
+            return Err(
+                "ActionScript 3 generic Vector.<T> types are not supported in AVM1".to_owned(),
+            );
         }
         SwfExpr::New { callee, args } => {
             for a in args.iter().rev() {

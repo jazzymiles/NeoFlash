@@ -260,6 +260,65 @@ pub(super) fn native_member(base: &str, name: &str) -> bool {
             ))
 }
 
+pub(super) fn builtin_event_base_contracts(
+    base: &str,
+) -> BTreeMap<(String, MethodKind), MethodContract> {
+    if !matches!(
+        base,
+        "flash.events.Event"
+            | "flash.events.MouseEvent"
+            | "flash.events.KeyboardEvent"
+            | "flash.events.FocusEvent"
+            | "flash.events.TextEvent"
+    ) {
+        return BTreeMap::new();
+    }
+    BTreeMap::from([
+        (
+            ("clone".to_owned(), MethodKind::Method),
+            MethodContract {
+                signature: Signature {
+                    params: Vec::new(),
+                    optional: Vec::new(),
+                    rest: false,
+                    returns: "flash.events.Event".to_owned(),
+                },
+                access: Access::Public,
+                owner: base.to_owned(),
+                final_: false,
+            },
+        ),
+        (
+            ("toString".to_owned(), MethodKind::Method),
+            MethodContract {
+                signature: Signature {
+                    params: Vec::new(),
+                    optional: Vec::new(),
+                    rest: false,
+                    returns: "String".to_owned(),
+                },
+                access: Access::Public,
+                owner: base.to_owned(),
+                final_: false,
+            },
+        ),
+        (
+            ("formatToString".to_owned(), MethodKind::Method),
+            MethodContract {
+                signature: Signature {
+                    params: vec!["String".to_owned()],
+                    optional: vec![false],
+                    rest: true,
+                    returns: "String".to_owned(),
+                },
+                access: Access::Public,
+                owner: base.to_owned(),
+                final_: false,
+            },
+        ),
+    ])
+}
+
 pub(super) fn builtin_interface_contracts()
 -> BTreeMap<String, BTreeMap<(String, MethodKind), MethodContract>> {
     let entry =

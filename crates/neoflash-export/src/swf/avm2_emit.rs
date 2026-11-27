@@ -326,11 +326,14 @@ fn compile_avm2_expr_inner(
             } else {
                 compile_avm2_expr(pool, obj, code, state, env)?;
             }
-            if let SwfExpr::Int(iv) = idx.as_ref() {
-                let mn = pool.add_qname("", &iv.to_string());
-                code.u8(get_op);
-                code.u32_v(mn);
-            } else if let SwfExpr::Str(s) = idx.as_ref() {
+            if let SwfExpr::Str(s) = idx.as_ref()
+                && !s.is_empty()
+                && s.chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+            {
                 let mn = pool.add_qname("", s);
                 code.u8(get_op);
                 code.u32_v(mn);
@@ -451,23 +454,11 @@ fn compile_avm2_expr_inner(
                 code.u32_v(mn);
             }
             SwfLValue::Index(obj, idx) => {
-                if let SwfExpr::Int(iv) = idx.as_ref() {
-                    compile_avm2_expr(pool, obj, code, state, env)?;
-                    let mn = pool.add_qname("", &iv.to_string());
-                    code.u8(0x6A); // deleteproperty
-                    code.u32_v(mn);
-                } else if let SwfExpr::Str(s) = idx.as_ref() {
-                    compile_avm2_expr(pool, obj, code, state, env)?;
-                    let mn = pool.add_qname("", s);
-                    code.u8(0x6A); // deleteproperty
-                    code.u32_v(mn);
-                } else {
-                    compile_avm2_expr(pool, obj, code, state, env)?;
-                    compile_avm2_expr(pool, idx, code, state, env)?;
-                    let mn_l = pool.intern_multiname_l();
-                    code.u8(0x6A); // deleteproperty (MultinameL)
-                    code.u32_v(mn_l);
-                }
+                compile_avm2_expr(pool, obj, code, state, env)?;
+                compile_avm2_expr(pool, idx, code, state, env)?;
+                let mn_l = pool.intern_multiname_l();
+                code.u8(0x6A); // deleteproperty (MultinameL)
+                code.u32_v(mn_l);
             }
             SwfLValue::XmlAttr { object, attr } => {
                 compile_avm2_expr(pool, object, code, state, env)?;
@@ -580,7 +571,28 @@ fn compile_avm2_expr_inner(
         SwfExpr::Call { callee, args } => {
             compile_avm2_call(pool, callee, args, false, code, state, env)?;
         }
+        SwfExpr::ApplyType { base, type_args } => {
+            compile_avm2_type_rhs(pool, base, code, state, env)?;
+            for targ in type_args {
+                if matches!(targ, SwfExpr::Null) {
+                    code.u8(0x20); // pushnull (`Vector.<*>`)
+                } else {
+                    compile_avm2_type_rhs(pool, targ, code, state, env)?;
+                }
+            }
+            code.u8(0x53); // applytype
+            code.u32_v(type_args.len() as u32);
+        }
         SwfExpr::New { callee, args } => {
+            if matches!(callee.as_ref(), SwfExpr::ApplyType { .. }) {
+                compile_avm2_expr(pool, callee, code, state, env)?;
+                for a in args {
+                    compile_avm2_expr(pool, a, code, state, env)?;
+                }
+                code.u8(0x42); // construct
+                code.u32_v(args.len() as u32);
+                return Ok(());
+            }
             let Some(parts) = dotted_member_chain(callee) else {
                 return Err("unsupported 'new' constructor target in AVM2".to_owned());
             };
@@ -746,7 +758,14 @@ pub(super) fn compile_avm2_call(
             return Ok(());
         }
 
-        let fn_mn = resolve_avm2_member_multiname(pool, env, short_fn, false);
+        let fn_mn = if !env.own_slots.contains_key(short_fn)
+            && !env.imports.private_methods.contains(short_fn)
+            && let Some(imp_pkg) = env.imports.imported_classes.get(short_fn)
+        {
+            pool.add_qname(imp_pkg, short_fn)
+        } else {
+            resolve_avm2_member_multiname(pool, env, short_fn, false)
+        };
         code.u8(0x60); // getlex
         code.u32_v(fn_mn);
         code.u8(0xD0); // getlocal_0 (receiver)
@@ -866,21 +885,17 @@ where
                         resolve_avm2_member_multiname(pool, env, name, false)
                     }
                 }
-                SwfLValue::Index(_, index) => match index.as_ref() {
-                    SwfExpr::Int(value) => pool.add_qname("", &value.to_string()),
-                    SwfExpr::Str(name) => pool.add_qname("", name),
-                    expr => {
-                        compile_avm2_expr(pool, expr, code, state, env)?;
-                        if read_previous {
-                            let key = env.alloc_temp_reg();
-                            code.u8(0x2a); // keep one key on the stack
-                            emit_avm2_setlocal(code, key);
-                            code.u8(0x2b); // swap key below the second receiver
-                            emit_avm2_getlocal(code, key);
-                        }
-                        pool.intern_multiname_l()
+                SwfLValue::Index(_, index) => {
+                    compile_avm2_expr(pool, index, code, state, env)?;
+                    if read_previous {
+                        let key = env.alloc_temp_reg();
+                        code.u8(0x2a); // keep one key on the stack
+                        emit_avm2_setlocal(code, key);
+                        code.u8(0x2b); // swap key below the second receiver
+                        emit_avm2_getlocal(code, key);
                     }
-                },
+                    pool.intern_multiname_l()
+                }
                 SwfLValue::Ident(_) | SwfLValue::XmlAttr { .. } => unreachable!(),
             };
             if read_previous {

@@ -499,6 +499,9 @@ pub(super) fn context(
     // Exact imports resolve first; wildcard imports cover one package level only.
     // A conflicting wildcard short name is rejected deterministically, even if unused.
     for import in imports.iter().filter(|name| !name.ends_with(".*")) {
+        if language == ScriptLanguage::ActionScript3 && import == "__AS3__.vec.Vector" {
+            continue;
+        }
         if !names.contains(import) {
             return Err(format!(
                 "Unresolved or inaccessible import '{import}'. Add an accessible source unit or supported built-in type."
@@ -532,6 +535,9 @@ pub(super) fn context(
     let mut wildcard_names = BTreeMap::<String, String>::new();
     for import in imports.iter().filter(|name| name.ends_with(".*")) {
         let package = &import[..import.len() - 2];
+        if language == ScriptLanguage::ActionScript3 && package == "__AS3__.vec" {
+            continue;
+        }
         let selected: Vec<_> = names
             .iter()
             .filter(|name| type_package(name) == package)

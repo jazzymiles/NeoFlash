@@ -1187,6 +1187,9 @@ impl Avm2LexicalEnv {
         if let Some(imp_pkg) = self.imports.imported_classes.get(type_name) {
             return pool.add_qname(imp_pkg, type_name);
         }
+        if type_name == "Vector" {
+            return pool.add_qname("__AS3__.vec", "Vector");
+        }
         if matches!(
             type_name,
             "Object"
@@ -1355,7 +1358,12 @@ pub(super) fn expr_has_direct_self_named_fn(expr: &SwfExpr) -> bool {
         SwfExpr::Binary { lhs, rhs, .. } => {
             expr_has_direct_self_named_fn(lhs) || expr_has_direct_self_named_fn(rhs)
         }
-        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+        SwfExpr::Call { callee, args }
+        | SwfExpr::ApplyType {
+            base: callee,
+            type_args: args,
+        }
+        | SwfExpr::New { callee, args } => {
             expr_has_direct_self_named_fn(callee) || args.iter().any(expr_has_direct_self_named_fn)
         }
         SwfExpr::Null
@@ -1937,7 +1945,12 @@ fn resolve_abc_opt_defaults_in_expr(
                 const_table,
             )
         }
-        SwfExpr::Call { callee, args } | SwfExpr::New { callee, args } => {
+        SwfExpr::Call { callee, args }
+        | SwfExpr::ApplyType {
+            base: callee,
+            type_args: args,
+        }
+        | SwfExpr::New { callee, args } => {
             resolve_abc_opt_defaults_in_expr(
                 callee,
                 caller_qname,
@@ -2745,8 +2758,8 @@ pub(super) fn compute_avm2_method_metrics(
                     cur_stack = (cur_stack - argc - 1).max(0);
                 }
             }
-            0x42 => {
-                // construct (u30 argc)
+            0x42 | 0x53 => {
+                // construct / applytype (u30 argc)
                 let argc = read_abc_u30(code, &mut pos) as i32;
                 cur_stack = (cur_stack - argc).max(1);
                 max_stack = max_stack.max(cur_stack);
