@@ -957,6 +957,13 @@ fn analyze_and_typecheck_module(
                     .entry(k.clone())
                     .or_insert_with(|| v.clone());
             }
+            for (k, v) in &target.type_exports.type_params {
+                check_result
+                    .exports
+                    .type_params
+                    .entry(k.clone())
+                    .or_insert_with(|| v.clone());
+            }
             for (k, v) in &target.type_exports.constructors {
                 check_result
                     .exports
@@ -1475,8 +1482,15 @@ pub(crate) fn compile_handler_with_modules_mapped(
             &[(trim_start, trim_start + code.len(), 0)],
         );
         let needs_jsx = code.contains("__nfJsx") || code.contains("__nfFragment");
-        if needs_jsx {
-            let preamble = format!("{}\n", jsx_inline_preamble_js());
+        let needs_native = crate::web_code_uses_flash_globals(&code);
+        if needs_jsx || needs_native {
+            let mut preamble = String::new();
+            preamble.push_str(jsx_inline_preamble_js());
+            preamble.push('\n');
+            if needs_native {
+                preamble.push_str(web_native_globals_preamble_js());
+                preamble.push('\n');
+            }
             let map = crate::sourcemap::shift_map(
                 &map,
                 preamble.bytes().filter(|c| *c == b'\n').count(),
@@ -1494,14 +1508,44 @@ pub(crate) fn compile_handler_with_modules_mapped(
     )
 }
 
+/// Bindings for NeoFlash built-in stage, text, audio, geometry, and event classes in JS/TS scripts.
+pub fn web_native_globals_preamble_js() -> &'static str {
+    r#"const __nfB = (typeof __nfBuiltins === "object" && __nfBuiltins) ? __nfBuiltins : ((typeof __nfProgram === "object" && __nfProgram && __nfProgram.builtins) ? __nfProgram.builtins : ((typeof __nfDisplay === "object" && __nfDisplay && __nfDisplay.builtins) ? __nfDisplay.builtins : null));
+const TextFormat = (__nfB && __nfB["flash.text.TextFormat"]) || globalThis.TextFormat;
+const TextFieldAutoSize = (__nfB && __nfB["flash.text.TextFieldAutoSize"]) || globalThis.TextFieldAutoSize;
+const TextFormatAlign = (__nfB && __nfB["flash.text.TextFormatAlign"]) || globalThis.TextFormatAlign;
+const Bitmap = (__nfB && __nfB["flash.display.Bitmap"]) || globalThis.Bitmap;
+const BitmapData = (__nfB && __nfB["flash.display.BitmapData"]) || globalThis.BitmapData;
+const Stage = (__nfB && __nfB["flash.display.Stage"]) || globalThis.Stage;
+const Sound = (__nfB && __nfB["flash.media.Sound"]) || globalThis.Sound;
+const SoundChannel = (__nfB && __nfB["flash.media.SoundChannel"]) || globalThis.SoundChannel;
+const SoundTransform = (__nfB && __nfB["flash.media.SoundTransform"]) || globalThis.SoundTransform;
+const SoundMixer = (__nfB && __nfB["flash.media.SoundMixer"]) || globalThis.SoundMixer;
+const URLRequest = (__nfB && __nfB["flash.net.URLRequest"]) || globalThis.URLRequest;
+const URLLoader = (__nfB && __nfB["flash.net.URLLoader"]) || globalThis.URLLoader;
+const SharedObject = (__nfB && __nfB["flash.net.SharedObject"]) || globalThis.SharedObject;
+const Point = (__nfB && __nfB["flash.geom.Point"]) || globalThis.Point;
+const Rectangle = (__nfB && __nfB["flash.geom.Rectangle"]) || globalThis.Rectangle;
+const Matrix = (__nfB && __nfB["flash.geom.Matrix"]) || globalThis.Matrix;
+const ColorTransform = (__nfB && __nfB["flash.geom.ColorTransform"]) || globalThis.ColorTransform;
+const Event = (__nfB && __nfB["flash.events.Event"]) || globalThis.Event;
+const MouseEvent = (__nfB && __nfB["flash.events.MouseEvent"]) || globalThis.MouseEvent;
+const KeyboardEvent = (__nfB && __nfB["flash.events.KeyboardEvent"]) || globalThis.KeyboardEvent;
+const FocusEvent = (__nfB && __nfB["flash.events.FocusEvent"]) || globalThis.FocusEvent;
+const Timer = (__nfB && __nfB["flash.utils.Timer"]) || globalThis.Timer;
+const TimerEvent = (__nfB && __nfB["flash.events.TimerEvent"]) || globalThis.TimerEvent;
+const Loader = (__nfB && __nfB["flash.display.Loader"]) || globalThis.Loader;"#
+}
+
 /// Inline JSX helper preamble for standalone scripts/handlers that use JSX without a project bundle.
 pub fn jsx_inline_preamble_js() -> &'static str {
     r#"const __nfFragment = globalThis.__nfFragment || Symbol.for("neoflash.fragment");
-const MovieClip = globalThis.MovieClip || { __nfStageType: "MovieClip" };
-const Sprite = globalThis.Sprite || { __nfStageType: "Sprite" };
-const TextField = globalThis.TextField || { __nfStageType: "TextField" };
-const Shape = globalThis.Shape || { __nfStageType: "Shape" };
-const SimpleButton = globalThis.SimpleButton || { __nfStageType: "SimpleButton" };
+const __nfStageB = (typeof __nfBuiltins === "object" && __nfBuiltins) ? __nfBuiltins : ((typeof __nfProgram === "object" && __nfProgram && __nfProgram.builtins) ? __nfProgram.builtins : ((typeof __nfDisplay === "object" && __nfDisplay && __nfDisplay.builtins) ? __nfDisplay.builtins : null));
+const MovieClip = (__nfStageB && __nfStageB["flash.display.MovieClip"]) || globalThis.MovieClip || { __nfStageType: "MovieClip" };
+const Sprite = (__nfStageB && __nfStageB["flash.display.Sprite"]) || globalThis.Sprite || { __nfStageType: "Sprite" };
+const TextField = (__nfStageB && __nfStageB["flash.text.TextField"]) || globalThis.TextField || { __nfStageType: "TextField" };
+const Shape = (__nfStageB && __nfStageB["flash.display.Shape"]) || globalThis.Shape || { __nfStageType: "Shape" };
+const SimpleButton = (__nfStageB && __nfStageB["flash.display.SimpleButton"]) || globalThis.SimpleButton || { __nfStageType: "SimpleButton" };
 const __nfJsx = globalThis.__nfJsx || function __nfJsx(tag, props) {
   var children = [];
   for (var i = 2; i < arguments.length; i++) {
@@ -1521,7 +1565,17 @@ const __nfJsx = globalThis.__nfJsx || function __nfJsx(tag, props) {
     return { __nfNode: "fragment", type: "Fragment", props: normProps, children: children, textContent: children.map(function(c) { return typeof c === "object" && c && c.textContent !== undefined ? c.textContent : String(c); }).join("") };
   }
   if (typeof tag === "function") {
-    if (tag.__nfStageType) {
+    if (tag === MovieClip) {
+      tag = { __nfStageType: "MovieClip" };
+    } else if (tag === Sprite) {
+      tag = { __nfStageType: "Sprite" };
+    } else if (tag === TextField) {
+      tag = { __nfStageType: "TextField" };
+    } else if (tag === Shape) {
+      tag = { __nfStageType: "Shape" };
+    } else if (tag === SimpleButton) {
+      tag = { __nfStageType: "SimpleButton" };
+    } else if (tag.__nfStageType) {
       tag = { __nfStageType: tag.__nfStageType };
     } else {
       try {
@@ -1630,6 +1684,9 @@ fn emit_bundled_module_runtime(
     let mut out = String::new();
     out.push_str(jsx_inline_preamble_js());
     out.push('\n');
+    out.push_str(web_native_globals_preamble_js());
+    out.push('\n');
+    out.push_str("const trace = (__nfB && __nfB.__nfTrace) || globalThis.trace || function(...a) { console.log(...a); };\n");
     out.push_str(crate::sourcemap::debug_runtime_js());
     out.push('\n');
     out.push_str(
@@ -1716,6 +1773,18 @@ globalThis.__nfRequire = __nfRequire;
   __nfProgram.jsx = __nfJsx;
   __nfProgram.Fragment = __nfFragment;
   __nfProgram.debug = globalThis.__nfDebug;
+  if (__nfB && !__nfProgram.builtins) {
+    __nfProgram.builtins = __nfB;
+  }
+  if (__nfB && typeof __nfProgram.type !== "function") {
+    __nfProgram.type = function(qname) { return __nfB[qname]; };
+  }
+  if (__nfB && typeof __nfProgram.is !== "function") {
+    __nfProgram.is = function(val, qname) {
+      const cls = __nfB[qname];
+      return Boolean(cls && typeof cls.__nfIs === "function" && cls.__nfIs(val));
+    };
+  }
 }
 "#,
     );

@@ -121,10 +121,15 @@ const COMMON_BUILTINS: &[&str] = &[
     "SimpleButton",
     "TextField",
     "TextFormat",
+    "TextFieldAutoSize",
+    "TextFormatAlign",
     "Bitmap",
     "BitmapData",
     "Stage",
     "Sound",
+    "SoundChannel",
+    "SoundTransform",
+    "SoundMixer",
     "Color",
     "Key",
     "Mouse",
@@ -138,11 +143,13 @@ const COMMON_BUILTINS: &[&str] = &[
     "Event",
     "MouseEvent",
     "KeyboardEvent",
+    "FocusEvent",
     "Timer",
     "TimerEvent",
     "Loader",
     "URLRequest",
     "URLLoader",
+    "SharedObject",
     "XML",
     "XMLList",
     "RegExp",
@@ -588,11 +595,7 @@ impl<'a> JsTsWarningCollector<'a> {
                 if let Some(id) = &fn_decl.id {
                     self.known_names.insert(id.name.as_str().to_string());
                 }
-                for param in &fn_decl.params.items {
-                    if let BindingPatternKind::BindingIdentifier(id) = &param.pattern.kind {
-                        self.known_names.insert(id.name.as_str().to_string());
-                    }
-                }
+                self.register_params(&fn_decl.params);
                 if let Some(body) = &fn_decl.body {
                     self.visit_function_body(body);
                 }
@@ -601,28 +604,7 @@ impl<'a> JsTsWarningCollector<'a> {
                 if let Some(id) = &cls_decl.id {
                     self.known_names.insert(id.name.as_str().to_string());
                 }
-                for elem in &cls_decl.body.body {
-                    match elem {
-                        oxc_ast::ast::ClassElement::MethodDefinition(m) => {
-                            for param in &m.value.params.items {
-                                if let BindingPatternKind::BindingIdentifier(id) =
-                                    &param.pattern.kind
-                                {
-                                    self.known_names.insert(id.name.as_str().to_string());
-                                }
-                            }
-                            if let Some(body) = &m.value.body {
-                                self.visit_function_body(body);
-                            }
-                        }
-                        oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
-                            if let Some(val) = &p.value {
-                                self.visit_expression(val);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
+                self.visit_class_body(&cls_decl.body);
             }
             Statement::BlockStatement(block) => {
                 self.check_statement_list(&block.body);
@@ -675,10 +657,20 @@ impl<'a> JsTsWarningCollector<'a> {
                 self.visit_statement(&f.body, false);
             }
             Statement::ForInStatement(fi) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(vd) = &fi.left {
+                    for decl in &vd.declarations {
+                        self.register_binding_pattern(&decl.id);
+                    }
+                }
                 self.visit_expression(&fi.right);
                 self.visit_statement(&fi.body, false);
             }
             Statement::ForOfStatement(fo) => {
+                if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(vd) = &fo.left {
+                    for decl in &vd.declarations {
+                        self.register_binding_pattern(&decl.id);
+                    }
+                }
                 self.visit_expression(&fo.right);
                 self.visit_statement(&fo.body, false);
             }
@@ -694,10 +686,8 @@ impl<'a> JsTsWarningCollector<'a> {
             Statement::TryStatement(tr) => {
                 self.check_statement_list(&tr.block.body);
                 if let Some(handler) = &tr.handler {
-                    if let Some(param) = &handler.param
-                        && let BindingPatternKind::BindingIdentifier(id) = &param.pattern.kind
-                    {
-                        self.known_names.insert(id.name.as_str().to_string());
+                    if let Some(param) = &handler.param {
+                        self.register_binding_pattern(&param.pattern);
                     }
                     self.check_statement_list(&handler.body.body);
                 }
@@ -710,18 +700,19 @@ impl<'a> JsTsWarningCollector<'a> {
                     match decl {
                         Declaration::VariableDeclaration(vd) => self.visit_var_decl(vd, true),
                         Declaration::FunctionDeclaration(fd) => {
+                            if let Some(id) = &fd.id {
+                                self.known_names.insert(id.name.as_str().to_string());
+                            }
+                            self.register_params(&fd.params);
                             if let Some(body) = &fd.body {
                                 self.visit_function_body(body);
                             }
                         }
                         Declaration::ClassDeclaration(cd) => {
-                            for elem in &cd.body.body {
-                                if let oxc_ast::ast::ClassElement::MethodDefinition(m) = elem
-                                    && let Some(body) = &m.value.body
-                                {
-                                    self.visit_function_body(body);
-                                }
+                            if let Some(id) = &cd.id {
+                                self.known_names.insert(id.name.as_str().to_string());
                             }
+                            self.visit_class_body(&cd.body);
                         }
                         _ => {}
                     }
@@ -735,12 +726,85 @@ impl<'a> JsTsWarningCollector<'a> {
                     self.referenced_idents.insert(local.to_string());
                 }
             }
-            Statement::ExportDefaultDeclaration(exp) => {
-                if let Some(expr) = exp.declaration.as_expression() {
-                    self.visit_expression(expr);
+            Statement::ExportDefaultDeclaration(exp) => match &exp.declaration {
+                oxc_ast::ast::ExportDefaultDeclarationKind::FunctionDeclaration(fd) => {
+                    if let Some(id) = &fd.id {
+                        self.known_names.insert(id.name.as_str().to_string());
+                    }
+                    self.register_params(&fd.params);
+                    if let Some(body) = &fd.body {
+                        self.visit_function_body(body);
+                    }
+                }
+                oxc_ast::ast::ExportDefaultDeclarationKind::ClassDeclaration(cd) => {
+                    if let Some(id) = &cd.id {
+                        self.known_names.insert(id.name.as_str().to_string());
+                    }
+                    self.visit_class_body(&cd.body);
+                }
+                _ => {
+                    if let Some(expr) = exp.declaration.as_expression() {
+                        self.visit_expression(expr);
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn register_binding_pattern(&mut self, pat: &oxc_ast::ast::BindingPattern<'a>) {
+        match &pat.kind {
+            BindingPatternKind::BindingIdentifier(id) => {
+                self.known_names.insert(id.name.as_str().to_string());
+            }
+            BindingPatternKind::AssignmentPattern(assign) => {
+                self.register_binding_pattern(&assign.left);
+                self.visit_expression(&assign.right);
+            }
+            BindingPatternKind::ArrayPattern(arr) => {
+                for el in arr.elements.iter().flatten() {
+                    self.register_binding_pattern(el);
+                }
+                if let Some(rest) = &arr.rest {
+                    self.register_binding_pattern(&rest.argument);
                 }
             }
-            _ => {}
+            BindingPatternKind::ObjectPattern(obj) => {
+                for prop in &obj.properties {
+                    self.register_binding_pattern(&prop.value);
+                }
+                if let Some(rest) = &obj.rest {
+                    self.register_binding_pattern(&rest.argument);
+                }
+            }
+        }
+    }
+
+    fn register_params(&mut self, params: &oxc_ast::ast::FormalParameters<'a>) {
+        for param in &params.items {
+            self.register_binding_pattern(&param.pattern);
+        }
+        if let Some(rest) = &params.rest {
+            self.register_binding_pattern(&rest.argument);
+        }
+    }
+
+    fn visit_class_body(&mut self, body: &oxc_ast::ast::ClassBody<'a>) {
+        for elem in &body.body {
+            match elem {
+                oxc_ast::ast::ClassElement::MethodDefinition(m) => {
+                    self.register_params(&m.value.params);
+                    if let Some(fn_body) = &m.value.body {
+                        self.visit_function_body(fn_body);
+                    }
+                }
+                oxc_ast::ast::ClassElement::PropertyDefinition(p) => {
+                    if let Some(val) = &p.value {
+                        self.visit_expression(val);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -772,6 +836,8 @@ impl<'a> JsTsWarningCollector<'a> {
                     has_type_annotation: decl.id.type_annotation.is_some(),
                     inferred_type,
                 });
+            } else {
+                self.register_binding_pattern(&decl.id);
             }
         }
     }

@@ -32,6 +32,7 @@ pub enum TsType {
     Object(BTreeMap<String, TsPropertySig>),
     Function(TsFunctionSig),
     Named(String, Vec<TsType>),
+    TypeParam(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +44,7 @@ pub struct TsPropertySig {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TsFunctionSig {
+    pub type_params: Vec<String>,
     pub params: Vec<TsType>,
     pub min_params: usize,
     pub has_rest: bool,
@@ -63,6 +65,7 @@ pub struct TsVarInfo {
 pub struct ModuleTypeExports {
     pub values: BTreeMap<String, TsType>,
     pub types: BTreeMap<String, TsType>,
+    pub type_params: BTreeMap<String, Vec<String>>,
     pub constructors: BTreeMap<String, TsFunctionSig>,
     pub default_export: Option<TsType>,
 }
@@ -125,6 +128,51 @@ impl TsType {
                     format!("{name}<{}>", inner.join(", "))
                 }
             }
+            Self::TypeParam(name) => name.clone(),
+        }
+    }
+
+    pub fn substitute(&self, params: &[String], args: &[TsType]) -> Self {
+        if params.is_empty() {
+            return self.clone();
+        }
+        match self {
+            Self::TypeParam(name) => params
+                .iter()
+                .position(|p| p == name)
+                .map(|idx| args.get(idx).cloned().unwrap_or(Self::Any))
+                .unwrap_or_else(|| self.clone()),
+            Self::Array(elem) => Self::Array(Box::new(elem.substitute(params, args))),
+            Self::Tuple(items) => {
+                Self::Tuple(items.iter().map(|i| i.substitute(params, args)).collect())
+            }
+            Self::Union(parts) => {
+                Self::Union(parts.iter().map(|p| p.substitute(params, args)).collect())
+            }
+            Self::Intersection(parts) => {
+                Self::Intersection(parts.iter().map(|p| p.substitute(params, args)).collect())
+            }
+            Self::Object(props) => Self::Object(
+                props
+                    .iter()
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            TsPropertySig {
+                                ty: v.ty.substitute(params, args),
+                                optional: v.optional,
+                                readonly: v.readonly,
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
+            Self::Function(sig) => Self::Function(sig.substitute(params, args)),
+            Self::Named(name, targs) => Self::Named(
+                name.clone(),
+                targs.iter().map(|a| a.substitute(params, args)).collect(),
+            ),
+            other => other.clone(),
         }
     }
 
@@ -135,6 +183,20 @@ impl TsType {
             Self::LiteralString(_) => Self::String,
             Self::LiteralBoolean(_) => Self::Boolean,
             Self::Array(elem) => Self::Array(Box::new(elem.widen())),
+            Self::Tuple(items) => Self::Tuple(items.iter().map(Self::widen).collect()),
+            Self::Union(parts) => {
+                let mut out = Vec::new();
+                for p in parts.iter().map(Self::widen) {
+                    if !out.contains(&p) {
+                        out.push(p);
+                    }
+                }
+                if out.len() == 1 {
+                    out.into_iter().next().unwrap()
+                } else {
+                    Self::Union(out)
+                }
+            }
             other => other.clone(),
         }
     }
@@ -188,6 +250,36 @@ pub fn suggest_identifier<'a>(
         }
     }
     best
+}
+
+impl TsFunctionSig {
+    pub fn substitute(&self, params: &[String], args: &[TsType]) -> Self {
+        let shadowed: Vec<String> = params
+            .iter()
+            .filter(|p| !self.type_params.contains(p))
+            .cloned()
+            .collect();
+        if shadowed.is_empty() {
+            return self.clone();
+        }
+        let shadowed_args: Vec<TsType> = params
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| !self.type_params.contains(p))
+            .map(|(i, _)| args.get(i).cloned().unwrap_or(TsType::Any))
+            .collect();
+        Self {
+            type_params: self.type_params.clone(),
+            params: self
+                .params
+                .iter()
+                .map(|p| p.substitute(&shadowed, &shadowed_args))
+                .collect(),
+            min_params: self.min_params,
+            has_rest: self.has_rest,
+            return_type: Box::new(self.return_type.substitute(&shadowed, &shadowed_args)),
+        }
+    }
 }
 
 fn is_builtin_type_name(name: &str) -> bool {
@@ -271,6 +363,8 @@ fn is_builtin_type_name(name: &str) -> bool {
             | "Button"
             | "TextField"
             | "TextFormat"
+            | "TextFieldAutoSize"
+            | "TextFormatAlign"
             | "Stage"
             | "Shape"
             | "Graphics"
@@ -314,6 +408,8 @@ pub struct TypeChecker<'s> {
     prefix_len: usize,
     expr_depth: usize,
     pub types: BTreeMap<String, TsType>,
+    pub generic_type_params: BTreeMap<String, Vec<String>>,
+    pub type_param_scopes: Vec<BTreeSet<String>>,
     pub constructors: BTreeMap<String, TsFunctionSig>,
     pub class_parents: BTreeMap<String, String>,
     pub class_interfaces: BTreeMap<String, Vec<String>>,
@@ -387,6 +483,9 @@ impl<'s> TypeChecker<'s> {
             "MovieClip",
             "Sprite",
             "TextField",
+            "TextFormat",
+            "TextFieldAutoSize",
+            "TextFormatAlign",
             "SimpleButton",
             "Button",
             "Shape",
@@ -394,10 +493,24 @@ impl<'s> TypeChecker<'s> {
             "BitmapData",
             "Video",
             "Sound",
+            "SoundChannel",
+            "SoundTransform",
+            "SoundMixer",
             "Point",
             "Rectangle",
             "Matrix",
+            "ColorTransform",
             "Stage",
+            "Event",
+            "MouseEvent",
+            "KeyboardEvent",
+            "FocusEvent",
+            "Timer",
+            "TimerEvent",
+            "Loader",
+            "URLRequest",
+            "URLLoader",
+            "SharedObject",
             "__nfJsx",
             "__nfFragment",
             "__nfProgram",
@@ -421,6 +534,8 @@ impl<'s> TypeChecker<'s> {
             prefix_len,
             expr_depth: 0,
             types: BTreeMap::new(),
+            generic_type_params: BTreeMap::new(),
+            type_param_scopes: Vec::new(),
             constructors: BTreeMap::new(),
             class_parents: BTreeMap::new(),
             class_interfaces: BTreeMap::new(),
@@ -450,8 +565,46 @@ impl<'s> TypeChecker<'s> {
         self.types.insert(local_name, ty);
     }
 
+    pub fn import_type_params(&mut self, local_name: String, params: Vec<String>) {
+        if !params.is_empty() {
+            self.generic_type_params.insert(local_name, params);
+        }
+    }
+
     pub fn import_constructor(&mut self, local_name: String, sig: TsFunctionSig) {
         self.constructors.insert(local_name, sig);
+    }
+
+    fn push_type_params(
+        &mut self,
+        decl: Option<&oxc_allocator::Box<'_, TSTypeParameterDeclaration<'_>>>,
+    ) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut set = BTreeSet::new();
+        if let Some(tp) = decl {
+            for p in &tp.params {
+                let n = p.name.name.to_string();
+                set.insert(n.clone());
+                names.push(n);
+            }
+        }
+        if !set.is_empty() {
+            self.type_param_scopes.push(set);
+        }
+        names
+    }
+
+    fn pop_type_params(&mut self, names: &[String]) {
+        if !names.is_empty() {
+            self.type_param_scopes.pop();
+        }
+    }
+
+    fn is_type_param_in_scope(&self, name: &str) -> bool {
+        self.type_param_scopes
+            .iter()
+            .rev()
+            .any(|s| s.contains(name))
     }
 
     fn error(&mut self, span_start: u32, message: impl Into<String>) {
@@ -522,12 +675,20 @@ impl<'s> TypeChecker<'s> {
 
     fn resolve_type(&self, ty: &TsType) -> TsType {
         match ty {
-            TsType::Named(name, args) if args.is_empty() => {
+            TsType::Named(name, args) => {
                 if let Some(resolved) = self.types.get(name) {
-                    resolved.clone()
-                } else {
-                    ty.clone()
+                    if let Some(tparams) = self.generic_type_params.get(name)
+                        && !tparams.is_empty()
+                    {
+                        let resolved_args: Vec<TsType> =
+                            args.iter().map(|a| self.resolve_type(a)).collect();
+                        return resolved.substitute(tparams, &resolved_args);
+                    }
+                    if args.is_empty() {
+                        return resolved.clone();
+                    }
                 }
+                ty.clone()
             }
             TsType::Array(inner) => TsType::Array(Box::new(self.resolve_type(inner))),
             TsType::Union(parts) => {
@@ -632,6 +793,9 @@ impl<'s> TypeChecker<'s> {
                         TsType::Array(Box::new(elem))
                     }
                     _ => {
+                        if type_args.is_empty() && self.is_type_param_in_scope(&name) {
+                            return TsType::TypeParam(name);
+                        }
                         if !self.types.contains_key(&name) && !is_builtin_type_name(&name) {
                             let candidates: Vec<&str> =
                                 self.types.keys().map(String::as_str).collect();
@@ -674,10 +838,13 @@ impl<'s> TypeChecker<'s> {
                 }
                 TSSignature::TSMethodSignature(method) => {
                     if let Some(key) = property_key_name(&method.key) {
-                        let sig = self.parse_function_params_and_return(
+                        let tparams = self.push_type_params(method.type_parameters.as_ref());
+                        let mut sig = self.parse_function_params_and_return(
                             &method.params,
                             method.return_type.as_ref(),
                         );
+                        self.pop_type_params(&tparams);
+                        sig.type_params = tparams;
                         props.insert(
                             key,
                             TsPropertySig {
@@ -720,6 +887,7 @@ impl<'s> TypeChecker<'s> {
             .map(|ann| self.parse_ts_type(&ann.type_annotation))
             .unwrap_or(TsType::Any);
         TsFunctionSig {
+            type_params: Vec::new(),
             params: param_types,
             min_params,
             has_rest,
@@ -772,6 +940,9 @@ impl<'s> TypeChecker<'s> {
             }
             (TsType::Named(s_name, s_args), TsType::Named(t_name, t_args)) => {
                 if s_name == t_name {
+                    if s_args.is_empty() || t_args.is_empty() {
+                        return true;
+                    }
                     return s_args.len() == t_args.len()
                         && s_args
                             .iter()
@@ -797,25 +968,49 @@ impl<'s> TypeChecker<'s> {
                     cur = self.class_parents.get(c).map(String::as_str);
                 }
                 // Structural comparison if either resolves to a registered interface/type alias/class.
-                let s_resolved = self.types.get(s_name);
-                let t_resolved = self.types.get(t_name);
+                let s_resolved = self.types.get(s_name).map(|sr| {
+                    self.generic_type_params
+                        .get(s_name)
+                        .map_or_else(|| sr.clone(), |tp| sr.substitute(tp, s_args))
+                });
+                let t_resolved = self.types.get(t_name).map(|tr| {
+                    self.generic_type_params
+                        .get(t_name)
+                        .map_or_else(|| tr.clone(), |tp| tr.substitute(tp, t_args))
+                });
                 match (s_resolved, t_resolved) {
-                    (Some(sr), Some(tr)) => self.is_assignable(sr, tr),
-                    (Some(sr), None) => self.is_assignable(sr, target),
-                    (None, Some(tr)) => self.is_assignable(source, tr),
+                    (Some(sr), Some(tr)) => self.is_assignable(&sr, &tr),
+                    (Some(sr), None) => self.is_assignable(&sr, target),
+                    (None, Some(tr)) => self.is_assignable(source, &tr),
                     (None, None) => false,
                 }
             }
-            (TsType::Named(s_name, _), target) => {
+            (TsType::Named(s_name, s_args), target) => {
                 if let Some(resolved) = self.types.get(s_name) {
-                    self.is_assignable(resolved, target)
+                    let sub = self
+                        .generic_type_params
+                        .get(s_name)
+                        .map_or_else(|| resolved.clone(), |tp| resolved.substitute(tp, s_args));
+                    self.is_assignable(&sub, target)
                 } else {
                     is_builtin_type_name(s_name) && matches!(target, TsType::Object(_))
                 }
             }
-            (source, TsType::Named(t_name, _)) => {
+            (source, TsType::Named(t_name, t_args)) => {
+                if t_name == "Record" {
+                    let val_target = t_args.get(1).unwrap_or(&TsType::Any);
+                    if let TsType::Object(props) = self.resolve_type(source) {
+                        return props
+                            .values()
+                            .all(|p| self.is_assignable(&p.ty, val_target));
+                    }
+                }
                 if let Some(resolved) = self.types.get(t_name) {
-                    self.is_assignable(source, resolved)
+                    let sub = self
+                        .generic_type_params
+                        .get(t_name)
+                        .map_or_else(|| resolved.clone(), |tp| resolved.substitute(tp, t_args));
+                    self.is_assignable(source, &sub)
                 } else {
                     false
                 }
@@ -885,14 +1080,20 @@ impl<'s> TypeChecker<'s> {
                                 let name = iface.id.name.to_string();
                                 self.register_interface(iface, true);
                                 if let Some(ty) = self.types.get(&name).cloned() {
-                                    self.exports.types.insert(name, ty);
+                                    self.exports.types.insert(name.clone(), ty);
+                                }
+                                if let Some(tp) = self.generic_type_params.get(&name).cloned() {
+                                    self.exports.type_params.insert(name, tp);
                                 }
                             }
                             Declaration::TSTypeAliasDeclaration(alias) => {
                                 let name = alias.id.name.to_string();
                                 self.register_type_alias(alias, true);
                                 if let Some(ty) = self.types.get(&name).cloned() {
-                                    self.exports.types.insert(name, ty);
+                                    self.exports.types.insert(name.clone(), ty);
+                                }
+                                if let Some(tp) = self.generic_type_params.get(&name).cloned() {
+                                    self.exports.type_params.insert(name, tp);
                                 }
                             }
                             Declaration::TSEnumDeclaration(enum_decl) => {
@@ -915,6 +1116,9 @@ impl<'s> TypeChecker<'s> {
                                             name.clone(),
                                             TsType::Named(name.clone(), Vec::new()),
                                         );
+                                    }
+                                    if let Some(tp) = self.generic_type_params.get(&name).cloned() {
+                                        self.exports.type_params.insert(name.clone(), tp);
                                     }
                                     if let Some(ctor) = self.constructors.get(&name).cloned() {
                                         self.exports.constructors.insert(name, ctor);
@@ -959,6 +1163,11 @@ impl<'s> TypeChecker<'s> {
 
     fn register_interface(&mut self, iface: &TSInterfaceDeclaration<'_>, _export: bool) {
         let name = iface.id.name.to_string();
+        let tparams = self.push_type_params(iface.type_parameters.as_ref());
+        if !tparams.is_empty() {
+            self.generic_type_params
+                .insert(name.clone(), tparams.clone());
+        }
         // Temporarily insert placeholder for recursive interfaces.
         self.types
             .entry(name.clone())
@@ -973,12 +1182,19 @@ impl<'s> TypeChecker<'s> {
                 }
             }
         }
+        self.pop_type_params(&tparams);
         self.types.insert(name, TsType::Object(props));
     }
 
     fn register_type_alias(&mut self, alias: &TSTypeAliasDeclaration<'_>, _export: bool) {
         let name = alias.id.name.to_string();
+        let tparams = self.push_type_params(alias.type_parameters.as_ref());
+        if !tparams.is_empty() {
+            self.generic_type_params
+                .insert(name.clone(), tparams.clone());
+        }
         let ty = self.parse_ts_type(&alias.type_annotation);
+        self.pop_type_params(&tparams);
         self.types.insert(name, ty);
     }
 
@@ -1024,6 +1240,16 @@ impl<'s> TypeChecker<'s> {
             return;
         };
         let class_name = id.name.to_string();
+        let class_tparams = self.push_type_params(class.type_parameters.as_ref());
+        if !class_tparams.is_empty() {
+            self.generic_type_params
+                .insert(class_name.clone(), class_tparams.clone());
+        }
+        let class_ret_args: Vec<TsType> = class_tparams
+            .iter()
+            .cloned()
+            .map(TsType::TypeParam)
+            .collect();
         self.types
             .entry(class_name.clone())
             .or_insert_with(|| TsType::Object(BTreeMap::new()));
@@ -1052,14 +1278,17 @@ impl<'s> TypeChecker<'s> {
             .get(&class_name)
             .and_then(|parent| self.constructors.get(parent).cloned())
             .map(|mut sig| {
-                sig.return_type = Box::new(TsType::Named(class_name.clone(), Vec::new()));
+                sig.type_params = class_tparams.clone();
+                sig.return_type =
+                    Box::new(TsType::Named(class_name.clone(), class_ret_args.clone()));
                 sig
             })
             .unwrap_or_else(|| TsFunctionSig {
+                type_params: class_tparams.clone(),
                 params: Vec::new(),
                 min_params: 0,
                 has_rest: false,
-                return_type: Box::new(TsType::Named(class_name.clone(), Vec::new())),
+                return_type: Box::new(TsType::Named(class_name.clone(), class_ret_args.clone())),
             });
 
         for elem in &class.body.body {
@@ -1088,7 +1317,9 @@ impl<'s> TypeChecker<'s> {
                     if method.kind == MethodDefinitionKind::Constructor {
                         let mut sig =
                             self.parse_function_params_and_return(&method.value.params, None);
-                        sig.return_type = Box::new(TsType::Named(class_name.clone(), Vec::new()));
+                        sig.type_params = class_tparams.clone();
+                        sig.return_type =
+                            Box::new(TsType::Named(class_name.clone(), class_ret_args.clone()));
                         ctor_sig = sig;
                         // Also collect parameter properties (`constructor(public x: number)`)
                         for param in &method.value.params.items {
@@ -1113,10 +1344,14 @@ impl<'s> TypeChecker<'s> {
                             }
                         }
                     } else if let Some(key) = property_key_name(&method.key) {
-                        let sig = self.parse_function_params_and_return(
+                        let method_tparams =
+                            self.push_type_params(method.value.type_parameters.as_ref());
+                        let mut sig = self.parse_function_params_and_return(
                             &method.value.params,
                             method.value.return_type.as_ref(),
                         );
+                        self.pop_type_params(&method_tparams);
+                        sig.type_params = method_tparams;
                         if !method.r#static {
                             let ty = match method.kind {
                                 MethodDefinitionKind::Get => (*sig.return_type).clone(),
@@ -1140,6 +1375,7 @@ impl<'s> TypeChecker<'s> {
             }
         }
 
+        self.pop_type_params(&class_tparams);
         self.types.insert(class_name.clone(), TsType::Object(props));
         self.constructors.insert(class_name.clone(), ctor_sig);
         self.declare_var(
@@ -1155,7 +1391,11 @@ impl<'s> TypeChecker<'s> {
         let Some(id) = &func.id else {
             return;
         };
-        let sig = self.parse_function_params_and_return(&func.params, func.return_type.as_ref());
+        let tparams = self.push_type_params(func.type_parameters.as_ref());
+        let mut sig =
+            self.parse_function_params_and_return(&func.params, func.return_type.as_ref());
+        self.pop_type_params(&tparams);
+        sig.type_params = tparams;
         self.declare_var(
             id.name.to_string(),
             TsType::Function(sig),
@@ -1210,10 +1450,11 @@ impl<'s> TypeChecker<'s> {
                 self.check_class(class);
             }
             Statement::ReturnStatement(ret) => {
+                let expected_hint = self.return_stack.last().map(|(e, _)| e.clone());
                 let actual = ret
                     .argument
                     .as_ref()
-                    .map(|arg| self.infer_expr(arg))
+                    .map(|arg| self.infer_expr_with_hint(arg, expected_hint.as_ref()))
                     .unwrap_or(TsType::Void);
                 if let Some((expected, saw_return)) = self.return_stack.last_mut() {
                     let expected = expected.clone();
@@ -1299,31 +1540,58 @@ impl<'s> TypeChecker<'s> {
                     _ => TsType::Any,
                 };
                 if let ForStatementLeft::VariableDeclaration(decl) = &f.left {
+                    let is_const = decl.kind == VariableDeclarationKind::Const;
                     for d in &decl.declarations {
-                        if let BindingPatternKind::BindingIdentifier(id) = &d.id.kind {
-                            let declared =
-                                d.id.type_annotation
-                                    .as_ref()
-                                    .map(|ann| self.parse_ts_type(&ann.type_annotation));
-                            if let Some(ann_ty) = &declared
-                                && !self.is_assignable(&elem_ty, ann_ty)
-                            {
-                                self.error(
+                        match &d.id.kind {
+                            BindingPatternKind::BindingIdentifier(id) => {
+                                let declared =
+                                    d.id.type_annotation
+                                        .as_ref()
+                                        .map(|ann| self.parse_ts_type(&ann.type_annotation));
+                                if let Some(ann_ty) = &declared
+                                    && !self.is_assignable(&elem_ty, ann_ty)
+                                {
+                                    self.error(
+                                        d.span.start,
+                                        format!(
+                                            "Type '{}' is not assignable to type '{}'.",
+                                            elem_ty.display_name(),
+                                            ann_ty.display_name()
+                                        ),
+                                    );
+                                }
+                                self.declare_var(
+                                    id.name.to_string(),
+                                    declared.unwrap_or(elem_ty.clone()),
+                                    is_const,
                                     d.span.start,
-                                    format!(
-                                        "Type '{}' is not assignable to type '{}'.",
-                                        elem_ty.display_name(),
-                                        ann_ty.display_name()
-                                    ),
+                                    d.id.type_annotation.is_some(),
                                 );
                             }
-                            self.declare_var(
-                                id.name.to_string(),
-                                declared.unwrap_or(elem_ty.clone()),
-                                decl.kind == VariableDeclarationKind::Const,
-                                d.span.start,
-                                d.id.type_annotation.is_some(),
-                            );
+                            BindingPatternKind::ArrayPattern(arr) => {
+                                let resolved_elem = self.resolve_type(&elem_ty);
+                                for (idx, pat) in arr.elements.iter().enumerate() {
+                                    if let Some(p) = pat
+                                        && let BindingPatternKind::BindingIdentifier(id) = &p.kind
+                                    {
+                                        let item_ty = match &resolved_elem {
+                                            TsType::Tuple(items) => {
+                                                items.get(idx).cloned().unwrap_or(TsType::Any)
+                                            }
+                                            TsType::Array(inner) => (**inner).clone(),
+                                            _ => TsType::Any,
+                                        };
+                                        self.declare_var(
+                                            id.name.to_string(),
+                                            item_ty,
+                                            is_const,
+                                            id.span.start,
+                                            true,
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -1437,24 +1705,10 @@ impl<'s> TypeChecker<'s> {
                 d.id.type_annotation
                     .as_ref()
                     .map(|ann| self.parse_ts_type(&ann.type_annotation));
-            let init_ty = d.init.as_ref().map(|init| {
-                if let (Some(target_ty), Expression::ObjectExpression(obj)) = (&declared_ty, init) {
-                    self.check_object_literal_against_type(obj, target_ty);
-                }
-                if let (Some(target_ty), Expression::ArrayExpression(arr)) = (&declared_ty, init) {
-                    self.check_array_literal_against_type(arr, target_ty);
-                    if let TsType::Tuple(_) = self.resolve_type(target_ty) {
-                        let elems: Vec<TsType> = arr
-                            .elements
-                            .iter()
-                            .filter_map(|el| el.as_expression())
-                            .map(|e| self.infer_expr(e).widen())
-                            .collect();
-                        return TsType::Tuple(elems);
-                    }
-                }
-                self.infer_expr(init)
-            });
+            let init_ty = d
+                .init
+                .as_ref()
+                .map(|init| self.infer_expr_with_hint(init, declared_ty.as_ref()));
 
             if let (Some(expected), Some(actual)) = (&declared_ty, &init_ty)
                 && !self.is_assignable(actual, expected)
@@ -1489,8 +1743,115 @@ impl<'s> TypeChecker<'s> {
                     id.span.start,
                     d.id.type_annotation.is_some(),
                 );
+            } else if let BindingPatternKind::ArrayPattern(arr) = &d.id.kind {
+                let resolved_final = self.resolve_type(&final_ty);
+                for (idx, pat) in arr.elements.iter().enumerate() {
+                    if let Some(p) = pat
+                        && let BindingPatternKind::BindingIdentifier(id) = &p.kind
+                    {
+                        let item_ty = match &resolved_final {
+                            TsType::Tuple(items) => items.get(idx).cloned().unwrap_or(TsType::Any),
+                            TsType::Array(inner) => (**inner).clone(),
+                            _ => TsType::Any,
+                        };
+                        self.declare_var(
+                            id.name.to_string(),
+                            item_ty,
+                            is_const,
+                            id.span.start,
+                            true,
+                        );
+                    }
+                }
             }
         }
+    }
+
+    fn infer_expr_with_hint(&mut self, expr: &Expression<'_>, expected: Option<&TsType>) -> TsType {
+        if let Expression::ParenthesizedExpression(p) = expr {
+            return self.infer_expr_with_hint(&p.expression, expected);
+        }
+        if let Some(target) = expected {
+            let resolved = self.resolve_type(target);
+            match (expr, &resolved) {
+                (Expression::ObjectExpression(obj), TsType::Object(expected_props))
+                    if !expected_props.is_empty() =>
+                {
+                    let before = self.diagnostics.len();
+                    self.check_object_literal_against_type(obj, target);
+                    if self.diagnostics.len() == before {
+                        return target.clone();
+                    }
+                    return self.infer_expr(expr);
+                }
+                (Expression::ObjectExpression(obj), TsType::Named(t_name, t_args))
+                    if t_name == "Record" && t_args.len() == 2 =>
+                {
+                    let before = self.diagnostics.len();
+                    for prop in &obj.properties {
+                        if let ObjectPropertyKind::ObjectProperty(p) = prop
+                            && let Some(key) = property_key_name(&p.key)
+                        {
+                            let val_ty = self.infer_expr_with_hint(&p.value, Some(&t_args[1]));
+                            if !self.is_assignable(&val_ty, &t_args[1]) {
+                                self.error(
+                                    p.value.span().start,
+                                    format!(
+                                        "Type '{}' is not assignable to property '{}' of type '{}'.",
+                                        val_ty.display_name(),
+                                        key,
+                                        t_args[1].display_name()
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    if self.diagnostics.len() == before {
+                        return target.clone();
+                    }
+                    return TsType::Any;
+                }
+                (Expression::ArrayExpression(arr), TsType::Tuple(elem_targets)) => {
+                    let mut elems = Vec::new();
+                    for (idx, el) in arr.elements.iter().enumerate() {
+                        if let Some(e) = el.as_expression() {
+                            let hint = elem_targets.get(idx);
+                            let inferred = self.infer_expr_with_hint(e, hint);
+                            elems.push(if hint.is_some() {
+                                inferred
+                            } else {
+                                inferred.widen()
+                            });
+                        }
+                    }
+                    return TsType::Tuple(elems);
+                }
+                (Expression::ArrayExpression(arr), TsType::Array(elem_target)) => {
+                    let before = self.diagnostics.len();
+                    for el in &arr.elements {
+                        if let Some(e) = el.as_expression() {
+                            let actual = self.infer_expr_with_hint(e, Some(elem_target));
+                            if !self.is_assignable(&actual, elem_target) {
+                                self.error(
+                                    e.span().start,
+                                    format!(
+                                        "Type '{}' is not assignable to array element type '{}'.",
+                                        actual.display_name(),
+                                        elem_target.display_name()
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                    if self.diagnostics.len() == before {
+                        return target.clone();
+                    }
+                    return TsType::Any;
+                }
+                _ => {}
+            }
+        }
+        self.infer_expr(expr)
     }
 
     fn check_object_literal_against_type(&mut self, obj: &ObjectExpression<'_>, target: &TsType) {
@@ -1507,7 +1868,8 @@ impl<'s> TypeChecker<'s> {
                 && let Some(key) = property_key_name(&p.key)
             {
                 provided.insert(key.clone());
-                let val_ty = self.infer_expr(&p.value);
+                let prop_hint = expected_props.get(&key).map(|ep| ep.ty.clone());
+                let val_ty = self.infer_expr_with_hint(&p.value, prop_hint.as_ref());
                 if let Some(expected_prop) = expected_props.get(&key) {
                     if !self.is_assignable(&val_ty, &expected_prop.ty) {
                         self.error(
@@ -1553,31 +1915,11 @@ impl<'s> TypeChecker<'s> {
         }
     }
 
-    fn check_array_literal_against_type(&mut self, arr: &ArrayExpression<'_>, target: &TsType) {
-        let resolved = self.resolve_type(target);
-        if let TsType::Array(elem_target) = resolved {
-            for el in &arr.elements {
-                if let Some(expr) = el.as_expression() {
-                    let actual = self.infer_expr(expr);
-                    if !self.is_assignable(&actual, &elem_target) {
-                        self.error(
-                            expr.span().start,
-                            format!(
-                                "Type '{}' is not assignable to array element type '{}'.",
-                                actual.display_name(),
-                                elem_target.display_name()
-                            ),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
     fn check_function(&mut self, func: &Function<'_>) {
         let Some(body) = &func.body else {
             return;
         };
+        let fn_tparams = self.push_type_params(func.type_parameters.as_ref());
         let sig = self.parse_function_params_and_return(&func.params, func.return_type.as_ref());
         self.push_scope();
         for param in &func.params.items {
@@ -1648,6 +1990,7 @@ impl<'s> TypeChecker<'s> {
             );
         }
         self.pop_scope();
+        self.pop_type_params(&fn_tparams);
     }
 
     fn check_class(&mut self, class: &Class<'_>) {
@@ -1656,11 +1999,27 @@ impl<'s> TypeChecker<'s> {
             .as_ref()
             .map(|id| id.name.to_string())
             .unwrap_or_default();
+        let class_tparams = self.push_type_params(class.type_parameters.as_ref());
+        let self_type_args: Vec<TsType> = class_tparams
+            .iter()
+            .cloned()
+            .map(TsType::TypeParam)
+            .collect();
         // Verify `implements` contracts.
         if let Some(TsType::Object(class_props)) = self.types.get(&class_name).cloned() {
             for imp in &class.implements {
                 let iface_name = ts_type_name_to_string(&imp.expression);
-                if let Some(TsType::Object(iface_props)) = self.types.get(&iface_name).cloned() {
+                let iface_args: Vec<TsType> = imp
+                    .type_arguments
+                    .as_ref()
+                    .map(|ta| ta.params.iter().map(|t| self.parse_ts_type(t)).collect())
+                    .unwrap_or_default();
+                let resolved_iface = self.types.get(&iface_name).map(|ty| {
+                    self.generic_type_params
+                        .get(&iface_name)
+                        .map_or_else(|| ty.clone(), |tp| ty.substitute(tp, &iface_args))
+                });
+                if let Some(TsType::Object(iface_props)) = resolved_iface {
                     for (member_name, iface_prop) in &iface_props {
                         if iface_prop.optional {
                             continue;
@@ -1697,7 +2056,7 @@ impl<'s> TypeChecker<'s> {
         if !class_name.is_empty() {
             self.declare_var(
                 "this".into(),
-                TsType::Named(class_name, Vec::new()),
+                TsType::Named(class_name, self_type_args),
                 true,
                 class.span.start,
                 true,
@@ -1708,7 +2067,7 @@ impl<'s> TypeChecker<'s> {
                 ClassElement::PropertyDefinition(prop) => {
                     if let (Some(ann), Some(val)) = (&prop.type_annotation, &prop.value) {
                         let expected = self.parse_ts_type(&ann.type_annotation);
-                        let actual = self.infer_expr(val);
+                        let actual = self.infer_expr_with_hint(val, Some(&expected));
                         if !self.is_assignable(&actual, &expected) {
                             self.error(
                                 val.span().start,
@@ -1730,6 +2089,7 @@ impl<'s> TypeChecker<'s> {
             }
         }
         self.pop_scope();
+        self.pop_type_params(&class_tparams);
     }
 
     pub fn infer_expr(&mut self, expr: &Expression<'_>) -> TsType {
@@ -2003,8 +2363,8 @@ impl<'s> TypeChecker<'s> {
             }
             Expression::ConditionalExpression(cond) => {
                 self.infer_expr(&cond.test);
-                let c = self.infer_expr(&cond.consequent).widen();
-                let a = self.infer_expr(&cond.alternate).widen();
+                let c = self.infer_expr(&cond.consequent);
+                let a = self.infer_expr(&cond.alternate);
                 if c == a { c } else { TsType::Union(vec![c, a]) }
             }
             Expression::AssignmentExpression(assign) => {
@@ -2118,28 +2478,55 @@ impl<'s> TypeChecker<'s> {
                     AssignmentTarget::ComputedMemberExpression(comp) => {
                         let obj_ty = self.infer_expr(&comp.object);
                         let idx_ty = self.infer_expr(&comp.expression);
-                        if let TsType::Array(elem_ty) = self.resolve_type(&obj_ty) {
-                            if !self.is_assignable(&idx_ty, &TsType::Number) {
-                                self.error(
-                                    comp.expression.span().start,
-                                    format!(
-                                        "Array index must be of type 'number', got '{}'.",
-                                        idx_ty.display_name()
-                                    ),
-                                );
+                        match self.resolve_type(&obj_ty) {
+                            TsType::Array(elem_ty) => {
+                                if !self.is_assignable(&idx_ty, &TsType::Number) {
+                                    self.error(
+                                        comp.expression.span().start,
+                                        format!(
+                                            "Array index must be of type 'number', got '{}'.",
+                                            idx_ty.display_name()
+                                        ),
+                                    );
+                                }
+                                if assign.operator == AssignmentOperator::Assign
+                                    && !self.is_assignable(&rhs, &elem_ty)
+                                {
+                                    self.error(
+                                        assign.right.span().start,
+                                        format!(
+                                            "Type '{}' is not assignable to array element type '{}'.",
+                                            rhs.display_name(),
+                                            elem_ty.display_name()
+                                        ),
+                                    );
+                                }
                             }
-                            if assign.operator == AssignmentOperator::Assign
-                                && !self.is_assignable(&rhs, &elem_ty)
-                            {
-                                self.error(
-                                    assign.right.span().start,
-                                    format!(
-                                        "Type '{}' is not assignable to array element type '{}'.",
-                                        rhs.display_name(),
-                                        elem_ty.display_name()
-                                    ),
-                                );
+                            TsType::Named(name, args) if name == "Record" && args.len() == 2 => {
+                                if !self.is_assignable(&idx_ty, &args[0]) {
+                                    self.error(
+                                        comp.expression.span().start,
+                                        format!(
+                                            "Record key must be of type '{}', got '{}'.",
+                                            args[0].display_name(),
+                                            idx_ty.display_name()
+                                        ),
+                                    );
+                                }
+                                if assign.operator == AssignmentOperator::Assign
+                                    && !self.is_assignable(&rhs, &args[1])
+                                {
+                                    self.error(
+                                        assign.right.span().start,
+                                        format!(
+                                            "Type '{}' is not assignable to Record value type '{}'.",
+                                            rhs.display_name(),
+                                            args[1].display_name()
+                                        ),
+                                    );
+                                }
                             }
+                            _ => {}
                         }
                     }
                     _ => {}
@@ -2153,18 +2540,21 @@ impl<'s> TypeChecker<'s> {
                     TsType::Array(elem) => match prop_name {
                         "length" => TsType::Number,
                         "push" => TsType::Function(TsFunctionSig {
+                            type_params: Vec::new(),
                             params: vec![*elem],
                             min_params: 0,
                             has_rest: true,
                             return_type: Box::new(TsType::Number),
                         }),
                         "pop" | "shift" => TsType::Function(TsFunctionSig {
+                            type_params: Vec::new(),
                             params: Vec::new(),
                             min_params: 0,
                             has_rest: false,
                             return_type: Box::new(TsType::Union(vec![*elem, TsType::Undefined])),
                         }),
                         "join" => TsType::Function(TsFunctionSig {
+                            type_params: Vec::new(),
                             params: vec![TsType::String],
                             min_params: 0,
                             has_rest: false,
@@ -2176,6 +2566,7 @@ impl<'s> TypeChecker<'s> {
                         "length" => TsType::Number,
                         "toUpperCase" | "toLowerCase" | "trim" | "slice" | "substring" => {
                             TsType::Function(TsFunctionSig {
+                                type_params: Vec::new(),
                                 params: Vec::new(),
                                 min_params: 0,
                                 has_rest: true,
@@ -2208,30 +2599,95 @@ impl<'s> TypeChecker<'s> {
             Expression::ComputedMemberExpression(comp) => {
                 let obj_ty = self.infer_expr(&comp.object);
                 let idx_ty = self.infer_expr(&comp.expression);
-                if let TsType::Array(elem) = self.resolve_type(&obj_ty) {
-                    if !self.is_assignable(&idx_ty, &TsType::Number) {
-                        self.error(
-                            comp.expression.span().start,
-                            format!(
-                                "Array index must be of type 'number', got '{}'.",
-                                idx_ty.display_name()
-                            ),
-                        );
+                match self.resolve_type(&obj_ty) {
+                    TsType::Array(elem) => {
+                        if !self.is_assignable(&idx_ty, &TsType::Number) {
+                            self.error(
+                                comp.expression.span().start,
+                                format!(
+                                    "Array index must be of type 'number', got '{}'.",
+                                    idx_ty.display_name()
+                                ),
+                            );
+                        }
+                        *elem
                     }
-                    *elem
-                } else {
-                    TsType::Any
+                    TsType::Tuple(elems) => {
+                        if !self.is_assignable(&idx_ty, &TsType::Number) {
+                            self.error(
+                                comp.expression.span().start,
+                                format!(
+                                    "Tuple index must be of type 'number', got '{}'.",
+                                    idx_ty.display_name()
+                                ),
+                            );
+                        }
+                        if let Expression::NumericLiteral(n) = &comp.expression
+                            && n.value >= 0.0
+                        {
+                            elems.get(n.value as usize).cloned().unwrap_or(TsType::Any)
+                        } else if elems.is_empty() {
+                            TsType::Any
+                        } else {
+                            TsType::Union(elems)
+                        }
+                    }
+                    TsType::Named(name, args) if name == "Record" && args.len() == 2 => {
+                        if !self.is_assignable(&idx_ty, &args[0]) {
+                            self.error(
+                                comp.expression.span().start,
+                                format!(
+                                    "Record key must be of type '{}', got '{}'.",
+                                    args[0].display_name(),
+                                    idx_ty.display_name()
+                                ),
+                            );
+                        }
+                        args[1].clone()
+                    }
+                    _ => TsType::Any,
                 }
             }
             Expression::CallExpression(call) => {
                 let callee_ty = self.infer_expr(&call.callee);
+                let resolved_callee = self.resolve_type(&callee_ty);
+                let explicit_targs: Vec<TsType> = call
+                    .type_arguments
+                    .as_ref()
+                    .map(|ta| ta.params.iter().map(|t| self.parse_ts_type(t)).collect())
+                    .unwrap_or_default();
+                let non_generic_sig = match &resolved_callee {
+                    TsType::Function(raw_sig) if raw_sig.type_params.is_empty() => Some(raw_sig),
+                    _ => None,
+                };
                 let mut arg_types = Vec::with_capacity(call.arguments.len());
-                for arg in &call.arguments {
+                for (idx, arg) in call.arguments.iter().enumerate() {
                     if let Some(e) = arg.as_expression() {
-                        arg_types.push((e.span().start, self.infer_expr(e)));
+                        let hint = non_generic_sig.and_then(|s| {
+                            s.params
+                                .get(idx)
+                                .or_else(|| if s.has_rest { s.params.last() } else { None })
+                        });
+                        arg_types.push((e.span().start, self.infer_expr_with_hint(e, hint)));
                     }
                 }
-                if let TsType::Function(sig) = self.resolve_type(&callee_ty) {
+                if let TsType::Function(raw_sig) = resolved_callee {
+                    let sig = if !raw_sig.type_params.is_empty() {
+                        let targs = if !explicit_targs.is_empty() {
+                            explicit_targs
+                        } else {
+                            infer_generic_args(&raw_sig, &arg_types)
+                        };
+                        let tp = raw_sig.type_params.clone();
+                        let mut inst = TsFunctionSig {
+                            type_params: Vec::new(),
+                            ..raw_sig
+                        };
+                        inst = inst.substitute(&tp, &targs);
+                        inst
+                    } else {
+                        raw_sig
+                    };
                     self.check_call_arguments(call.span.start, &sig, &arg_types);
                     (*sig.return_type).clone()
                 } else {
@@ -2239,6 +2695,11 @@ impl<'s> TypeChecker<'s> {
                 }
             }
             Expression::NewExpression(new_expr) => {
+                let explicit_targs: Vec<TsType> = new_expr
+                    .type_arguments
+                    .as_ref()
+                    .map(|ta| ta.params.iter().map(|t| self.parse_ts_type(t)).collect())
+                    .unwrap_or_default();
                 let mut arg_types = Vec::with_capacity(new_expr.arguments.len());
                 for arg in &new_expr.arguments {
                     if let Some(e) = arg.as_expression() {
@@ -2247,22 +2708,41 @@ impl<'s> TypeChecker<'s> {
                 }
                 if let Expression::Identifier(id) = &new_expr.callee {
                     let name = id.name.as_str();
-                    if let Some(sig) = self.constructors.get(name).cloned() {
+                    if let Some(raw_sig) = self.constructors.get(name).cloned() {
+                        let sig = if !raw_sig.type_params.is_empty() {
+                            let targs = if !explicit_targs.is_empty() {
+                                explicit_targs.clone()
+                            } else {
+                                infer_generic_args(&raw_sig, &arg_types)
+                            };
+                            let tp = raw_sig.type_params.clone();
+                            let inst = TsFunctionSig {
+                                type_params: Vec::new(),
+                                ..raw_sig
+                            };
+                            inst.substitute(&tp, &targs)
+                        } else {
+                            raw_sig
+                        };
                         self.check_call_arguments(new_expr.span.start, &sig, &arg_types);
                         return (*sig.return_type).clone();
                     }
                     return match name {
                         "Audio" => TsType::Named("HTMLAudioElement".into(), Vec::new()),
                         "Image" => TsType::Named("HTMLImageElement".into(), Vec::new()),
-                        "Array" => TsType::Array(Box::new(TsType::Any)),
-                        _ => TsType::Named(name.to_owned(), Vec::new()),
+                        "Array" => TsType::Array(Box::new(
+                            explicit_targs.into_iter().next().unwrap_or(TsType::Any),
+                        )),
+                        _ => TsType::Named(name.to_owned(), explicit_targs),
                     };
                 }
                 TsType::Any
             }
             Expression::ArrowFunctionExpression(arrow) => {
+                let arrow_tparams = self.push_type_params(arrow.type_parameters.as_ref());
                 let mut sig = self
                     .parse_function_params_and_return(&arrow.params, arrow.return_type.as_ref());
+                sig.type_params = arrow_tparams.clone();
                 self.push_scope();
                 for param in &arrow.params.items {
                     if let BindingPatternKind::BindingIdentifier(id) = &param.pattern.kind {
@@ -2310,6 +2790,7 @@ impl<'s> TypeChecker<'s> {
                     self.return_stack.pop();
                 }
                 self.pop_scope();
+                self.pop_type_params(&arrow_tparams);
                 TsType::Function(sig)
             }
             Expression::FunctionExpression(func) => {
@@ -2402,6 +2883,40 @@ impl<'s> TypeChecker<'s> {
     }
 }
 
+fn unify_type_param(param: &TsType, actual: &TsType, inferred: &mut BTreeMap<String, TsType>) {
+    match (param, actual) {
+        (TsType::TypeParam(name), ty) => {
+            if !matches!(ty, TsType::Any | TsType::TypeParam(_)) {
+                inferred.entry(name.clone()).or_insert_with(|| ty.widen());
+            }
+        }
+        (TsType::Array(pe), TsType::Array(ae)) => unify_type_param(pe, ae, inferred),
+        (TsType::Named(pn, pa), TsType::Named(an, aa)) if pn == an => {
+            for (p, a) in pa.iter().zip(aa.iter()) {
+                unify_type_param(p, a, inferred);
+            }
+        }
+        (TsType::Function(ps), TsType::Function(asig)) => {
+            for (p, a) in ps.params.iter().zip(asig.params.iter()) {
+                unify_type_param(p, a, inferred);
+            }
+            unify_type_param(&ps.return_type, &asig.return_type, inferred);
+        }
+        _ => {}
+    }
+}
+
+fn infer_generic_args(sig: &TsFunctionSig, args: &[(u32, TsType)]) -> Vec<TsType> {
+    let mut inferred = BTreeMap::new();
+    for (param_ty, (_, arg_ty)) in sig.params.iter().zip(args.iter()) {
+        unify_type_param(param_ty, arg_ty, &mut inferred);
+    }
+    sig.type_params
+        .iter()
+        .map(|tp| inferred.remove(tp).unwrap_or(TsType::Any))
+        .collect()
+}
+
 fn body_always_throws(stmts: &[Statement<'_>]) -> bool {
     stmts
         .iter()
@@ -2456,6 +2971,12 @@ pub fn check_typescript_program(
                 .entry(t_name.clone())
                 .or_insert_with(|| t_ty.clone());
         }
+        for (t_name, tp) in &exp.type_params {
+            checker
+                .generic_type_params
+                .entry(t_name.clone())
+                .or_insert_with(|| tp.clone());
+        }
     }
 
     // Pre-populate imported bindings from `import` statements in `program.body`
@@ -2476,6 +2997,9 @@ pub fn check_typescript_program(
                             if let Some(exp) = target_exports {
                                 if let Some(ty) = exp.types.get(imported_name) {
                                     checker.import_type(local_name.clone(), ty.clone());
+                                }
+                                if let Some(tp) = exp.type_params.get(imported_name) {
+                                    checker.import_type_params(local_name.clone(), tp.clone());
                                 }
                                 if let Some(ctor) = exp.constructors.get(imported_name) {
                                     checker.import_constructor(local_name.clone(), ctor.clone());

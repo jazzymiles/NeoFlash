@@ -781,3 +781,159 @@ fn structured_diagnostics_recover_independent_errors_and_apply_safe_source_fixes
     assert!(invalid.try_apply("éclair").is_none());
     assert_eq!(invalid.apply("éclair"), "éclair");
 }
+
+#[test]
+fn generic_classes_interfaces_and_native_flash_constructors_typecheck_across_modules() {
+    let mut project = Project::blank();
+    project.sources = vec![
+        source_unit(
+            "city/grid.ts",
+            ScriptLanguage::TypeScript,
+            r#"
+export interface CellBox<T> {
+    value: T;
+    readonly tag: string;
+}
+
+export class Grid2D<T> {
+    width: number;
+    height: number;
+    cells: T[];
+    constructor(width: number, height: number, factory: (x: number, y: number) => T) {
+        this.width = width;
+        this.height = height;
+        const out: T[] = [];
+        for (let y: number = 0; y < height; y++) {
+            for (let x: number = 0; x < width; x++) {
+                out.push(factory(x, y));
+            }
+        }
+        this.cells = out;
+    }
+    get(x: number, y: number): T {
+        return this.cells[y * this.width + x];
+    }
+    set(x: number, y: number, v: T): void {
+        this.cells[y * this.width + x] = v;
+    }
+}
+"#,
+        ),
+        source_unit(
+            "city/sim.ts",
+            ScriptLanguage::TypeScript,
+            r#"
+import { Grid2D, type CellBox } from "./grid";
+
+export interface TileInfo {
+    pop: number;
+    powered: boolean;
+}
+
+export type ZoneKind = "empty" | "water" | "residential";
+
+export interface ToolDef {
+    id: ZoneKind;
+    cost: number;
+}
+
+export const TOOLS: ToolDef[] = [
+    { id: "residential", cost: 100 },
+    { id: "empty", cost: 0 },
+];
+
+export function pairPalette(flag: boolean): [number, number] {
+    if (flag) {
+        return [0x15803d, 0x166534];
+    }
+    return [0x0369a1, 0x075985];
+}
+
+export function buildSampleGrid(seedBoost: number = 0): Grid2D<TileInfo> {
+    const coords: [number, number][] = [[1, 2]];
+    coords.push([2, 3]);
+    const [palA, palB] = pairPalette(true);
+    const cache: Record<string, number> = {};
+    cache["boost"] = seedBoost + (palA > palB ? 0 : 0);
+    const g: Grid2D<TileInfo> = new Grid2D<TileInfo>(4, 4, (x: number, y: number): TileInfo => {
+        const kind: ZoneKind = x === 0 ? "water" : "empty";
+        return { pop: (x + y) * 10 + (kind === "water" ? 0 : cache["boost"]), powered: x % 2 === 0 };
+    });
+    for (const [cx, cy] of coords) {
+        if (cx === 99 && cy === 99) {
+            g.set(cx, cy, { pop: 0, powered: false });
+        }
+    }
+    const box: CellBox<TileInfo> = { value: g.get(coords[0][0], coords[0][1]), tag: "tile" };
+    if (box.value.powered) {
+        g.set(0, 0, { pop: 99, powered: true });
+    }
+    return g;
+}
+"#,
+        ),
+    ];
+
+    let program = compile_project(&project).expect("generic multi-module TS project must compile");
+    let warnings = check_project_warnings(&project);
+    assert!(
+        warnings.is_empty(),
+        "expected 0 warnings, got: {warnings:?}"
+    );
+
+    let handler = script(
+        ScriptLanguage::TypeScript,
+        r#"
+import { buildSampleGrid, type TileInfo } from "./city/sim";
+const g = buildSampleGrid();
+const cell: TileInfo = g.get(1, 2);
+const layer: Sprite = new Sprite();
+const tf: TextField = new TextField();
+const fmt: TextFormat = new TextFormat("Arial", 12, 0xffffff);
+tf.defaultTextFormat = fmt;
+this.summary = String(cell.pop) + ":" + String(typeof layer) + ":" + String(typeof tf);
+"#,
+    );
+    let handler_js = compile_with_program(&handler, &program)
+        .expect("TS handler with generic return & Sprite/TextField must compile");
+
+    let out = eval_js(&format!(
+        r#"
+const __nfBuiltins = {{
+    __nfTrace: (...a) => console.log(...a),
+    "flash.display.Sprite": function Sprite() {{ this.kind = "sprite"; }},
+    "flash.text.TextField": function TextField() {{ this.defaultTextFormat = null; }},
+    "flash.text.TextFormat": function TextFormat(f, s, c) {{ this.font = f; this.size = s; this.color = c; }},
+}};
+const __nfProgram = (function() {{
+    const __nfProgram = Object.create(null);
+    {}
+    return __nfProgram;
+}})();
+const clip = {{}};
+(function(__nfProgram) {{
+    {}
+}}).call(clip, __nfProgram);
+console.log(clip.summary);
+"#,
+        program.web_modules.bundled_code, handler_js
+    ));
+    assert_eq!(out, "30:object:object");
+
+    // Verify generic type substitution catches wrong element type on Grid2D<TileInfo>.set(...)
+    let bad_handler = script(
+        ScriptLanguage::TypeScript,
+        r#"
+import { buildSampleGrid } from "./city/sim";
+const g = buildSampleGrid();
+g.set(0, 0, "wrong-type");
+"#,
+    );
+    let errs = compile_with_program(&bad_handler, &program).unwrap_err();
+    assert!(
+        errs[0]
+            .message
+            .contains("not assignable to parameter of type"),
+        "expected generic substitution error, got: {errs:?}"
+    );
+}

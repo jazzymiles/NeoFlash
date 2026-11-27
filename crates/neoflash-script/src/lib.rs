@@ -1017,8 +1017,17 @@ fn compile_web_output(
         })
         .build(&program);
     let code = generated.code;
-    let preamble = if has_jsx || code.contains("__nfJsx") || code.contains("__nfFragment") {
-        format!("{}\n", modules::jsx_inline_preamble_js())
+    let needs_jsx = has_jsx || code.contains("__nfJsx") || code.contains("__nfFragment");
+    let needs_native = web_code_uses_flash_globals(&code);
+    let preamble = if needs_jsx || needs_native {
+        let mut p = String::new();
+        p.push_str(modules::jsx_inline_preamble_js());
+        p.push('\n');
+        if needs_native {
+            p.push_str(modules::web_native_globals_preamble_js());
+            p.push('\n');
+        }
+        p
     } else {
         String::new()
     };
@@ -1050,6 +1059,41 @@ fn compile_web_output(
         format!("{preamble}{code}\nreturn __neoflash_handler__.call(this);"),
         map,
     ))
+}
+
+pub(crate) fn web_code_uses_flash_globals(code: &str) -> bool {
+    const FLASH_WEB_GLOBALS: &[&str] = &[
+        "MovieClip",
+        "Sprite",
+        "TextField",
+        "TextFormat",
+        "TextFieldAutoSize",
+        "TextFormatAlign",
+        "Shape",
+        "SimpleButton",
+        "Bitmap",
+        "BitmapData",
+        "Stage",
+        "Sound",
+        "SoundChannel",
+        "SoundTransform",
+        "SoundMixer",
+        "URLRequest",
+        "URLLoader",
+        "SharedObject",
+        "Point",
+        "Rectangle",
+        "Matrix",
+        "ColorTransform",
+        "Event",
+        "MouseEvent",
+        "KeyboardEvent",
+        "FocusEvent",
+        "Timer",
+        "TimerEvent",
+        "Loader",
+    ];
+    FLASH_WEB_GLOBALS.iter().any(|ident| code.contains(ident))
 }
 
 fn program_contains_jsx(program: &oxc_ast::ast::Program<'_>) -> bool {
