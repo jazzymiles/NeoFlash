@@ -1196,12 +1196,22 @@
           const begin=args.length?args[0]:0,end=args.length>1?args[1]:2147483647;
           if(![begin,end].every(value=>typeof value==='number'&&Number.isInteger(value)&&value>=-2147483648&&value<=2147483647))throw new RangeError('removeChildren indices require primitive signed 32-bit integers.');
           requireContainer(target);
+          if(typeof player.object_remove_children_targets==='function'){
+            let selected;
+            try{selected=JSON.parse(player.object_remove_children_targets(referenceOf(target).key,begin,end));}
+            catch(error){throw error instanceof Error?error:new RangeError(String(error));}
+            const parentRef=ref();
+            for(const childRefObj of selected){
+              const childProxy=proxyForRef(childRefObj);
+              if(!alive(target)||!alive(childProxy)||parentSpace(childProxy)!==target)continue;
+              mutate({op:'remove',parent:parentRef,child:childRefObj});
+            }
+            return;
+          }
           if(typeof player.object_remove_children!=='function')throw new Error('Rust removeChildren services are unavailable; rebuild and re-export this project.');
           let packet;
           try{packet=JSON.parse(player.object_remove_children(referenceOf(target).key,begin,end));}
           catch(error){throw error instanceof Error?error:new Error(String(error),{cause:error});}
-          // Rust preflights the complete range and captures lifecycle routes
-          // before detaching. User callbacks run only after the atomic change.
           onMutation(packet.events);
         },
         stopAllMovieClips:(...args)=>{
@@ -2376,10 +2386,11 @@
         const node=descriptor(target);if(name[0]==='_'){value=Number(value);if(!Number.isFinite(value)||value<0)return true;}
         if(!Number.isFinite(value)||value<0)throw new RangeError('Display dimensions must be finite nonnegative numbers.');
         const isWidth=name.includes('width'),local=bounds(target,target,true);
-        const lw=local.width,lh=local.height,t=node.transform;
+        const lw=local.width,lh=local.height,t=node.transform,m=node.local_matrix||matrix(t);
+        const mSx=Math.hypot(m[0],m[1]),mSy=Math.hypot(m[2],m[3]);
         const r=t.rotation*Math.PI/180,y=r+(t.skew||0)*Math.PI/180;
-        const ux=Math.abs(Math.cos(r)),uy=Math.abs(Math.sin(r));
-        const vx=Math.abs(Math.sin(y)),vy=Math.abs(Math.cos(y));
+        const ux=mSx>1e-12?Math.abs(m[0])/mSx:Math.abs(Math.cos(r)),uy=mSx>1e-12?Math.abs(m[1])/mSx:Math.abs(Math.sin(r));
+        const vx=mSy>1e-12?Math.abs(m[2])/mSy:Math.abs(Math.sin(y)),vy=mSy>1e-12?Math.abs(m[3])/mSy:Math.abs(Math.cos(y));
         const cx=isWidth?ux*lw:uy*lw,cy=isWidth?vx*lh:vy*lh;
         const signX=t.scale_x<0?-1:1,signY=t.scale_y<0?-1:1;
         if(cx<=1e-12&&cy<=1e-12){
@@ -2388,14 +2399,16 @@
           return true;
         }
         if(cx>1e-12&&cy<=1e-12){
-          if(!invoke(target,'set_property','scale_x',signX*(value/cx)))throw new RangeError('Runtime rejected the requested display dimension.');
+          const reqAbsX=value/cx;
+          if(!invoke(target,'set_property','scale_x',signX*reqAbsX))throw new RangeError('Runtime rejected the requested display dimension.');
           return true;
         }
         if(cy>1e-12&&cx<=1e-12){
-          if(!invoke(target,'set_property','scale_y',signY*(value/cy)))throw new RangeError('Runtime rejected the requested display dimension.');
+          const reqAbsY=value/cy;
+          if(!invoke(target,'set_property','scale_y',signY*reqAbsY))throw new RangeError('Runtime rejected the requested display dimension.');
           return true;
         }
-        const cur=Math.abs(t.scale_x)*cx+Math.abs(t.scale_y)*cy;
+        const cur=(mSx>1e-12?mSx:Math.abs(t.scale_x))*cx+(mSy>1e-12?mSy:Math.abs(t.scale_y))*cy;
         let nextX,nextY;
         if(cur>1e-12){
           const factor=value/cur;

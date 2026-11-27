@@ -627,6 +627,61 @@ trace("AS2 as3only deleted", delete classic.soundTransform, delete classic.upSta
       resetDocument.removeChild(maskTarget);
       resetDocument.removeChild(maskParent);
     }
+    // T-497: Verify sheared Matrix width/height setters preserve custom shear, mixed slash+dot AVM1 target paths,
+    // and native per-child callback timing + reentrant detach safety in removeChildren.
+    {
+      const SpriteCls=linked.program().type('flash.display.Sprite');
+      const MatrixCls=linked.program().type('flash.geom.Matrix');
+      const EventCls=linked.program().type('flash.events.Event');
+      const sheared=new SpriteCls();
+      sheared.graphics.beginFill(0x3366ff,1);
+      sheared.graphics.drawRect(0,0,100,40);
+      sheared.graphics.endFill();
+      resetDocument.addChild(sheared);
+      sheared.transform.matrix=new MatrixCls(1.2,0.3,0.5,0.9,15,25);
+      const origM=sheared.transform.matrix;
+      const origDot=(origM.a*origM.c+origM.b*origM.d)/(Math.hypot(origM.a,origM.b)*Math.hypot(origM.c,origM.d));
+      sheared.width=240;
+      assert.ok(Math.abs(sheared.width-240)<1e-5,`sheared Sprite.width=${sheared.width} must match assigned 240`);
+      const afterM=sheared.transform.matrix;
+      const afterDot=(afterM.a*afterM.c+afterM.b*afterM.d)/(Math.hypot(afterM.a,afterM.b)*Math.hypot(afterM.c,afterM.d));
+      assert.ok(Math.abs(afterDot-origDot)<1e-6,'sheared Matrix setter must preserve inter-axis shear cosine');
+      sheared.width=0;
+      assert.equal(sheared.width,0);
+      sheared.width=240;
+      const restoredM=sheared.transform.matrix;
+      const restoredDot=(restoredM.a*restoredM.c+restoredM.b*restoredM.d)/(Math.hypot(restoredM.a,restoredM.b)*Math.hypot(restoredM.c,restoredM.d));
+      assert.ok(Math.abs(restoredDot-origDot)<1e-6,'sheared Matrix setter must preserve shear across zero-width round-trip');
+      resetDocument.removeChild(sheared);
+
+      // Mixed Flash 4/5 slash + dot AVM1 paths (e.g. "/left.badge" and "../right.badge")
+      const resolvedRootMixed=linked.display().resolveTarget('/left.badge',resetDocument);
+      const resolvedRelMixed=linked.display().resolveTarget('../right.badge',resetDocument.a);
+      assert.equal(resolvedRootMixed,resetDocument.a.badge,'mixed slash+dot root path "/left.badge" resolves');
+      assert.equal(resolvedRelMixed,resetDocument.b.badge,'mixed slash+dot parent path "../right.badge" resolves');
+
+      // Per-child removeChildren callback timing & reentrant removal safety
+      const holder=new SpriteCls();
+      resetDocument.addChild(holder);
+      const c0=new SpriteCls(),c1=new SpriteCls(),c2=new SpriteCls();
+      c0.name='c0';c1.name='c1';c2.name='c2';
+      holder.addChild(c0);holder.addChild(c1);holder.addChild(c2);
+      const traceLog=[];
+      c0.addEventListener(EventCls.REMOVED_FROM_STAGE,()=>{
+        traceLog.push(`c0:${holder.numChildren}:${c1.parent===holder}`);
+        holder.removeChild(c1); // reentrant detach of sibling inside bulk removeChildren
+      });
+      c1.addEventListener(EventCls.REMOVED_FROM_STAGE,()=>{
+        traceLog.push(`c1:${holder.numChildren}`);
+      });
+      c2.addEventListener(EventCls.REMOVED_FROM_STAGE,()=>{
+        traceLog.push(`c2:${holder.numChildren}`);
+      });
+      holder.removeChildren();
+      assert.equal(holder.numChildren,0);
+      assert.deepEqual(traceLog,['c0:2:true','c1:1','c2:0'],'removeChildren fires per-child REMOVED_FROM_STAGE in order and safely skips reentrantly removed siblings');
+      resetDocument.removeChild(holder);
+    }
     linked.disposeFamily();
   } finally {
     if (player) player.free();

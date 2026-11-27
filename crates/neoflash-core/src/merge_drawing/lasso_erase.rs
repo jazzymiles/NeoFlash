@@ -419,10 +419,11 @@ pub(super) fn capsule_ring(
     ring
 }
 
-pub(super) fn eraser_cutter_rings(
+pub(super) fn eraser_cutter_rings_with_shape(
     points: &[[f64; 2]],
     radius: f64,
     tolerance: f64,
+    square: bool,
 ) -> Result<Vec<Vec<[f64; 2]>>, GeometryError> {
     if !radius.is_finite() || radius <= 0.0 || !tolerance.is_finite() || tolerance <= 0.0 {
         return Err(invalid_merge_geometry(
@@ -450,32 +451,43 @@ pub(super) fn eraser_cutter_rings(
             distinct.push(point);
         }
     }
-    let sweep_count = distinct.len().saturating_sub(1).max(1);
-    let max_cap_steps = if distinct.len() == 1 {
-        MAX_PATH_COMMANDS / 2
+    let rings = if square {
+        if distinct.len() == 1 {
+            vec![square_sweep_polygon(distinct[0], distinct[0], radius)]
+        } else {
+            distinct
+                .windows(2)
+                .map(|pair| square_sweep_polygon(pair[0], pair[1], radius))
+                .collect::<Vec<_>>()
+        }
     } else {
-        (MAX_PATH_COMMANDS / (sweep_count * 2)).saturating_sub(1)
-    };
-    if max_cap_steps < 3 {
-        return Err(GeometryError::ComplexityLimit);
-    }
-    // Bound the sagitta of each round cap by the caller's flattening tolerance when the gesture
-    // budget allows it. Dense tablet input degrades cap tessellation, never geometry count.
-    let cosine = (1.0 - tolerance / radius).clamp(-1.0, 1.0);
-    let max_step_angle = 2.0 * cosine.acos();
-    let desired_cap_steps = if max_step_angle.is_finite() && max_step_angle > 1e-6 {
-        (std::f64::consts::PI / max_step_angle).ceil() as usize
-    } else {
-        32
-    };
-    let cap_steps = desired_cap_steps.clamp(6, 32).min(max_cap_steps);
-    let rings = if distinct.len() == 1 {
-        vec![circle_ring(distinct[0], radius, cap_steps)]
-    } else {
-        distinct
-            .windows(2)
-            .map(|pair| capsule_ring(pair[0], pair[1], radius, cap_steps))
-            .collect::<Vec<_>>()
+        let sweep_count = distinct.len().saturating_sub(1).max(1);
+        let max_cap_steps = if distinct.len() == 1 {
+            MAX_PATH_COMMANDS / 2
+        } else {
+            (MAX_PATH_COMMANDS / (sweep_count * 2)).saturating_sub(1)
+        };
+        if max_cap_steps < 3 {
+            return Err(GeometryError::ComplexityLimit);
+        }
+        // Bound the sagitta of each round cap by the caller's flattening tolerance when the gesture
+        // budget allows it. Dense tablet input degrades cap tessellation, never geometry count.
+        let cosine = (1.0 - tolerance / radius).clamp(-1.0, 1.0);
+        let max_step_angle = 2.0 * cosine.acos();
+        let desired_cap_steps = if max_step_angle.is_finite() && max_step_angle > 1e-6 {
+            (std::f64::consts::PI / max_step_angle).ceil() as usize
+        } else {
+            32
+        };
+        let cap_steps = desired_cap_steps.clamp(6, 32).min(max_cap_steps);
+        if distinct.len() == 1 {
+            vec![circle_ring(distinct[0], radius, cap_steps)]
+        } else {
+            distinct
+                .windows(2)
+                .map(|pair| capsule_ring(pair[0], pair[1], radius, cap_steps))
+                .collect::<Vec<_>>()
+        }
     };
     let edge_count = rings.iter().try_fold(0usize, |total, ring| {
         total
@@ -530,6 +542,26 @@ pub fn erase_merge_geometry_with_metric(
     radius: f64,
     tolerance: f64,
 ) -> Result<bool, GeometryError> {
+    erase_merge_geometry_with_shape(
+        elements,
+        eraser_points,
+        local_to_metric,
+        radius,
+        tolerance,
+        false,
+    )
+}
+
+/// Cut raw Merge geometry with either a round (`square == false`) or square (`square == true`)
+/// eraser measured after `local_to_metric`, retaining the result in authored coordinates.
+pub fn erase_merge_geometry_with_shape(
+    elements: &mut Vec<Element>,
+    eraser_points: &[[f64; 2]],
+    local_to_metric: [f64; 6],
+    radius: f64,
+    tolerance: f64,
+    square: bool,
+) -> Result<bool, GeometryError> {
     if local_to_metric.iter().any(|value| !value.is_finite()) {
         return Err(invalid_merge_geometry(
             "eraser metric must be finite and invertible",
@@ -541,7 +573,8 @@ pub fn erase_merge_geometry_with_metric(
         .iter()
         .map(|point| transform_point(local_to_metric, point[0], point[1]))
         .collect();
-    let mut cutter_rings = eraser_cutter_rings(&metric_points, radius, tolerance)?;
+    let mut cutter_rings =
+        eraser_cutter_rings_with_shape(&metric_points, radius, tolerance, square)?;
     for point in cutter_rings.iter_mut().flatten() {
         *point = transform_point(metric_to_local, point[0], point[1]);
     }
@@ -627,12 +660,13 @@ pub fn erase_merge_geometry_with_metric(
             continue;
         }
 
-        let result = erase_path_stroke(
+        let result = erase_path_stroke_with_shape(
             &commands,
             local_to_metric,
             &metric_points,
             radius,
             tolerance,
+            square,
         )?;
         if !result.changed {
             next_elements.push(existing.clone());

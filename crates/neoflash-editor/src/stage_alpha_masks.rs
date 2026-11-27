@@ -29,6 +29,12 @@ struct Cached {
 }
 #[derive(Clone, Default)]
 struct Cache(Vec<Cached>);
+
+#[derive(Clone, Default)]
+struct FrameRetainedHandles {
+    pass_nr: u64,
+    handles: Vec<TextureHandle>,
+}
 struct Captured {
     primitives: Vec<ClippedPrimitive>,
     clip_ids: Vec<String>,
@@ -182,11 +188,14 @@ pub(super) fn paint(
     painter: &egui::Painter,
     scene: &AuthoredScene,
     style: DrawStyle,
+    use_library_source: bool,
 ) -> Result<(), String> {
     let mut draws = Vec::with_capacity(scene.draws.len());
     let mut images = HashMap::new();
     for draw in &scene.draws {
-        let texture = if matches!(draw.item.kind, neoflash_core::ElementKind::Video { .. }) {
+        let texture = if !use_library_source
+            && matches!(draw.item.kind, neoflash_core::ElementKind::Video { .. })
+        {
             let base_dir = editor
                 .tracked_disk_path()
                 .and_then(std::path::Path::parent)
@@ -203,9 +212,30 @@ pub(super) fn paint(
                     )
                 })
         } else {
+            let source_project = if use_library_source {
+                match editor.library_panel.source {
+                    crate::panels::library::LibrarySource::Session(index)
+                        if index != editor.active_session =>
+                    {
+                        editor
+                            .sessions
+                            .get(index)
+                            .and_then(Option::as_ref)
+                            .map_or(&editor.project, |s| &s.project)
+                    }
+                    crate::panels::library::LibrarySource::External => editor
+                        .library_panel
+                        .external_library
+                        .as_ref()
+                        .map_or(&editor.project, |(_, p)| p),
+                    _ => &editor.project,
+                }
+            } else {
+                &editor.project
+            };
             editor
                 .bitmap_textures
-                .texture_transformed(painter.ctx(), &editor.project, &draw.item)
+                .texture_transformed(painter.ctx(), source_project, &draw.item)
         };
         if let Some(id) = texture
             && let Some(image) = editor.bitmap_textures.image(id).or_else(|| {
@@ -299,8 +329,29 @@ pub(super) fn paint(
         group.clip_ids.hash(&mut hash);
         group.blend_mode.as_str().hash(&mut hash);
     }
-    editor.project.background.hash(&mut hash);
-    [editor.project.width, editor.project.height].hash(&mut hash);
+    let source_project = if use_library_source {
+        match editor.library_panel.source {
+            crate::panels::library::LibrarySource::Session(index)
+                if index != editor.active_session =>
+            {
+                editor
+                    .sessions
+                    .get(index)
+                    .and_then(Option::as_ref)
+                    .map_or(&editor.project, |s| &s.project)
+            }
+            crate::panels::library::LibrarySource::External => editor
+                .library_panel
+                .external_library
+                .as_ref()
+                .map_or(&editor.project, |(_, p)| p),
+            _ => &editor.project,
+        }
+    } else {
+        &editor.project
+    };
+    source_project.background.hash(&mut hash);
+    [source_project.width, source_project.height].hash(&mut hash);
     [scale, style.origin.x, style.origin.y, style.zoom]
         .map(f32::to_bits)
         .hash(&mut hash);
@@ -341,8 +392,7 @@ pub(super) fn paint(
                 .map(|paint| paint.resource_id.as_str())
         })
         .collect();
-    let sources: Vec<_> = editor
-        .project
+    let sources: Vec<_> = source_project
         .resources
         .iter()
         .filter(|resource| mask_resources.contains(resource.id.as_str()))
@@ -352,6 +402,15 @@ pub(super) fn paint(
         (Arc::as_ptr(source) as *const () as usize).hash(&mut hash);
     }
     let key = hash.finish();
+    let pass_nr = painter.ctx().cumulative_pass_nr();
+    let retained_id = egui::Id::new("neoflash-alpha-mask-retained-pass");
+    painter.ctx().data_mut(|data| {
+        let retained = data.get_temp_mut_or_default::<FrameRetainedHandles>(retained_id);
+        if retained.pass_nr != pass_nr {
+            retained.pass_nr = pass_nr;
+            retained.handles.clear();
+        }
+    });
     let cache_id = egui::Id::new("neoflash-alpha-mask-rasters");
     let cached = painter.ctx().data_mut(|data| {
         let cache = data.get_temp_mut_or_default::<Cache>(cache_id);
@@ -362,6 +421,11 @@ pub(super) fn paint(
         })
     });
     if let Some(cached) = cached {
+        painter.ctx().data_mut(|data| {
+            data.get_temp_mut_or_default::<FrameRetainedHandles>(retained_id)
+                .handles
+                .push(cached.handle.clone());
+        });
         painter.image(
             cached.handle.id(),
             cached.rect,
@@ -372,12 +436,12 @@ pub(super) fn paint(
     }
     let font = Arc::new(painter.ctx().fonts(|fonts| fonts.image()));
     images.insert(TextureId::Managed(0), (font, TextureOptions::LINEAR));
-    let coverage = MaskCoverage::new(&editor.project, &scene.clips)?;
-    let bg = editor.project.background;
+    let coverage = MaskCoverage::new(source_project, &scene.clips)?;
+    let bg = source_project.background;
     let stage_bg = Color32::from_rgba_unmultiplied(bg[0], bg[1], bg[2], bg[3]);
     let page = Rect::from_min_size(
         style.origin,
-        egui::vec2(editor.project.width as f32, editor.project.height as f32) * style.zoom,
+        egui::vec2(source_project.width as f32, source_project.height as f32) * style.zoom,
     );
     let page_px = [
         (page.left() * scale).floor() as i32,
@@ -420,22 +484,28 @@ pub(super) fn paint(
         Color32::WHITE,
     );
     painter.ctx().data_mut(|data| {
-        let cache = data.get_temp_mut_or_default::<Cache>(cache_id);
-        while !cache.0.is_empty()
-            && (cache.0.len() >= 16
-                || cache.0.iter().map(|c| c.bytes).sum::<usize>() + bytes > MAX_CACHE_BYTES)
+        let mut evicted_handles = Vec::new();
         {
-            cache.0.remove(0);
+            let cache = data.get_temp_mut_or_default::<Cache>(cache_id);
+            while !cache.0.is_empty()
+                && (cache.0.len() >= 16
+                    || cache.0.iter().map(|c| c.bytes).sum::<usize>() + bytes > MAX_CACHE_BYTES)
+            {
+                evicted_handles.push(cache.0.remove(0).handle);
+            }
+            cache.0.push(Cached {
+                key,
+                handle: handle.clone(),
+                rect,
+                bytes,
+                _sources: sources,
+                #[cfg(test)]
+                image: test_image,
+            });
         }
-        cache.0.push(Cached {
-            key,
-            handle,
-            rect,
-            bytes,
-            _sources: sources,
-            #[cfg(test)]
-            image: test_image,
-        });
+        let retained = data.get_temp_mut_or_default::<FrameRetainedHandles>(retained_id);
+        retained.handles.extend(evicted_handles);
+        retained.handles.push(handle);
     });
     Ok(())
 }

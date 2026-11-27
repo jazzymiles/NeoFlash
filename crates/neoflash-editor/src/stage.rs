@@ -2488,6 +2488,17 @@ impl Editor {
         scene: &AuthoredScene,
         style: DrawStyle,
     ) {
+        self.paint_authored_scene_opts(painter, scene, style, true, false);
+    }
+
+    fn paint_authored_scene_opts(
+        &mut self,
+        painter: &egui::Painter,
+        scene: &AuthoredScene,
+        style: DrawStyle,
+        retain_stage_meshes: bool,
+        use_library_source: bool,
+    ) {
         if !style.outlines
             && (scene
                 .clips
@@ -2495,7 +2506,8 @@ impl Editor {
                 .any(|clip| clip.alpha_components.is_some() || clip.invert)
                 || (style.tint.is_none() && scene.has_blend_modes()))
         {
-            if let Err(error) = alpha_masks::paint(self, painter, scene, style) {
+            if let Err(error) = alpha_masks::paint(self, painter, scene, style, use_library_source)
+            {
                 self.message(error);
             }
             return;
@@ -2531,11 +2543,12 @@ impl Editor {
                     }
                 }
             }
-            let video_placement = if matches!(draw.item.kind, ElementKind::Video { .. }) {
-                self.resolve_stage_video_placement(&draw.item)
-            } else {
-                None
-            };
+            let video_placement =
+                if !use_library_source && matches!(draw.item.kind, ElementKind::Video { .. }) {
+                    self.resolve_stage_video_placement(&draw.item)
+                } else {
+                    None
+                };
             let bitmap_texture = if let Some(placement) = &video_placement {
                 let base_dir = self
                     .tracked_disk_path()
@@ -2549,8 +2562,28 @@ impl Editor {
                     draw.item.color_transform,
                 )
             } else {
+                let source_project = if use_library_source {
+                    match self.library_panel.source {
+                        crate::panels::library::LibrarySource::Session(index)
+                            if index != self.active_session =>
+                        {
+                            self.sessions
+                                .get(index)
+                                .and_then(Option::as_ref)
+                                .map_or(&self.project, |s| &s.project)
+                        }
+                        crate::panels::library::LibrarySource::External => self
+                            .library_panel
+                            .external_library
+                            .as_ref()
+                            .map_or(&self.project, |(_, p)| p),
+                        _ => &self.project,
+                    }
+                } else {
+                    &self.project
+                };
                 self.bitmap_textures
-                    .texture_transformed(painter.ctx(), &self.project, &draw.item)
+                    .texture_transformed(painter.ctx(), source_project, &draw.item)
             };
             let video_status_badge = if matches!(draw.item.kind, ElementKind::Video { .. })
                 && bitmap_texture.is_none()
@@ -2596,7 +2629,7 @@ impl Editor {
                         outlines: outlines || draw.outline_color.is_some(),
                         bitmap_texture,
                     },
-                    draw.clip_ids.is_empty(),
+                    retain_stage_meshes && draw.clip_ids.is_empty(),
                 );
                 if let (Some(badge), ElementKind::Video { width, height }) =
                     (&video_status_badge, &draw.item.kind)
@@ -2660,7 +2693,7 @@ impl Editor {
         origin: Pos2,
         zoom: f32,
     ) {
-        self.paint_authored_scene(
+        self.paint_authored_scene_opts(
             painter,
             scene,
             DrawStyle {
@@ -2671,6 +2704,8 @@ impl Editor {
                 outlines: false,
                 bitmap_texture: None,
             },
+            false,
+            false,
         );
     }
     pub(crate) fn paint_library_preview(&mut self, ui: &mut egui::Ui, scene: &AuthoredScene) {
@@ -2702,7 +2737,7 @@ impl Editor {
             .min((rect.height() - 16.) / bounds.height().max(1.))
             .clamp(0.001, 8.);
         let origin = rect.center() - bounds.center().to_vec2() * zoom;
-        self.paint_authored_scene(
+        self.paint_authored_scene_opts(
             &painter,
             scene,
             DrawStyle {
@@ -2713,6 +2748,8 @@ impl Editor {
                 outlines: false,
                 bitmap_texture: None,
             },
+            false,
+            true,
         );
     }
 

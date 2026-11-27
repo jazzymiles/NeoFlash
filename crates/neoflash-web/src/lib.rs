@@ -592,6 +592,11 @@ impl WebPlayer {
     pub fn sound_commands_json(&mut self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.drain_sound_commands()).map_err(display_error)
     }
+    /// Active timeline `Stream` channels and their authoritative `(frame - key_frame) / fps`
+    /// offsets in seconds, used by Web Audio to resynchronize streams after dropped frames.
+    pub fn stream_offsets_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.player.active_stream_offsets()).map_err(display_error)
+    }
     /// Authored timeline-video commands (`VideoCommand`, tagged by `op`) since the last call.
     pub fn video_commands_json(&mut self) -> Result<String, JsValue> {
         serde_json::to_string(&self.player.drain_video_commands()).map_err(display_error)
@@ -776,6 +781,20 @@ impl WebPlayer {
             &self
                 .player
                 .object_remove_children(&self.project, &object_ref(target)?, begin, end)
+                .map_err(display_error)?,
+        )
+        .map_err(display_error)
+    }
+    pub fn object_remove_children_targets(
+        &self,
+        target: &str,
+        begin: i32,
+        end: i32,
+    ) -> Result<String, JsValue> {
+        serde_json::to_string(
+            &self
+                .player
+                .object_remove_children_targets(&self.project, &object_ref(target)?, begin, end)
                 .map_err(display_error)?,
         )
         .map_err(display_error)

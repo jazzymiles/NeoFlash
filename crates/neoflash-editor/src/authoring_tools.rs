@@ -974,6 +974,7 @@ impl Editor {
     /// silently flattened.
     fn erase_stroke_parts(&mut self, gesture: &Gesture, painter: &egui::Painter) {
         let mode = self.authoring_tools.eraser_mode;
+        let square = self.authoring_tools.eraser_shape == EraserShape::Square;
         let selected_ids: std::collections::HashSet<Id> = self
             .selection
             .targets
@@ -1015,10 +1016,6 @@ impl Editor {
             }) else {
                 continue;
             };
-            if !draw.clip_ids.is_empty() {
-                self.notify(neoflash_ui::components::ToastType::Warning, "Partial stroke erasing on masked artwork is not available yet; no artwork was changed.");
-                return;
-            }
             let Some(index) = self.target_layer_index(target) else {
                 continue;
             };
@@ -1031,17 +1028,39 @@ impl Editor {
             .find(|element| element.id == target.element) else {
                 continue;
             };
+            if !element.merge
+                && matches!(
+                    mode,
+                    EraserMode::Fills
+                        | EraserMode::Strokes
+                        | EraserMode::SelectedFills
+                        | EraserMode::Inside
+                )
+            {
+                if paint_parts(&element.kind).is_some() {
+                    let mut retained = element.clone();
+                    apply_paint(
+                        &mut retained.kind,
+                        matches!(
+                            mode,
+                            EraserMode::Fills | EraserMode::SelectedFills | EraserMode::Inside
+                        )
+                        .then_some([0; 4]),
+                        (mode == EraserMode::Strokes).then_some(([0; 4], 0.)),
+                    );
+                    if retained.kind != element.kind {
+                        changes.push((target.clone(), vec![retained]));
+                    }
+                }
+                continue;
+            }
+            if !draw.clip_ids.is_empty() {
+                self.notify(neoflash_ui::components::ToastType::Warning, "Partial stroke erasing on masked artwork is not available yet; no artwork was changed.");
+                return;
+            }
             if element.merge {
                 // Raw Merge geometry is handled as one planar layer operation below, including
                 // fill subtraction and exact stroke fragments.
-                continue;
-            }
-            if matches!(mode, EraserMode::SelectedFills | EraserMode::Inside) {
-                if paint_parts(&element.kind).is_some() {
-                    let mut retained = element.clone();
-                    apply_paint(&mut retained.kind, Some([0; 4]), None);
-                    changes.push((target.clone(), vec![retained]));
-                }
                 continue;
             }
             let layer = &self.symbol().timeline.layers[index];
@@ -1060,7 +1079,7 @@ impl Editor {
             let Some((fill, stroke, width)) = paint_parts(&element.kind) else {
                 continue;
             };
-            let result = match neoflash_core::erase_path_stroke(
+            let result = match neoflash_core::erase_path_stroke_with_shape(
                 &commands,
                 // Hit testing sees the presented pose, including motion guides
                 // and Orient to path. Cut in that same space without baking the
@@ -1069,6 +1088,7 @@ impl Editor {
                 &points,
                 f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
                 0.2 / f64::from(gesture.zoom),
+                square,
             ) {
                 Ok(result) => result,
                 Err(error) => {
@@ -1152,33 +1172,39 @@ impl Editor {
                     self.frame,
                     |elements| {
                         if mode == EraserMode::StrokeSegments {
-                            erase_merge_geometry_with_metric(
+                            erase_merge_geometry_with_shape(
                                 elements,
                                 &local_points,
                                 matrix,
                                 radius,
                                 tol,
+                                square,
                             )
                         } else {
                             let mut any_changed = false;
                             let mut next = Vec::with_capacity(elements.len());
                             for el in std::mem::take(elements) {
-                                let eligible = is_merge_fill(&el)
-                                    && match mode {
-                                        EraserMode::SelectedFills => selected_ids.contains(&el.id),
-                                        EraserMode::Inside => {
-                                            inside_target_id.as_deref() == Some(el.id.as_str())
-                                        }
-                                        _ => true,
-                                    };
+                                let eligible = match mode {
+                                    EraserMode::Fills => is_merge_fill(&el),
+                                    EraserMode::Strokes => neoflash_core::is_merge_stroke(&el),
+                                    EraserMode::SelectedFills => {
+                                        is_merge_fill(&el) && selected_ids.contains(&el.id)
+                                    }
+                                    EraserMode::Inside => {
+                                        is_merge_fill(&el)
+                                            && inside_target_id.as_deref() == Some(el.id.as_str())
+                                    }
+                                    _ => false,
+                                };
                                 if eligible {
                                     let mut single = vec![el];
-                                    match erase_merge_geometry_with_metric(
+                                    match erase_merge_geometry_with_shape(
                                         &mut single,
                                         &local_points,
                                         matrix,
                                         radius,
                                         tol,
+                                        square,
                                     ) {
                                         Ok(changed) => {
                                             any_changed |= changed;
@@ -1265,6 +1291,7 @@ impl Editor {
                 }
             }
             editor.prune_authoring_groups();
+            crate::timeline_commands::upgrade_all_format_versions(&mut editor.project);
             if let Err(error) = editor.project.validate() {
                 editor.project = before;
                 editor.message(error.to_string());
@@ -1915,12 +1942,19 @@ impl Editor {
             }
             Tool::Eraser => {
                 let radius = self.authoring_tools.eraser_size / 2. / g.zoom;
+                let square = self.authoring_tools.eraser_shape == EraserShape::Square;
                 let previous = *g.points.last().unwrap_or(&point);
                 let previous_metric = g.mapping.edit_to_stage_pos(previous);
                 let point_metric = g.mapping.edit_to_stage_pos(point);
                 for (target, mesh) in &g.eraser_meshes {
                     if !g.targets.contains(target)
-                        && swept_disk_hits_mesh(mesh, previous_metric, point_metric, radius)
+                        && swept_brush_hits_mesh(
+                            mesh,
+                            previous_metric,
+                            point_metric,
+                            radius,
+                            square,
+                        )
                     {
                         g.targets.push(target.clone());
                     }
@@ -2028,10 +2062,7 @@ impl Editor {
             }
             Tool::Eraser => {
                 let mode = self.authoring_tools.eraser_mode;
-                if matches!(
-                    mode,
-                    EraserMode::StrokeSegments | EraserMode::SelectedFills | EraserMode::Inside
-                ) {
+                if mode != EraserMode::Objects {
                     self.erase_stroke_parts(&g, p);
                     return;
                 }
@@ -2040,7 +2071,7 @@ impl Editor {
                     let Some(index) = self.target_layer_index(&target) else {
                         continue;
                     };
-                    let Some(element) = sample_layer_at_fps(
+                    let Some(_element) = sample_layer_at_fps(
                         &self.symbol().timeline.layers[index],
                         self.frame,
                         f64::from(self.project.fps),
@@ -2049,21 +2080,7 @@ impl Editor {
                     .find(|e| e.id == target.element) else {
                         continue;
                     };
-                    let kind = if mode == EraserMode::Objects {
-                        None
-                    } else {
-                        if paint_parts(&element.kind).is_none() {
-                            continue;
-                        }
-                        let mut kind = element.kind;
-                        apply_paint(
-                            &mut kind,
-                            (mode == EraserMode::Fills).then_some([0; 4]),
-                            (mode == EraserMode::Strokes).then_some(([0; 4], 0.)),
-                        );
-                        Some(kind)
-                    };
-                    changes.push((target, kind));
+                    changes.push((target, None));
                 }
                 self.change_tool_elements(changes);
             }
@@ -2553,6 +2570,66 @@ fn polyline(points: &[Pos2], closed: bool) -> Vec<PathCommand> {
         commands.push(PathCommand::Close);
     }
     commands
+}
+
+/// Exact hit test for either a swept round disk or a swept axis-aligned square (`[-r, r]^2`).
+fn swept_brush_hits_mesh(
+    mesh: &egui::Mesh,
+    from: Pos2,
+    to: Pos2,
+    radius: f32,
+    square: bool,
+) -> bool {
+    if !square {
+        return swept_disk_hits_mesh(mesh, from, to, radius);
+    }
+    fn cross(a: Pos2, b: Pos2, c: Pos2) -> f32 {
+        (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+    }
+    let hull = neoflash_core::square_sweep_polygon(
+        [f64::from(from.x), f64::from(from.y)],
+        [f64::from(to.x), f64::from(to.y)],
+        f64::from(radius),
+    );
+    if hull.len() < 3 {
+        return false;
+    }
+    let poly: Vec<Pos2> = hull
+        .into_iter()
+        .map(|[x, y]| Pos2::new(x as f32, y as f32))
+        .collect();
+    let swept_bounds = Rect::from_two_pos(from, to).expand(radius);
+    let segments_intersect = |p0: Pos2, p1: Pos2, q0: Pos2, q1: Pos2| {
+        Rect::from_two_pos(p0, p1).intersects(Rect::from_two_pos(q0, q1))
+            && cross(p0, p1, q0) * cross(p0, p1, q1) <= 0.
+            && cross(q0, q1, p0) * cross(q0, q1, p1) <= 0.
+    };
+    mesh.indices.as_chunks::<3>().0.iter().any(|indices| {
+        let triangle = indices.map(|index| mesh.vertices[index as usize].pos);
+        let bounds = Rect::from_points(&triangle);
+        if !swept_bounds.intersects(bounds)
+            || cross(triangle[0], triangle[1], triangle[2]).abs() < 1e-8
+        {
+            return false;
+        }
+        let inside_tri = |point: Pos2| {
+            let sides = [
+                cross(triangle[0], triangle[1], point),
+                cross(triangle[1], triangle[2], point),
+                cross(triangle[2], triangle[0], point),
+            ];
+            sides.iter().all(|side| *side >= 0.) || sides.iter().all(|side| *side <= 0.)
+        };
+        triangle.iter().any(|&v| inside_polygon(&poly, v))
+            || poly.iter().any(|&v| inside_tri(v))
+            || (0..3).any(|ti| {
+                let (ta, tb) = (triangle[ti], triangle[(ti + 1) % 3]);
+                (0..poly.len()).any(|pi| {
+                    let (pa, pb) = (poly[pi], poly[(pi + 1) % poly.len()]);
+                    segments_intersect(ta, tb, pa, pb)
+                })
+            })
+    })
 }
 
 /// A swept disk is a capsule. Its intersection with a triangle is either an

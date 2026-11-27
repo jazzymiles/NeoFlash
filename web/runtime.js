@@ -4937,6 +4937,15 @@
       if(!soundsPreloaded){soundsPreloaded=true;const ids=JSON.parse(player.timeline_sound_resources_json());if(ids.length)audioHost.preloadTimeline(ids);}
       if(commands.length)audioHost.timeline(commands);
     }
+    function syncTimelineStreams(subframeSeconds=0){
+      if(!audioHost||typeof player.stream_offsets_json!=='function'||!audioHost.hasActiveStreams?.())return;
+      const raw=JSON.parse(player.stream_offsets_json());
+      if(!raw.length)return;
+      const extra=Number.isFinite(subframeSeconds)&&subframeSeconds>0?subframeSeconds:0;
+      const offsets=extra>0?raw.map(([ch,off])=>[ch,off+extra]):raw;
+      const threshold=Math.max(0.085,1.5/Math.max(1,runtimeFrameRate||24));
+      audioHost.syncStreams(offsets,threshold);
+    }
     // Authored timeline video uses the same Rust-owned command boundary as frame sound. The
     // browser owns only native decoding, frame presentation and user-activation state.
     function drainVideos(){
@@ -5541,6 +5550,9 @@
             }
             // Avoid a runaway catch-up after a suspended browser tab.
             if (ticks >= 12) accumulated = 0;
+            if (ticks > 0) {
+              syncTimelineStreams(player.is_playing() ? accumulated / 1000 : 0);
+            }
           }
           lastTime = now;
           render();

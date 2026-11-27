@@ -748,11 +748,164 @@ impl CachedProjectBaseline {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+enum KeyframeDelta {
+    /// Element count is identical; stores only changed element slots and optional non-element metadata shell.
+    ElementPatch {
+        shell: Option<Box<crate::Keyframe>>,
+        elements: Vec<(usize, crate::Element)>,
+    },
+    /// Elements were added or removed on this keyframe.
+    Full(Box<crate::Keyframe>),
+}
+
+impl KeyframeDelta {
+    fn retained_elements(&self) -> usize {
+        match self {
+            Self::ElementPatch { elements, .. } => elements.len(),
+            Self::Full(kf) => kf.elements.len(),
+        }
+    }
+}
+
+fn keyframe_shell_without_elements(kf: &crate::Keyframe) -> crate::Keyframe {
+    crate::Keyframe {
+        frame: kf.frame,
+        elements: Vec::new(),
+        tween: kf.tween,
+        label: kf.label.clone(),
+        label_type: kf.label_type,
+        tween_kind: kf.tween_kind,
+        keyed_properties: kf.keyed_properties.clone(),
+        orient_to_path: kf.orient_to_path,
+        property_eases: kf.property_eases.clone(),
+        motion_path: kf.motion_path.clone(),
+        motion_tracks: kf.motion_tracks.clone(),
+        motion_keys: kf.motion_keys.clone(),
+        sync_symbols: kf.sync_symbols,
+        snap_to_guide: kf.snap_to_guide,
+        sound: kf.sound.clone(),
+        shape_hints: kf.shape_hints.clone(),
+        classic_rotate_turns: kf.classic_rotate_turns,
+        classic_rotate_dir: kf.classic_rotate_dir,
+        tween_scale: kf.tween_scale,
+        roving: kf.roving,
+        instance_overrides: kf.instance_overrides.clone(),
+        bitmap_fills: kf.bitmap_fills.clone(),
+        asset_warps: kf.asset_warps.clone(),
+        camera: kf.camera,
+        element_parents: kf.element_parents.clone(),
+        controller_elements: kf.controller_elements.clone(),
+        ik_armatures: kf.ik_armatures.clone(),
+        appearances: kf.appearances.clone(),
+        video: kf.video.clone(),
+        extended_accessibility: kf.extended_accessibility.clone(),
+        vector_effects: kf.vector_effects.clone(),
+        property_expressions: kf.property_expressions.clone(),
+        perspective_grid: kf.perspective_grid,
+        work_area: kf.work_area,
+        markers: kf.markers.clone(),
+        filters: kf.filters.clone(),
+    }
+}
+
+fn keyframe_shells_equal(a: &crate::Keyframe, b: &crate::Keyframe) -> bool {
+    a.frame == b.frame
+        && a.tween == b.tween
+        && a.label == b.label
+        && a.label_type == b.label_type
+        && a.tween_kind == b.tween_kind
+        && a.keyed_properties == b.keyed_properties
+        && a.orient_to_path == b.orient_to_path
+        && a.property_eases == b.property_eases
+        && a.motion_path == b.motion_path
+        && a.motion_tracks == b.motion_tracks
+        && a.motion_keys == b.motion_keys
+        && a.sync_symbols == b.sync_symbols
+        && a.snap_to_guide == b.snap_to_guide
+        && a.sound == b.sound
+        && a.shape_hints == b.shape_hints
+        && a.classic_rotate_turns == b.classic_rotate_turns
+        && a.classic_rotate_dir == b.classic_rotate_dir
+        && a.tween_scale == b.tween_scale
+        && a.roving == b.roving
+        && a.instance_overrides == b.instance_overrides
+        && a.bitmap_fills == b.bitmap_fills
+        && a.asset_warps == b.asset_warps
+        && a.camera == b.camera
+        && a.element_parents == b.element_parents
+        && a.controller_elements == b.controller_elements
+        && a.ik_armatures == b.ik_armatures
+        && a.appearances == b.appearances
+        && a.video == b.video
+        && a.extended_accessibility == b.extended_accessibility
+        && a.vector_effects == b.vector_effects
+        && a.property_expressions == b.property_expressions
+        && a.perspective_grid == b.perspective_grid
+        && a.work_area == b.work_area
+        && a.markers == b.markers
+        && a.filters == b.filters
+}
+
+fn diff_keyframe(before: &crate::Keyframe, after: &crate::Keyframe) -> Option<KeyframeDelta> {
+    if before.elements.len() == after.elements.len() {
+        let shell_same = keyframe_shells_equal(before, after);
+        let mut changed_elements = Vec::new();
+        for (e_idx, (ea, eb)) in before.elements.iter().zip(&after.elements).enumerate() {
+            if ea != eb {
+                changed_elements.push((e_idx, ea.clone()));
+            }
+        }
+        if shell_same && changed_elements.is_empty() {
+            return None;
+        }
+        let shell = (!shell_same).then(|| Box::new(keyframe_shell_without_elements(before)));
+        Some(KeyframeDelta::ElementPatch {
+            shell,
+            elements: changed_elements,
+        })
+    } else {
+        Some(KeyframeDelta::Full(Box::new(before.clone())))
+    }
+}
+
+fn apply_and_invert_keyframe_delta(
+    slot: &mut crate::Keyframe,
+    delta: KeyframeDelta,
+) -> KeyframeDelta {
+    match delta {
+        KeyframeDelta::ElementPatch { shell, elements } => {
+            let inv_shell = shell.map(|mut new_shell| {
+                let mut cur_elements = std::mem::take(&mut slot.elements);
+                std::mem::swap(&mut new_shell.elements, &mut cur_elements);
+                let mut old_kf = std::mem::replace(slot, *new_shell);
+                old_kf.elements = Vec::new();
+                Box::new(old_kf)
+            });
+            let mut inv_elements = Vec::with_capacity(elements.len());
+            for (e_idx, elem) in elements {
+                if let Some(el_slot) = slot.elements.get_mut(e_idx) {
+                    let prev_el = std::mem::replace(el_slot, elem);
+                    inv_elements.push((e_idx, prev_el));
+                }
+            }
+            KeyframeDelta::ElementPatch {
+                shell: inv_shell,
+                elements: inv_elements,
+            }
+        }
+        KeyframeDelta::Full(new_kf) => {
+            let prev_kf = std::mem::replace(slot, *new_kf);
+            KeyframeDelta::Full(Box::new(prev_kf))
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 enum LayerDelta {
     /// Keyframe count is identical; only the listed keyframe indices changed.
     InPlace {
         meta: Option<Box<LayerMeta>>,
-        keyframes: Vec<(usize, crate::Keyframe)>,
+        keyframes: Vec<(usize, KeyframeDelta)>,
     },
     /// Keyframes were added or removed on this layer; holds the shared pre-edit `Arc<Layer>`.
     Full(std::sync::Arc<crate::Layer>),
@@ -799,9 +952,12 @@ fn diff_layer(before: &std::sync::Arc<crate::Layer>, after: &crate::Layer) -> Op
         };
         let mut keyframes = Vec::new();
         for (k_idx, (ka, kb)) in before.keyframes.iter().zip(&after.keyframes).enumerate() {
-            if ka != kb {
-                keyframes.push((k_idx, ka.clone()));
+            if let Some(kd) = diff_keyframe(ka, kb) {
+                keyframes.push((k_idx, kd));
             }
+        }
+        if meta.is_none() && keyframes.is_empty() {
+            return None;
         }
         Some(LayerDelta::InPlace { meta, keyframes })
     } else {
@@ -903,10 +1059,12 @@ fn apply_and_invert_delta(project: &mut Project, delta: ProjectDelta) -> Project
                                             let inv_lmeta =
                                                 meta.map(|m| Box::new(m.apply_to_layer(layer)));
                                             let mut inv_kfs = Vec::with_capacity(keyframes.len());
-                                            for (k_idx, kf) in keyframes {
+                                            for (k_idx, kf_delta) in keyframes {
                                                 if let Some(slot) = layer.keyframes.get_mut(k_idx) {
-                                                    let prev_kf = std::mem::replace(slot, kf);
-                                                    inv_kfs.push((k_idx, prev_kf));
+                                                    let prev_kd = apply_and_invert_keyframe_delta(
+                                                        slot, kf_delta,
+                                                    );
+                                                    inv_kfs.push((k_idx, prev_kd));
                                                 }
                                             }
                                             LayerDelta::InPlace {
@@ -1133,8 +1291,13 @@ struct HistoryEntry {
     command_step: Option<AuthoringCommandStep>,
 }
 
+/// Default maximum retained element payloads across Undo/Redo deltas (`~2,000,000` elements)
+/// so `>100,000`-node scenes never accumulate unbounded cloned geometry across 300 Undo steps,
+/// while always retaining at least the most recent Undo step.
+pub const DEFAULT_HISTORY_ELEMENT_BUDGET: usize = 2_000_000;
+
 /// Structural-delta history with explicit transaction boundaries and `Arc`-shared layer spines.
-/// Unchanged symbols, layers, keyframes, and resources are never duplicated across Undo steps.
+/// Unchanged symbols, layers, keyframes, and elements are never duplicated across Undo steps.
 #[derive(Clone, Debug)]
 pub struct History {
     undo: Vec<HistoryEntry>,
@@ -1142,6 +1305,7 @@ pub struct History {
     pending: Option<PendingEntry>,
     clean_baseline: Option<CachedProjectBaseline>,
     capacity: usize,
+    element_budget: usize,
     revision: u64,
 }
 
@@ -1155,12 +1319,17 @@ impl History {
     const DEFAULT_LABEL: &'static str = "Edit";
 
     pub fn new(capacity: usize) -> Self {
+        Self::with_element_budget(capacity, DEFAULT_HISTORY_ELEMENT_BUDGET)
+    }
+
+    pub fn with_element_budget(capacity: usize, element_budget: usize) -> Self {
         Self {
             undo: vec![],
             redo: vec![],
             pending: None,
             clean_baseline: None,
             capacity,
+            element_budget: element_budget.max(1),
             revision: next_revision(),
         }
     }
@@ -1170,15 +1339,88 @@ impl History {
         self.capacity
     }
 
+    pub fn element_budget(&self) -> usize {
+        self.element_budget
+    }
+
     pub fn set_capacity(&mut self, capacity: usize) {
         self.capacity = capacity;
         self.trim_undo_to_capacity();
+    }
+
+    pub fn set_element_budget(&mut self, element_budget: usize) {
+        self.element_budget = element_budget.max(1);
+        self.trim_undo_to_capacity();
+    }
+
+    fn seed_baseline_layer_ptrs(&self) -> std::collections::HashSet<usize> {
+        self.clean_baseline
+            .iter()
+            .flat_map(|b| &b.symbols)
+            .flat_map(|s| &s.layers)
+            .map(|l| std::sync::Arc::as_ptr(l) as usize)
+            .collect()
+    }
+
+    fn delta_retained_elements_dedup(
+        d: &ProjectDelta,
+        seen_layers: &mut std::collections::HashSet<usize>,
+    ) -> usize {
+        let mut charge_layer = |l: &std::sync::Arc<crate::Layer>| -> usize {
+            if seen_layers.insert(std::sync::Arc::as_ptr(l) as usize) {
+                l.keyframes.iter().map(|k| k.elements.len()).sum()
+            } else {
+                0
+            }
+        };
+        match &d.symbols {
+            SymbolsDelta::InPlace(syms) => syms
+                .iter()
+                .map(|(_, sd)| match &sd.layers {
+                    LayersDelta::InPlace(layers) => layers
+                        .iter()
+                        .map(|(_, ld)| match ld {
+                            LayerDelta::InPlace { keyframes, .. } => keyframes
+                                .iter()
+                                .map(|(_, kd)| kd.retained_elements())
+                                .sum::<usize>(),
+                            LayerDelta::Full(l) => charge_layer(l),
+                        })
+                        .sum::<usize>(),
+                    LayersDelta::Structural(layers) => layers.iter().map(&mut charge_layer).sum(),
+                })
+                .sum(),
+            SymbolsDelta::Structural(spines) => spines
+                .iter()
+                .flat_map(|s| &s.layers)
+                .map(&mut charge_layer)
+                .sum(),
+        }
     }
 
     fn trim_undo_to_capacity(&mut self) {
         if self.undo.len() > self.capacity {
             let excess = self.undo.len() - self.capacity;
             self.undo.drain(..excess);
+        }
+        if self.undo.len() > 1 {
+            // Walk newest-to-oldest, seeding with live `clean_baseline` Arc<Layer> pointers so
+            // untouched shared layers on structural edits are never double-charged, and determine
+            // the oldest suffix within `element_budget`.
+            let mut seen = self.seed_baseline_layer_ptrs();
+            let mut total = 0usize;
+            let mut keep_from = self.undo.len();
+            for idx in (0..self.undo.len()).rev() {
+                let cost = Self::delta_retained_elements_dedup(&self.undo[idx].delta, &mut seen);
+                if idx + 1 < self.undo.len() && total.saturating_add(cost) > self.element_budget {
+                    break;
+                }
+                total = total.saturating_add(cost);
+                keep_from = idx;
+            }
+            if keep_from > 0 {
+                self.undo.drain(..keep_from);
+            }
         }
     }
 
@@ -1370,6 +1612,17 @@ impl History {
             .iter()
             .chain(&self.redo)
             .map(|e| count_delta(&e.delta))
+            .sum()
+    }
+
+    /// Count of retained `Element` payloads across Undo/Redo deltas (for `>100k`-node memory budget checks).
+    pub fn retained_delta_elements(&self) -> usize {
+        let mut seen = self.seed_baseline_layer_ptrs();
+        self.undo
+            .iter()
+            .rev()
+            .chain(self.redo.iter().rev())
+            .map(|e| Self::delta_retained_elements_dedup(&e.delta, &mut seen))
             .sum()
     }
 
@@ -1702,5 +1955,106 @@ mod tests {
         assert!(history.redo(&mut project));
         assert!(history.redo(&mut project));
         assert_eq!(project, saved_snapshot);
+    }
+
+    #[test]
+    fn t497_large_105k_node_scene_uses_element_patch_and_enforces_element_budget() {
+        let mut project = Project::blank();
+        let elements = &mut project.symbols[0].timeline.layers[0].keyframes[0].elements;
+        elements.reserve(105_000);
+        for i in 0..105_000usize {
+            elements.push(Element {
+                id: format!("el-{i}"),
+                kind: ElementKind::Rectangle {
+                    width: 4.0,
+                    height: 4.0,
+                    fill: [100, 150, 200, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            });
+        }
+
+        let mut history = History::new(300);
+        for step in 1..=20usize {
+            history.begin_named(&project, format!("Move {step}"));
+            project.symbols[0].timeline.layers[0].keyframes[0].elements[step]
+                .transform
+                .x = step as f64 * 10.0;
+            assert!(history.commit(&project));
+        }
+        assert_eq!(history.undo_len(), 20);
+        assert_eq!(
+            history.retained_delta_elements(),
+            20,
+            "20 single-element edits on a 105k-node keyframe must retain 20 elements, not 2.1M"
+        );
+
+        assert!(history.undo(&mut project));
+        assert_eq!(
+            project.symbols[0].timeline.layers[0].keyframes[0].elements[20]
+                .transform
+                .x,
+            0.0
+        );
+        assert!(history.redo(&mut project));
+        assert_eq!(
+            project.symbols[0].timeline.layers[0].keyframes[0].elements[20]
+                .transform
+                .x,
+            200.0
+        );
+
+        // Structural element-count mutations use KeyframeDelta::Full, bounded by element_budget
+        // while always retaining at least 1 Undo step.
+        let mut bounded = History::with_element_budget(300, 150_000);
+        for step in 0..3usize {
+            bounded.begin_named(&project, format!("Push {step}"));
+            project.symbols[0].timeline.layers[0].keyframes[0]
+                .elements
+                .push(Element {
+                    id: format!("added-{step}"),
+                    ..Element::default()
+                });
+            assert!(bounded.commit(&project));
+        }
+        assert_eq!(
+            bounded.undo_len(),
+            1,
+            "element_budget must evict older 105k snapshots while preserving the latest Undo step"
+        );
+        assert!(bounded.undo(&mut project));
+        assert_eq!(
+            project.symbols[0].timeline.layers[0].keyframes[0]
+                .elements
+                .len(),
+            105_002
+        );
+
+        // Structural layer additions that keep the 105k-element layer untouched via Arc<Layer>
+        // must charge 0 cloned elements against element_budget.
+        let mut arc_shared = History::with_element_budget(300, 150_000);
+        for step in 0..5usize {
+            arc_shared.begin_named(&project, format!("Add layer {step}"));
+            project.symbols[0].timeline.layers.push(crate::Layer {
+                id: format!("empty-layer-{step}"),
+                name: format!("Layer {}", step + 2),
+                visible: true,
+                locked: false,
+                keyframes: vec![crate::Keyframe {
+                    frame: 0,
+                    ..crate::Keyframe::default()
+                }],
+                properties: Default::default(),
+            });
+            assert!(arc_shared.commit(&project));
+        }
+        assert_eq!(
+            arc_shared.undo_len(),
+            5,
+            "shared untouched Arc<Layer> spines must not be double-charged on structural edits"
+        );
+        assert_eq!(arc_shared.retained_delta_elements(), 0);
     }
 }

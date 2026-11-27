@@ -1094,8 +1094,76 @@
     return false;
   }
 
-  function syncChildrenOrder(parent, desired, preserveFocus = fn => fn()) {
-    const desiredList = desired.filter(Boolean);
+  function positiveBrowseOrderOf(el, suppressedSet = null, memo = null) {
+    if (!el || typeof el.getAttribute !== 'function') return null;
+    if (memo?.has(el)) return memo.get(el);
+    const tag = String(el.tagName || '').toUpperCase();
+    if (tag === 'SVG' || tag === 'CANVAS') {
+      memo?.set(el, null);
+      return null;
+    }
+    if (el.getAttribute('aria-hidden') === 'true') {
+      memo?.set(el, null);
+      return null;
+    }
+    const suppressedEntry = suppressedSet?.get?.(el);
+    if (suppressedEntry?.silent) {
+      memo?.set(el, null);
+      return null;
+    }
+    const ownRaw = el.getAttribute('tabindex');
+    if (ownRaw !== null && ownRaw !== '') {
+      const n = Number(ownRaw);
+      if (Number.isInteger(n) && n > 0) {
+        memo?.set(el, n);
+        return n;
+      }
+    }
+    let best = null;
+    if (el.children) {
+      for (let i = 0; i < el.children.length; i++) {
+        const child = el.children[i];
+        if (suppressedEntry && child !== suppressedEntry.control && child !== suppressedEntry.clipWrapper) continue;
+        const childOrder = positiveBrowseOrderOf(child, suppressedSet, memo);
+        if (childOrder !== null && (best === null || childOrder < best)) best = childOrder;
+      }
+    }
+    memo?.set(el, best);
+    return best;
+  }
+
+  function syncChildrenOrder(parent, desired, preserveFocus = fn => fn(), suppressedSet = null, orderMemo = null) {
+    const rawList = desired.filter(Boolean);
+    let anyOrdered = false;
+    const indexed = rawList.map((el, visualIndex) => {
+      const order = positiveBrowseOrderOf(el, suppressedSet, orderMemo);
+      if (order !== null) anyOrdered = true;
+      return { el, visualIndex, order };
+    });
+    let desiredList = rawList;
+    if (anyOrdered && rawList.length > 1) {
+      for (const entry of indexed) {
+        if (entry.el.style) {
+          entry.el.style.zIndex = String(entry.visualIndex);
+          entry.el.setAttribute?.('data-nf-z-managed', '1');
+        }
+      }
+      indexed.sort((a, b) => {
+        const aHas = a.order !== null ? 0 : 1;
+        const bHas = b.order !== null ? 0 : 1;
+        if (aHas !== bHas) return aHas - bHas;
+        if (a.order !== null && b.order !== null && a.order !== b.order) return a.order - b.order;
+        return a.visualIndex - b.visualIndex;
+      });
+      desiredList = indexed.map(entry => entry.el);
+    } else {
+      for (const el of rawList) {
+        if (el.getAttribute?.('data-nf-z-managed') === '1') {
+          if (el.style) el.style.zIndex = '';
+          el.removeAttribute?.('data-nf-z-managed');
+        }
+      }
+    }
     const desiredSet = new Set(desiredList);
     for (let cur = parent.firstElementChild; cur;) {
       const next = cur.nextElementSibling;
@@ -1302,7 +1370,7 @@
           || element.getAttribute('aria-hidden') === 'true'
           || element.getAttribute('data-force-simple') === 'true';
         for (const child of Array.from(element.children || [])) {
-          visit(child, suppressed || (hideChildren && child !== owner?.control));
+          visit(child, suppressed || (hideChildren && child !== owner?.control && child !== owner?.clipWrapper));
         }
       };
       visit(sceneElement, false);
@@ -2835,6 +2903,46 @@
             islandRecords.set(islandKey, rec);
           }
           rec.element.setAttribute('data-nf-island-reason', entry.reason);
+          {
+            let islandMeta = null;
+            if (entry.rootFg) {
+              islandMeta = semByRef.get(JSON.stringify(entry.rootFg.owner_ref))?.accessibility || null;
+            }
+            if (!islandMeta) {
+              for (const d of entry.draws) {
+                const dk = d.owner_ref ? JSON.stringify(d.owner_ref) : null;
+                const candidate = dk ? semByRef.get(dk)?.accessibility : null;
+                if (candidate) { islandMeta = candidate; break; }
+              }
+            }
+            const drawTextLabel = entry.draws
+              .map(d => d.kind?.type === 'text' ? d.kind.text : (d.kind?.type === 'text_field' ? d.kind.field?.text : ''))
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            const silentIsland = Boolean(islandMeta?.silent);
+            const suppressAuto = Boolean(islandMeta?.noAutoLabeling || islandMeta?.no_auto_labeling);
+            const islandLabel = !silentIsland
+              ? String(islandMeta?.name || (!suppressAuto ? drawTextLabel : '') || '').trim()
+              : '';
+            const islandDesc = !silentIsland ? String(islandMeta?.description || '').trim() : '';
+            if (islandLabel || islandDesc) {
+              const mappedRole = islandMeta?.role && typeof a11yApi?.msaaRoleToAria === 'function'
+                ? a11yApi.msaaRoleToAria(islandMeta.role)
+                : null;
+              rec.element.removeAttribute('aria-hidden');
+              rec.element.setAttribute('role', mappedRole || 'img');
+              if (islandLabel) rec.element.setAttribute('aria-label', islandLabel);
+              else rec.element.removeAttribute('aria-label');
+              if (islandDesc) rec.element.setAttribute('aria-description', islandDesc);
+              else rec.element.removeAttribute('aria-description');
+            } else {
+              rec.element.setAttribute('aria-hidden', 'true');
+              rec.element.removeAttribute('role');
+              rec.element.removeAttribute('aria-label');
+              rec.element.removeAttribute('aria-description');
+            }
+          }
           const rootOp = entry.rootFg?.composite_operation || 'source-over';
           const islandCssBlend = rootOp === 'lighter'
             ? 'plus-lighter'
@@ -3069,7 +3177,9 @@
         }
       }
 
-      // Attach/update interactive <button> overlays inside their owning containers.
+      // Attach/update interactive <button> overlays and container accessibility first,
+      // then sync child order bottom-up so parent containers see descendant tabIndex on frame 0.
+      const finalChildLists = new Map();
       for (const [key, rec] of containerRecords) {
         if (!seenContainers.has(key)) continue;
         const node = objectsByKey.get(key);
@@ -3121,14 +3231,47 @@
           } : {});
         const ownerMeta = semByRef.get(key)?.accessibility;
         if (ownerMeta?.silent || ownerMeta?.forceSimple || ownerMeta?.force_simple) {
-          suppressionOwners.set(rec.element, { control: rec.buttonRecord?.element });
+          const isSilent = Boolean(ownerMeta?.silent);
+          const ctrl = !isSilent ? rec.buttonRecord?.element : null;
+          suppressionOwners.set(rec.element, {
+            control: ctrl,
+            clipWrapper: ctrl ? rec.clipWrapper : null,
+            silent: isSilent,
+          });
+          if (ctrl && rec.clipWrapper && rec.clipInner) {
+            suppressionOwners.set(rec.clipWrapper, { control: ctrl, clipWrapper: rec.clipInner, silent: false });
+            suppressionOwners.set(rec.clipInner, { control: ctrl, clipWrapper: null, silent: false });
+          }
         }
+        finalChildLists.set(key, childList);
+      }
+      const containerDepthOf = key => {
+        let depth = 0;
+        const visited = new Set();
+        for (let cur = objectsByKey.get(key); cur; cur = cur.parent_ref ? objectsByKey.get(JSON.stringify(cur.parent_ref)) : null) {
+          const ck = cur.object_ref ? JSON.stringify(cur.object_ref) : JSON.stringify(cur.path || []);
+          if (visited.has(ck)) break;
+          visited.add(ck);
+          depth++;
+        }
+        return depth;
+      };
+      const browseOrderMemo = new WeakMap();
+      const orderedContainers = Array.from(containerRecords.entries())
+        .filter(([key]) => seenContainers.has(key))
+        .sort((a, b) => containerDepthOf(b[0]) - containerDepthOf(a[0]));
+      for (const [key, rec] of orderedContainers) {
+        const childList = finalChildLists.get(key) || [];
         if (rec.clipWrapper && rec.clipInner) {
-          syncChildrenOrder(rec.clipInner, childList, preserveNativeFocus);
-          syncChildrenOrder(rec.element, [rec.clipWrapper], preserveNativeFocus);
+          syncChildrenOrder(rec.clipInner, childList, preserveNativeFocus, suppressionOwners, browseOrderMemo);
+          browseOrderMemo.delete(rec.clipInner);
+          browseOrderMemo.delete(rec.clipWrapper);
+          syncChildrenOrder(rec.element, [rec.clipWrapper], preserveNativeFocus, suppressionOwners, browseOrderMemo);
         } else {
-          syncChildrenOrder(rec.element, childList, preserveNativeFocus);
+          syncChildrenOrder(rec.element, childList, preserveNativeFocus, suppressionOwners, browseOrderMemo);
         }
+        browseOrderMemo.delete(rec.element);
+        positiveBrowseOrderOf(rec.element, suppressionOwners, browseOrderMemo);
       }
 
       // Prune stale records (zero DOM node or listener leaks!).
@@ -3151,7 +3294,7 @@
         }
       }
 
-      syncChildrenOrder(sceneElement, sceneDesired, preserveNativeFocus);
+      syncChildrenOrder(sceneElement, sceneDesired, preserveNativeFocus, suppressionOwners, browseOrderMemo);
       suppressDescendantAccessibility(suppressionOwners);
       if (pendingNativeFocus && getStageHost()?.stage?.focus === pendingNativeFocus && canFocus(pendingNativeFocus)) {
         if (focusNativeControl(pendingNativeFocus)) pendingNativeFocus = null;

@@ -7,7 +7,7 @@ use std::{
 };
 
 const MAX_TEXTURE_BYTES: usize = 256 * 1024 * 1024;
-type Key = (String, bool, bool, [u64; 8]);
+type Key = (String, usize, bool, bool, [u64; 8]);
 
 struct Texture {
     source: Arc<str>,
@@ -199,19 +199,23 @@ pub(crate) struct BitmapTextures {
 }
 
 impl BitmapTextures {
+    #[cfg(test)]
     pub fn begin_frame(&mut self, project: &Project) {
+        self.begin_frame_with_extra(project, None);
+    }
+
+    pub fn begin_frame_with_extra(&mut self, project: &Project, extra: Option<&Project>) {
         self.used.clear();
-        self.textures.retain(|(id, _, _, _), texture| {
-            project.resources.iter().any(|resource| {
-                resource.id == *id && Arc::ptr_eq(&resource.data_base64, &texture.source)
-            })
-        });
-        self.reported.retain(|id, source| {
+        let matches_live = |id: &str, src: &Arc<str>| {
             project
                 .resources
                 .iter()
-                .any(|resource| resource.id == *id && Arc::ptr_eq(&resource.data_base64, source))
-        });
+                .chain(extra.into_iter().flat_map(|p| p.resources.iter()))
+                .any(|resource| resource.id == id && Arc::ptr_eq(&resource.data_base64, src))
+        };
+        self.textures
+            .retain(|(id, _, _, _, _), texture| matches_live(id, &texture.source));
+        self.reported.retain(|id, source| matches_live(id, source));
     }
 
     pub fn texture_transformed(
@@ -242,8 +246,10 @@ impl BitmapTextures {
             .chain(color.offsets)
             .map(f64::to_bits)
             .collect();
+        let source_ptr = Arc::as_ptr(&resource.data_base64) as *const () as usize;
         let key = (
             resource_id.clone(),
+            source_ptr,
             smoothing,
             repeat,
             channels.try_into().unwrap(),
@@ -285,7 +291,7 @@ impl BitmapTextures {
         }
         let image = if let Some((_, sibling)) = self.textures.iter().find(|(other, texture)| {
             other.0 == *resource_id
-                && other.3 == key.3
+                && other.4 == key.4
                 && Arc::ptr_eq(&texture.source, &resource.data_base64)
         }) {
             sibling.image.clone()

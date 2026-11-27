@@ -514,6 +514,15 @@ impl Player {
         commands
     }
 
+    /// Authoritative `(channel, offset_seconds)` pairs for all currently playing timeline
+    /// `Stream` sounds, including runtime-created (linked) timelines.
+    pub fn active_stream_offsets(&self) -> Vec<(String, f64)> {
+        let mut offsets = self.sound.active_stream_offsets();
+        offsets.extend(self.linked_active_stream_offsets());
+        offsets.sort_by(|a, b| a.0.cmp(&b.0));
+        offsets
+    }
+
     /// Authored timeline-video commands produced since the previous host drain.
     pub fn drain_video_commands(&mut self) -> Vec<crate::VideoCommand> {
         self.video.drain()

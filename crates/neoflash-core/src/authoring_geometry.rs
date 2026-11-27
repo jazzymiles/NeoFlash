@@ -252,6 +252,81 @@ fn overlaps_bounds(a: Point, b: Point, from: Point, to: Point, radius: f64) -> b
     })
 }
 
+/// Clockwise (`+` shoelace in y-down coordinates) convex Minkowski sum of segment `from -> to`
+/// and the axis-aligned square `[-radius, radius] × [-radius, radius]`.
+pub fn square_sweep_polygon(from: Point, to: Point, radius: f64) -> Vec<Point> {
+    let dx = to[0] - from[0];
+    let dy = to[1] - from[1];
+    let min_x = from[0].min(to[0]) - radius;
+    let max_x = from[0].max(to[0]) + radius;
+    let min_y = from[1].min(to[1]) - radius;
+    let max_y = from[1].max(to[1]) + radius;
+    if dx.abs() <= 1e-9 || dy.abs() <= 1e-9 {
+        return vec![
+            [max_x, min_y],
+            [max_x, max_y],
+            [min_x, max_y],
+            [min_x, min_y],
+        ];
+    }
+    if dx * dy > 0.0 {
+        let (tl, br) = if from[0] < to[0] {
+            (from, to)
+        } else {
+            (to, from)
+        };
+        vec![
+            [tl[0] - radius, tl[1] - radius],
+            [tl[0] + radius, tl[1] - radius],
+            [br[0] + radius, br[1] - radius],
+            [br[0] + radius, br[1] + radius],
+            [br[0] - radius, br[1] + radius],
+            [tl[0] - radius, tl[1] + radius],
+        ]
+    } else {
+        let (bl, tr) = if from[0] < to[0] {
+            (from, to)
+        } else {
+            (to, from)
+        };
+        vec![
+            [tr[0] - radius, tr[1] - radius],
+            [tr[0] + radius, tr[1] - radius],
+            [tr[0] + radius, tr[1] + radius],
+            [bl[0] + radius, bl[1] + radius],
+            [bl[0] - radius, bl[1] + radius],
+            [bl[0] - radius, bl[1] - radius],
+        ]
+    }
+}
+
+fn square_sweep_interval(
+    a: Point,
+    b: Point,
+    from: Point,
+    to: Point,
+    radius: f64,
+) -> Option<(f64, f64)> {
+    let poly = square_sweep_polygon(from, to, radius);
+    let delta = sub(b, a);
+    let mut range = (0., 1.);
+    for i in 0..poly.len() {
+        let p0 = poly[i];
+        let p1 = poly[(i + 1) % poly.len()];
+        let edge = sub(p1, p0);
+        if !constrain_linear(
+            cross(edge, sub(a, p0)),
+            cross(edge, delta),
+            0.,
+            f64::INFINITY,
+            &mut range,
+        ) {
+            return None;
+        }
+    }
+    interval(range.0, range.1)
+}
+
 fn append_run(runs: &mut Vec<Vec<Point>>, current: &mut Vec<Point>) {
     if current.len() > 1 {
         runs.push(std::mem::take(current));
@@ -284,9 +359,34 @@ pub fn erase_path_stroke(
     radius: f64,
     tolerance: f64,
 ) -> Result<StrokeEraseResult, GeometryError> {
+    erase_path_stroke_with_shape(
+        commands,
+        local_to_world,
+        eraser_points,
+        radius,
+        tolerance,
+        false,
+    )
+}
+
+/// Remove the stroke centreline inside the union of the gesture's round capsules (`square == false`)
+/// or swept axis-aligned squares (`square == true`).
+pub fn erase_path_stroke_with_shape(
+    commands: &[PathCommand],
+    local_to_world: [f64; 6],
+    eraser_points: &[Point],
+    radius: f64,
+    tolerance: f64,
+    square: bool,
+) -> Result<StrokeEraseResult, GeometryError> {
     validate_path_commands(commands)?;
     let world_to_local = inverse(local_to_world)?;
-    if !radius.is_finite() || radius <= 0. || !tolerance.is_finite() || tolerance <= 0. {
+    if !radius.is_finite()
+        || !(0.0..=1e9).contains(&radius)
+        || radius == 0.0
+        || !tolerance.is_finite()
+        || tolerance <= 0.
+    {
         return Err(invalid(
             "eraser radius and tolerance must be positive and finite",
         ));
@@ -358,10 +458,14 @@ pub fn erase_path_stroke(
                 if !overlaps_bounds(a, b, from, to, radius) {
                     continue;
                 }
-                cuts.extend(disk_interval(a, b, from, radius));
-                if from != to {
-                    cuts.extend(disk_interval(a, b, to, radius));
-                    cuts.extend(strip_interval(a, b, from, to, radius));
+                if square {
+                    cuts.extend(square_sweep_interval(a, b, from, to, radius));
+                } else {
+                    cuts.extend(disk_interval(a, b, from, radius));
+                    if from != to {
+                        cuts.extend(disk_interval(a, b, to, radius));
+                        cuts.extend(strip_interval(a, b, from, to, radius));
+                    }
                 }
             }
             cuts.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -601,5 +705,40 @@ mod tests {
             ),
             Err(GeometryError::ComplexityLimit)
         ));
+    }
+
+    #[test]
+    fn t497_square_eraser_sweep_cuts_corners_and_diagonals() {
+        // Horizontal stroke at y = 9 passes inside a 10px half-extent square centered at (50, 0)
+        // along x in [40, 60], whereas a round disk of radius 10 cuts a narrower chord
+        // (sqrt(100 - 81) = sqrt(19) ≈ 4.3589 -> [45.64, 54.36]).
+        let stroke = line([0., 9.], [100., 9.]);
+        let sq =
+            erase_path_stroke_with_shape(&stroke, IDENTITY, &[[50., 0.]], 10., 0.1, true).unwrap();
+        let rd =
+            erase_path_stroke_with_shape(&stroke, IDENTITY, &[[50., 0.]], 10., 0.1, false).unwrap();
+        assert!(sq.changed && rd.changed);
+        assert_eq!(
+            sq.commands,
+            vec![
+                PathCommand::MoveTo { x: 0., y: 9. },
+                PathCommand::LineTo { x: 40., y: 9. },
+                PathCommand::MoveTo { x: 60., y: 9. },
+                PathCommand::LineTo { x: 100., y: 9. },
+            ]
+        );
+        assert_ne!(sq.commands, rd.commands);
+
+        // Diagonal sweep of a square brush also cuts cleanly.
+        let diag = erase_path_stroke_with_shape(
+            &line([0., 50.], [100., 50.]),
+            IDENTITY,
+            &[[30., 30.], [70., 70.]],
+            10.,
+            0.1,
+            true,
+        )
+        .unwrap();
+        assert!(diag.changed);
     }
 }

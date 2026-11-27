@@ -103,6 +103,17 @@ impl Player {
         }
     }
 
+    pub(crate) fn linked_active_stream_offsets(&self) -> Vec<(String, f64)> {
+        let mut out = Vec::new();
+        for (reference, namespace) in &self.graph.namespaces {
+            let scope = serde_json::to_string(reference).unwrap_or_default();
+            for (ch, off) in namespace.player.active_stream_offsets() {
+                out.push((format!("{scope}:{ch}"), off));
+            }
+        }
+        out
+    }
+
     fn stop_streams_recursive(&mut self) {
         self.sound.stop_streams();
         for namespace in self.graph.namespaces.values_mut() {

@@ -953,7 +953,7 @@
       source.buffer=buffer;source.loop=voice.loopForever||voice.loops>1;
       if(source.loop&&(segStart>0||segEnd<duration)){source.loopStart=segStart;source.loopEnd=segEnd;}
       voice.nodes=connectEnvelope(voice,source,start,Number.isFinite(total)?total:segDuration);
-      voice.source=source;source.onended=()=>{if(voice.source===source)stopVoice(voice);};
+      voice.source=source;voice.startedAt=start;voice.playStartOffset=voice.offset;source.onended=()=>{if(voice.source===source)stopVoice(voice);};
       const playOffset=segStart+(voice.offset%segDuration),playDuration=total-voice.offset;
       if(Number.isFinite(playDuration)&&(segStart>0||segEnd<duration))source.start(start,playOffset,playDuration);
       else source.start(start,playOffset);
@@ -961,6 +961,35 @@
       changed();
     }
     function flushVoices(){for(const voice of [...voices]){if(disposed)break;try{startVoice(voice);}catch(error){stopVoice(voice);report(error);}}}
+    function hasActiveStreams(){
+      for(const voice of voices)if(voice.stream&&voice.source)return true;
+      return false;
+    }
+    // Resynchronize running timeline Stream voices when browser frame drops or tab
+    // throttling cause the Web Audio clock and Rust timeline playhead to drift > 85 ms.
+    function syncStreams(entries,driftThresholdSeconds=0.085){
+      if(disposed||!unlocked||context?.state!=='running'||!Array.isArray(entries)||!entries.length)return 0;
+      const threshold=Number.isFinite(driftThresholdSeconds)&&driftThresholdSeconds>0?driftThresholdSeconds:0.085;
+      let resynced=0;
+      for(const pair of entries){
+        if(!Array.isArray(pair)||pair.length<2)continue;
+        const [channel,expectedOffset]=pair;
+        if(typeof channel!=='string'||typeof expectedOffset!=='number'||!Number.isFinite(expectedOffset)||expectedOffset<0)continue;
+        for(const voice of [...voices]){
+          if(!voice.stream||voice.channel!==channel||!voice.source||typeof voice.startedAt!=='number')continue;
+          const actualOffset=(voice.playStartOffset||0)+Math.max(0,context.currentTime-voice.startedAt);
+          if(Math.abs(actualOffset-expectedOffset)<=threshold)continue;
+          const prevSource=voice.source;voice.source=null;
+          if(prevSource){prevSource.onended=null;try{prevSource.stop();}catch(_){}}
+          for(const node of voice.nodes)try{node.disconnect();}catch(_){}
+          voice.nodes=[];
+          voice.offset=expectedOffset;
+          voice.requestedAt=now();
+          try{startVoice(voice);resynced++;}catch(error){stopVoice(voice);report(error);}
+        }
+      }
+      return resynced;
+    }
     // Decode the document's timeline sounds ahead of their first keyframe.
     function preloadTimeline(ids){open();if(!Array.isArray(ids))throw new TypeError('Timeline sound preload requires resource IDs.');for(const id of ids.slice(0,maxSounds))timelineBuffer(String(id));}
     function timeline(commands){
@@ -1011,7 +1040,7 @@
       changed();
     }
     function dispose(){if(disposed)return;try{reset();}finally{disposed=true;}}
-    return Object.freeze({Sound,SoundChannel,SoundTransform,ID3Info,SoundLoaderContext,SoundMixer,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,registerResources,unregisterResources,captureBus,resumeFromGesture,unlockFromUserInput,setMuted,status,reset,dispose});
+    return Object.freeze({Sound,SoundChannel,SoundTransform,ID3Info,SoundLoaderContext,SoundMixer,LegacySound,stopAllLegacySounds,stopAllChannels,timeline,preloadTimeline,hasActiveStreams,syncStreams,registerResources,unregisterResources,captureBus,resumeFromGesture,unlockFromUserInput,setMuted,status,reset,dispose});
   }
   const api=Object.freeze({create});if(typeof module!=='undefined'&&module.exports)module.exports=api;else global.NeoFlashAudio=api;
 })(globalThis);

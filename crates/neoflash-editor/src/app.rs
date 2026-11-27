@@ -689,6 +689,7 @@ impl Editor {
     ) {
         self.workspace.set_density(density);
         self.apply_density(ctx);
+        self.apply_tooltip_shortcuts(ctx);
     }
     /// Make NF2 metrics follow the current density (the Preferences draft while the dialog is open)
     /// and re-install egui spacing when it changed.
@@ -703,12 +704,25 @@ impl Editor {
             crate::theme::initialize_editor_style(ctx);
         }
     }
+    pub(crate) fn apply_tooltip_shortcuts(&self, ctx: &egui::Context) {
+        let show = self
+            .preferences
+            .as_ref()
+            .map_or(self.workspace.general.tooltip_shortcuts, |draft| {
+                draft.general.tooltip_shortcuts
+            });
+        neoflash_ui::components::set_tooltip_shortcuts(ctx, show);
+    }
     pub(crate) fn set_theme(&mut self, ctx: &egui::Context, theme: ThemeMode) {
+        let visual_changed = neoflash_ui::Theme::current(ctx) != theme.nf2();
         if self.workspace.theme != theme {
             self.workspace.theme = theme;
             self.persist_workspace_requested = true;
         }
         theme.apply(ctx);
+        if visual_changed {
+            ctx.request_discard("theme changed");
+        }
     }
     /// Inspector / Library priority (R-054): show `panel` and give its stacked dock group the larger
     /// share of the side dock. Layout only; the document is untouched.
@@ -2528,6 +2542,7 @@ impl eframe::App for Editor {
             self.last_workspace_snapshot = Some(Box::new(self.workspace.clone()));
         }
         self.apply_density(ctx);
+        self.apply_tooltip_shortcuts(ctx);
         self.poll_preview_output(ctx);
         self.poll_debugger(ctx);
         self.poll_updater(ctx, true);
@@ -2597,7 +2612,22 @@ impl eframe::App for Editor {
         self.menu(ctx);
         self.status_bar(ctx);
         if !standalone_as {
-            self.bitmap_textures.begin_frame(&self.project);
+            let extra_lib_project = match self.library_panel.source {
+                crate::panels::library::LibrarySource::Session(index)
+                    if index != self.active_session =>
+                {
+                    self.sessions
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .map(|s| &s.project)
+                }
+                crate::panels::library::LibrarySource::External => {
+                    self.library_panel.external_library.as_ref().map(|(_, p)| p)
+                }
+                _ => None,
+            };
+            self.bitmap_textures
+                .begin_frame_with_extra(&self.project, extra_lib_project);
             let project_base_dir = self
                 .tracked_disk_path()
                 .and_then(std::path::Path::parent)

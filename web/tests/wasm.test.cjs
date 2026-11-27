@@ -859,5 +859,17 @@ test('WASM multi-scene Graphic playback matches authoring phase and NeoFlashAudi
   assert.ok(Math.abs(startedCalls[1].args[1]-0.25)<1e-9);
   assert.ok(Math.abs(startedCalls[1].args[2]-1.2)<1e-9);
 
+  // 3. T-497: Stream drift resynchronization after dropped browser frames.
+  assert.equal(audio.hasActiveStreams(),true);
+  nowTime=1.04; // 40ms elapsed -> actual stream offset 0.14s vs timeline 0.14s (0ms drift <= 85ms)
+  assert.equal(audio.syncStreams([['ch-trim',0.14]]),0,'in-sync stream voice is untouched');
+  assert.equal(startedCalls.length,2);
+  nowTime=1.45; // Web Audio ran 0.35s ahead -> actual offset 0.45s while dropped frames held timeline at 0.25s (200ms drift > 85ms)
+  assert.equal(audio.syncStreams([['ch-trim',0.25]]),1,'drifted stream voice resynchronizes to Rust timeline offset');
+  assert.equal(startedCalls.length,3);
+  assert.ok(Math.abs(startedCalls[2].args[0]-1.45)<1e-9);
+  assert.ok(Math.abs(startedCalls[2].args[1]-0.45)<1e-9,'trimmed in_point 0.2 + timeline offset 0.25 = 0.45s buffer offset');
+  assert.ok(Math.abs(startedCalls[2].args[2]-0.25)<1e-9,'remaining trimmed window 0.5 - 0.25 = 0.25s');
+
   audio.dispose();
 });

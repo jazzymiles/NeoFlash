@@ -664,10 +664,10 @@ pub(crate) fn compile_criteo_banner_html(
 <svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">
 <defs>{}</defs>{artwork}</svg></a>{notices}
 <script>
-{pause}window.clickTag=window.clickTag||new URLSearchParams(location.search).get('clickTag')||{click};
+{pause}var clickTag=window.clickTag||new URLSearchParams(location.search).get('clickTag')||{click};window.clickTag=clickTag;
 document.getElementById('nf-ad').addEventListener('click',event=>{{
   event.preventDefault();
-  const url=String(window.clickTag||'').trim();
+  const url=String(window.clickTag||clickTag||'').trim();
   if(/^https?:\/\//i.test(url)) window.open(url,'_blank','noopener,noreferrer');
 }});
 </script></body></html>"##,

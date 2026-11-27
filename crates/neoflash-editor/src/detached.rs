@@ -1894,6 +1894,7 @@ impl Editor {
                 self.detached.focus = None;
             }
             ctx.show_viewport_immediate(id, builder, |ctx, class| {
+                self.apply_tooltip_shortcuts(ctx);
                 self.detached.context_menu_open = false;
                 let drained_native =
                     crate::native_windows::drain_file_drag_into_context(ctx, Some(&title));

@@ -771,9 +771,18 @@ impl Player {
             tail = rest;
         }
         let _ = project;
-        // Slash paths preserve '..'; dotted paths use _parent explicitly.
+        // Slash paths preserve '..'; mixed Flash 4/5 slash+dot paths (e.g.
+        // "/hud/bar.fill" or "../panel.header") split non-'..' segments on '.'.
         let parts: Vec<_> = if tail.contains('/') || tail == ".." {
-            tail.split('/').collect()
+            tail.split('/')
+                .flat_map(|seg| {
+                    if seg == ".." || seg.is_empty() {
+                        vec![seg]
+                    } else {
+                        seg.split('.').collect()
+                    }
+                })
+                .collect()
         } else {
             tail.split('.').collect()
         };

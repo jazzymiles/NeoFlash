@@ -9,7 +9,7 @@
 //!   coalesce (`Union`), strokes drawn across a fill slice it into separate selectable fills, and
 //!   intersecting strokes split at their intersection points.
 
-use crate::authoring_geometry::erase_path_stroke;
+use crate::authoring_geometry::{erase_path_stroke_with_shape, square_sweep_polygon};
 use crate::evaluate::{affine_multiply, transform_matrix};
 use crate::geometry::{
     FlattenOptions, GeometryError, MAX_PATH_COMMANDS, flatten_path, invert_affine_matrix,

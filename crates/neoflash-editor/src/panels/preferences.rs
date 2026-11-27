@@ -435,19 +435,26 @@ impl Editor {
         if close_cancel {
             clear_shortcuts_ui_state(ctx);
             self.preferences = None;
-            draft.original_theme.apply(ctx);
+            if draft.original_theme != shown {
+                draft.original_theme.apply(ctx);
+                ctx.request_discard("theme changed");
+            }
             self.apply_density(ctx);
+            self.apply_tooltip_shortcuts(ctx);
         } else if close_save {
             clear_shortcuts_ui_state(ctx);
             self.preferences = None;
             self.save_preferences(ctx, &draft);
             self.apply_density(ctx);
+            self.apply_tooltip_shortcuts(ctx);
         } else {
             if draft.theme != shown {
                 draft.theme.apply(ctx);
+                ctx.request_discard("theme changed");
             }
             self.preferences = Some(draft);
             self.apply_density(ctx);
+            self.apply_tooltip_shortcuts(ctx);
         }
     }
 }

@@ -61,6 +61,7 @@ fn build_archive(
         ..BannerOptions::default()
     };
     let html = compile_criteo_banner_html(project, &options, cancel)?;
+    validate_ad_creative_html(&html, project.width, project.height)?;
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
     let entry = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
@@ -116,6 +117,388 @@ pub fn export_criteo_banner_zip(
     }
     atomic_write(output, &archive)?;
     Ok(report)
+}
+
+/// Offline IAB / Criteo / Google Ad Manager HTML5 single-file ad-creative validator.
+/// Enforces standard `ad.size` metadata, `var clickTag` declaration, favicon suppression,
+/// zero WebAssembly/network APIs, and zero external HTTP(S)/protocol-relative asset loads.
+pub fn validate_ad_creative_html(
+    html: &str,
+    expected_width: u32,
+    expected_height: u32,
+) -> Result<(), ExportError> {
+    let lower = html.to_ascii_lowercase();
+    if !lower.trim_start().starts_with("<!doctype html>") {
+        return Err(ExportError::Options(
+            "Ad creative HTML must start with <!doctype html>.".into(),
+        ));
+    }
+    if !lower.contains("<meta charset=\"utf-8\">") {
+        return Err(ExportError::Options(
+            "Ad creative HTML must declare <meta charset=\"utf-8\">.".into(),
+        ));
+    }
+    let expected_ad_size = format!(
+        "<meta name=\"ad.size\" content=\"width={expected_width},height={expected_height}\">"
+    );
+    if !lower.contains(&expected_ad_size) {
+        return Err(ExportError::Options(format!(
+            "Ad creative HTML is missing exact ad.size meta tag ({expected_ad_size})."
+        )));
+    }
+    if !lower.contains("<link rel=\"icon\" href=\"data:,\">") {
+        return Err(ExportError::Options(
+            "Ad creative HTML must include <link rel=\"icon\" href=\"data:,\"> to suppress /favicon.ico network requests.".into(),
+        ));
+    }
+    if !html.contains("var clickTag") {
+        return Err(ExportError::Options(
+            "Ad creative HTML must declare top-level `var clickTag` for ad-network validators."
+                .into(),
+        ));
+    }
+    if !html.contains("window.open(") {
+        return Err(ExportError::Options(
+            "Ad creative HTML must wire click-through navigation via `window.open(...)`.".into(),
+        ));
+    }
+    // Strip inert `<template ...>...</template>` blocks (e.g. `<template id="nf-licenses">`)
+    // before scanning active markup, CSS, and script blocks. Keep `<script ...>` / `<style ...>`
+    // opening tags intact while stripping only their bodies so `<script src="https://...">` is caught.
+    let active_html = strip_tag_blocks(html, "template");
+    let markup_only = strip_tag_bodies(&strip_tag_bodies(&active_html, "script"), "style");
+    check_external_markup_attributes(&markup_only)?;
+    for style_block in extract_tag_contents(&active_html, "style") {
+        check_external_css_urls(&style_block)?;
+    }
+    for script_block in extract_tag_contents(&active_html, "script") {
+        let scrubbed_js = blank_js_literals_and_comments(&script_block);
+        for forbidden_api in ["WebAssembly", "XMLHttpRequest", "new WebSocket", "fetch("] {
+            if scrubbed_js.contains(forbidden_api) {
+                return Err(ExportError::Options(format!(
+                    "Ad creative HTML contains forbidden runtime/network API `{forbidden_api}`."
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn strip_tag_bodies(input: &str, tag: &str) -> String {
+    let lower = input.to_ascii_lowercase();
+    let open_pat = format!("<{tag}");
+    let close_pat = format!("</{tag}>");
+    let mut out = String::with_capacity(input.len());
+    let mut pos = 0usize;
+    while let Some(rel) = lower[pos..].find(&open_pat) {
+        let start = pos + rel;
+        let after_tag = start + open_pat.len();
+        let boundary = lower
+            .as_bytes()
+            .get(after_tag)
+            .is_none_or(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/');
+        if !boundary {
+            out.push_str(&input[pos..after_tag]);
+            pos = after_tag;
+            continue;
+        }
+        let Some(gt_rel) = lower[after_tag..].find('>') else {
+            out.push_str(&input[pos..]);
+            return out;
+        };
+        let open_end = after_tag + gt_rel + 1;
+        out.push_str(&input[pos..open_end]);
+        if let Some(close_rel) = lower[open_end..].find(&close_pat) {
+            let close_start = open_end + close_rel;
+            let close_end = close_start + close_pat.len();
+            out.push_str(&input[close_start..close_end]);
+            pos = close_end;
+        } else {
+            pos = input.len();
+            break;
+        }
+    }
+    out.push_str(&input[pos..]);
+    out
+}
+
+fn strip_tag_blocks(input: &str, tag: &str) -> String {
+    let lower = input.to_ascii_lowercase();
+    let open_pat = format!("<{tag}");
+    let close_pat = format!("</{tag}>");
+    let mut out = String::with_capacity(input.len());
+    let mut pos = 0usize;
+    while let Some(rel) = lower[pos..].find(&open_pat) {
+        let start = pos + rel;
+        let after_tag = start + open_pat.len();
+        let boundary = lower
+            .as_bytes()
+            .get(after_tag)
+            .is_none_or(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/');
+        if !boundary {
+            out.push_str(&input[pos..after_tag]);
+            pos = after_tag;
+            continue;
+        }
+        out.push_str(&input[pos..start]);
+        if let Some(close_rel) = lower[after_tag..].find(&close_pat) {
+            pos = after_tag + close_rel + close_pat.len();
+        } else {
+            pos = input.len();
+            break;
+        }
+    }
+    out.push_str(&input[pos..]);
+    out
+}
+
+fn extract_tag_contents(input: &str, tag: &str) -> Vec<String> {
+    let lower = input.to_ascii_lowercase();
+    let open_pat = format!("<{tag}");
+    let close_pat = format!("</{tag}>");
+    let mut blocks = Vec::new();
+    let mut pos = 0usize;
+    while let Some(rel) = lower[pos..].find(&open_pat) {
+        let start = pos + rel;
+        let after_tag = start + open_pat.len();
+        let boundary = lower
+            .as_bytes()
+            .get(after_tag)
+            .is_none_or(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/');
+        if !boundary {
+            pos = after_tag;
+            continue;
+        }
+        let Some(gt_rel) = lower[after_tag..].find('>') else {
+            break;
+        };
+        let content_start = after_tag + gt_rel + 1;
+        if let Some(close_rel) = lower[content_start..].find(&close_pat) {
+            blocks.push(input[content_start..content_start + close_rel].to_owned());
+            pos = content_start + close_rel + close_pat.len();
+        } else {
+            blocks.push(input[content_start..].to_owned());
+            break;
+        }
+    }
+    blocks
+}
+
+fn check_external_css_urls(css: &str) -> Result<(), ExportError> {
+    let lower = css.to_ascii_lowercase();
+    let mut pos = 0usize;
+    while let Some(rel) = lower[pos..].find("url(") {
+        let after = pos + rel + 4;
+        let rest = lower[after..].trim_start();
+        let unquoted = rest
+            .strip_prefix('"')
+            .or_else(|| rest.strip_prefix('\''))
+            .unwrap_or(rest)
+            .trim_start();
+        for scheme in ["http://", "https://", "//"] {
+            if unquoted.starts_with(scheme) {
+                return Err(ExportError::Options(format!(
+                    "Ad creative HTML contains forbidden external CSS asset reference `url({scheme}...)`."
+                )));
+            }
+        }
+        pos = after;
+    }
+    Ok(())
+}
+
+fn check_external_markup_attributes(markup: &str) -> Result<(), ExportError> {
+    let bytes = markup.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        if bytes.get(i + 1) == Some(&b'/') || bytes.get(i + 1) == Some(&b'!') {
+            i += 1;
+            continue;
+        }
+        // Scan until closing `>` while respecting quoted attribute values.
+        let tag_start = i + 1;
+        let mut j = tag_start;
+        let mut quote: Option<u8> = None;
+        while j < bytes.len() {
+            let b = bytes[j];
+            if let Some(q) = quote {
+                if b == q {
+                    quote = None;
+                }
+            } else if b == b'"' || b == b'\'' {
+                quote = Some(b);
+            } else if b == b'>' {
+                break;
+            }
+            j += 1;
+        }
+        let tag_slice = &markup[tag_start..j.min(bytes.len())];
+        let tag_lower = tag_slice.to_ascii_lowercase();
+        let mut k = 0usize;
+        let tb = tag_lower.as_bytes();
+        while k < tb.len() {
+            if tb[k].is_ascii_alphabetic() || tb[k] == b':' {
+                let name_start = k;
+                while k < tb.len()
+                    && (tb[k].is_ascii_alphanumeric()
+                        || tb[k] == b'-'
+                        || tb[k] == b'_'
+                        || tb[k] == b':')
+                {
+                    k += 1;
+                }
+                let attr_name = &tag_lower[name_start..k];
+                while k < tb.len() && tb[k].is_ascii_whitespace() {
+                    k += 1;
+                }
+                if k < tb.len() && tb[k] == b'=' {
+                    k += 1;
+                    while k < tb.len() && tb[k].is_ascii_whitespace() {
+                        k += 1;
+                    }
+                    let val = if k < tb.len() && (tb[k] == b'"' || tb[k] == b'\'') {
+                        let q = tb[k];
+                        let vs = k + 1;
+                        k += 1;
+                        while k < tb.len() && tb[k] != q {
+                            k += 1;
+                        }
+                        let out = &tag_lower[vs..k.min(tb.len())];
+                        if k < tb.len() {
+                            k += 1;
+                        }
+                        out
+                    } else {
+                        let vs = k;
+                        while k < tb.len() && !tb[k].is_ascii_whitespace() && tb[k] != b'/' {
+                            k += 1;
+                        }
+                        &tag_lower[vs..k]
+                    };
+                    if matches!(attr_name, "src" | "href" | "xlink:href") {
+                        let trimmed = val.trim();
+                        for scheme in ["http://", "https://", "//"] {
+                            if trimmed.starts_with(scheme) {
+                                return Err(ExportError::Options(format!(
+                                    "Ad creative HTML contains forbidden external asset reference `{attr_name}=\"{scheme}...\"`."
+                                )));
+                            }
+                        }
+                    } else if attr_name == "style" {
+                        check_external_css_urls(val)?;
+                    }
+                }
+            } else {
+                k += 1;
+            }
+        }
+        i = (j + 1).min(bytes.len());
+    }
+    Ok(())
+}
+
+fn blank_js_literals_and_comments(js: &str) -> String {
+    let bytes = js.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'\\' {
+            out.push(b' ');
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        if b == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            out.push(b' ');
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            out.push(b' ');
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        if b == b'"' || b == b'\'' || b == b'`' {
+            let q = b;
+            out.push(q);
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\\' {
+                    i = (i + 2).min(bytes.len());
+                    continue;
+                }
+                if bytes[i] == q {
+                    out.push(q);
+                    i += 1;
+                    break;
+                }
+                out.push(b' ');
+                i += 1;
+            }
+            continue;
+        }
+        out.push(b);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Validate a packaged `Criteo · HTML5 ZIP` archive against flat single-entry ZIP structure,
+/// byte budget, and [`validate_ad_creative_html`].
+pub fn validate_criteo_banner_zip_bytes(
+    zip_bytes: &[u8],
+    expected_width: u32,
+    expected_height: u32,
+    max_zip_bytes: usize,
+) -> Result<(), ExportError> {
+    if zip_bytes.len() > max_zip_bytes {
+        return Err(ExportError::Options(format!(
+            "Criteo banner ZIP is {} bytes, exceeding the {}-byte ZIP budget.",
+            zip_bytes.len(),
+            max_zip_bytes
+        )));
+    }
+    let mut archive = zip::ZipArchive::new(Cursor::new(zip_bytes))
+        .map_err(|e| ExportError::Options(format!("Invalid Criteo ZIP archive: {e}")))?;
+    if archive.len() != 1 {
+        return Err(ExportError::Options(format!(
+            "Criteo banner ZIP must contain exactly 1 entry (`index.html`), found {}.",
+            archive.len()
+        )));
+    }
+    let mut entry = archive
+        .by_index(0)
+        .map_err(|e| ExportError::Options(format!("Invalid Criteo ZIP entry: {e}")))?;
+    if entry.name() != "index.html" {
+        return Err(ExportError::Options(format!(
+            "Criteo banner ZIP root entry must be `index.html`, found `{}`.",
+            entry.name()
+        )));
+    }
+    const MAX_CRITEO_HTML_BYTES: u64 = 8 * 1024 * 1024;
+    let mut html = String::new();
+    std::io::Read::read_to_string(
+        &mut std::io::Read::take(&mut entry, MAX_CRITEO_HTML_BYTES + 1),
+        &mut html,
+    )?;
+    if html.len() as u64 > MAX_CRITEO_HTML_BYTES {
+        return Err(ExportError::Options(format!(
+            "Criteo banner HTML exceeds the {}-byte uncompressed safety limit.",
+            MAX_CRITEO_HTML_BYTES
+        )));
+    }
+    validate_ad_creative_html(&html, expected_width, expected_height)
 }
 
 #[cfg(test)]
@@ -276,5 +659,79 @@ mod tests {
             msg.contains("HeroLayer") && msg.contains("frame 1") && msg.contains("Display filters"),
             "active filter diagnostic must retain layer and frame location, got: {msg}"
         );
+    }
+
+    #[test]
+    fn t497_ad_validator_accepts_criteo_and_native_banners_and_rejects_external_leaks() {
+        let mut p = Project::blank();
+        p.width = 300;
+        p.height = 250;
+        p.symbols[0].timeline.layers[0].keyframes[0].elements = vec![neoflash_core::Element {
+            id: "box".into(),
+            kind: neoflash_core::ElementKind::Rectangle {
+                width: 120.0,
+                height: 80.0,
+                fill: [240, 80, 40, 255],
+                stroke: [0; 4],
+                stroke_width: 0.0,
+            },
+            ..neoflash_core::Element::default()
+        }];
+
+        let dir = tempfile::tempdir().unwrap();
+        let zip_path = dir.path().join("criteo.zip");
+        export_criteo_banner_zip(&p, &zip_path, DEFAULT_CRITEO_MAX_ZIP_BYTES).unwrap();
+        let zip_bytes = fs::read(&zip_path).unwrap();
+        validate_criteo_banner_zip_bytes(&zip_bytes, 300, 250, DEFAULT_CRITEO_MAX_ZIP_BYTES)
+            .expect("Criteo ZIP must pass offline IAB/Criteo/GAM validator");
+
+        let native_html_path = dir.path().join("native.html");
+        crate::banner::export_native_banner_html(
+            &p,
+            &native_html_path,
+            &BannerOptions {
+                click_tag_url: Some(
+                    "https://example.com/offer?WebAssembly=1&cb=fetch(1)&bg=url(https://example.com/bg.png)".into(),
+                ),
+                ..BannerOptions::default()
+            },
+        )
+        .unwrap();
+        let native_html = fs::read_to_string(&native_html_path).unwrap();
+        validate_ad_creative_html(&native_html, 300, 250).expect(
+            "Web Banner · Native HTML with query params must pass offline IAB/GAM validator",
+        );
+        assert!(native_html.contains("var clickTag="));
+
+        let with_license_template = native_html.replace(
+            "</body>",
+            "<template id=\"nf-licenses\">WebAssembly XMLHttpRequest fetch( url(https://example.org)</template></body>",
+        );
+        validate_ad_creative_html(&with_license_template, 300, 250)
+            .expect("inert <template> license text must not false-positive");
+
+        let bad_ext = native_html.replace(
+            "</head>",
+            "<script src = 'https://cdn.example.com/tracker.js'></script></head>",
+        );
+        assert!(validate_ad_creative_html(&bad_ext, 300, 250).is_err());
+
+        let bad_xlink = native_html.replace(
+            "</body>",
+            "<svg><image xlink:href=\"https://cdn.example.com/pixel.png\"/></svg></body>",
+        );
+        assert!(validate_ad_creative_html(&bad_xlink, 300, 250).is_err());
+
+        let bad_inline_fetch = native_html.replace(
+            "</script>",
+            ";fetch('https://cdn.example.com/ping');</script>",
+        );
+        assert!(
+            validate_ad_creative_html(&bad_inline_fetch, 300, 250).is_err(),
+            "single-line <script> after /^https?:\\/\\//i regex must still catch fetch("
+        );
+
+        let missing_click_tag = native_html.replace("var clickTag", "let otherVar");
+        assert!(validate_ad_creative_html(&missing_click_tag, 300, 250).is_err());
     }
 }

@@ -2959,3 +2959,140 @@ fn gradient_transform_handles_overflow_linear_rgb_and_eyedropper_lock_fill() {
         "Eyedropper on gradient fill should enable Lock Fill"
     );
 }
+
+#[test]
+fn t497_stage_repaint_guard_tooltip_shortcuts_and_square_merge_eraser() {
+    use crate::authoring_tools::{EraserMode, EraserShape};
+    use neoflash_core::{Element, ElementKind, FlattenOptions, History, Transform, hit_test_path};
+
+    // 1. R-016: tooltip_shortcuts preference propagates into neoflash_ui::components::tooltip_shortcuts(ctx).
+    let (mut editor, ctx, _) = rectangle_stage();
+    assert!(neoflash_ui::components::tooltip_shortcuts(&ctx));
+    editor.workspace.general.tooltip_shortcuts = false;
+    editor.apply_tooltip_shortcuts(&ctx);
+    assert!(!neoflash_ui::components::tooltip_shortcuts(&ctx));
+    editor.workspace.general.tooltip_shortcuts = true;
+    editor.apply_tooltip_shortcuts(&ctx);
+    assert!(neoflash_ui::components::tooltip_shortcuts(&ctx));
+
+    // 2. Theme switch requests synchronous frame discard so Stage re-runs in a 2nd pass
+    // within the same ctx.run(...) cycle before presenting, without looping on Pass 1.
+    let mut theme_passes = 0usize;
+    let _ = ctx.run(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280., 900.),
+            )),
+            ..Default::default()
+        },
+        |c| {
+            theme_passes += 1;
+            editor.set_theme(c, crate::theme::ThemeMode::Light);
+        },
+    );
+    assert_eq!(
+        theme_passes, 2,
+        "switching themes mid-pass must discard Pass 0 and settle cleanly on Pass 1"
+    );
+
+    // 3. EraserShape::Square cuts square corners out of Merge fills, and Erase fills / Erase lines
+    // partially cut Merge fills vs Merge strokes independently.
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = false;
+    let (fill_opt, strokes) = neoflash_core::decompose_element_to_merge_parts(&Element {
+        id: "m-rect".into(),
+        merge: true,
+        kind: ElementKind::Rectangle {
+            width: 100.,
+            height: 100.,
+            fill: [40, 140, 220, 255],
+            stroke: [20, 20, 20, 255],
+            stroke_width: 4.,
+        },
+        transform: Transform {
+            x: 50.,
+            y: 50.,
+            ..Transform::default()
+        },
+        ..Element::default()
+    })
+    .unwrap();
+    let mut merge_parts: Vec<Element> = fill_opt.into_iter().chain(strokes).collect();
+    for part in &mut merge_parts {
+        part.merge = true;
+    }
+    editor.symbol_mut().timeline.layers[0].keyframes[0].elements = merge_parts;
+    crate::timeline_commands::upgrade_all_format_versions(&mut editor.project);
+    editor.project.validate().unwrap();
+    editor.history = History::default();
+
+    editor.set_tool(Tool::Eraser);
+    editor.authoring_tools.eraser_shape = EraserShape::Square;
+    editor.authoring_tools.eraser_size = 20.; // radius = 10 px
+    editor.authoring_tools.eraser_mode = EraserMode::Fills;
+
+    // Stamp at Stage (100, 100): corner (109, 109) is inside Square (|dx|=9, |dy|=9 <= 10)
+    // and outside a Round disk (hypot(9, 9) = 12.73 > 10), and misses the border stroke at x=50/150.
+    let stamp = page.min + egui::vec2(100., 100.);
+    pen_click(&mut editor, &ctx, 0.3, stamp, stamp);
+    {
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        let fill_el = els
+            .iter()
+            .find(|e| neoflash_core::is_merge_fill(e))
+            .expect("Merge fill must remain with a square hole, not vanish completely");
+        let (cmds, rule) = neoflash_core::element_world_commands(fill_el).unwrap();
+        assert!(
+            !hit_test_path(
+                &cmds,
+                rule,
+                [109., 109.],
+                true,
+                0.,
+                FlattenOptions::default()
+            )
+            .unwrap(),
+            "Square eraser must punch the (109, 109) corner of the Merge fill"
+        );
+        assert!(
+            hit_test_path(&cmds, rule, [60., 60.], true, 0., FlattenOptions::default()).unwrap(),
+            "Erase fills on Merge artwork must keep untouched fill regions intact"
+        );
+    }
+
+    // Now sweep across the top edge (y = 50) at x = 100 in Erase lines mode: cuts the Merge stroke
+    // while leaving the Merge fill at (100, 55) intact!
+    editor.authoring_tools.eraser_mode = EraserMode::Strokes;
+    let edge_pt = page.min + egui::vec2(100., 50.);
+    pen_click(&mut editor, &ctx, 0.4, edge_pt, edge_pt);
+    {
+        let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+        let fill_el = els
+            .iter()
+            .find(|e| neoflash_core::is_merge_fill(e))
+            .unwrap();
+        let (cmds, rule) = neoflash_core::element_world_commands(fill_el).unwrap();
+        assert!(
+            hit_test_path(
+                &cmds,
+                rule,
+                [100., 55.],
+                true,
+                0.,
+                FlattenOptions::default()
+            )
+            .unwrap(),
+            "Erase lines on Merge artwork must keep the Merge fill intact under the brush"
+        );
+        let stroke_count = els
+            .iter()
+            .filter(|e| neoflash_core::is_merge_stroke(e))
+            .count();
+        assert!(
+            stroke_count >= 1,
+            "cut Merge stroke retains surviving segments"
+        );
+    }
+    editor.project.validate().unwrap();
+}

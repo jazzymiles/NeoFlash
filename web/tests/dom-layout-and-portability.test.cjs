@@ -2187,3 +2187,78 @@ test('Clean-machine browser runtime loads embedded @font-face before Frame 0 lay
     } catch {}
   }
 });
+
+test('T-497: DOM mode reorders sibling browse order by tabIndex while preserving CSS zIndex stacking and exposes canvas-island ARIA', async () => {
+  const fakeDoc = makeFakeDocument();
+  const { context, ready } = loadWasmAndModules({ document: fakeDoc });
+  await ready;
+  vm.runInContext(fs.readFileSync(path.join(webDir, 'accessibility.js'), 'utf8'), context);
+  const surface = fakeDoc.createElement('div');
+  surface.id = 'stage-surface';
+
+  const project = makeBlankProject();
+  const host = context.NeoFlashDomLayout.createDomStageHost({
+    document: fakeDoc,
+    surface,
+    project,
+    accessibility: context.NeoFlashAccessibility,
+    config: { render_mode: 'dom' },
+    paintCanvasIsland(canvas, draws) {
+      canvas.width = 40;
+      canvas.height = 24;
+      return { left: 10, top: 10, width: 40, height: 24, count: draws.length };
+    },
+  });
+
+  const snapshot = {
+    objects: [
+      { object_ref: [], parent_ref: null, owner: 'movie_clip', name: 'root', visible: true, effective_visible: true, on_stage: true, local_matrix: [1, 0, 0, 1, 0, 0], world: [1, 0, 0, 1, 0, 0] },
+      { object_ref: ['backBtn'], parent_ref: [], owner: 'button', name: 'backBtn', visible: true, effective_visible: true, on_stage: true, local_matrix: [1, 0, 0, 1, 10, 10], world: [1, 0, 0, 1, 10, 10], input: { button_enabled: true, tab_enabled: true, tab_index: 2 } },
+      { object_ref: ['frontBtn'], parent_ref: [], owner: 'button', name: 'frontBtn', visible: true, effective_visible: true, on_stage: true, local_matrix: [1, 0, 0, 1, 80, 10], world: [1, 0, 0, 1, 80, 10], input: { button_enabled: true, tab_enabled: true, tab_index: 1 } },
+      { object_ref: ['radarIsland'], parent_ref: [], owner: 'movie_clip', name: 'radarIsland', visible: true, effective_visible: true, on_stage: true, local_matrix: [1, 0, 0, 1, 0, 0], world: [1, 0, 0, 1, 0, 0] },
+      { object_ref: ['decorIsland'], parent_ref: [], owner: 'movie_clip', name: 'decorIsland', visible: true, effective_visible: true, on_stage: true, local_matrix: [1, 0, 0, 1, 0, 40], world: [1, 0, 0, 1, 0, 40] },
+    ],
+    draws: [
+      { owner_ref: ['backBtn'], instance_path: ['backBtn', 'bg'], transform: [1, 0, 0, 1, 10, 10], alpha: 1, kind: { type: 'rectangle', width: 50, height: 20, fill: [40, 80, 160, 255], stroke_width: 0 } },
+      { owner_ref: ['frontBtn'], instance_path: ['frontBtn', 'bg'], transform: [1, 0, 0, 1, 80, 10], alpha: 1, kind: { type: 'rectangle', width: 50, height: 20, fill: [160, 80, 40, 255], stroke_width: 0 } },
+      { owner_ref: ['radarIsland'], instance_path: ['radarIsland'], transform: [1, 0, 0, 1, 0, 0], alpha: 1, kind: { type: 'rectangle', width: 40, height: 24, fill: [255, 255, 255, 255], fill_bitmap: { resource_id: 'bmp', matrix: [1, 0, 0, 1, 0, 0], repeat: false, smoothing: false }, stroke_width: 0 } },
+      { owner_ref: ['decorIsland'], instance_path: ['decorIsland'], transform: [1, 0, 0, 1, 0, 40], alpha: 1, kind: { type: 'rectangle', width: 40, height: 24, fill: [255, 255, 255, 255], fill_bitmap: { resource_id: 'bmp', matrix: [1, 0, 0, 1, 0, 0], repeat: false, smoothing: false }, stroke_width: 0 } },
+    ],
+    clips: [],
+    filter_groups: [],
+  };
+  const semantics = [
+    { owner_ref: ['backBtn'], instance_path: ['backBtn'], accessibility: { name: 'Secondary Back', tab_index: 2 } },
+    { owner_ref: ['frontBtn'], instance_path: ['frontBtn'], accessibility: { name: 'Primary Action', tab_index: 1 } },
+    { owner_ref: ['radarIsland'], instance_path: ['radarIsland'], accessibility: { name: 'Sector 7 Motion Scanner', description: '2 contacts north' } },
+  ];
+
+  host.render({ snapshot, semantics, width: 300, height: 200 });
+  const findAll = (root, pred, out = []) => {
+    for (const ch of root.children || []) {
+      if (pred(ch)) out.push(ch);
+      findAll(ch, pred, out);
+    }
+    return out;
+  };
+  const rootContainer = findAll(surface, (el) => el.getAttribute('data-nf-id') === '[]')[0];
+  assert.ok(rootContainer, 'root container mounted');
+  const kids = Array.from(rootContainer.children);
+  const frontIdx = kids.findIndex((el) => el.getAttribute('data-nf-id')?.includes('frontBtn'));
+  const backIdx = kids.findIndex((el) => el.getAttribute('data-nf-id')?.includes('backBtn'));
+  assert.ok(frontIdx >= 0 && backIdx >= 0, 'both interactive containers mounted');
+  assert.ok(frontIdx < backIdx, 'DOM browse order places tab_index=1 (frontBtn) before tab_index=2 (backBtn)');
+  assert.ok(Number(kids[frontIdx].style.zIndex) > Number(kids[backIdx].style.zIndex), 'explicit CSS zIndex preserves original back-to-front visual stacking');
+
+  const islands = findAll(surface, (el) => el.className === 'nf-dom-canvas-island');
+  assert.equal(islands.length, 2);
+  const labeledIsland = islands.find((c) => c.getAttribute('aria-label') === 'Sector 7 Motion Scanner');
+  const decorIsland = islands.find((c) => c !== labeledIsland);
+  assert.ok(labeledIsland, 'semantic canvas island exposes aria-label');
+  assert.equal(labeledIsland.getAttribute('role'), 'img');
+  assert.equal(labeledIsland.getAttribute('aria-description'), '2 contacts north');
+  assert.equal(labeledIsland.getAttribute('aria-hidden'), null);
+  assert.equal(decorIsland.getAttribute('aria-hidden'), 'true', 'unlabeled decorative canvas island is hidden from assistive tech');
+
+  host.dispose();
+});

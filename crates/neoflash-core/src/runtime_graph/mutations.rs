@@ -399,16 +399,16 @@ impl Player {
         Ok(result)
     }
 
-    /// Detach an inclusive child range after validating the complete request.
-    /// This bounded active-source-lifetime profile delivers lifecycle events after the
-    /// batch; native reentrant per-child removal callbacks are not modeled.
-    pub fn object_remove_children(
-        &mut self,
+    /// Validate a `removeChildren(beginIndex, endIndex)` range atomically and return the
+    /// exact ordered child references to detach, without mutating the graph yet so hosts
+    /// can dispatch per-child `removed` / `removedFromStage` callbacks in native order.
+    pub fn object_remove_children_targets(
+        &self,
         project: &Project,
         parent: &ObjectRef,
         begin: i32,
         end: i32,
-    ) -> Result<MutationResult, DisplayError> {
+    ) -> Result<Vec<ObjectRef>, DisplayError> {
         if !self.graph.alive(parent) {
             return Err(error(
                 "Display reference is stale or belongs to another player",
@@ -436,14 +436,12 @@ impl Player {
                 "removeChildren index range is outside the child list",
             ));
         }
-        // The default maximum means through the last child, including an empty
-        // list or a begin position beyond its end (pinned Ruffle remove_children).
         let selected: Vec<_> = children
             .into_iter()
             .take(end as usize + 1)
             .skip(begin as usize)
             .collect();
-        let mut result = MutationResult::default();
+        let mut total_events = 0usize;
         for child in &selected {
             self.validate_authored_hierarchy_change(project, child)?;
             self.graph
@@ -454,9 +452,27 @@ impl Player {
             let subtree = self.graph.subtree(child);
             let attached = self.graph.on_stage(child);
             let cost = 1 + if attached { subtree.len() } else { 0 };
-            if result.events.len().saturating_add(cost) > MAX_DISPLAY_EVENTS {
+            total_events = total_events.saturating_add(cost);
+            if total_events > MAX_DISPLAY_EVENTS {
                 return Err(error("Display mutation exceeds its lifecycle event budget"));
             }
+        }
+        Ok(selected)
+    }
+
+    /// Detach an inclusive child range after validating the complete request.
+    pub fn object_remove_children(
+        &mut self,
+        project: &Project,
+        parent: &ObjectRef,
+        begin: i32,
+        end: i32,
+    ) -> Result<MutationResult, DisplayError> {
+        let selected = self.object_remove_children_targets(project, parent, begin, end)?;
+        let mut result = MutationResult::default();
+        for child in &selected {
+            let subtree = self.graph.subtree(child);
+            let attached = self.graph.on_stage(child);
             result.events.push(DisplayEvent {
                 kind: "removed".into(),
                 stage_route: attached,

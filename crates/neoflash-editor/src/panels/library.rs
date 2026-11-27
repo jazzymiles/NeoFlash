@@ -1617,13 +1617,14 @@ impl Editor {
             .min(maximum)
             .clamp(64., 160.);
         let rect = Rect::from_min_size(ui.cursor().min, Vec2::new(width, height));
-        let scene = neoflash_core::evaluate_scene(
+        let mut scene = neoflash_core::evaluate_scene(
             self.library_source_project(),
             &symbol.id,
             0,
             false,
             true,
         );
+        crate::preview::prepare_stage_path_fingerprints(&mut scene);
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             self.paint_library_preview(ui, &scene)
         });

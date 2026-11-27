@@ -56,8 +56,8 @@ pub enum SoundCommand {
 #[derive(Default)]
 pub(crate) struct SoundState {
     commands: Vec<SoundCommand>,
-    /// Active stream channel -> last timeline frame it was synchronised with.
-    streams: HashMap<String, u32>,
+    /// Active stream channel -> `(last timeline frame, authoritative offset in seconds)`.
+    streams: HashMap<String, (u32, f64)>,
     started: bool,
 }
 
@@ -215,10 +215,11 @@ impl SoundState {
                 }
                 let channel =
                     serde_json::to_string(&(&node.path, &layer.id, key.frame)).unwrap_or_default();
+                let offset = f64::from(node.frame - key.frame) / fps;
                 let continuous = self
                     .streams
                     .get(&channel)
-                    .is_some_and(|&last| node.frame == last || node.frame == last + 1);
+                    .is_some_and(|&(last, _)| node.frame == last || node.frame == last + 1);
                 if !continuous {
                     if self.streams.contains_key(&channel) {
                         self.push(SoundCommand::StreamStop {
@@ -228,7 +229,7 @@ impl SoundState {
                     self.push(SoundCommand::StreamStart {
                         channel: channel.clone(),
                         resource: sound.resource.clone(),
-                        offset: f64::from(node.frame - key.frame) / fps,
+                        offset,
                         loops: sound.loops.max(1),
                         loop_forever: sound.loop_forever,
                         envelope: envelope(sound),
@@ -236,7 +237,7 @@ impl SoundState {
                         out_point: sound.out_point,
                     });
                 }
-                self.streams.insert(channel.clone(), node.frame);
+                self.streams.insert(channel.clone(), (node.frame, offset));
                 alive.insert(channel);
             }
         }
@@ -300,6 +301,16 @@ impl SoundState {
 
     pub(crate) fn drain(&mut self) -> Vec<SoundCommand> {
         std::mem::take(&mut self.commands)
+    }
+
+    pub(crate) fn active_stream_offsets(&self) -> Vec<(String, f64)> {
+        let mut out: Vec<(String, f64)> = self
+            .streams
+            .iter()
+            .map(|(ch, &(_, off))| (ch.clone(), off))
+            .collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
     }
 }
 
