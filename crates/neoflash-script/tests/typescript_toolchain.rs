@@ -1032,4 +1032,24 @@ console.log(clip.ptSum);
 "#
     ));
     assert_eq!(js_out, "7");
+
+    // Standalone TypeScript handler without modules also resolves native `Point` via `__nfProgram.type` / `__nfBuiltins`.
+    let ts_handler = script(
+        ScriptLanguage::TypeScript,
+        "const pt: Point = new Point(3, 4);\nthis.ptSum = pt.x + pt.y;\n",
+    );
+    let ts_code = neoflash_script::compile(&ts_handler).expect("standalone TS handler with Point");
+    let ts_out = eval_js(&format!(
+        r#"
+const __nfProgram = {{
+    type: (name) => name === "flash.geom.Point" ? function Point(x, y) {{ this.x = x; this.y = y; }} : undefined,
+}};
+const clip = {{}};
+(function(__nfProgram) {{
+    {ts_code}
+}}).call(clip, __nfProgram);
+console.log(clip.ptSum);
+"#
+    ));
+    assert_eq!(ts_out, "7");
 }

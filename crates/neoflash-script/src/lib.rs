@@ -968,7 +968,29 @@ fn compile_web_output(
     }
 
     let has_jsx = program_contains_jsx(&program);
-    if !typescript && !has_jsx && !web_code_uses_flash_globals(&script.source) {
+    if !typescript && !has_jsx {
+        if web_code_uses_flash_globals(&script.source) {
+            let mut preamble = String::new();
+            preamble.push_str(modules::web_stage_globals_preamble_js());
+            preamble.push('\n');
+            preamble.push_str(modules::web_native_globals_preamble_js());
+            preamble.push_str("\nfunction __neoflash_handler__() {\n");
+            let shift_lines = preamble.bytes().filter(|c| *c == b'\n').count();
+            let map = map_name.map(|name| {
+                sourcemap::shift_map(
+                    &sourcemap::identity_source_map(name, &script.source),
+                    shift_lines,
+                    0,
+                )
+            });
+            return Ok((
+                format!(
+                    "{preamble}{}\n}}\nreturn __neoflash_handler__.call(this);",
+                    script.source
+                ),
+                map,
+            ));
+        }
         return Ok((
             script.source.clone(),
             map_name.map(|name| sourcemap::identity_source_map(name, &script.source)),
@@ -1021,8 +1043,13 @@ fn compile_web_output(
     let needs_native = web_code_uses_flash_globals(&code);
     let preamble = if needs_jsx || needs_native {
         let mut p = String::new();
-        p.push_str(modules::jsx_inline_preamble_js());
-        p.push('\n');
+        if needs_jsx {
+            p.push_str(modules::jsx_inline_preamble_js());
+            p.push('\n');
+        } else {
+            p.push_str(modules::web_stage_globals_preamble_js());
+            p.push('\n');
+        }
         if needs_native {
             p.push_str(modules::web_native_globals_preamble_js());
             p.push('\n');

@@ -1485,8 +1485,13 @@ pub(crate) fn compile_handler_with_modules_mapped(
         let needs_native = crate::web_code_uses_flash_globals(&code);
         if needs_jsx || needs_native {
             let mut preamble = String::new();
-            preamble.push_str(jsx_inline_preamble_js());
-            preamble.push('\n');
+            if needs_jsx {
+                preamble.push_str(jsx_inline_preamble_js());
+                preamble.push('\n');
+            } else {
+                preamble.push_str(web_stage_globals_preamble_js());
+                preamble.push('\n');
+            }
             if needs_native {
                 preamble.push_str(web_native_globals_preamble_js());
                 preamble.push('\n');
@@ -1511,44 +1516,78 @@ pub(crate) fn compile_handler_with_modules_mapped(
     )
 }
 
+/// Bindings for NeoFlash built-in stage display classes when JSX fallback objects are not desired.
+pub fn web_stage_globals_preamble_js() -> &'static str {
+    r#"const __nfStageB = (typeof __nfBuiltins === "object" && __nfBuiltins) ? __nfBuiltins : ((typeof __nfProgram === "object" && __nfProgram && __nfProgram.builtins) ? __nfProgram.builtins : ((typeof __nfDisplay === "object" && __nfDisplay && __nfDisplay.builtins) ? __nfDisplay.builtins : null));
+const __nfStageG = (typeof global === "object" && global) ? global : globalThis;
+const __nfResolveStage = (qname, shortName) => {
+  if (__nfStageB && __nfStageB[qname]) return __nfStageB[qname];
+  if (typeof __nfProgram === "object" && __nfProgram && typeof __nfProgram.type === "function") {
+    try { return __nfProgram.type(qname); } catch (_) {}
+  }
+  return (__nfStageG && __nfStageG[shortName]) || globalThis[shortName];
+};
+const MovieClip = __nfResolveStage("flash.display.MovieClip", "MovieClip");
+const Sprite = __nfResolveStage("flash.display.Sprite", "Sprite");
+const TextField = __nfResolveStage("flash.text.TextField", "TextField");
+const Shape = __nfResolveStage("flash.display.Shape", "Shape");
+const SimpleButton = __nfResolveStage("flash.display.SimpleButton", "SimpleButton");"#
+}
+
 /// Bindings for NeoFlash built-in stage, text, audio, geometry, and event classes in JS/TS scripts.
 pub fn web_native_globals_preamble_js() -> &'static str {
     r#"const __nfB = (typeof __nfBuiltins === "object" && __nfBuiltins) ? __nfBuiltins : ((typeof __nfProgram === "object" && __nfProgram && __nfProgram.builtins) ? __nfProgram.builtins : ((typeof __nfDisplay === "object" && __nfDisplay && __nfDisplay.builtins) ? __nfDisplay.builtins : null));
-const TextFormat = (__nfB && __nfB["flash.text.TextFormat"]) || globalThis.TextFormat;
-const TextFieldAutoSize = (__nfB && __nfB["flash.text.TextFieldAutoSize"]) || globalThis.TextFieldAutoSize;
-const TextFormatAlign = (__nfB && __nfB["flash.text.TextFormatAlign"]) || globalThis.TextFormatAlign;
-const Bitmap = (__nfB && __nfB["flash.display.Bitmap"]) || globalThis.Bitmap;
-const BitmapData = (__nfB && __nfB["flash.display.BitmapData"]) || globalThis.BitmapData;
-const Stage = (__nfB && __nfB["flash.display.Stage"]) || globalThis.Stage;
-const Sound = (__nfB && __nfB["flash.media.Sound"]) || globalThis.Sound;
-const SoundChannel = (__nfB && __nfB["flash.media.SoundChannel"]) || globalThis.SoundChannel;
-const SoundTransform = (__nfB && __nfB["flash.media.SoundTransform"]) || globalThis.SoundTransform;
-const SoundMixer = (__nfB && __nfB["flash.media.SoundMixer"]) || globalThis.SoundMixer;
-const URLRequest = (__nfB && __nfB["flash.net.URLRequest"]) || globalThis.URLRequest;
-const URLLoader = (__nfB && __nfB["flash.net.URLLoader"]) || globalThis.URLLoader;
-const SharedObject = (__nfB && __nfB["flash.net.SharedObject"]) || globalThis.SharedObject;
-const Point = (__nfB && __nfB["flash.geom.Point"]) || globalThis.Point;
-const Rectangle = (__nfB && __nfB["flash.geom.Rectangle"]) || globalThis.Rectangle;
-const Matrix = (__nfB && __nfB["flash.geom.Matrix"]) || globalThis.Matrix;
-const ColorTransform = (__nfB && __nfB["flash.geom.ColorTransform"]) || globalThis.ColorTransform;
-const Event = (__nfB && __nfB["flash.events.Event"]) || globalThis.Event;
-const MouseEvent = (__nfB && __nfB["flash.events.MouseEvent"]) || globalThis.MouseEvent;
-const KeyboardEvent = (__nfB && __nfB["flash.events.KeyboardEvent"]) || globalThis.KeyboardEvent;
-const FocusEvent = (__nfB && __nfB["flash.events.FocusEvent"]) || globalThis.FocusEvent;
-const Timer = (__nfB && __nfB["flash.utils.Timer"]) || globalThis.Timer;
-const TimerEvent = (__nfB && __nfB["flash.events.TimerEvent"]) || globalThis.TimerEvent;
-const Loader = (__nfB && __nfB["flash.display.Loader"]) || globalThis.Loader;"#
+const __nfG = (typeof global === "object" && global) ? global : globalThis;
+const __nfResolveNative = (qname, shortName) => {
+  if (__nfB && __nfB[qname]) return __nfB[qname];
+  if (typeof __nfProgram === "object" && __nfProgram && typeof __nfProgram.type === "function") {
+    try { return __nfProgram.type(qname); } catch (_) {}
+  }
+  return (__nfG && __nfG[shortName]) || globalThis[shortName];
+};
+const TextFormat = __nfResolveNative("flash.text.TextFormat", "TextFormat");
+const TextFieldAutoSize = __nfResolveNative("flash.text.TextFieldAutoSize", "TextFieldAutoSize");
+const TextFormatAlign = __nfResolveNative("flash.text.TextFormatAlign", "TextFormatAlign");
+const Bitmap = __nfResolveNative("flash.display.Bitmap", "Bitmap");
+const BitmapData = __nfResolveNative("flash.display.BitmapData", "BitmapData");
+const Stage = __nfResolveNative("flash.display.Stage", "Stage");
+const Sound = __nfResolveNative("flash.media.Sound", "Sound");
+const SoundChannel = __nfResolveNative("flash.media.SoundChannel", "SoundChannel");
+const SoundTransform = __nfResolveNative("flash.media.SoundTransform", "SoundTransform");
+const SoundMixer = __nfResolveNative("flash.media.SoundMixer", "SoundMixer");
+const URLRequest = __nfResolveNative("flash.net.URLRequest", "URLRequest");
+const URLLoader = __nfResolveNative("flash.net.URLLoader", "URLLoader");
+const SharedObject = __nfResolveNative("flash.net.SharedObject", "SharedObject");
+const Point = __nfResolveNative("flash.geom.Point", "Point");
+const Rectangle = __nfResolveNative("flash.geom.Rectangle", "Rectangle");
+const Matrix = __nfResolveNative("flash.geom.Matrix", "Matrix");
+const ColorTransform = __nfResolveNative("flash.geom.ColorTransform", "ColorTransform");
+const Event = __nfResolveNative("flash.events.Event", "Event");
+const MouseEvent = __nfResolveNative("flash.events.MouseEvent", "MouseEvent");
+const KeyboardEvent = __nfResolveNative("flash.events.KeyboardEvent", "KeyboardEvent");
+const FocusEvent = __nfResolveNative("flash.events.FocusEvent", "FocusEvent");
+const Timer = __nfResolveNative("flash.utils.Timer", "Timer");
+const TimerEvent = __nfResolveNative("flash.events.TimerEvent", "TimerEvent");
+const Loader = __nfResolveNative("flash.display.Loader", "Loader");"#
 }
 
 /// Inline JSX helper preamble for standalone scripts/handlers that use JSX without a project bundle.
 pub fn jsx_inline_preamble_js() -> &'static str {
     r#"const __nfFragment = globalThis.__nfFragment || Symbol.for("neoflash.fragment");
 const __nfStageB = (typeof __nfBuiltins === "object" && __nfBuiltins) ? __nfBuiltins : ((typeof __nfProgram === "object" && __nfProgram && __nfProgram.builtins) ? __nfProgram.builtins : ((typeof __nfDisplay === "object" && __nfDisplay && __nfDisplay.builtins) ? __nfDisplay.builtins : null));
-const MovieClip = (__nfStageB && __nfStageB["flash.display.MovieClip"]) || globalThis.MovieClip || { __nfStageType: "MovieClip" };
-const Sprite = (__nfStageB && __nfStageB["flash.display.Sprite"]) || globalThis.Sprite || { __nfStageType: "Sprite" };
-const TextField = (__nfStageB && __nfStageB["flash.text.TextField"]) || globalThis.TextField || { __nfStageType: "TextField" };
-const Shape = (__nfStageB && __nfStageB["flash.display.Shape"]) || globalThis.Shape || { __nfStageType: "Shape" };
-const SimpleButton = (__nfStageB && __nfStageB["flash.display.SimpleButton"]) || globalThis.SimpleButton || { __nfStageType: "SimpleButton" };
+const __nfStageG = (typeof global === "object" && global) ? global : globalThis;
+const __nfStageType = (qname, shortName) => {
+  if (__nfStageB && __nfStageB[qname]) return __nfStageB[qname];
+  if (typeof __nfProgram === "object" && __nfProgram && typeof __nfProgram.type === "function") {
+    try { return __nfProgram.type(qname); } catch (_) {}
+  }
+  return (__nfStageG && __nfStageG[shortName]) || globalThis[shortName] || { __nfStageType: shortName };
+};
+const MovieClip = __nfStageType("flash.display.MovieClip", "MovieClip");
+const Sprite = __nfStageType("flash.display.Sprite", "Sprite");
+const TextField = __nfStageType("flash.text.TextField", "TextField");
+const Shape = __nfStageType("flash.display.Shape", "Shape");
+const SimpleButton = __nfStageType("flash.display.SimpleButton", "SimpleButton");
 const __nfJsx = globalThis.__nfJsx || function __nfJsx(tag, props) {
   var children = [];
   for (var i = 2; i < arguments.length; i++) {
@@ -1764,11 +1803,6 @@ globalThis.__nfRequire = __nfRequire;
         out.push_str("\n});\n");
     }
 
-    // Eagerly evaluate all registered modules in topological order so top-level side effects and exports are ready
-    for id in order {
-        out.push_str(&format!("__nfRequire({id:?});\n"));
-    }
-
     out.push_str(
         r#"if (typeof __nfProgram === "object" && __nfProgram !== null) {
   __nfProgram.modules = __nfModuleCache;
@@ -1780,17 +1814,28 @@ globalThis.__nfRequire = __nfRequire;
     __nfProgram.builtins = __nfB;
   }
   if (__nfB && typeof __nfProgram.type !== "function") {
-    __nfProgram.type = function(qname) { return __nfB[qname]; };
+    __nfProgram.type = function(qname) {
+      if (__nfB[qname]) return __nfB[qname];
+      if (__nfB.__nfXML && __nfB.__nfXML[qname]) return __nfB.__nfXML[qname];
+      if (qname === "flash.utils.Dictionary") return Map;
+      throw new TypeError("Unsupported built-in class " + qname + ".");
+    };
   }
   if (__nfB && typeof __nfProgram.is !== "function") {
     __nfProgram.is = function(val, qname) {
-      const cls = __nfB[qname];
+      const cls = __nfB[qname] || (__nfB.__nfXML && __nfB.__nfXML[qname]);
       return Boolean(cls && typeof cls.__nfIs === "function" && cls.__nfIs(val));
     };
   }
 }
 "#,
     );
+
+    // Eagerly evaluate all registered modules in topological order after `__nfProgram.type` /
+    // `__nfProgram.builtins` are wired so top-level shims and module side effects resolve native types.
+    for id in order {
+        out.push_str(&format!("__nfRequire({id:?});\n"));
+    }
 
     (out, crate::sourcemap::combine_maps(&maps))
 }

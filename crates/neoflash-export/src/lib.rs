@@ -2042,7 +2042,7 @@ pub(crate) fn assemble_with_config(
             transformed
         }
     } else if ships_program {
-        "return null;".to_owned()
+        "return { builtins: __nfBuiltins, type: function(n) { if (__nfBuiltins[n]) return __nfBuiltins[n]; if (__nfBuiltins.__nfXML && __nfBuiltins.__nfXML[n]) return __nfBuiltins.__nfXML[n]; if (n === \"flash.utils.Dictionary\") return Map; throw new TypeError(\"Unsupported built-in class \" + n + \".\"); }, is: function(v, n) { var c = __nfBuiltins[n] || (__nfBuiltins.__nfXML && __nfBuiltins.__nfXML[n]); return Boolean(c && typeof c.__nfIs === \"function\" && c.__nfIs(v)); } };".to_owned()
     } else {
         String::new()
     };

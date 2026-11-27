@@ -3823,10 +3823,18 @@
         return null;
       };
       const resolveProgramCode=(code,prelude)=>{if(typeof hydrateAsPrelude==='function')return hydrateAsPrelude(code,prelude);if(typeof code!=='string'||typeof prelude!=='string'||!prelude)return code;const marker='/*__NF_AS_PRELUDE__*/',idx=code.indexOf(marker);if(idx<0)return code;let nl=0;for(let i=0;i<prelude.length;i++)if(prelude.charCodeAt(i)===10)nl++;let end=idx+marker.length;while(nl>0&&code.charCodeAt(end)===10){end++;nl--;}return code.slice(0,idx)+prelude+code.slice(end);};
-      program=typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program,bundle.as_prelude):new Function('__nfBuiltins', resolveProgramCode(bundle.program.code, bundle.as_prelude) + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : {
-        type:name=>{if(!builtins[name])throw new TypeError(`Unsupported built-in class ${name}.`);return builtins[name];},
-        is:(value,name)=>Boolean(builtins[name]?.__nfIs?.(value)),
+      const resolveDefaultBuiltin=name=>{
+        if(builtins[name])return builtins[name];
+        if(builtins.__nfXML&&builtins.__nfXML[name])return builtins.__nfXML[name];
+        if(name==='flash.utils.Dictionary')return Map;
+        return undefined;
       };
+      const defaultProgram={
+        builtins,
+        type:name=>{const c=resolveDefaultBuiltin(name);if(!c)throw new TypeError(`Unsupported built-in class ${name}.`);return c;},
+        is:(value,name)=>Boolean(resolveDefaultBuiltin(name)?.__nfIs?.(value)),
+      };
+      program=(typeof bundle!=='undefined'&&bundle.program ? (typeof compiledProgramFn==='function'?compiledProgramFn:(typeof compileProgramUnit==='function'?compileProgramUnit(bundle.program,bundle.as_prelude):new Function('__nfBuiltins', resolveProgramCode(bundle.program.code, bundle.as_prelude) + '\n//# sourceURL=' + (bundle.program.source_url || 'neoflash-project.js'))))(builtins) : null) || defaultProgram;
       if(typeof instanceParameters!=='undefined'&&instanceParameters&&typeof instanceParameters==='object'){
         try{
           const rootClip=proxyFor([]);
