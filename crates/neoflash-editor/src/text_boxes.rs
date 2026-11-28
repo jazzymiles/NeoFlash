@@ -1988,6 +1988,7 @@ impl crate::app::Editor {
         })?;
         let state = TextFieldState::from_kind(&source.kind)
             .ok_or_else(|| "Selected element is not text.".to_owned())?;
+        self.fonts.sync_project_embedded_fonts(&self.project);
         let fragments = self.fonts.field_outline_fragments(&state)?;
         if fragments.is_empty() {
             return Err("Text has no visible glyph outlines.".into());
@@ -2089,19 +2090,29 @@ impl crate::app::Editor {
             .cloned()
             .ok_or_else(|| "Select a text element first.".to_string())?;
         let mut candidate = self.project.clone();
+        self.fonts.sync_project_embedded_fonts(&candidate);
         let sym_id = self.symbol_id().to_owned();
         let frame = self.frame;
         let sym = candidate
             .symbol_mut(&sym_id)
             .ok_or_else(|| "Active symbol not found.".to_string())?;
         let mut new_size = None;
-        let measure_segments = |segments: &[String],
-                                seg_format: &TextFormat|
+        let fonts = &mut self.fonts;
+        let mut measure_segments = |segments: &[String],
+                                    seg_format: &TextFormat|
          -> Result<Vec<f64>, neoflash_core::TextError> {
+            let kerning = seg_format.kerning.unwrap_or(true);
             Ok(segments
                 .iter()
                 .map(|s| {
-                    neoflash_core::grapheme_clusters_utf16(s).len() as f64 * seg_format.size * 0.56
+                    fonts.measure_width_kerned(
+                        &seg_format.font,
+                        seg_format.bold,
+                        seg_format.italic,
+                        seg_format.size,
+                        kerning,
+                        s,
+                    )
                 })
                 .collect())
         };
@@ -2120,7 +2131,7 @@ impl crate::app::Editor {
                 let mut state = TextFieldState::from_kind(&el.kind)
                     .ok_or_else(|| "Selected element is not a text object.".to_string())?;
                 let old_width = state.box_size.map(|b| b.width).unwrap_or_else(|| {
-                    layout_text(&state, measure_segments)
+                    layout_text(&state, &mut measure_segments)
                         .map(|l| l.surface.width)
                         .unwrap_or(100.0)
                         .max(4.0)
@@ -2129,7 +2140,7 @@ impl crate::app::Editor {
                 if normalized != "none" {
                     state.word_wrap = false;
                     let layout =
-                        layout_text(&state, measure_segments).map_err(|e| e.to_string())?;
+                        layout_text(&state, &mut measure_segments).map_err(|e| e.to_string())?;
                     let natural_w = layout.lines.iter().map(|l| l.width).fold(0.0_f64, f64::max);
                     let natural_h = layout
                         .lines

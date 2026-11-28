@@ -2048,6 +2048,165 @@ pub fn expand_pattern_brush_stroke(
                     count += 1;
                 }
             }
+            crate::PatternBrushKind::Ragged {
+                wavelength,
+                amplitude,
+            } => {
+                let wl = if wavelength.is_finite() && *wavelength > 0.0 {
+                    wavelength.clamp(2.0, 200.0)
+                } else {
+                    2.0
+                };
+                let amp = if amplitude.is_finite() && *amplitude >= 0.0 {
+                    amplitude.clamp(0.25, 100.0)
+                } else {
+                    0.25
+                };
+                let step = (wl * 0.25).max(1.5);
+                let steps = ((total / step).ceil() as usize).clamp(2, 512);
+                let mut left_side = Vec::with_capacity(steps + 1);
+                let mut right_side = Vec::with_capacity(steps + 1);
+                for idx in 0..=steps {
+                    let s = (idx as f64 / steps as f64) * total;
+                    let base = guide.point_at(s);
+                    let ang = guide.tangent_at(s).to_radians();
+                    let (sin, cos) = ang.sin_cos();
+                    // Deterministic dual-harmonic organic edge jitter + width modulation
+                    let phase = (s / wl) * std::f64::consts::TAU;
+                    let jitter = amp * (0.65 * phase.sin() + 0.35 * (phase * 2.3 + 1.1).cos());
+                    let half_w = (hw + 0.35 * amp * (phase * 1.7).sin()).max(0.35);
+                    let nx = -sin;
+                    let ny = cos;
+                    left_side.push([
+                        base[0] + nx * (jitter + half_w),
+                        base[1] + ny * (jitter + half_w),
+                    ]);
+                    right_side.push([
+                        base[0] + nx * (jitter - half_w),
+                        base[1] + ny * (jitter - half_w),
+                    ]);
+                }
+                if let Some(&first) = left_side.first() {
+                    out.push(PathCommand::MoveTo {
+                        x: first[0],
+                        y: first[1],
+                    });
+                    for &[x, y] in &left_side[1..] {
+                        out.push(PathCommand::LineTo { x, y });
+                    }
+                    for &[x, y] in right_side.iter().rev() {
+                        out.push(PathCommand::LineTo { x, y });
+                    }
+                    out.push(PathCommand::Close);
+                }
+            }
+            crate::PatternBrushKind::Stipple { dot_size, spacing } => {
+                let r_base = if dot_size.is_finite() && *dot_size > 0.0 {
+                    (dot_size * 0.5).clamp(0.35, 60.0)
+                } else {
+                    0.35
+                };
+                let step = if spacing.is_finite() && *spacing > 0.0 {
+                    spacing.max(r_base * 1.4).max(1.5)
+                } else {
+                    (r_base * 1.4).max(1.5)
+                };
+                let mut s = 0.0;
+                let mut idx = 0u32;
+                while s <= total && idx < 512 {
+                    let base = guide.point_at(s);
+                    let ang = guide.tangent_at(s).to_radians();
+                    let (sin, cos) = ang.sin_cos();
+                    // Deterministic Halton-like scatter across stroke half-width
+                    let hash = idx.wrapping_mul(2_654_435_761);
+                    let u_off = ((hash & 0xFFFF) as f64 / 65535.0) * 2.0 - 1.0;
+                    let scale_r = 0.65 + 0.55 * (((hash >> 16) & 0xFF) as f64 / 255.0);
+                    let r = (r_base * scale_r).max(0.3);
+                    let cx = base[0] - sin * u_off * hw * 0.75;
+                    let cy = base[1] + cos * u_off * hw * 0.75;
+                    let k = 0.5522847498 * r;
+                    out.push(PathCommand::MoveTo { x: cx + r, y: cy });
+                    out.push(PathCommand::CubicTo {
+                        cx1: cx + r,
+                        cy1: cy + k,
+                        cx2: cx + k,
+                        cy2: cy + r,
+                        x: cx,
+                        y: cy + r,
+                    });
+                    out.push(PathCommand::CubicTo {
+                        cx1: cx - k,
+                        cy1: cy + r,
+                        cx2: cx - r,
+                        cy2: cy + k,
+                        x: cx - r,
+                        y: cy,
+                    });
+                    out.push(PathCommand::CubicTo {
+                        cx1: cx - r,
+                        cy1: cy - k,
+                        cx2: cx - k,
+                        cy2: cy - r,
+                        x: cx,
+                        y: cy - r,
+                    });
+                    out.push(PathCommand::CubicTo {
+                        cx1: cx + k,
+                        cy1: cy - r,
+                        cx2: cx + r,
+                        cy2: cy - k,
+                        x: cx + r,
+                        y: cy,
+                    });
+                    out.push(PathCommand::Close);
+                    s += step;
+                    idx += 1;
+                }
+            }
+            crate::PatternBrushKind::Hatched { spacing, angle_deg } => {
+                let step = if spacing.is_finite() && *spacing > 0.0 {
+                    spacing.clamp(2.0, 200.0)
+                } else {
+                    2.0
+                };
+                let rel_rad = if angle_deg.is_finite() {
+                    angle_deg.to_radians()
+                } else {
+                    0.0
+                };
+                let tick_half_w = (hw * 0.22).clamp(0.4, 4.0);
+                let tick_len = (hw * 1.35).max(1.5);
+                let mut s = 0.0;
+                let mut count = 0usize;
+                while s <= total && count < 512 {
+                    let base = guide.point_at(s);
+                    let ang = guide.tangent_at(s).to_radians() + rel_rad;
+                    let (sin, cos) = ang.sin_cos();
+                    let dx = cos * tick_len;
+                    let dy = sin * tick_len;
+                    let nx = -sin * tick_half_w;
+                    let ny = cos * tick_half_w;
+                    out.push(PathCommand::MoveTo {
+                        x: base[0] - dx + nx,
+                        y: base[1] - dy + ny,
+                    });
+                    out.push(PathCommand::LineTo {
+                        x: base[0] + dx + nx,
+                        y: base[1] + dy + ny,
+                    });
+                    out.push(PathCommand::LineTo {
+                        x: base[0] + dx - nx,
+                        y: base[1] + dy - ny,
+                    });
+                    out.push(PathCommand::LineTo {
+                        x: base[0] - dx - nx,
+                        y: base[1] - dy - ny,
+                    });
+                    out.push(PathCommand::Close);
+                    s += step;
+                    count += 1;
+                }
+            }
         }
     }
     out

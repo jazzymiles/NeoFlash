@@ -208,6 +208,13 @@ fn sampled_key(timeline: &Timeline, layer: &Layer, frame: u32, fps: f64) -> Keyf
             .filter(|fx| present.contains(fx.element_id.as_str()))
             .cloned()
             .collect();
+        key.ik_joint_specs = span_key.ik_joint_specs.clone();
+        key.ik_skins = span_key
+            .ik_skins
+            .iter()
+            .filter(|s| present.contains(s.shape_element_id.as_str()))
+            .cloned()
+            .collect();
     }
     if let Some(original) = layer.keyframes.iter().find(|key| key.frame == frame) {
         key.label = original.label.clone();

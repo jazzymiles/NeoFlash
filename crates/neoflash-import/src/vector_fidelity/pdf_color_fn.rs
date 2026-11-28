@@ -1233,13 +1233,394 @@ pub(super) fn remap_inner_radius_stops(
     out
 }
 
+#[derive(Clone, Debug)]
+pub(super) enum PdfShadingPaint {
+    Gradient(GradientPaint),
+    Mesh(neoflash_core::VectorMeshPaint),
+}
+
+struct PdfBitReader<'a> {
+    data: &'a [u8],
+    bit_pos: usize,
+}
+
+impl<'a> PdfBitReader<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, bit_pos: 0 }
+    }
+
+    fn remaining_bits(&self) -> usize {
+        self.data
+            .len()
+            .saturating_mul(8)
+            .saturating_sub(self.bit_pos)
+    }
+
+    fn align_to_byte(&mut self) {
+        self.bit_pos = (self.bit_pos.saturating_add(7) & !7).min(self.data.len().saturating_mul(8));
+    }
+
+    fn read_bits(&mut self, bits: u32) -> Option<u32> {
+        if bits == 0 || bits > 32 || self.remaining_bits() < bits as usize {
+            return None;
+        }
+        let mut acc = 0u64;
+        for _ in 0..bits {
+            let byte_idx = self.bit_pos >> 3;
+            let bit_idx = 7 - (self.bit_pos & 7);
+            let bit = u64::from((self.data[byte_idx] >> bit_idx) & 1);
+            acc = (acc << 1) | bit;
+            self.bit_pos += 1;
+        }
+        Some(acc as u32)
+    }
+}
+
+fn eval_shading_vertex_color(
+    doc: &Document,
+    cs: &PdfColorSpace,
+    fn_obj: Option<&Object>,
+    raw_comps: &[f64],
+) -> Option<Color> {
+    if let Some(fobj) = fn_obj {
+        let t = *raw_comps.first()?;
+        let resolved_fn = doc.dereference(fobj).map_or(fobj, |(_, r)| r);
+        let mapped = if let Ok(arr) = resolved_fn.as_array() {
+            let mut out = Vec::with_capacity(arr.len());
+            for sub in arr {
+                let v = eval_pdf_function_multi(doc, sub, &[t], 1, 0)?;
+                out.push(*v.first()?);
+            }
+            out
+        } else {
+            eval_pdf_function_multi(doc, resolved_fn, &[t], cs.channels(), 0)?
+        };
+        cs.to_rgba(doc, &mapped, 0)
+    } else {
+        cs.to_rgba(doc, raw_comps, 0)
+    }
+}
+
+pub(super) fn decode_mesh_shading_stream(
+    doc: &Document,
+    shading_type: i64,
+    dict: &Dictionary,
+    raw_bytes: &[u8],
+    cs: &PdfColorSpace,
+) -> Option<neoflash_core::VectorMeshPaint> {
+    use neoflash_core::{
+        MAX_VECTOR_MESH_PATCHES, MAX_VECTOR_MESH_TRIANGLES, VectorMeshPaint, VectorMeshPatch,
+        VectorMeshTriangle,
+    };
+
+    let bpc_coord = dict.get(b"BitsPerCoordinate").ok()?.as_i64().ok()? as u32;
+    if !matches!(bpc_coord, 1 | 2 | 4 | 8 | 12 | 16 | 24 | 32) {
+        return None;
+    }
+    let bpc_comp = dict.get(b"BitsPerComponent").ok()?.as_i64().ok()? as u32;
+    if !matches!(bpc_comp, 1 | 2 | 4 | 8 | 12 | 16) {
+        return None;
+    }
+    let bpf = if shading_type == 5 {
+        0u32
+    } else {
+        let f = dict.get(b"BitsPerFlag").ok()?.as_i64().ok()? as u32;
+        if !matches!(f, 2 | 4 | 8) {
+            return None;
+        }
+        f
+    };
+
+    let fn_obj = dict.get(b"Function").ok();
+    let n_comp = if fn_obj.is_some() { 1 } else { cs.channels() };
+    if n_comp == 0 || n_comp > 32 {
+        return None;
+    }
+
+    let decode_obj = dict
+        .get(b"Decode")
+        .ok()
+        .map(|o| doc.dereference(o).map_or(o, |(_, r)| r))?;
+    let decode = numbers(decode_obj)?;
+    if decode.len() < 4 + 2 * n_comp || !decode.iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let (xmin, xmax, ymin, ymax) = (decode[0], decode[1], decode[2], decode[3]);
+    let coord_max = if bpc_coord == 32 {
+        f64::from(u32::MAX)
+    } else {
+        f64::from((1u32 << bpc_coord) - 1).max(1.0)
+    };
+    let comp_max = f64::from((1u32 << bpc_comp) - 1).max(1.0);
+
+    let mut reader = PdfBitReader::new(raw_bytes);
+    let read_xy = |r: &mut PdfBitReader<'_>| -> Option<[f64; 2]> {
+        let rx = r.read_bits(bpc_coord)?;
+        let ry = r.read_bits(bpc_coord)?;
+        let x = xmin + (f64::from(rx) / coord_max) * (xmax - xmin);
+        let y = ymin + (f64::from(ry) / coord_max) * (ymax - ymin);
+        (x.is_finite() && y.is_finite()).then_some([x, y])
+    };
+    let read_color = |r: &mut PdfBitReader<'_>| -> Option<Color> {
+        let mut comps = [0.0f64; 32];
+        for (j, slot) in comps.iter_mut().enumerate().take(n_comp) {
+            let rc = r.read_bits(bpc_comp)?;
+            let c0 = decode[4 + 2 * j];
+            let c1 = decode[4 + 2 * j + 1];
+            *slot = c0 + (f64::from(rc) / comp_max) * (c1 - c0);
+        }
+        eval_shading_vertex_color(doc, cs, fn_obj, &comps[..n_comp])
+    };
+
+    let mut paint = VectorMeshPaint::default();
+
+    match shading_type {
+        4 => {
+            type GouraudTriState = ([f64; 2], Color, [f64; 2], Color, [f64; 2], Color);
+            let vertex_bits =
+                (bpf as usize) + 2 * (bpc_coord as usize) + n_comp * (bpc_comp as usize);
+            let aligned_vertex_bits = (vertex_bits + 7) & !7;
+            let mut prev_tri: Option<GouraudTriState> = None;
+            while reader.remaining_bits() >= vertex_bits
+                && paint.triangles.len() < MAX_VECTOR_MESH_TRIANGLES
+            {
+                let flag = reader.read_bits(bpf)? & 0b11;
+                let p_a = read_xy(&mut reader)?;
+                let c_a = read_color(&mut reader)?;
+                reader.align_to_byte();
+                match flag {
+                    0 => {
+                        if reader.remaining_bits() < aligned_vertex_bits + vertex_bits {
+                            break;
+                        }
+                        let _f_b = reader.read_bits(bpf)?;
+                        let p_b = read_xy(&mut reader)?;
+                        let c_b = read_color(&mut reader)?;
+                        reader.align_to_byte();
+                        let _f_c = reader.read_bits(bpf)?;
+                        let p_c = read_xy(&mut reader)?;
+                        let c_c = read_color(&mut reader)?;
+                        reader.align_to_byte();
+                        paint.triangles.push(VectorMeshTriangle {
+                            points: [p_a, p_b, p_c],
+                            colors: [c_a, c_b, c_c],
+                        });
+                        prev_tri = Some((p_a, c_a, p_b, c_b, p_c, c_c));
+                    }
+                    1 => {
+                        let Some((_, _, p_b, c_b, p_c, c_c)) = prev_tri else {
+                            break;
+                        };
+                        paint.triangles.push(VectorMeshTriangle {
+                            points: [p_b, p_c, p_a],
+                            colors: [c_b, c_c, c_a],
+                        });
+                        prev_tri = Some((p_b, c_b, p_c, c_c, p_a, c_a));
+                    }
+                    2 => {
+                        let Some((p_0, c_0, _, _, p_c, c_c)) = prev_tri else {
+                            break;
+                        };
+                        paint.triangles.push(VectorMeshTriangle {
+                            points: [p_0, p_c, p_a],
+                            colors: [c_0, c_c, c_a],
+                        });
+                        prev_tri = Some((p_0, c_0, p_c, c_c, p_a, c_a));
+                    }
+                    _ => break,
+                }
+            }
+        }
+        5 => {
+            let vpr = dict.get(b"VerticesPerRow").ok()?.as_i64().ok()?;
+            if !(2..=4096).contains(&vpr) {
+                return None;
+            }
+            let vpr = vpr as usize;
+            let vertex_bits = 2 * (bpc_coord as usize) + n_comp * (bpc_comp as usize);
+            let max_vertices = (MAX_VECTOR_MESH_TRIANGLES / 2 + vpr + 2).min(65_536);
+            let mut verts: Vec<([f64; 2], Color)> = Vec::new();
+            while reader.remaining_bits() >= vertex_bits && verts.len() < max_vertices {
+                let pt = read_xy(&mut reader)?;
+                let col = read_color(&mut reader)?;
+                reader.align_to_byte();
+                verts.push((pt, col));
+            }
+            let rows = verts.len() / vpr;
+            if rows < 2 {
+                return None;
+            }
+            'rows_loop: for r in 0..(rows - 1) {
+                for c in 0..(vpr - 1) {
+                    if paint.triangles.len() + 2 > MAX_VECTOR_MESH_TRIANGLES {
+                        break 'rows_loop;
+                    }
+                    let v00 = verts[r * vpr + c];
+                    let v01 = verts[r * vpr + c + 1];
+                    let v10 = verts[(r + 1) * vpr + c];
+                    let v11 = verts[(r + 1) * vpr + c + 1];
+                    paint.triangles.push(VectorMeshTriangle {
+                        points: [v00.0, v01.0, v11.0],
+                        colors: [v00.1, v01.1, v11.1],
+                    });
+                    paint.triangles.push(VectorMeshTriangle {
+                        points: [v00.0, v11.0, v10.0],
+                        colors: [v00.1, v11.1, v10.1],
+                    });
+                }
+            }
+        }
+        6 => {
+            let mut prev: Option<([[f64; 2]; 12], [Color; 4])> = None;
+            while reader.remaining_bits() >= bpf as usize
+                && paint.patches.len() < MAX_VECTOR_MESH_PATCHES
+            {
+                let start_bits = reader.remaining_bits();
+                let Some(raw_flag) = reader.read_bits(bpf) else {
+                    break;
+                };
+                let flag = raw_flag & 0b11;
+                let need_coords = if flag == 0 { 12usize } else { 8usize };
+                let need_cols = if flag == 0 { 4usize } else { 2usize };
+                let need_bits = need_coords * 2 * (bpc_coord as usize)
+                    + need_cols * n_comp * (bpc_comp as usize);
+                if reader.remaining_bits() < need_bits {
+                    let _ = start_bits;
+                    break;
+                }
+                let mut pts = [[0.0; 2]; 12];
+                let mut cols = [[0u8; 4]; 4];
+                if flag == 0 {
+                    for slot in &mut pts {
+                        *slot = read_xy(&mut reader)?;
+                    }
+                    for slot in &mut cols {
+                        *slot = read_color(&mut reader)?;
+                    }
+                } else {
+                    let Some((pp, pc)) = prev else {
+                        break;
+                    };
+                    match flag {
+                        1 => {
+                            pts[0..4].copy_from_slice(&pp[3..7]);
+                            cols[0..2].copy_from_slice(&pc[1..3]);
+                        }
+                        2 => {
+                            pts[0..4].copy_from_slice(&pp[6..10]);
+                            cols[0..2].copy_from_slice(&pc[2..4]);
+                        }
+                        3 => {
+                            pts[0..3].copy_from_slice(&pp[9..12]);
+                            pts[3] = pp[0];
+                            cols[0] = pc[3];
+                            cols[1] = pc[0];
+                        }
+                        _ => break,
+                    }
+                    for slot in &mut pts[4..12] {
+                        *slot = read_xy(&mut reader)?;
+                    }
+                    for slot in &mut cols[2..4] {
+                        *slot = read_color(&mut reader)?;
+                    }
+                }
+                reader.align_to_byte();
+                paint
+                    .patches
+                    .push(VectorMeshPatch::from_pdf_coons_12(pts, cols));
+                prev = Some((pts, cols));
+            }
+        }
+        7 => {
+            let mut prev: Option<([[f64; 2]; 16], [Color; 4])> = None;
+            while reader.remaining_bits() >= bpf as usize
+                && paint.patches.len() < MAX_VECTOR_MESH_PATCHES
+            {
+                let Some(raw_flag) = reader.read_bits(bpf) else {
+                    break;
+                };
+                let flag = raw_flag & 0b11;
+                let need_coords = if flag == 0 { 16usize } else { 12usize };
+                let need_cols = if flag == 0 { 4usize } else { 2usize };
+                let need_bits = need_coords * 2 * (bpc_coord as usize)
+                    + need_cols * n_comp * (bpc_comp as usize);
+                if reader.remaining_bits() < need_bits {
+                    break;
+                }
+                let mut pts = [[0.0; 2]; 16];
+                let mut cols = [[0u8; 4]; 4];
+                if flag == 0 {
+                    for slot in &mut pts {
+                        *slot = read_xy(&mut reader)?;
+                    }
+                    for slot in &mut cols {
+                        *slot = read_color(&mut reader)?;
+                    }
+                } else {
+                    let Some((pp, pc)) = prev else {
+                        break;
+                    };
+                    match flag {
+                        1 => {
+                            pts[0..4].copy_from_slice(&pp[3..7]);
+                            cols[0..2].copy_from_slice(&pc[1..3]);
+                        }
+                        2 => {
+                            pts[0..4].copy_from_slice(&pp[6..10]);
+                            cols[0..2].copy_from_slice(&pc[2..4]);
+                        }
+                        3 => {
+                            pts[0..3].copy_from_slice(&pp[9..12]);
+                            pts[3] = pp[0];
+                            cols[0] = pc[3];
+                            cols[1] = pc[0];
+                        }
+                        _ => break,
+                    }
+                    for slot in &mut pts[4..16] {
+                        *slot = read_xy(&mut reader)?;
+                    }
+                    for slot in &mut cols[2..4] {
+                        *slot = read_color(&mut reader)?;
+                    }
+                }
+                reader.align_to_byte();
+                paint
+                    .patches
+                    .push(VectorMeshPatch::from_pdf_tensor_16(pts, cols));
+                prev = Some((pts, cols));
+            }
+        }
+        _ => return None,
+    }
+
+    paint.validate().ok()?;
+    Some(paint)
+}
+
 pub(super) fn parse_shading_with_cs(
     doc: &Document,
     object: &Object,
     resources_cs: Option<&Dictionary>,
-) -> Option<(GradientPaint, Option<String>)> {
-    let shading = function_dict(doc, object)?;
+) -> Option<(PdfShadingPaint, Option<String>)> {
+    let resolved_obj = doc.dereference(object).map_or(object, |(_, r)| r);
+    let shading = function_dict(doc, resolved_obj)?;
     let shading_type = shading.get(b"ShadingType").ok()?.as_i64().ok()?;
+    if matches!(shading_type, 4..=7) {
+        let Object::Stream(stream) = resolved_obj else {
+            return None;
+        };
+        let cs = parse_pdf_color_space(doc, shading.get(b"ColorSpace").ok()?, resources_cs, 0)?;
+        if cs.channels() == 0 {
+            return None;
+        }
+        let (decoded_bytes, _) =
+            super::pdf_xref::decode_pdf_stream_with_doc(stream, Some(doc), 16 * 1024 * 1024, false)
+                .ok()?;
+        let mesh = decode_mesh_shading_stream(doc, shading_type, shading, &decoded_bytes, &cs)?;
+        return Some((PdfShadingPaint::Mesh(mesh), None));
+    }
     if !matches!(shading_type, 2 | 3) {
         return None;
     }
@@ -1354,14 +1735,14 @@ pub(super) fn parse_shading_with_cs(
         _ => return None,
     };
     paint.validate().ok()?;
-    Some((paint, approx_warning))
+    Some((PdfShadingPaint::Gradient(paint), approx_warning))
 }
 
 pub(super) fn parse_shading_pattern_with_cs(
     doc: &Document,
     object: &Object,
     resources_cs: Option<&Dictionary>,
-) -> Option<(GradientPaint, Option<String>)> {
+) -> Option<(PdfShadingPaint, Option<String>)> {
     let pat = function_dict(doc, object)?;
     if pat.get(b"PatternType").ok()?.as_i64().ok()? != 2 {
         return None;
@@ -1373,8 +1754,16 @@ pub(super) fn parse_shading_pattern_with_cs(
         .and_then(numbers)
         .and_then(|v| <[f64; 6]>::try_from(v).ok())
     {
-        paint.matrix = affine_multiply(mat, paint.matrix);
-        paint.validate().ok()?;
+        match &mut paint {
+            PdfShadingPaint::Gradient(grad) => {
+                grad.matrix = affine_multiply(mat, grad.matrix);
+                grad.validate().ok()?;
+            }
+            PdfShadingPaint::Mesh(mesh) => {
+                mesh.transform_in_place(mat);
+                mesh.validate().ok()?;
+            }
+        }
     }
     Some((paint, warn))
 }

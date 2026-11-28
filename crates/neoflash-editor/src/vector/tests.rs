@@ -228,6 +228,7 @@ fn vector_visibility_matches_renderer_and_stage_hit_testing() {
             alpha: 1.,
             color_transform: Default::default(),
             bitmap_fill: None,
+            mesh_fill: None,
             path_fingerprint: None,
             kind,
         };
@@ -307,6 +308,7 @@ fn retained_screen_mesh_reuses_arc_and_replaces_changed_draw_slot() {
         alpha: 1.,
         color_transform: Default::default(),
         bitmap_fill: None,
+        mesh_fill: None,
         path_fingerprint: Some(fingerprint),
         kind: ElementKind::Path {
             commands: commands.clone(),

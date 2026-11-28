@@ -6,13 +6,16 @@ use std::io::Cursor;
 
 use base64::Engine as _;
 use image::{ImageReader, Limits};
-use neoflash_core::{Color, FillRule, GradientKind, GradientStop, PathCommand, TextAlign};
+use neoflash_core::{Color, FillRule, GradientStop, PathCommand, TextAlign};
 use serde_json::Value;
 
 use super::{
-    BASE64, FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaNode, FigmaPageSummary,
-    FigmaPaint, FigmaTextData, FigmaTextStyleOverride, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES,
-    MAX_ZIP_IMAGE_ENTRY_BYTES, uv_transform_from_gradient_handles,
+    BASE64, FigmaArcData, FigmaAutoLayout, FigmaConstraintH, FigmaConstraintV, FigmaCounterAlign,
+    FigmaCounterAlignContent, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaGradientKind,
+    FigmaLayoutMode, FigmaLayoutPositioning, FigmaLayoutSizing, FigmaLayoutWrap, FigmaNode,
+    FigmaPageSummary, FigmaPaint, FigmaPrimaryAlign, FigmaSymbolOverride, FigmaTextData,
+    FigmaTextStyleOverride, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES, MAX_ZIP_IMAGE_ENTRY_BYTES,
+    uv_transform_from_gradient_handles,
 };
 use crate::{ImportError, vector_fidelity::parse_svg_path_data};
 
@@ -166,21 +169,16 @@ fn parse_json_paints(arr: &[Value], w: f64, h: f64) -> Vec<FigmaPaint> {
                     None
                 };
                 let _ = (w, h);
-                let kind = if radial {
-                    GradientKind::Radial
-                } else {
-                    GradientKind::Linear
-                };
-                let approximated_from = match ptype {
-                    "GRADIENT_ANGULAR" => Some("GRADIENT_ANGULAR"),
-                    "GRADIENT_DIAMOND" => Some("GRADIENT_DIAMOND"),
-                    _ => None,
+                let kind = match ptype {
+                    "GRADIENT_RADIAL" => FigmaGradientKind::Radial,
+                    "GRADIENT_ANGULAR" => FigmaGradientKind::Angular,
+                    "GRADIENT_DIAMOND" => FigmaGradientKind::Diamond,
+                    _ => FigmaGradientKind::Linear,
                 };
                 out.push(FigmaPaint::Gradient {
                     kind,
                     stops,
                     uv_transform,
-                    approximated_from,
                 });
             }
             "IMAGE" => {
@@ -585,6 +583,7 @@ fn parse_json_node(
 
     let bbox = v.get("absoluteBoundingBox").and_then(Value::as_object);
     let size_obj = v.get("size").and_then(Value::as_object);
+    let has_explicit_size = size_obj.is_some() || bbox.is_some();
 
     let width = size_obj
         .and_then(|s| s.get("x"))
@@ -608,6 +607,7 @@ fn parse_json_node(
     let mut x = 0.0;
     let mut y = 0.0;
     let mut relative_transform = None;
+    let mut has_explicit_position = false;
 
     if let Some(rt) = v.get("relativeTransform").and_then(Value::as_array)
         && rt.len() >= 2
@@ -624,6 +624,7 @@ fn parse_json_node(
         x = m02;
         y = m12;
         relative_transform = Some([m00, m10, m01, m11, m02, m12]);
+        has_explicit_position = true;
     } else if let Some(b) = bbox {
         let abs_x = b.get("x").and_then(Value::as_f64).unwrap_or(0.0);
         let abs_y = b.get("y").and_then(Value::as_f64).unwrap_or(0.0);
@@ -634,6 +635,7 @@ fn parse_json_node(
             x = abs_x;
             y = abs_y;
         }
+        has_explicit_position = true;
     }
 
     let uniform_r = v
@@ -948,6 +950,295 @@ fn parse_json_node(
         .and_then(Value::as_str)
         .map(str::to_owned);
 
+    let layout_mode = match v
+        .get("layoutMode")
+        .or_else(|| v.get("stackMode"))
+        .and_then(Value::as_str)
+    {
+        Some("HORIZONTAL") => FigmaLayoutMode::Horizontal,
+        Some("VERTICAL") => FigmaLayoutMode::Vertical,
+        _ => FigmaLayoutMode::None,
+    };
+    let layout_wrap = match v
+        .get("layoutWrap")
+        .or_else(|| v.get("stackWrap"))
+        .and_then(Value::as_str)
+    {
+        Some("WRAP") => FigmaLayoutWrap::Wrap,
+        _ => FigmaLayoutWrap::NoWrap,
+    };
+    let parse_axis_sizing = |raw: Option<&str>| -> Option<FigmaLayoutSizing> {
+        match raw {
+            Some("HUG" | "AUTO" | "RESIZE_TO_FIT" | "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE") => {
+                Some(FigmaLayoutSizing::Hug)
+            }
+            Some("FILL" | "FILL_CONTAINER") => Some(FigmaLayoutSizing::Fill),
+            Some("FIXED") => Some(FigmaLayoutSizing::Fixed),
+            _ => None,
+        }
+    };
+    let legacy_prim = parse_axis_sizing(v.get("primaryAxisSizingMode").and_then(Value::as_str));
+    let legacy_counter = parse_axis_sizing(v.get("counterAxisSizingMode").and_then(Value::as_str));
+    let (default_h_sizing, default_v_sizing) = match layout_mode {
+        FigmaLayoutMode::Horizontal => (
+            legacy_prim.unwrap_or(FigmaLayoutSizing::Fixed),
+            legacy_counter.unwrap_or(FigmaLayoutSizing::Fixed),
+        ),
+        FigmaLayoutMode::Vertical => (
+            legacy_counter.unwrap_or(FigmaLayoutSizing::Fixed),
+            legacy_prim.unwrap_or(FigmaLayoutSizing::Fixed),
+        ),
+        FigmaLayoutMode::None => (FigmaLayoutSizing::Fixed, FigmaLayoutSizing::Fixed),
+    };
+    let sizing_horizontal =
+        parse_axis_sizing(v.get("layoutSizingHorizontal").and_then(Value::as_str))
+            .unwrap_or(default_h_sizing);
+    let sizing_vertical = parse_axis_sizing(v.get("layoutSizingVertical").and_then(Value::as_str))
+        .unwrap_or(default_v_sizing);
+
+    let layout_grow = v
+        .get("layoutGrow")
+        .and_then(Value::as_f64)
+        .filter(|g| g.is_finite())
+        .map_or(0.0, |g| g.clamp(0.0, 1.0));
+    let layout_align = v
+        .get("layoutAlign")
+        .and_then(Value::as_str)
+        .unwrap_or("INHERIT")
+        .to_ascii_uppercase();
+
+    let h_pad = v
+        .get("horizontalPadding")
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(0.0, |n| n.clamp(0.0, 1e6));
+    let v_pad = v
+        .get("verticalPadding")
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(0.0, |n| n.clamp(0.0, 1e6));
+    let padding_left = v
+        .get("paddingLeft")
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(h_pad, |n| n.clamp(0.0, 1e6));
+    let padding_right = v
+        .get("paddingRight")
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(h_pad, |n| n.clamp(0.0, 1e6));
+    let padding_top = v
+        .get("paddingTop")
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(v_pad, |n| n.clamp(0.0, 1e6));
+    let padding_bottom = v
+        .get("paddingBottom")
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(v_pad, |n| n.clamp(0.0, 1e6));
+    let item_spacing = v
+        .get("itemSpacing")
+        .and_then(Value::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(0.0, |n| n.clamp(-1e6, 1e6));
+    let counter_axis_spacing = v
+        .get("counterAxisSpacing")
+        .and_then(Value::as_f64)
+        .map(|n| {
+            if n.is_finite() {
+                n.clamp(-1e6, 1e6)
+            } else {
+                0.0
+            }
+        });
+
+    let primary_axis_align_items = match v.get("primaryAxisAlignItems").and_then(Value::as_str) {
+        Some("CENTER") => FigmaPrimaryAlign::Center,
+        Some("MAX") => FigmaPrimaryAlign::Max,
+        Some("SPACE_BETWEEN") => FigmaPrimaryAlign::SpaceBetween,
+        _ => FigmaPrimaryAlign::Min,
+    };
+    let counter_axis_align_items = match v.get("counterAxisAlignItems").and_then(Value::as_str) {
+        Some("CENTER") => FigmaCounterAlign::Center,
+        Some("MAX") => FigmaCounterAlign::Max,
+        Some("BASELINE") => FigmaCounterAlign::Baseline,
+        _ => FigmaCounterAlign::Min,
+    };
+    let counter_axis_align_content = match v.get("counterAxisAlignContent").and_then(Value::as_str)
+    {
+        Some("SPACE_BETWEEN") => FigmaCounterAlignContent::SpaceBetween,
+        _ => FigmaCounterAlignContent::Auto,
+    };
+    let layout_positioning = match v.get("layoutPositioning").and_then(Value::as_str) {
+        Some("ABSOLUTE") => FigmaLayoutPositioning::Absolute,
+        _ => FigmaLayoutPositioning::Auto,
+    };
+
+    let constraints_obj = v.get("constraints").and_then(Value::as_object);
+    let raw_ch = constraints_obj
+        .and_then(|c| c.get("horizontal"))
+        .or_else(|| v.get("horizontalConstraint"))
+        .and_then(Value::as_str);
+    let raw_cv = constraints_obj
+        .and_then(|c| c.get("vertical"))
+        .or_else(|| v.get("verticalConstraint"))
+        .and_then(Value::as_str);
+    let constraint_h = match raw_ch {
+        Some("RIGHT" | "MAX") => FigmaConstraintH::Right,
+        Some("LEFT_AND_RIGHT" | "STRETCH") => FigmaConstraintH::LeftAndRight,
+        Some("CENTER") => FigmaConstraintH::Center,
+        Some("SCALE") => FigmaConstraintH::Scale,
+        _ => FigmaConstraintH::Left,
+    };
+    let constraint_v = match raw_cv {
+        Some("BOTTOM" | "MAX") => FigmaConstraintV::Bottom,
+        Some("TOP_AND_BOTTOM" | "STRETCH") => FigmaConstraintV::TopAndBottom,
+        Some("CENTER") => FigmaConstraintV::Center,
+        Some("SCALE") => FigmaConstraintV::Scale,
+        _ => FigmaConstraintV::Top,
+    };
+
+    let opt_min_f64 = |key: &str| -> Option<f64> {
+        v.get(key)
+            .and_then(Value::as_f64)
+            .filter(|n| n.is_finite())
+            .map(|n| n.clamp(0.0, 1e6))
+    };
+    let opt_max_f64 = |key: &str| -> Option<f64> {
+        v.get(key)
+            .and_then(Value::as_f64)
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .map(|n| n.clamp(0.0, 1e6))
+    };
+    let min_width = opt_min_f64("minWidth");
+    let max_width = opt_max_f64("maxWidth");
+    let min_height = opt_min_f64("minHeight");
+    let max_height = opt_max_f64("maxHeight");
+    let item_reverse_z_index = v
+        .get("itemReverseZIndex")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let strokes_included_in_layout = v
+        .get("strokesIncludedInLayout")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let stroke_align = v
+        .get("strokeAlign")
+        .and_then(Value::as_str)
+        .unwrap_or("INSIDE")
+        .to_ascii_uppercase();
+
+    let mut symbol_overrides = Vec::new();
+    if let Some(ov_arr) = v.get("overrides").and_then(Value::as_array) {
+        for ov in ov_arr.iter().take(1024) {
+            let guid_path: Vec<String> =
+                if let Some(path_arr) = ov.get("guidPath").and_then(Value::as_array) {
+                    path_arr
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                } else if let Some(oid) = ov.get("id").and_then(Value::as_str) {
+                    oid.split(';')
+                        .filter(|s| !s.is_empty())
+                        .map(|seg| seg.strip_prefix('I').unwrap_or(seg).to_owned())
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+            if guid_path.is_empty() {
+                continue;
+            }
+            let ov_vis = ov.get("visible").and_then(Value::as_bool);
+            let ov_op = ov
+                .get("opacity")
+                .and_then(Value::as_f64)
+                .filter(|n| n.is_finite())
+                .map(|n| n.clamp(0.0, 1.0));
+            let ov_chars = ov
+                .get("characters")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let text_auto_resize = ov
+                .get("textAutoResize")
+                .or_else(|| ov.get("style").and_then(|s| s.get("textAutoResize")))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            let font_size = ov
+                .get("fontSize")
+                .or_else(|| ov.get("style").and_then(|s| s.get("fontSize")))
+                .and_then(Value::as_f64)
+                .filter(|n| n.is_finite() && *n > 0.0);
+            let ov_fills = ov
+                .get("fills")
+                .and_then(Value::as_array)
+                .map(|a| parse_json_paints(a, width, height));
+            let ov_strokes = ov
+                .get("strokes")
+                .and_then(Value::as_array)
+                .map(|a| parse_json_paints(a, width, height));
+            let ov_sym = ov
+                .get("overriddenSymbolID")
+                .or_else(|| ov.get("componentId"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            if text_auto_resize.is_some()
+                || font_size.is_some()
+                || ov_vis.is_some()
+                || ov_op.is_some()
+                || ov_chars.is_some()
+                || ov_fills.is_some()
+                || ov_strokes.is_some()
+                || ov_sym.is_some()
+            {
+                symbol_overrides.push(FigmaSymbolOverride {
+                    text_auto_resize,
+                    font_size,
+                    guid_path,
+                    visible: ov_vis,
+                    opacity: ov_op,
+                    characters: ov_chars,
+                    text_style_ids: None,
+                    text_style_overrides: Vec::new(),
+                    fills: ov_fills,
+                    strokes: ov_strokes,
+                    overridden_symbol_id: ov_sym,
+                });
+            }
+        }
+    }
+
+    let auto_layout = FigmaAutoLayout {
+        layout_mode,
+        layout_wrap,
+        sizing_horizontal,
+        sizing_vertical,
+        layout_grow,
+        layout_align,
+        padding_left,
+        padding_right,
+        padding_top,
+        padding_bottom,
+        item_spacing,
+        counter_axis_spacing,
+        primary_axis_align_items,
+        counter_axis_align_items,
+        counter_axis_align_content,
+        layout_positioning,
+        constraint_h,
+        constraint_v,
+        min_width,
+        max_width,
+        min_height,
+        max_height,
+        item_reverse_z_index,
+        strokes_included_in_layout,
+        stroke_align,
+        has_explicit_position,
+        has_explicit_size,
+    };
+
     let this_abs_origin = if matches!(node_type.as_str(), "DOCUMENT" | "CANVAS") {
         None
     } else {
@@ -1001,9 +1292,10 @@ fn parse_json_node(
         text,
         effects,
         component_id,
-        symbol_overrides: Vec::new(),
+        symbol_overrides,
         instance_text_layouts: Vec::new(),
         background_color,
+        auto_layout,
         children,
     })
 }

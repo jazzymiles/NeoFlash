@@ -659,6 +659,39 @@ impl Project {
         if self.uses_format_15() {
             self.format_version = self.format_version.max(15);
         }
+        if self.uses_format_16() {
+            self.format_version = self.format_version.max(16);
+        }
+    }
+
+    /// Vector mesh paints (`ElementVectorEffects.vector_mesh`), persisted IK joint specs / Bind
+    /// shape skins (`Keyframe.{ik_joint_specs, ik_skins}`), and `Ragged`/`Stipple`/`Hatched`
+    /// pattern stroke brushes (`T-501`, format 16).
+    pub fn uses_format_16(&self) -> bool {
+        self.symbols
+            .iter()
+            .flat_map(|symbol| &symbol.timeline.layers)
+            .flat_map(|layer| &layer.keyframes)
+            .any(|key| {
+                !key.ik_joint_specs.is_empty()
+                    || !key.ik_skins.is_empty()
+                    || key.vector_effects.iter().any(|fx| fx.vector_mesh.is_some())
+                    || key.appearances.iter().any(|app| {
+                        app.entries.iter().any(|entry| {
+                            matches!(
+                                entry,
+                                AppearancePaintEntry::Stroke {
+                                    pattern_brush: Some(
+                                        PatternBrushKind::Ragged { .. }
+                                            | PatternBrushKind::Stipple { .. }
+                                            | PatternBrushKind::Hatched { .. }
+                                    ),
+                                    ..
+                                }
+                            )
+                        })
+                    })
+            })
     }
 
     pub fn uses_format_5(&self) -> bool {
@@ -1148,6 +1181,18 @@ pub enum PatternBrushKind {
     PatternRepeat {
         tile_commands: Vec<PathCommand>,
         spacing: f64,
+    },
+    Ragged {
+        wavelength: f64,
+        amplitude: f64,
+    },
+    Stipple {
+        dot_size: f64,
+        spacing: f64,
+    },
+    Hatched {
+        spacing: f64,
+        angle_deg: f64,
     },
 }
 
@@ -1671,6 +1716,12 @@ pub struct Keyframe {
     /// Bounded Inverse Kinematics (IK) armatures on this keyframe (T-113, format 9).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ik_armatures: Vec<IkArmature>,
+    /// Extended IK joint constraints, speed, spring strength and damping per bone (`T-501`, format 16).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ik_joint_specs: Vec<crate::IkJointSpec>,
+    /// Persisted Bind Tool (`Tool::Bind`) multi-bone shape skin weights (`T-501`, format 16).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ik_skins: Vec<crate::IkShapeSkin>,
     /// Editable appearance/modifier stacks and linked styles for elements on this keyframe (T-114, format 9).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub appearances: Vec<ElementAppearance>,
@@ -1731,6 +1782,8 @@ impl Default for Keyframe {
             element_parents: Vec::new(),
             controller_elements: Vec::new(),
             ik_armatures: Vec::new(),
+            ik_joint_specs: Vec::new(),
+            ik_skins: Vec::new(),
             appearances: Vec::new(),
             video: None,
             extended_accessibility: Vec::new(),
@@ -1839,6 +1892,11 @@ impl Keyframe {
                 if let Some(eid) = elem_map.get(&bone.element_id) {
                     bone.element_id = eid.clone();
                 }
+            }
+        }
+        for skin in &mut self.ik_skins {
+            if let Some(eid) = elem_map.get(&skin.shape_element_id) {
+                skin.shape_element_id = eid.clone();
             }
         }
         for app in &mut self.appearances {
@@ -4898,6 +4956,8 @@ impl Layer {
                 existing.tween = None;
                 existing.keyed_properties = None;
                 existing.ik_armatures.clear();
+                existing.ik_joint_specs.clear();
+                existing.ik_skins.clear();
             } else {
                 self.keyframes.push(Keyframe {
                     frame: f,

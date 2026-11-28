@@ -980,7 +980,12 @@ fn scene_from_evaluation_with_overrides(
             } else {
                 sources
                     .iter()
-                    .filter(|draw| has_mask_fill(&draw.item.kind, draw.item.bitmap_fill.is_some()))
+                    .filter(|draw| {
+                        has_mask_fill(
+                            &draw.item.kind,
+                            draw.item.bitmap_fill.is_some() || draw.item.mesh_fill.is_some(),
+                        )
+                    })
                     .filter_map(|draw| {
                         crate::runtime_graph::clipping::vector_path(&draw.item.kind).map(
                             |(commands, fill_rule)| ClipComponent {

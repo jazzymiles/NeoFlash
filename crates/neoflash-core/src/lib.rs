@@ -246,10 +246,12 @@ pub use timeline_video::{
 pub use validation::{ProjectError, ValidationIssue, validate};
 pub use vector_effects::{
     ElementVectorEffects, EnvelopeWarp, EnvelopeWarpPreset, FreeformGradient, FreeformGradientLine,
-    FreeformGradientPoint, GradientMesh, GradientMeshPatchVertex, PerspectiveGridSpec,
-    PerspectivePlane, ProceduralVectorEffect, VectorBlendSpacing, VectorBlendSpec,
-    apply_envelope_warp_to_path, apply_envelope_warp_to_point, apply_procedural_effect_to_path,
-    expand_vector_effects, generate_vector_blend_steps, sample_freeform_gradient,
+    FreeformGradientPoint, GradientMesh, GradientMeshPatchVertex, MAX_VECTOR_MESH_PATCHES,
+    MAX_VECTOR_MESH_TRIANGLES, PerspectiveGridSpec, PerspectivePlane, ProceduralVectorEffect,
+    TessellatedColorMesh, VectorBlendSpacing, VectorBlendSpec, VectorMeshPaint, VectorMeshPatch,
+    VectorMeshTriangle, apply_envelope_warp_to_path, apply_envelope_warp_to_point,
+    apply_procedural_effect_to_path, expand_vector_effects, generate_vector_blend_steps,
+    sample_freeform_gradient,
 };
 pub use xml::{
     MAX_XML_ATTRIBUTES, MAX_XML_BYTES, MAX_XML_DEPTH, MAX_XML_ITEMS, MAX_XML_NAME_BYTES,

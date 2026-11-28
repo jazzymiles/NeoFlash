@@ -130,19 +130,41 @@ impl Editor {
                 .appearances
                 .iter()
                 .find(|a| a.element_id == target.element)
-            && let Some(PatternBrushKind::DashPattern { dash, gap }) =
-                app.entries.iter().find_map(|entry| match entry {
-                    AppearancePaintEntry::Stroke { pattern_brush, .. } => pattern_brush.as_ref(),
-                    _ => None,
-                })
+            && let Some(pat) = app.entries.iter().find_map(|entry| match entry {
+                AppearancePaintEntry::Stroke { pattern_brush, .. } => pattern_brush.as_ref(),
+                _ => None,
+            })
         {
-            draft.dash = (*dash).clamp(1.0, 200.0);
-            draft.gap = (*gap).clamp(1.0, 200.0);
-            draft.kind = if (*dash - draft.thickness).abs() <= 0.25 && *gap >= 2.0 {
-                StrokeStyleKind::Dotted
-            } else {
-                StrokeStyleKind::Dashed
-            };
+            match pat {
+                PatternBrushKind::DashPattern { dash, gap } => {
+                    draft.dash = (*dash).clamp(1.0, 200.0);
+                    draft.gap = (*gap).clamp(1.0, 200.0);
+                    draft.kind = if (*dash - draft.thickness).abs() <= 0.25 && *gap >= 2.0 {
+                        StrokeStyleKind::Dotted
+                    } else {
+                        StrokeStyleKind::Dashed
+                    };
+                }
+                PatternBrushKind::Ragged {
+                    wavelength,
+                    amplitude,
+                } => {
+                    draft.kind = StrokeStyleKind::Ragged;
+                    draft.dash = (*wavelength).clamp(2.0, 200.0);
+                    draft.gap = (*amplitude * 2.0).clamp(1.0, 200.0);
+                }
+                PatternBrushKind::Stipple { dot_size, spacing } => {
+                    draft.kind = StrokeStyleKind::Stipple;
+                    draft.thickness = (*dot_size).clamp(0.1, 200.0);
+                    draft.gap = (*spacing).clamp(1.5, 200.0);
+                }
+                PatternBrushKind::Hatched { spacing, angle_deg } => {
+                    draft.kind = StrokeStyleKind::Hatched;
+                    draft.dash = (*angle_deg).clamp(-85.0, 85.0);
+                    draft.gap = (*spacing).clamp(2.0, 200.0);
+                }
+                _ => {}
+            }
         }
         draft
     }
@@ -158,10 +180,8 @@ impl Editor {
         ctx.data_mut(|d| d.remove::<StrokeStyleDraft>(draft_id()));
     }
 
-    /// Apply the active `Stroke style` draft to the tool stroke width and any editable selected
-    /// elements in one `"Stroke style"` Undo step.
-    /// Apply a supported stroke style (`Solid`, `Dashed`, `Dotted`) and thickness to editable
-    /// selected elements in one atomic `"Stroke style"` Undo step.
+    /// Apply a stroke style (`Solid`, `Dashed`, `Dotted`, `Ragged`, `Stipple`, `Hatched`) and
+    /// thickness to editable selected elements in one atomic `"Stroke style"` Undo step.
     pub(crate) fn apply_stroke_style_to_selection(
         &mut self,
         kind: StrokeStyleKind,
@@ -196,13 +216,18 @@ impl Editor {
                 dash: dash.max(1.0),
                 gap: gap.max(1.0),
             }),
-            StrokeStyleKind::Ragged | StrokeStyleKind::Stipple | StrokeStyleKind::Hatched => {
-                self.message(format!(
-                    "{} stroke style is not available yet.",
-                    kind.label()
-                ));
-                return false;
-            }
+            StrokeStyleKind::Ragged => Some(PatternBrushKind::Ragged {
+                wavelength: dash.max(2.0),
+                amplitude: (gap * 0.5).clamp(0.5, 50.0),
+            }),
+            StrokeStyleKind::Stipple => Some(PatternBrushKind::Stipple {
+                dot_size: width.max(1.0),
+                spacing: gap.max(1.5),
+            }),
+            StrokeStyleKind::Hatched => Some(PatternBrushKind::Hatched {
+                spacing: gap.max(2.0),
+                angle_deg: dash.clamp(-85.0, 85.0),
+            }),
         };
 
         if !selected_targets.is_empty() {
@@ -291,7 +316,12 @@ impl Editor {
                                 !matches!(
                                     entry,
                                     AppearancePaintEntry::Stroke {
-                                        pattern_brush: Some(PatternBrushKind::DashPattern { .. }),
+                                        pattern_brush: Some(
+                                            PatternBrushKind::DashPattern { .. }
+                                                | PatternBrushKind::Ragged { .. }
+                                                | PatternBrushKind::Stipple { .. }
+                                                | PatternBrushKind::Hatched { .. }
+                                        ),
                                         swatch_id: None,
                                         gradient: None,
                                         offset_distance,
@@ -309,7 +339,12 @@ impl Editor {
                                     *entry_w = width;
                                     if matches!(
                                         pattern_brush,
-                                        Some(PatternBrushKind::DashPattern { .. })
+                                        Some(
+                                            PatternBrushKind::DashPattern { .. }
+                                                | PatternBrushKind::Ragged { .. }
+                                                | PatternBrushKind::Stipple { .. }
+                                                | PatternBrushKind::Hatched { .. }
+                                        )
                                     ) {
                                         *pattern_brush = None;
                                     }
@@ -327,6 +362,7 @@ impl Editor {
                         }
                     }
                 }
+                editor.project.upgrade_format_for_features();
             });
         }
         true
@@ -365,21 +401,67 @@ impl Editor {
         let painter = ui
             .painter()
             .with_clip_rect(preview.intersect(ui.clip_rect()));
-        if draft.kind == StrokeStyleKind::Solid {
-            painter.line_segment([p0, p1], stroke);
-        } else {
-            let dash_len = if draft.kind == StrokeStyleKind::Dotted {
-                disp_w.max(2.0)
-            } else {
-                ((draft.dash as f32) * zoom).max(2.0)
-            };
-            let gap_len = ((draft.gap as f32) * zoom).max(2.0);
-            painter.extend(egui::Shape::dashed_line(
-                &[p0, p1],
-                stroke,
-                dash_len,
-                gap_len,
-            ));
+        match draft.kind {
+            StrokeStyleKind::Solid => {
+                painter.line_segment([p0, p1], stroke);
+            }
+            StrokeStyleKind::Dashed | StrokeStyleKind::Dotted => {
+                let dash_len = if draft.kind == StrokeStyleKind::Dotted {
+                    disp_w.max(2.0)
+                } else {
+                    ((draft.dash as f32) * zoom).max(2.0)
+                };
+                let gap_len = ((draft.gap as f32) * zoom).max(2.0);
+                painter.extend(egui::Shape::dashed_line(
+                    &[p0, p1],
+                    stroke,
+                    dash_len,
+                    gap_len,
+                ));
+            }
+            StrokeStyleKind::Ragged | StrokeStyleKind::Stipple | StrokeStyleKind::Hatched => {
+                let z = f64::from(zoom);
+                let pat = match draft.kind {
+                    StrokeStyleKind::Ragged => PatternBrushKind::Ragged {
+                        wavelength: (draft.dash * z).max(2.0),
+                        amplitude: (draft.gap * 0.5 * z).clamp(0.5, 50.0),
+                    },
+                    StrokeStyleKind::Stipple => PatternBrushKind::Stipple {
+                        dot_size: f64::from(disp_w.max(1.0)),
+                        spacing: (draft.gap * z).max(1.5),
+                    },
+                    _ => PatternBrushKind::Hatched {
+                        spacing: (draft.gap * z).max(2.0),
+                        angle_deg: draft.dash.clamp(-85.0, 85.0),
+                    },
+                };
+                let guide = [
+                    neoflash_core::PathCommand::MoveTo {
+                        x: f64::from(p0.x),
+                        y: f64::from(p0.y),
+                    },
+                    neoflash_core::PathCommand::LineTo {
+                        x: f64::from(p1.x),
+                        y: f64::from(p1.y),
+                    },
+                ];
+                let cmds =
+                    neoflash_core::expand_pattern_brush_stroke(&guide, f64::from(disp_w), &pat);
+                if let Ok(geom) =
+                    crate::vector::tessellate(&cmds, neoflash_core::FillRule::NonZero, None, 0.25)
+                    && !geom.indices.is_empty()
+                {
+                    let mut mesh = egui::Mesh::default();
+                    mesh.vertices.reserve(geom.vertices.len());
+                    for v in &geom.vertices {
+                        mesh.colored_vertex(egui::pos2(v.x, v.y), nf.text_primary);
+                    }
+                    mesh.indices = geom.indices;
+                    painter.add(egui::Shape::mesh(mesh));
+                } else {
+                    painter.line_segment([p0, p1], stroke);
+                }
+            }
         }
 
         form_row(ui, "Type", |ui| {
@@ -387,26 +469,33 @@ impl Editor {
                 .width(metrics::field_m())
                 .show(ui, |ui| {
                     for kind in StrokeStyleKind::ALL {
-                        let supported = matches!(
-                            kind,
-                            StrokeStyleKind::Solid
-                                | StrokeStyleKind::Dashed
-                                | StrokeStyleKind::Dotted
-                        );
-                        if supported {
-                            if ui
-                                .add(c::MenuItem::new(kind.label()).checked(draft.kind == kind))
-                                .clicked()
-                            {
-                                draft.kind = kind;
-                                if kind == StrokeStyleKind::Dotted {
+                        if ui
+                            .add(c::MenuItem::new(kind.label()).checked(draft.kind == kind))
+                            .clicked()
+                        {
+                            draft.kind = kind;
+                            match kind {
+                                StrokeStyleKind::Dotted => {
                                     draft.dash = draft.thickness.max(1.0);
                                 }
-                                ui.close();
+                                StrokeStyleKind::Hatched => {
+                                    draft.dash = draft.dash.clamp(-85.0, 85.0);
+                                    draft.gap = draft.gap.max(2.0);
+                                }
+                                StrokeStyleKind::Ragged => {
+                                    draft.dash = draft.dash.max(2.0);
+                                    draft.gap = draft.gap.max(1.0);
+                                }
+                                StrokeStyleKind::Stipple => {
+                                    draft.gap = draft.gap.max(1.5);
+                                }
+                                StrokeStyleKind::Dashed => {
+                                    draft.dash = draft.dash.max(1.0);
+                                    draft.gap = draft.gap.max(1.0);
+                                }
+                                StrokeStyleKind::Solid => {}
                             }
-                        } else {
-                            let resp = ui.add_enabled(false, c::MenuItem::new(kind.label()));
-                            let _ = c::not_available(resp, kind.label());
+                            ui.close();
                         }
                     }
                 });
@@ -423,12 +512,20 @@ impl Editor {
             ui.add(c::Switch::new(&mut draft.zoom_4x, "4× zoom"));
         });
         form_row(ui, "Dash", |ui| {
-            let dash_enabled = draft.kind == StrokeStyleKind::Dashed;
+            let dash_enabled = matches!(
+                draft.kind,
+                StrokeStyleKind::Dashed | StrokeStyleKind::Ragged | StrokeStyleKind::Hatched
+            );
+            let dash_range = if draft.kind == StrokeStyleKind::Hatched {
+                -85.0..=85.0
+            } else {
+                1.0..=200.0
+            };
             let dash_resp = ui.add_enabled(
                 dash_enabled,
                 c::Field::new(&mut draft.dash, "Dash")
                     .unit("pt")
-                    .range(1.0..=200.0)
+                    .range(dash_range)
                     .decimals(0)
                     .stepper()
                     .width(metrics::field_s()),
@@ -436,17 +533,14 @@ impl Editor {
             if !dash_enabled {
                 let _ = c::not_available(
                     dash_resp,
-                    if draft.kind == StrokeStyleKind::Dotted {
-                        "Independent dot dash length"
-                    } else {
-                        "Dash length (Solid)"
+                    match draft.kind {
+                        StrokeStyleKind::Dotted => "Independent dot dash length",
+                        StrokeStyleKind::Stipple => "Stipple uses thickness for dot size",
+                        _ => "Dash length (Solid)",
                     },
                 );
             }
-            let gap_enabled = matches!(
-                draft.kind,
-                StrokeStyleKind::Dashed | StrokeStyleKind::Dotted
-            );
+            let gap_enabled = draft.kind != StrokeStyleKind::Solid;
             let gap_resp = ui.add_enabled(
                 gap_enabled,
                 c::Field::new(&mut draft.gap, "Gap")
@@ -519,6 +613,145 @@ impl Editor {
         }
         if do_apply {
             self.confirm_stroke_style(ctx);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use neoflash_core::{
+        FillRule, PathCommand, Project, evaluate_element_appearance, expand_pattern_brush_stroke,
+        validate_path_commands,
+    };
+
+    #[test]
+    fn ragged_stipple_and_hatched_stroke_styles_apply_round_trip_expand_and_undo() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        neoflash_ui::theme::install(&ctx, crate::theme::ThemeMode::Dark.nf2());
+
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.add_element(
+            ElementKind::Path {
+                commands: vec![
+                    PathCommand::MoveTo { x: 10.0, y: 40.0 },
+                    PathCommand::LineTo { x: 150.0, y: 40.0 },
+                ],
+                fill_rule: FillRule::NonZero,
+                fill: [0; 4],
+                stroke: [30, 60, 180, 255],
+                stroke_width: 3.0,
+            },
+            0.0,
+            0.0,
+        );
+        editor.history.clear();
+        let before = editor.project.clone();
+
+        for (kind, thickness, dash, gap) in [
+            (StrokeStyleKind::Ragged, 4.0, 14.0, 8.0),
+            (StrokeStyleKind::Stipple, 5.0, 5.0, 9.0),
+            (StrokeStyleKind::Hatched, 4.0, 35.0, 10.0),
+        ] {
+            assert!(
+                editor.apply_stroke_style_to_selection(kind, thickness, dash, gap),
+                "{kind:?} must apply without 'not available yet' rejection"
+            );
+            editor
+                .project
+                .validate()
+                .expect("project valid after stroke style");
+            assert!(editor.project.format_version >= 16);
+
+            let round_trip = editor.init_stroke_style_draft();
+            assert_eq!(round_trip.kind, kind);
+            assert!((round_trip.thickness - thickness).abs() < 1e-6);
+            assert!((round_trip.gap - gap).abs() < 1e-6);
+            if kind != StrokeStyleKind::Stipple {
+                assert!((round_trip.dash - dash).abs() < 1e-6);
+            }
+
+            let kf = &editor.symbol().timeline.layers[0].keyframes[0];
+            let el = &kf.elements[0];
+            let app = kf
+                .appearances
+                .iter()
+                .find(|a| a.element_id == el.id)
+                .expect("appearance created");
+            let pat = app
+                .entries
+                .iter()
+                .find_map(|entry| match entry {
+                    AppearancePaintEntry::Stroke { pattern_brush, .. } => pattern_brush.as_ref(),
+                    _ => None,
+                })
+                .expect("pattern brush stored");
+
+            let (guide, _) = el.to_path_commands().unwrap();
+            let expanded = expand_pattern_brush_stroke(&guide, thickness, pat);
+            validate_path_commands(&expanded).expect("valid expanded stroke geometry");
+            let contour_count = expanded
+                .iter()
+                .filter(|c| matches!(c, PathCommand::MoveTo { .. }))
+                .count();
+            if matches!(kind, StrokeStyleKind::Stipple | StrokeStyleKind::Hatched) {
+                assert!(
+                    contour_count >= 5,
+                    "{kind:?} should expand into multi-contour vector dabs/ticks (got {contour_count})"
+                );
+            } else {
+                assert!(
+                    expanded.len() >= 10,
+                    "Ragged should expand into modulated wave contour"
+                );
+            }
+            let evaluated = evaluate_element_appearance(el, app);
+            assert!(!evaluated.is_empty());
+
+            // Also verify live preview rendering in stroke_style_body does not panic.
+            let mut preview_draft = round_trip.clone();
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(640.0, 480.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        editor.stroke_style_body(ui, &mut preview_draft);
+                    });
+                },
+            );
+
+            // JSON round-trip preserves PatternBrushKind.
+            let json = serde_json::to_string(&editor.project).unwrap();
+            let reloaded: Project = serde_json::from_str(&json).unwrap();
+            reloaded.validate().expect("reloaded project valid");
+
+            assert_eq!(editor.history.undo_len(), 1);
+            editor.undo();
+            assert_eq!(editor.project, before);
+            editor.redo();
+            editor.project.validate().unwrap();
+
+            // Switching back to Solid cleans up the pattern brush entry.
+            assert!(editor.apply_stroke_style_to_selection(StrokeStyleKind::Solid, 3.0, 12.0, 8.0));
+            assert_eq!(
+                editor.init_stroke_style_draft().kind,
+                StrokeStyleKind::Solid
+            );
+            assert!(
+                editor.symbol().timeline.layers[0].keyframes[0]
+                    .appearances
+                    .is_empty()
+            );
+            editor.undo();
+            editor.undo();
+            assert_eq!(editor.project, before);
+            editor.history.clear();
         }
     }
 }

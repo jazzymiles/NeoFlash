@@ -1703,10 +1703,23 @@ impl Editor {
         };
         let mut occupied_ids = collect_occupied_project_ids(&candidate);
         let mut element_ids = Vec::with_capacity(graphic.elements.len());
+        let mut svg_id_map = std::collections::HashMap::<Id, Id>::new();
         for element in &mut graphic.elements {
+            let old_id = element.id.clone();
             element.id = alloc_unique_id("object", &mut occupied_ids);
+            svg_id_map.insert(old_id, element.id.clone());
             apply_placement_matrix_to_element(element, placement_matrix);
             element_ids.push(element.id.clone());
+        }
+        for fx in &mut graphic.vector_effects {
+            if let Some(mapped) = svg_id_map.get(&fx.element_id) {
+                fx.element_id = mapped.clone();
+            }
+            if let Some(blend) = &mut fx.vector_blend
+                && let Some(mapped_target) = svg_id_map.get(&blend.target_element_id)
+            {
+                blend.target_element_id = mapped_target.clone();
+            }
         }
         let fps = f64::from(candidate.fps);
         let auto_keyframe = self.workspace.timeline_prefs.auto_keyframe;
@@ -1727,21 +1740,24 @@ impl Editor {
                 || neoflash_core::motion_span(layer, self.frame).is_some();
             if need_key && !layer.keyframes.iter().any(|k| k.frame == self.frame) {
                 let elements = neoflash_core::sample_layer_at_fps(layer, self.frame, fps);
-                let tween = layer.key_at(self.frame).and_then(|k| k.tween);
+                let active = layer.key_at(self.frame);
+                let tween = active.and_then(|k| k.tween);
+                let inherited_vfs = active.map(|k| k.vector_effects.clone()).unwrap_or_default();
                 layer.keyframes.push(neoflash_core::Keyframe {
                     frame: self.frame,
                     elements,
+                    vector_effects: inherited_vfs,
                     tween,
                     label: String::new(),
                     ..Default::default()
                 });
                 layer.keyframes.sort_by_key(|k| k.frame);
             }
-            layer
-                .key_at_mut(self.frame)
-                .unwrap()
-                .elements
-                .extend(graphic.elements);
+            let dest_kf = layer.key_at_mut(self.frame).unwrap();
+            dest_kf.elements.extend(graphic.elements);
+            for fx in graphic.vector_effects {
+                dest_kf.set_vector_effects(fx);
+            }
             layer.normalize_motion_keys();
             (target_idx, layer_id, created_new)
         };
@@ -2562,52 +2578,54 @@ fn merge_imported_clipboard_project(
             || layer.properties.blend_mode != neoflash_core::BlendMode::Normal
     });
 
-    let (mut top_elements, mut top_bitmap_fills, mut top_appearances) = if needs_root_symbol_wrapper
-    {
-        let mut wrapped_id = format!("__wrapped_clip_{imported_root_id}");
-        while donor_symbols.iter().any(|s| s.id == wrapped_id) {
-            wrapped_id.push('_');
-        }
-        root_symbol.id = wrapped_id.clone();
-        if is_figma {
-            root_symbol.name = "Pasted Figma Clip".into();
-            root_symbol.folder = "Figma Components".into();
-        } else {
-            root_symbol.name = "Pasted Vector Clip".into();
-            root_symbol.folder = "Imported Artwork".into();
-        }
-        root_symbol.kind = neoflash_core::SymbolKind::MovieClip;
-        root_symbol.class_name = None;
-        root_symbol.linkage_id = None;
-        donor_symbols.push(root_symbol);
-        let wrapper_el = neoflash_core::Element {
-            id: "wrapped-top-0".into(),
-            name: if is_figma {
-                "Pasted_Figma_Clip".into()
-            } else {
-                "Pasted_Vector_Clip".into()
-            },
-            transform: neoflash_core::Transform::default(),
-            kind: neoflash_core::ElementKind::Instance {
-                symbol_id: wrapped_id,
-                playback: neoflash_core::InstancePlayback::Independent,
-            },
-            ..neoflash_core::Element::default()
-        };
-        (vec![wrapper_el], Vec::new(), Vec::new())
-    } else {
-        let mut els = Vec::new();
-        let mut bfs = Vec::new();
-        let mut apps = Vec::new();
-        for layer in root_symbol.timeline.layers {
-            if let Some(kf) = layer.keyframes.into_iter().find(|k| k.frame == 0) {
-                els.extend(kf.elements);
-                bfs.extend(kf.bitmap_fills);
-                apps.extend(kf.appearances);
+    let (mut top_elements, mut top_bitmap_fills, mut top_appearances, mut top_vector_effects) =
+        if needs_root_symbol_wrapper {
+            let mut wrapped_id = format!("__wrapped_clip_{imported_root_id}");
+            while donor_symbols.iter().any(|s| s.id == wrapped_id) {
+                wrapped_id.push('_');
             }
-        }
-        (els, bfs, apps)
-    };
+            root_symbol.id = wrapped_id.clone();
+            if is_figma {
+                root_symbol.name = "Pasted Figma Clip".into();
+                root_symbol.folder = "Figma Components".into();
+            } else {
+                root_symbol.name = "Pasted Vector Clip".into();
+                root_symbol.folder = "Imported Artwork".into();
+            }
+            root_symbol.kind = neoflash_core::SymbolKind::MovieClip;
+            root_symbol.class_name = None;
+            root_symbol.linkage_id = None;
+            donor_symbols.push(root_symbol);
+            let wrapper_el = neoflash_core::Element {
+                id: "wrapped-top-0".into(),
+                name: if is_figma {
+                    "Pasted_Figma_Clip".into()
+                } else {
+                    "Pasted_Vector_Clip".into()
+                },
+                transform: neoflash_core::Transform::default(),
+                kind: neoflash_core::ElementKind::Instance {
+                    symbol_id: wrapped_id,
+                    playback: neoflash_core::InstancePlayback::Independent,
+                },
+                ..neoflash_core::Element::default()
+            };
+            (vec![wrapper_el], Vec::new(), Vec::new(), Vec::new())
+        } else {
+            let mut els = Vec::new();
+            let mut bfs = Vec::new();
+            let mut apps = Vec::new();
+            let mut vfs = Vec::new();
+            for layer in root_symbol.timeline.layers {
+                if let Some(kf) = layer.keyframes.into_iter().find(|k| k.frame == 0) {
+                    els.extend(kf.elements);
+                    bfs.extend(kf.bitmap_fills);
+                    apps.extend(kf.appearances);
+                    vfs.extend(kf.vector_effects);
+                }
+            }
+            (els, bfs, apps, vfs)
+        };
 
     if top_elements.is_empty() {
         return Err("Clipboard contains no visual elements to paste.".into());
@@ -2671,6 +2689,16 @@ fn merge_imported_clipboard_project(
         }
         remap_appearance_refs(app, &maps.swatch_map, &maps.style_map);
     }
+    for fx in &mut top_vector_effects {
+        if let Some(new_eid) = placement_ids.get(&fx.element_id) {
+            fx.element_id = new_eid.clone();
+        }
+        if let Some(blend) = &mut fx.vector_blend
+            && let Some(new_target) = placement_ids.get(&blend.target_element_id)
+        {
+            blend.target_element_id = new_target.clone();
+        }
+    }
 
     let before_pin = candidate.clone();
     let fps = f64::from(candidate.fps);
@@ -2718,11 +2746,13 @@ fn merge_imported_clipboard_project(
             let orient_to_path = active.is_some_and(|k| k.orient_to_path);
             let inherited_bfs = active.map(|k| k.bitmap_fills.clone()).unwrap_or_default();
             let inherited_apps = active.map(|k| k.appearances.clone()).unwrap_or_default();
+            let inherited_vfs = active.map(|k| k.vector_effects.clone()).unwrap_or_default();
             layer.keyframes.push(neoflash_core::Keyframe {
                 frame,
                 elements: sampled_els,
                 bitmap_fills: inherited_bfs,
                 appearances: inherited_apps,
+                vector_effects: inherited_vfs,
                 tween,
                 tween_kind,
                 orient_to_path,
@@ -2743,6 +2773,9 @@ fn merge_imported_clipboard_project(
         }
         for app in top_appearances {
             dest_key.set_appearance(app);
+        }
+        for fx in top_vector_effects {
+            dest_key.set_vector_effects(fx);
         }
         layer.normalize_motion_keys();
         (target_idx, layer_id, created_new)
@@ -3118,6 +3151,14 @@ pub(crate) fn remap_timeline_internal_ids_complete(
                     arm.id = new_id.clone();
                 }
             }
+            for skin in &mut kf.ik_skins {
+                if let Some(new_arm_id) = armature_map.get(&skin.armature_id) {
+                    skin.armature_id = new_arm_id.clone();
+                }
+                if let Some(new_shape_id) = elem_map.get(&skin.shape_element_id) {
+                    skin.shape_element_id = new_shape_id.clone();
+                }
+            }
         }
     }
 }
@@ -3212,11 +3253,17 @@ fn build_vector_export_project(
 
     let mut vector_project = capture_project.clone();
     let root_id = vector_project.root.clone();
-    let Some((base_bfs, base_apps)) = vector_project
+    let Some((base_bfs, base_apps, base_vfs)) = vector_project
         .symbol(&root_id)
         .and_then(|s| s.timeline.layers.first())
         .and_then(|l| l.keyframes.first())
-        .map(|kf| (kf.bitmap_fills.clone(), kf.appearances.clone()))
+        .map(|kf| {
+            (
+                kf.bitmap_fills.clone(),
+                kf.appearances.clone(),
+                kf.vector_effects.clone(),
+            )
+        })
     else {
         return capture_project.clone();
     };
@@ -3290,6 +3337,11 @@ fn build_vector_export_project(
             .filter(|app| run_ids.contains(app.element_id.as_str()))
             .cloned()
             .collect();
+        let run_vfs: Vec<_> = base_vfs
+            .iter()
+            .filter(|fx| run_ids.contains(fx.element_id.as_str()))
+            .cloned()
+            .collect();
 
         let lid = alloc_unique_id("export-layer", &mut occupied);
         new_layers.push(neoflash_core::Layer {
@@ -3306,6 +3358,7 @@ fn build_vector_export_project(
                 elements: run_elements,
                 bitmap_fills: run_bfs,
                 appearances: run_apps,
+                vector_effects: run_vfs,
                 ..Default::default()
             }],
         });
@@ -3350,6 +3403,8 @@ fn build_capture_project(
     let mut seen_bf = HashSet::new();
     let mut stage_appearances = Vec::new();
     let mut seen_app = HashSet::new();
+    let mut stage_vector_effects = Vec::new();
+    let mut seen_vf = HashSet::new();
     let mut stage_video = None;
     let mut stage_groups = Vec::new();
 
@@ -3393,6 +3448,21 @@ fn build_capture_project(
                         && seen_app.insert(app.element_id.clone())
                     {
                         stage_appearances.push(app.clone());
+                    }
+                }
+                for fx in &kf.vector_effects {
+                    if selected_ids.contains(fx.element_id.as_str())
+                        && seen_vf.insert(fx.element_id.clone())
+                    {
+                        let mut cloned_fx = fx.clone();
+                        if let Some(blend) = &cloned_fx.vector_blend
+                            && !selected_ids.contains(blend.target_element_id.as_str())
+                        {
+                            cloned_fx.vector_blend = None;
+                        }
+                        if !cloned_fx.is_empty() {
+                            stage_vector_effects.push(cloned_fx);
+                        }
                     }
                 }
             }
@@ -3531,6 +3601,7 @@ fn build_capture_project(
                         elements: elements.to_vec(),
                         bitmap_fills: stage_bitmap_fills,
                         appearances: stage_appearances,
+                        vector_effects: stage_vector_effects,
                         video: stage_video,
                         ..Default::default()
                     }],
@@ -4251,6 +4322,30 @@ fn paste_cross_document_payload(
                 .iter()
                 .filter(|k| k.frame < frame)
                 .max_by_key(|k| k.frame);
+            let element_ids_present: std::collections::HashSet<&str> =
+                elements.iter().map(|e| e.id.as_str()).collect();
+            let (inherited_bfs, inherited_apps, inherited_vfs) = active.map_or_else(
+                || (Vec::new(), Vec::new(), Vec::new()),
+                |k| {
+                    (
+                        k.bitmap_fills
+                            .iter()
+                            .filter(|bf| element_ids_present.contains(bf.element_id.as_str()))
+                            .cloned()
+                            .collect(),
+                        k.appearances
+                            .iter()
+                            .filter(|ap| element_ids_present.contains(ap.element_id.as_str()))
+                            .cloned()
+                            .collect(),
+                        k.vector_effects
+                            .iter()
+                            .filter(|fx| element_ids_present.contains(fx.element_id.as_str()))
+                            .cloned()
+                            .collect(),
+                    )
+                },
+            );
             let (tween, tween_kind, orient_to_path) = active
                 .filter(|k| {
                     k.tween.is_some()
@@ -4265,6 +4360,9 @@ fn paste_cross_document_payload(
             layer.keyframes.push(neoflash_core::Keyframe {
                 frame,
                 elements,
+                bitmap_fills: inherited_bfs,
+                appearances: inherited_apps,
+                vector_effects: inherited_vfs,
                 tween,
                 tween_kind,
                 orient_to_path,
@@ -4296,6 +4394,22 @@ fn paste_cross_document_payload(
                 app.element_id = new_eid.clone();
                 remap_appearance_refs(&mut app, &maps.swatch_map, &maps.style_map);
                 dest_key.set_appearance(app);
+            }
+        }
+        for original_fx in payload.vector_effects() {
+            if let Some(new_eid) = placement_ids.get(&original_fx.element_id) {
+                let mut fx = original_fx.clone();
+                fx.element_id = new_eid.clone();
+                if let Some(blend) = &mut fx.vector_blend {
+                    if let Some(new_tid) = placement_ids.get(&blend.target_element_id) {
+                        blend.target_element_id = new_tid.clone();
+                    } else {
+                        fx.vector_blend = None;
+                    }
+                }
+                if !fx.is_empty() {
+                    dest_key.set_vector_effects(fx);
+                }
             }
         }
         if let Some(original_video) = payload.video()

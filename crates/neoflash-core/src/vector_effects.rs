@@ -478,6 +478,540 @@ pub struct GradientMesh {
     pub vertices: Vec<GradientMeshPatchVertex>,
 }
 
+/// Maximum number of bicubic patches permitted in a single [`VectorMeshPaint`] (`T-501`).
+pub const MAX_VECTOR_MESH_PATCHES: usize = 4096;
+/// Maximum number of Gouraud triangles permitted in a single [`VectorMeshPaint`] (`T-501`).
+pub const MAX_VECTOR_MESH_TRIANGLES: usize = 32_768;
+
+/// One 16-control-point bicubic Tensor-Product Bézier patch (`4 x 4` row-major `points[r * 4 + c]`,
+/// where `r` steps `v` in `0..=3` and `c` steps `u` in `0..=3`) with RGBA corner colours
+/// `[c00 (u=0,v=0), c03 (u=1,v=0), c30 (u=0,v=1), c33 (u=1,v=1)]` (`T-501`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VectorMeshPatch {
+    pub points: [[f64; 2]; 16],
+    pub colors: [Color; 4],
+}
+
+impl VectorMeshPatch {
+    /// Promote a 12-point bicubic Coons patch perimeter (arranged as row-major boundary points
+    /// `[P00, P01, P02, P03, P13, P23, P33, P32, P31, P30, P20, P10]`, clockwise from `(u=0, v=0)`
+    /// along `v=0`, `u=1`, `v=1` reversed, `u=0` reversed) and 4 corner colours
+    /// `[c00, c03, c30, c33]` into an exact 16-point Tensor-Product Bézier patch
+    /// (ISO 32000-1 §8.7.4.5.7 / SVG2 Mesh Gradients).
+    pub fn from_coons_12(b: [[f64; 2]; 12], colors: [Color; 4]) -> Self {
+        let p00 = b[0];
+        let p01 = b[1];
+        let p02 = b[2];
+        let p03 = b[3];
+        let p13 = b[4];
+        let p23 = b[5];
+        let p33 = b[6];
+        let p32 = b[7];
+        let p31 = b[8];
+        let p30 = b[9];
+        let p20 = b[10];
+        let p10 = b[11];
+
+        let coons_inner = |a00: [f64; 2],
+                           a01: [f64; 2],
+                           a10: [f64; 2],
+                           a03: [f64; 2],
+                           a30: [f64; 2],
+                           a31: [f64; 2],
+                           a13: [f64; 2],
+                           a33: [f64; 2]|
+         -> [f64; 2] {
+            [
+                (-4.0 * a00[0] + 6.0 * (a01[0] + a10[0]) - 2.0 * (a03[0] + a30[0])
+                    + 3.0 * (a31[0] + a13[0])
+                    - a33[0])
+                    / 9.0,
+                (-4.0 * a00[1] + 6.0 * (a01[1] + a10[1]) - 2.0 * (a03[1] + a30[1])
+                    + 3.0 * (a31[1] + a13[1])
+                    - a33[1])
+                    / 9.0,
+            ]
+        };
+
+        let p11 = coons_inner(p00, p01, p10, p03, p30, p31, p13, p33);
+        let p12 = coons_inner(p03, p02, p13, p00, p33, p32, p10, p30);
+        let p21 = coons_inner(p30, p31, p20, p33, p00, p01, p23, p03);
+        let p22 = coons_inner(p33, p32, p23, p30, p03, p02, p20, p00);
+
+        Self {
+            points: [
+                p00, p01, p02, p03, p10, p11, p12, p13, p20, p21, p22, p23, p30, p31, p32, p33,
+            ],
+            colors,
+        }
+    }
+
+    /// Construct from PDF `/ShadingType 6` Coons patch stream order (`p0..p11` where `p0..p3` step
+    /// `v: 0->1` at `u=0`, `p3..p6` step `u: 0->1` at `v=1`, `p6..p9` step `v: 1->0` at `u=1`,
+    /// `p9..p11,p0` step `u: 1->0` at `v=0`, and PDF corner colours `[c0=(0,0), c1=(0,1), c2=(1,1), c3=(1,0)]`).
+    pub fn from_pdf_coons_12(p: [[f64; 2]; 12], pdf_colors: [Color; 4]) -> Self {
+        let boundary = [
+            p[0], p[11], p[10], p[9], p[8], p[7], p[6], p[5], p[4], p[3], p[2], p[1],
+        ];
+        Self::from_coons_12(
+            boundary,
+            [pdf_colors[0], pdf_colors[3], pdf_colors[1], pdf_colors[2]],
+        )
+    }
+
+    /// Construct from PDF `/ShadingType 7` Tensor-Product patch stream spiral order (`p0..p15` per
+    /// ISO 32000-1 Table 83 and PDF corner colours `[c0=(0,0), c1=(0,1), c2=(1,1), c3=(1,0)]`).
+    pub fn from_pdf_tensor_16(p: [[f64; 2]; 16], pdf_colors: [Color; 4]) -> Self {
+        Self {
+            points: [
+                p[0], p[11], p[10], p[9], p[1], p[12], p[15], p[8], p[2], p[13], p[14], p[7], p[3],
+                p[4], p[5], p[6],
+            ],
+            colors: [pdf_colors[0], pdf_colors[3], pdf_colors[1], pdf_colors[2]],
+        }
+    }
+
+    /// Convert back to PDF `/ShadingType 7` spiral point order `p0..p15` and PDF corner colours
+    /// `[c0=(0,0), c1=(0,1), c2=(1,1), c3=(1,0)]` for lossless PDF/AI vector export.
+    pub fn to_pdf_tensor_16(&self) -> ([[f64; 2]; 16], [Color; 4]) {
+        let m = &self.points;
+        let pdf_pts = [
+            m[0], m[4], m[8], m[12], m[13], m[14], m[15], m[11], m[7], m[3], m[2], m[1], m[5],
+            m[9], m[10], m[6],
+        ];
+        let pdf_cols = [
+            self.colors[0],
+            self.colors[2],
+            self.colors[3],
+            self.colors[1],
+        ];
+        (pdf_pts, pdf_cols)
+    }
+
+    /// Evaluate the bicubic Bernstein surface `S(u, v)` and smooth corner colour at `(u, v)` in `0.0..=1.0`.
+    pub fn evaluate(&self, u: f64, v: f64, linear_rgb: bool) -> ([f64; 2], Color) {
+        let u = u.clamp(0.0, 1.0);
+        let v = v.clamp(0.0, 1.0);
+        let iu = 1.0 - u;
+        let iv = 1.0 - v;
+        let bu = [iu * iu * iu, 3.0 * u * iu * iu, 3.0 * u * u * iu, u * u * u];
+        let bv = [iv * iv * iv, 3.0 * v * iv * iv, 3.0 * v * v * iv, v * v * v];
+        let mut x = 0.0;
+        let mut y = 0.0;
+        for (r, &wr) in bv.iter().enumerate() {
+            for (c, &wc) in bu.iter().enumerate() {
+                let w = wr * wc;
+                let pt = self.points[r * 4 + c];
+                x += w * pt[0];
+                y += w * pt[1];
+            }
+        }
+        let color = bilerp_patch_color(self.colors, u, v, linear_rgb);
+        ([x, y], color)
+    }
+}
+
+/// One Gouraud-interpolated vector triangle (`ShadingType 4` / `ShadingType 5` / Freeform / Angular) (`T-501`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VectorMeshTriangle {
+    pub points: [[f64; 2]; 3],
+    pub colors: [Color; 3],
+}
+
+///Tessellated vertex-coloured vector triangle buffer produced from a [`VectorMeshPaint`] (`T-501`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TessellatedColorMesh {
+    pub vertices: Vec<([f64; 2], Color)>,
+    pub indices: Vec<u32>,
+}
+
+/// True-vector mesh paint storing bicubic Tensor/Coons patches and/or Gouraud triangles in local
+/// element space (`T-501`). Never rasterizes to a bitmap resource.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct VectorMeshPaint {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub patches: Vec<VectorMeshPatch>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triangles: Vec<VectorMeshTriangle>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub linear_rgb: bool,
+}
+
+fn srgb_to_lin_ch(c: u8) -> f64 {
+    let s = f64::from(c) / 255.0;
+    if s <= 0.04045 {
+        s / 12.92
+    } else {
+        ((s + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn lin_to_srgb_ch(l: f64) -> u8 {
+    let l = l.clamp(0.0, 1.0);
+    let s = if l <= 0.0031308 {
+        l * 12.92
+    } else {
+        1.055 * l.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+fn bilerp_patch_color(colors: [Color; 4], u: f64, v: f64, linear_rgb: bool) -> Color {
+    let [c00, c03, c30, c33] = colors;
+    if linear_rgb {
+        let mut rgb = [0u8; 3];
+        for ch in 0..3 {
+            let top = lerp_f64(srgb_to_lin_ch(c00[ch]), srgb_to_lin_ch(c03[ch]), u);
+            let bot = lerp_f64(srgb_to_lin_ch(c30[ch]), srgb_to_lin_ch(c33[ch]), u);
+            rgb[ch] = lin_to_srgb_ch(lerp_f64(top, bot, v));
+        }
+        let top_a = lerp_f64(f64::from(c00[3]), f64::from(c03[3]), u);
+        let bot_a = lerp_f64(f64::from(c30[3]), f64::from(c33[3]), u);
+        let a = lerp_f64(top_a, bot_a, v).round().clamp(0.0, 255.0) as u8;
+        [rgb[0], rgb[1], rgb[2], a]
+    } else {
+        let top = lerp_color(c00, c03, u);
+        let bot = lerp_color(c30, c33, u);
+        lerp_color(top, bot, v)
+    }
+}
+
+impl VectorMeshPaint {
+    pub fn is_empty(&self) -> bool {
+        self.patches.is_empty() && self.triangles.is_empty()
+    }
+
+    pub fn has_visible_alpha(&self) -> bool {
+        self.patches
+            .iter()
+            .flat_map(|p| p.colors.iter())
+            .chain(self.triangles.iter().flat_map(|t| t.colors.iter()))
+            .any(|c| c[3] > 0)
+    }
+
+    pub fn apply_alpha_in_place(&mut self, alpha_mul: f64) {
+        let m = alpha_mul.clamp(0.0, 1.0);
+        if (m - 1.0).abs() <= 1e-9 {
+            return;
+        }
+        for patch in &mut self.patches {
+            for col in &mut patch.colors {
+                col[3] = (f64::from(col[3]) * m).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+        for tri in &mut self.triangles {
+            for col in &mut tri.colors {
+                col[3] = (f64::from(col[3]) * m).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.is_empty() {
+            return Err("vector mesh paint must contain at least one patch or triangle");
+        }
+        if self.patches.len() > MAX_VECTOR_MESH_PATCHES {
+            return Err("vector mesh patch count exceeds 4096");
+        }
+        if self.triangles.len() > MAX_VECTOR_MESH_TRIANGLES {
+            return Err("vector mesh triangle count exceeds 32768");
+        }
+        for patch in &self.patches {
+            if !patch
+                .points
+                .iter()
+                .flatten()
+                .all(|v| v.is_finite() && v.abs() <= 1e7)
+            {
+                return Err("vector mesh patch coordinates must be finite and within +-1e7");
+            }
+        }
+        for tri in &self.triangles {
+            if !tri
+                .points
+                .iter()
+                .flatten()
+                .all(|v| v.is_finite() && v.abs() <= 1e7)
+            {
+                return Err("vector mesh triangle coordinates must be finite and within +-1e7");
+            }
+        }
+        Ok(())
+    }
+
+    pub fn map_points_in_place(&mut self, mut f: impl FnMut([f64; 2]) -> [f64; 2]) {
+        for patch in &mut self.patches {
+            for pt in &mut patch.points {
+                *pt = f(*pt);
+            }
+        }
+        for tri in &mut self.triangles {
+            for pt in &mut tri.points {
+                *pt = f(*pt);
+            }
+        }
+    }
+
+    pub fn transform_in_place(&mut self, m: [f64; 6]) {
+        self.map_points_in_place(|[x, y]| [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+    }
+
+    /// Bounding box `[min_x, min_y, max_x, max_y]` across all patch control points and triangles.
+    pub fn bounds(&self) -> Option<[f64; 4]> {
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        let mut any = false;
+        for pt in self
+            .patches
+            .iter()
+            .flat_map(|p| p.points.iter())
+            .chain(self.triangles.iter().flat_map(|t| t.points.iter()))
+        {
+            if pt[0].is_finite() && pt[1].is_finite() {
+                min_x = min_x.min(pt[0]);
+                min_y = min_y.min(pt[1]);
+                max_x = max_x.max(pt[0]);
+                max_y = max_y.max(pt[1]);
+                any = true;
+            }
+        }
+        any.then_some([min_x, min_y, max_x, max_y])
+    }
+
+    /// Representative average colour (ensuring non-zero alpha when any vertex is visible) used for
+    /// hit-testing, solid fallbacks, and swatch summaries.
+    pub fn representative_color(&self) -> Color {
+        let mut sum = [0u64; 4];
+        let mut count = 0u64;
+        let mut max_a = 0u8;
+        for c in self
+            .patches
+            .iter()
+            .flat_map(|p| p.colors.iter())
+            .chain(self.triangles.iter().flat_map(|t| t.colors.iter()))
+        {
+            for i in 0..4 {
+                sum[i] += u64::from(c[i]);
+            }
+            max_a = max_a.max(c[3]);
+            count += 1;
+        }
+        if count == 0 {
+            return [0, 0, 0, 255];
+        }
+        let mut out = [
+            (sum[0] / count) as u8,
+            (sum[1] / count) as u8,
+            (sum[2] / count) as u8,
+            (sum[3] / count) as u8,
+        ];
+        if out[3] == 0 && max_a > 0 {
+            out[3] = 1;
+        }
+        out
+    }
+
+    /// Subdivide all bicubic patches and Gouraud triangles into a crack-free vertex-coloured
+    /// triangle mesh in local element coordinates, applying `color_transform`.
+    pub fn tessellate(
+        &self,
+        steps_override: Option<u8>,
+        color_transform: crate::ColorTransform,
+    ) -> TessellatedColorMesh {
+        const MAX_TOTAL_VERTICES: usize = 65_536;
+        let patch_count = self.patches.len();
+        let default_steps: usize = if let Some(explicit) = steps_override {
+            usize::from(explicit.clamp(2, 24))
+        } else if patch_count == 0 {
+            1
+        } else if patch_count <= 16 {
+            12
+        } else if patch_count <= 64 {
+            8
+        } else if patch_count <= 256 {
+            6
+        } else {
+            4
+        };
+        let max_steps_by_budget = MAX_TOTAL_VERTICES
+            .saturating_sub(self.triangles.len() * 3)
+            .checked_div(patch_count)
+            .map_or(default_steps, |raw_v| {
+                (((raw_v.max(9)) as f64).sqrt().floor() as usize)
+                    .saturating_sub(1)
+                    .clamp(2, 24)
+            });
+        let steps = default_steps.min(max_steps_by_budget);
+
+        let mut out = TessellatedColorMesh {
+            vertices: Vec::with_capacity(
+                patch_count
+                    .saturating_mul((steps + 1) * (steps + 1))
+                    .saturating_add(self.triangles.len() * 3)
+                    .min(MAX_TOTAL_VERTICES),
+            ),
+            indices: Vec::with_capacity(
+                patch_count
+                    .saturating_mul(steps * steps * 6)
+                    .saturating_add(self.triangles.len() * 3)
+                    .min(MAX_TOTAL_VERTICES * 6),
+            ),
+        };
+
+        for patch in &self.patches {
+            if out.vertices.len().saturating_add((steps + 1) * (steps + 1)) > MAX_TOTAL_VERTICES {
+                break;
+            }
+            let base = out.vertices.len() as u32;
+            let stride = (steps + 1) as u32;
+            for r in 0..=steps {
+                let v = (r as f64) / (steps as f64);
+                for c in 0..=steps {
+                    let u = (c as f64) / (steps as f64);
+                    let (pt, col) = patch.evaluate(u, v, self.linear_rgb);
+                    out.vertices.push((pt, color_transform.apply(col)));
+                }
+            }
+            for r in 0..(steps as u32) {
+                for c in 0..(steps as u32) {
+                    let i00 = base + r * stride + c;
+                    let i10 = i00 + 1;
+                    let i01 = i00 + stride;
+                    let i11 = i01 + 1;
+                    // Alternate diagonal on checkerboard cells to eliminate directional Gouraud Mach banding
+                    if (r + c) % 2 == 0 {
+                        out.indices
+                            .extend_from_slice(&[i00, i10, i11, i00, i11, i01]);
+                    } else {
+                        out.indices
+                            .extend_from_slice(&[i00, i10, i01, i10, i11, i01]);
+                    }
+                }
+            }
+        }
+
+        for tri in &self.triangles {
+            if out.vertices.len().saturating_add(3) > MAX_TOTAL_VERTICES {
+                break;
+            }
+            let base = out.vertices.len() as u32;
+            for i in 0..3 {
+                out.vertices
+                    .push((tri.points[i], color_transform.apply(tri.colors[i])));
+            }
+            out.indices.extend_from_slice(&[base, base + 1, base + 2]);
+        }
+
+        out
+    }
+}
+
+impl GradientMesh {
+    /// Convert this authorable `(rows + 1) x (cols + 1)` [`GradientMesh`] vertex/tangent grid into
+    /// an exact bicubic [`VectorMeshPaint`] (`rows * cols` [`VectorMeshPatch`]es) (`T-501`).
+    pub fn to_vector_mesh_paint(&self) -> Option<VectorMeshPaint> {
+        let rows = self.rows.max(1) as usize;
+        let cols = self.cols.max(1) as usize;
+        let vertex_count = gradient_mesh_vertex_count(self.rows.max(1), self.cols.max(1))?;
+        if self.vertices.len() < vertex_count || rows.saturating_mul(cols) > MAX_VECTOR_MESH_PATCHES
+        {
+            return None;
+        }
+        let stride = cols + 1;
+        let v_at = |r: usize, c: usize| &self.vertices[r * stride + c];
+        let mut patches = Vec::with_capacity(rows * cols);
+        for r in 0..rows {
+            for c in 0..cols {
+                let v00 = v_at(r, c);
+                let v03 = v_at(r, c + 1);
+                let v30 = v_at(r + 1, c);
+                let v33 = v_at(r + 1, c + 1);
+                // Symmetric opposing tangent reflection when moving backward toward next vertex:
+                let p00 = v00.position;
+                let p03 = v03.position;
+                let p30 = v30.position;
+                let p33 = v33.position;
+                let p01 = v00.handle_u;
+                let p02 = [
+                    p03[0] - (v03.handle_u[0] - p03[0]),
+                    p03[1] - (v03.handle_u[1] - p03[1]),
+                ];
+                let p31 = v30.handle_u;
+                let p32 = [
+                    p33[0] - (v33.handle_u[0] - p33[0]),
+                    p33[1] - (v33.handle_u[1] - p33[1]),
+                ];
+                let p10 = v00.handle_v;
+                let p20 = [
+                    p30[0] - (v30.handle_v[0] - p30[0]),
+                    p30[1] - (v30.handle_v[1] - p30[1]),
+                ];
+                let p13 = v03.handle_v;
+                let p23 = [
+                    p33[0] - (v33.handle_v[0] - p33[0]),
+                    p33[1] - (v33.handle_v[1] - p33[1]),
+                ];
+                let boundary = [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10];
+                patches.push(VectorMeshPatch::from_coons_12(
+                    boundary,
+                    [v00.color, v03.color, v30.color, v33.color],
+                ));
+            }
+        }
+        Some(VectorMeshPaint {
+            patches,
+            triangles: Vec::new(),
+            linear_rgb: false,
+        })
+    }
+}
+
+impl FreeformGradient {
+    /// Sample this [`FreeformGradient`] over `bounds = [min_x, min_y, max_x, max_y]` into a smooth
+    /// Gouraud triangle [`VectorMeshPaint`] (`T-501`).
+    pub fn to_vector_mesh_paint(&self, bounds: [f64; 4]) -> Option<VectorMeshPaint> {
+        if self.points.is_empty() && self.lines.is_empty() {
+            return None;
+        }
+        let [x0, y0, x1, y1] = bounds;
+        let w = (x1 - x0).max(1.0);
+        let h = (y1 - y0).max(1.0);
+        const GRID: usize = 16;
+        let mut grid = vec![([0.0, 0.0], [0u8; 4]); (GRID + 1) * (GRID + 1)];
+        for r in 0..=GRID {
+            let y = y0 + (r as f64 / GRID as f64) * h;
+            for c in 0..=GRID {
+                let x = x0 + (c as f64 / GRID as f64) * w;
+                grid[r * (GRID + 1) + c] = ([x, y], sample_freeform_gradient(self, [x, y]));
+            }
+        }
+        let mut triangles = Vec::with_capacity(GRID * GRID * 2);
+        for r in 0..GRID {
+            for c in 0..GRID {
+                let (p00, c00) = grid[r * (GRID + 1) + c];
+                let (p10, c10) = grid[r * (GRID + 1) + c + 1];
+                let (p01, c01) = grid[(r + 1) * (GRID + 1) + c];
+                let (p11, c11) = grid[(r + 1) * (GRID + 1) + c + 1];
+                triangles.push(VectorMeshTriangle {
+                    points: [p00, p10, p11],
+                    colors: [c00, c10, c11],
+                });
+                triangles.push(VectorMeshTriangle {
+                    points: [p00, p11, p01],
+                    colors: [c00, c11, c01],
+                });
+            }
+        }
+        Some(VectorMeshPaint {
+            patches: Vec::new(),
+            triangles,
+            linear_rgb: false,
+        })
+    }
+}
+
 impl GradientMesh {
     /// Construct a regular `(rows + 1) x (cols + 1)` gradient mesh over `bounds = [x, y, width, height]`.
     pub fn new_grid(bounds: [f64; 4], rows: u32, cols: u32, base_color: Color) -> Self {
@@ -973,6 +1507,8 @@ pub struct ElementVectorEffects {
     pub freeform_gradient: Option<FreeformGradient>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gradient_mesh: Option<GradientMesh>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector_mesh: Option<VectorMeshPaint>,
 }
 
 impl ElementVectorEffects {
@@ -982,11 +1518,42 @@ impl ElementVectorEffects {
             && self.vector_blend.is_none()
             && self.freeform_gradient.is_none()
             && self.gradient_mesh.is_none()
+            && self.vector_mesh.is_none()
+    }
+
+    /// Resolve any active vector mesh paint (`vector_mesh`, `gradient_mesh`, or `freeform_gradient`)
+    /// into a concrete [`VectorMeshPaint`] in local element coordinates, applying `envelope_warp`
+    /// to control points when present (`T-501`).
+    pub fn resolved_vector_mesh(&self, element: &Element) -> Option<VectorMeshPaint> {
+        let mut mesh = if let Some(vm) = &self.vector_mesh {
+            vm.clone()
+        } else if let Some(gm) = &self.gradient_mesh {
+            gm.to_vector_mesh_paint()?
+        } else if let Some(ff) = &self.freeform_gradient {
+            let (commands, _) = element.to_path_commands()?;
+            let b = path_bounds(&commands).ok().flatten()?;
+            ff.to_vector_mesh_paint([b.x_min, b.y_min, b.x_max, b.y_max])?
+        } else {
+            return None;
+        };
+        if let Some(warp) = &self.envelope_warp
+            && let Some((commands, _)) = element.to_path_commands()
+            && let Ok(Some(b)) = path_bounds(&commands)
+        {
+            let bounds = [
+                b.x_min,
+                b.y_min,
+                (b.x_max - b.x_min).max(1e-6),
+                (b.y_max - b.y_min).max(1e-6),
+            ];
+            mesh.map_points_in_place(|pt| apply_envelope_warp_to_point(warp, pt, bounds));
+        }
+        Some(mesh)
     }
 }
 
 /// Deterministically expand/bake `effects` (envelope warp, procedural effects, freeform gradient /
-/// mesh average fill) onto `element`, returning a concrete vector path element (`T-120`).
+/// mesh representative fill) onto `element`, returning a concrete vector path element (`T-120`).
 pub fn expand_vector_effects(element: &Element, effects: &ElementVectorEffects) -> Element {
     let mut result = element.clone();
     let Some((mut commands, fill_rule)) = result.to_path_commands() else {
@@ -1036,7 +1603,9 @@ pub fn expand_vector_effects(element: &Element, effects: &ElementVectorEffects) 
         _ => return result,
     };
 
-    if let Some(ff) = &effects.freeform_gradient
+    if let Some(vm) = &effects.vector_mesh {
+        fill = vm.representative_color();
+    } else if let Some(ff) = &effects.freeform_gradient
         && let Ok(Some(b)) = path_bounds(&commands)
     {
         fill = sample_freeform_gradient(ff, [(b.x_min + b.x_max) * 0.5, (b.y_min + b.y_max) * 0.5]);
@@ -1206,6 +1775,7 @@ mod tests {
             vector_blend: None,
             freeform_gradient: Some(grad),
             gradient_mesh: None,
+            vector_mesh: None,
         };
         let expanded = expand_vector_effects(&rect, &effects);
         assert!(matches!(expanded.kind, ElementKind::Path { .. }));

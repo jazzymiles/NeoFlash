@@ -1278,7 +1278,10 @@ mod tests {
         assert!(pkg_ps1.contains("scripts/stage-rust-dependency-licenses.py"));
         assert!(pkg_ps1.contains("media-corresponding-source.tar.xz"));
         assert!(pkg_ps1.contains("NeoFlash-$Version-windows-x64-SHA256SUMS.txt"));
-        assert!(pkg_ps1.contains("signtool.exe sign /fd SHA256"));
+        assert!(pkg_ps1.contains("signtool.exe"));
+        assert!(pkg_ps1.contains("\"/fd\", \"SHA256\""));
+        assert!(pkg_ps1.contains("\"/td\", \"SHA256\""));
+        assert!(pkg_ps1.contains("verify /pa /v"));
         assert!(pkg_ps1.contains("makeappx.exe pack"));
 
         let portable =

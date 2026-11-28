@@ -152,3 +152,77 @@ test('bitmap paint cache keeps hit bits and clamped corner colors within its byt
   assert.equal(uploads, 1);
   assert.equal(cache.stats().bytes, 91);
 });
+
+test('GradientRenderer renders clipped bicubic patch and Gouraud triangle vector mesh fills', () => {
+  const { paintVisible, paintAlpha } = require('../path.js');
+  const accessibility = require('../accessibility.js');
+  const mesh = {
+    linear_rgb: true,
+    patches: [{
+      points: [
+        [0, 0], [10, 0], [20, 0], [30, 0],
+        [0, 10], [10, 10], [20, 10], [30, 10],
+        [0, 20], [10, 20], [20, 20], [30, 20],
+        [0, 30], [10, 30], [20, 30], [30, 30],
+      ],
+      colors: [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255], [255, 255, 0, 255]],
+    }],
+    triangles: [{
+      points: [[0, 0], [20, 0], [10, 20]],
+      colors: [[255, 40, 60, 255], [40, 255, 80, 255], [60, 80, 255, 255]],
+    }],
+  };
+  const commands = [{ op: 'move_to', x: 2, y: 2 }, { op: 'line_to', x: 28, y: 2 }, { op: 'line_to', x: 28, y: 28 }, { op: 'line_to', x: 2, y: 28 }, { op: 'close' }];
+  const kind = { type: 'path', commands, fill_rule: 'nonzero', fill: [0, 0, 0, 0], fill_mesh: mesh, stroke: [0, 0, 0, 0], stroke_width: 0 };
+  assert.equal(paintVisible(kind, 'fill'), true);
+  assert.equal(paintAlpha(kind, 'fill', 15, 15), 1);
+
+  const bounds = accessibility.itemBounds({
+    alpha: 1,
+    transform: [1, 0, 0, 1, 0, 0],
+    mesh_fill: mesh,
+    kind: { type: 'path', commands, fill_rule: 'nonzero', fill: [0, 0, 0, 0], stroke: [0, 0, 0, 0], stroke_width: 0 },
+  }, () => 0);
+  assert.deepEqual(bounds, { left: 2, top: 2, right: 28, bottom: 28 });
+
+  let putPixels = null;
+  let clipped = false;
+  let drawn = null;
+  const createCanvas = (w = 40, h = 40) => {
+    const c = { width: w, height: h };
+    c.getContext = () => ({
+      canvas: c,
+      _m: [1, 0, 0, 1, 0, 0],
+      _stack: [],
+      save() { this._stack.push(this._m.slice()); },
+      restore() { this._m = this._stack.pop(); },
+      getTransform() { const [a, b, cc, d, e, f] = this._m; return { a, b, c: cc, d, e, f }; },
+      setTransform(a, b, cc, d, e, f) { this._m = [a, b, cc, d, e, f]; },
+      clip() { clipped = true; },
+      createImageData(iw, ih) { return { width: iw, height: ih, data: new Uint8ClampedArray(iw * ih * 4) }; },
+      putImageData(img) { putPixels = img; },
+      drawImage(src, x, y) { drawn = { w: src.width, h: src.height, x, y }; },
+    });
+    return c;
+  };
+  const renderer = new GradientRenderer({ createCanvas });
+  const dest = createCanvas(40, 40).getContext('2d');
+  renderer.draw(dest, kind, { path: true });
+  assert.equal(clipped, true, 'mesh fill clips against exact Path2D silhouette');
+  assert.ok(putPixels && putPixels.data.some((v, i) => i % 4 === 3 && v > 0), 'Gouraud ImageData buffer populated with smooth alpha');
+  assert.ok(drawn && drawn.w > 0 && drawn.h > 0, 'Gouraud scratch canvas composited via drawImage through clip');
+
+  // Overlapping translucent Gouraud triangle composites via Porter-Duff source-over without erasing base pixels:
+  const overlapMesh = {
+    patches: [],
+    triangles: [
+      { points: [[2, 2], [28, 2], [2, 28]], colors: [[255, 0, 0, 255], [255, 0, 0, 255], [255, 0, 0, 255]] },
+      { points: [[2, 2], [28, 2], [2, 28]], colors: [[0, 0, 255, 128], [0, 0, 255, 128], [0, 0, 255, 128]] },
+    ],
+  };
+  const overlapKind = { type: 'path', commands, fill_rule: 'nonzero', fill: [0, 0, 0, 0], fill_mesh: overlapMesh, stroke: [0, 0, 0, 0], stroke_width: 0 };
+  renderer.draw(dest, overlapKind, { path: true });
+  const centerIdx = (8 * putPixels.width + 8) * 4;
+  assert.equal(putPixels.data[centerIdx + 3], 255, 'opaque base + 50% overlay keeps alpha 255');
+  assert.ok(putPixels.data[centerIdx] > 100 && putPixels.data[centerIdx + 2] > 100, 'red base and blue translucent overlay blend into purple');
+});

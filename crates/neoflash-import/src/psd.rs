@@ -8,16 +8,20 @@
 
 pub mod layer_styles;
 pub use layer_styles::{
-    PsdDescriptor, PsdDescriptorValue, PsdParsedLayerEffects, convert_lfx2_descriptor,
+    PsdDescriptor, PsdDescriptorValue, PsdGradientFillData, PsdGradientFillKind,
+    PsdGradientOffsetAxis, PsdParsedLayerEffects, convert_lfx2_descriptor,
     descriptor_color_to_rgb24, extract_psd_global_lighting_angle, parse_descriptor_body,
-    parse_legacy_lrfx_block, parse_versioned_effects_descriptor, photoshop_light_to_flash_angle,
+    parse_gdfl_block, parse_legacy_lrfx_block, parse_versioned_effects_descriptor,
+    parse_vmsk_block, photoshop_light_to_flash_angle,
 };
 
 use crate::{ImportError, ImportFormat, ImportReport, Statistics};
 use neoflash_core::{
-    BlendMode, Color, ColorTransform, Element, ElementKind, FillRule, FilterSpec, InstancePlayback,
-    Keyframe, Layer, LayerProperties, LayerRole, MAX_BITMAP_DIMENSION, MAX_OBJECT_FILTERS,
-    MaskMode, PathCommand, Project, ResourceUnit, Symbol, SymbolKind, Timeline, Transform, new_id,
+    BlendMode, Color, ColorTransform, Element, ElementKind, ElementVectorEffects, FillRule,
+    FilterSpec, IDENTITY_COLOR_MATRIX, InstancePlayback, Keyframe, Layer, LayerProperties,
+    LayerRole, MAX_BITMAP_DIMENSION, MAX_OBJECT_FILTERS, MaskMode, PathCommand, Project,
+    RectangleOptions, ResourceUnit, Symbol, SymbolKind, Timeline, Transform, adjust_color_matrix,
+    new_id, path_bounds, rectangle_path_commands,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -168,6 +172,14 @@ pub struct PsdLayerRecord {
     pub effects_approximations: Vec<String>,
     #[serde(skip)]
     pub solid_fill_color: Option<Color>,
+    #[serde(skip)]
+    pub gradient_fill: Option<PsdGradientFillData>,
+    #[serde(skip)]
+    pub vector_mask_paths: Option<(Vec<PathCommand>, FillRule)>,
+    #[serde(skip)]
+    pub adjustment: Option<PsdAdjustmentOp>,
+    #[serde(skip)]
+    pub has_unsupported_adjustment: bool,
     #[serde(skip)]
     pub channels_meta: Vec<(i16, usize)>,
     #[serde(skip)]
@@ -468,7 +480,7 @@ fn is_adjustment_key(key: &[u8; 4]) -> Option<&'static str> {
     match key {
         b"levl" => Some("Levels"),
         b"curv" => Some("Curves"),
-        b"brit" => Some("Brightness/Contrast"),
+        b"brit" | b"CgEd" => Some("Brightness/Contrast"),
         b"hue " | b"hue2" => Some("Hue/Saturation"),
         b"blnc" => Some("Color Balance"),
         b"nvrt" => Some("Invert"),
@@ -478,7 +490,945 @@ fn is_adjustment_key(key: &[u8; 4]) -> Option<&'static str> {
         b"selc" => Some("Selective Color"),
         b"phfl" => Some("Photo Filter"),
         b"expA" => Some("Exposure"),
-        b"vibA" => Some("Vibrance"),
+        b"vibr" | b"vibA" => Some("Vibrance"),
+        b"bw  " | b"blwh" => Some("Black & White"),
+        _ => None,
+    }
+}
+
+/// Non-destructive per-pixel RGBA / `FilterSpec` Photoshop adjustment layer operator (`T-501`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PsdAdjustmentOp {
+    Invert,
+    BrightnessContrast {
+        brightness: f64,
+        contrast: f64,
+    },
+    HueSaturation {
+        hue_deg: f64,
+        saturation: f64,
+        lightness: f64,
+        colorize: bool,
+    },
+    BlackAndWhite {
+        reds: f64,
+        yellows: f64,
+        greens: f64,
+        cyans: f64,
+        blues: f64,
+        magentas: f64,
+        tint_rgb: Option<[u8; 3]>,
+    },
+    Exposure {
+        lut: Box<[u8; 256]>,
+    },
+    Vibrance {
+        vibrance: f64,
+        saturation: f64,
+    },
+    Levels {
+        r_lut: Box<[u8; 256]>,
+        g_lut: Box<[u8; 256]>,
+        b_lut: Box<[u8; 256]>,
+    },
+    Curves {
+        r_lut: Box<[u8; 256]>,
+        g_lut: Box<[u8; 256]>,
+        b_lut: Box<[u8; 256]>,
+    },
+    Posterize {
+        lut: Box<[u8; 256]>,
+    },
+    Threshold {
+        level: u8,
+    },
+    ColorBalance {
+        shadows: [f64; 3],
+        midtones: [f64; 3],
+        highlights: [f64; 3],
+        preserve_luminosity: bool,
+    },
+}
+
+fn blend_color_matrix_with_identity(matrix: [f64; 20], weight: f64) -> [f64; 20] {
+    let w = weight.clamp(0.0, 1.0);
+    if (w - 1.0).abs() <= 1e-9 {
+        return matrix;
+    }
+    std::array::from_fn(|idx| IDENTITY_COLOR_MATRIX[idx] * (1.0 - w) + matrix[idx] * w)
+}
+
+fn apply_color_matrix_rgb(m: &[f64; 20], r: u8, g: u8, b: u8, a: u8) -> [u8; 3] {
+    let rf = f64::from(r);
+    let gf = f64::from(g);
+    let bf = f64::from(b);
+    let af = f64::from(a);
+    let nr = (m[0] * rf + m[1] * gf + m[2] * bf + m[3] * af + m[4])
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let ng = (m[5] * rf + m[6] * gf + m[7] * bf + m[8] * af + m[9])
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    let nb = (m[10] * rf + m[11] * gf + m[12] * bf + m[13] * af + m[14])
+        .round()
+        .clamp(0.0, 255.0) as u8;
+    [nr, ng, nb]
+}
+
+fn hsl_to_rgb01(hue_deg: f64, sat: f64, light: f64) -> [f64; 3] {
+    let h = hue_deg.rem_euclid(360.0);
+    let s = sat.clamp(0.0, 1.0);
+    let l = light.clamp(0.0, 1.0);
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = l - c * 0.5;
+    let (r1, g1, b1) = if h < 60.0 {
+        (c, x, 0.0)
+    } else if h < 120.0 {
+        (x, c, 0.0)
+    } else if h < 180.0 {
+        (0.0, c, x)
+    } else if h < 240.0 {
+        (0.0, x, c)
+    } else if h < 300.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    [
+        (r1 + m).clamp(0.0, 1.0),
+        (g1 + m).clamp(0.0, 1.0),
+        (b1 + m).clamp(0.0, 1.0),
+    ]
+}
+
+fn rgb01_to_hsl(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
+    let max_c = r.max(g).max(b);
+    let min_c = r.min(g).min(b);
+    let l = 0.5 * (max_c + min_c);
+    let d = max_c - min_c;
+    if d <= 1e-9 {
+        return (0.0, 0.0, l);
+    }
+    let s = if l > 0.5 {
+        d / (2.0 - max_c - min_c).max(1e-9)
+    } else {
+        d / (max_c + min_c).max(1e-9)
+    };
+    let h = if (max_c - r).abs() <= 1e-9 {
+        60.0 * (((g - b) / d).rem_euclid(6.0))
+    } else if (max_c - g).abs() <= 1e-9 {
+        60.0 * (((b - r) / d) + 2.0)
+    } else {
+        60.0 * (((r - g) / d) + 4.0)
+    };
+    (h.rem_euclid(360.0), s.clamp(0.0, 1.0), l.clamp(0.0, 1.0))
+}
+
+impl PsdAdjustmentOp {
+    /// Convert linear / affine-color adjustments (`nvrt`, `brit`, `hue`/`hue2`, `bw  `/`blwh`)
+    /// into an editable [`FilterSpec::ColorMatrix`].
+    pub fn filter_spec(&self, weight: f64) -> Option<FilterSpec> {
+        let w = weight.clamp(0.0, 1.0);
+        let raw_matrix = match *self {
+            Self::Invert => [
+                -1.0, 0.0, 0.0, 0.0, 255.0, // R
+                0.0, -1.0, 0.0, 0.0, 255.0, // G
+                0.0, 0.0, -1.0, 0.0, 255.0, // B
+                0.0, 0.0, 0.0, 1.0, 0.0, // A
+            ],
+            Self::BrightnessContrast {
+                brightness,
+                contrast,
+            } => adjust_color_matrix(
+                (brightness * w).clamp(-100.0, 100.0),
+                (contrast * w).clamp(-100.0, 100.0),
+                0.0,
+                0.0,
+            ),
+            Self::HueSaturation {
+                hue_deg,
+                saturation,
+                lightness,
+                colorize,
+            } => {
+                if !colorize {
+                    return {
+                        let m = adjust_color_matrix(
+                            (lightness * w).clamp(-100.0, 100.0),
+                            0.0,
+                            (saturation * w).clamp(-100.0, 100.0),
+                            (hue_deg * w).clamp(-180.0, 180.0),
+                        );
+                        let spec = FilterSpec::ColorMatrix { matrix: m };
+                        spec.validate().is_ok().then_some(spec)
+                    };
+                }
+                let [tr, tg, tb] = hsl_to_rgb01(hue_deg, saturation / 100.0, 0.5);
+                let l_scale = if lightness < 0.0 {
+                    (1.0 + lightness / 100.0).clamp(0.0, 1.0)
+                } else {
+                    (1.0 - lightness / 100.0).clamp(0.0, 1.0)
+                };
+                let l_off = if lightness > 0.0 {
+                    (lightness / 100.0).clamp(0.0, 1.0) * 255.0
+                } else {
+                    0.0
+                };
+                let r_gain = (tr * 2.0 * l_scale).clamp(0.0, 4.0);
+                let g_gain = (tg * 2.0 * l_scale).clamp(0.0, 4.0);
+                let b_gain = (tb * 2.0 * l_scale).clamp(0.0, 4.0);
+                [
+                    0.299 * r_gain,
+                    0.587 * r_gain,
+                    0.114 * r_gain,
+                    0.0,
+                    l_off,
+                    0.299 * g_gain,
+                    0.587 * g_gain,
+                    0.114 * g_gain,
+                    0.0,
+                    l_off,
+                    0.299 * b_gain,
+                    0.587 * b_gain,
+                    0.114 * b_gain,
+                    0.0,
+                    l_off,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                ]
+            }
+            Self::BlackAndWhite {
+                reds,
+                greens,
+                blues,
+                tint_rgb,
+                ..
+            } => {
+                let wr = (reds / 100.0).clamp(-3.0, 3.0);
+                let wg = (greens / 100.0).clamp(-3.0, 3.0);
+                let wb = (blues / 100.0).clamp(-3.0, 3.0);
+                let (tr, tg, tb) = if let Some([r, g, b]) = tint_rgb {
+                    (
+                        f64::from(r) / 255.0,
+                        f64::from(g) / 255.0,
+                        f64::from(b) / 255.0,
+                    )
+                } else {
+                    (1.0, 1.0, 1.0)
+                };
+                [
+                    wr * tr,
+                    wg * tr,
+                    wb * tr,
+                    0.0,
+                    0.0,
+                    wr * tg,
+                    wg * tg,
+                    wb * tg,
+                    0.0,
+                    0.0,
+                    wr * tb,
+                    wg * tb,
+                    wb * tb,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    1.0,
+                    0.0,
+                ]
+            }
+            _ => return None,
+        };
+
+        let matrix = if matches!(self, Self::BrightnessContrast { .. }) {
+            raw_matrix
+        } else {
+            blend_color_matrix_with_identity(raw_matrix, w)
+        };
+        let spec = FilterSpec::ColorMatrix { matrix };
+        spec.validate().is_ok().then_some(spec)
+    }
+
+    pub fn apply_pixel(&self, rgba: Color, weight: f64) -> Color {
+        let w = weight.clamp(0.0, 1.0);
+        if w <= 1e-9 || rgba[3] == 0 {
+            return rgba;
+        }
+        let [r, g, b, a] = rgba;
+        let [nr, ng, nb] = match self {
+            Self::Invert => [255 - r, 255 - g, 255 - b],
+            Self::BrightnessContrast { .. } | Self::HueSaturation { .. } => {
+                if let Some(FilterSpec::ColorMatrix { matrix }) = self.filter_spec(1.0) {
+                    apply_color_matrix_rgb(&matrix, r, g, b, a)
+                } else {
+                    [r, g, b]
+                }
+            }
+            Self::BlackAndWhite {
+                reds,
+                yellows,
+                greens,
+                cyans,
+                blues,
+                magentas,
+                tint_rgb,
+            } => {
+                let rf = f64::from(r) / 255.0;
+                let gf = f64::from(g) / 255.0;
+                let bf = f64::from(b) / 255.0;
+                let max_c = rf.max(gf).max(bf);
+                let min_c = rf.min(gf).min(bf);
+                let mid_c = rf + gf + bf - max_c - min_c;
+                let (w_prim, w_sec) = if (max_c - rf).abs() <= 1e-9 {
+                    if gf >= bf {
+                        (*reds / 100.0, *yellows / 100.0)
+                    } else {
+                        (*reds / 100.0, *magentas / 100.0)
+                    }
+                } else if (max_c - gf).abs() <= 1e-9 {
+                    if rf >= bf {
+                        (*greens / 100.0, *yellows / 100.0)
+                    } else {
+                        (*greens / 100.0, *cyans / 100.0)
+                    }
+                } else if rf >= gf {
+                    (*blues / 100.0, *magentas / 100.0)
+                } else {
+                    (*blues / 100.0, *cyans / 100.0)
+                };
+                let gray =
+                    (min_c + (mid_c - min_c) * w_sec + (max_c - mid_c) * w_prim).clamp(0.0, 1.0);
+                if let Some([tr, tg, tb]) = *tint_rgb {
+                    [
+                        (gray * f64::from(tr)).round().clamp(0.0, 255.0) as u8,
+                        (gray * f64::from(tg)).round().clamp(0.0, 255.0) as u8,
+                        (gray * f64::from(tb)).round().clamp(0.0, 255.0) as u8,
+                    ]
+                } else {
+                    let gv = (gray * 255.0).round().clamp(0.0, 255.0) as u8;
+                    [gv, gv, gv]
+                }
+            }
+            Self::Exposure { lut } | Self::Posterize { lut } => [
+                lut[usize::from(r)],
+                lut[usize::from(g)],
+                lut[usize::from(b)],
+            ],
+            Self::Vibrance {
+                vibrance,
+                saturation,
+            } => {
+                let rf = f64::from(r) / 255.0;
+                let gf = f64::from(g) / 255.0;
+                let bf = f64::from(b) / 255.0;
+                let max_c = rf.max(gf).max(bf);
+                let min_c = rf.min(gf).min(bf);
+                let chroma = max_c - min_c;
+                let luma = 0.2126 * rf + 0.7152 * gf + 0.0722 * bf;
+                let vib_gain = (vibrance / 100.0) * (1.0 - chroma);
+                let sat_gain = saturation / 100.0;
+                let scale = (1.0 + vib_gain + sat_gain).max(0.0);
+                [
+                    ((luma + (rf - luma) * scale) * 255.0)
+                        .round()
+                        .clamp(0.0, 255.0) as u8,
+                    ((luma + (gf - luma) * scale) * 255.0)
+                        .round()
+                        .clamp(0.0, 255.0) as u8,
+                    ((luma + (bf - luma) * scale) * 255.0)
+                        .round()
+                        .clamp(0.0, 255.0) as u8,
+                ]
+            }
+            Self::Levels {
+                r_lut,
+                g_lut,
+                b_lut,
+            }
+            | Self::Curves {
+                r_lut,
+                g_lut,
+                b_lut,
+            } => [
+                r_lut[usize::from(r)],
+                g_lut[usize::from(g)],
+                b_lut[usize::from(b)],
+            ],
+            Self::Threshold { level } => {
+                let luma = (77 * u32::from(r) + 150 * u32::from(g) + 29 * u32::from(b) + 128) >> 8;
+                let v = if luma >= u32::from(*level) { 255 } else { 0 };
+                [v, v, v]
+            }
+            Self::ColorBalance {
+                shadows,
+                midtones,
+                highlights,
+                preserve_luminosity,
+            } => {
+                let orig = [
+                    f64::from(r) / 255.0,
+                    f64::from(g) / 255.0,
+                    f64::from(b) / 255.0,
+                ];
+                let mut shifted = [0.0_f64; 3];
+                for ch in 0..3 {
+                    let v = orig[ch];
+                    let ws = (1.0 - v) * (1.0 - v);
+                    let wm = 4.0 * v * (1.0 - v);
+                    let wh = v * v;
+                    let delta = (shadows[ch] / 100.0) * ws
+                        + (midtones[ch] / 100.0) * wm
+                        + (highlights[ch] / 100.0) * wh;
+                    shifted[ch] = (v + delta * 0.5).clamp(0.0, 1.0);
+                }
+                if *preserve_luminosity {
+                    let (_, _, orig_l) = rgb01_to_hsl(orig[0], orig[1], orig[2]);
+                    let (new_h, new_s, _) = rgb01_to_hsl(shifted[0], shifted[1], shifted[2]);
+                    shifted = hsl_to_rgb01(new_h, new_s, orig_l);
+                }
+                [
+                    (shifted[0] * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (shifted[1] * 255.0).round().clamp(0.0, 255.0) as u8,
+                    (shifted[2] * 255.0).round().clamp(0.0, 255.0) as u8,
+                ]
+            }
+        };
+
+        if (w - 1.0).abs() <= 1e-6 {
+            [nr, ng, nb, a]
+        } else {
+            [
+                (f64::from(r) * (1.0 - w) + f64::from(nr) * w)
+                    .round()
+                    .clamp(0.0, 255.0) as u8,
+                (f64::from(g) * (1.0 - w) + f64::from(ng) * w)
+                    .round()
+                    .clamp(0.0, 255.0) as u8,
+                (f64::from(b) * (1.0 - w) + f64::from(nb) * w)
+                    .round()
+                    .clamp(0.0, 255.0) as u8,
+                a,
+            ]
+        }
+    }
+
+    pub fn apply_rgba_buffer(&self, rgba: &mut [u8], weight: f64) {
+        let w = weight.clamp(0.0, 1.0);
+        if w <= 1e-9 {
+            return;
+        }
+        for px in rgba.as_chunks_mut::<4>().0 {
+            *px = self.apply_pixel(*px, w);
+        }
+    }
+
+    pub fn apply_to_layer(&self, layer: &mut PsdLayerRecord, weight: f64) {
+        let w = weight.clamp(0.0, 1.0);
+        if w <= 1e-9 {
+            return;
+        }
+        if let Some(rgba) = layer.rgba_pixels.as_mut() {
+            self.apply_rgba_buffer(rgba, w);
+        }
+        if let Some(col) = layer.solid_fill_color.as_mut() {
+            *col = self.apply_pixel(*col, w);
+        }
+        if let Some(grad) = layer.gradient_fill.as_mut() {
+            grad.transform_colors(|c| self.apply_pixel(c, w));
+        }
+        if let Some(txt) = layer.text_data.as_mut() {
+            txt.color = self.apply_pixel(txt.color, w);
+        }
+    }
+}
+
+fn identity_lut() -> [u8; 256] {
+    std::array::from_fn(|i| i as u8)
+}
+
+fn parse_levels_record_10(rec: &[u8]) -> Option<[u8; 256]> {
+    if rec.len() < 10 {
+        return None;
+    }
+    let in_black = u16::from_be_bytes([rec[0], rec[1]]).min(253);
+    let in_white = u16::from_be_bytes([rec[2], rec[3]]).clamp(in_black.saturating_add(1), 255);
+    let out_black = u16::from_be_bytes([rec[4], rec[5]]).min(255);
+    let out_white = u16::from_be_bytes([rec[6], rec[7]]).min(255);
+    let gamma_raw = u16::from_be_bytes([rec[8], rec[9]]);
+    if gamma_raw == 0 {
+        return None;
+    }
+    let gamma = (f64::from(gamma_raw) / 100.0).clamp(0.1, 9.99);
+    let in_span = f64::from(in_white - in_black).max(1.0);
+    let out_b = f64::from(out_black);
+    let out_span = f64::from(out_white) - out_b;
+    Some(std::array::from_fn(|i| {
+        let t = ((i as f64 - f64::from(in_black)) / in_span).clamp(0.0, 1.0);
+        let tg = if t <= 0.0 {
+            0.0
+        } else if t >= 1.0 {
+            1.0
+        } else {
+            t.powf(1.0 / gamma)
+        };
+        (out_b + tg * out_span).round().clamp(0.0, 255.0) as u8
+    }))
+}
+
+fn build_monotone_curve_lut(mut points: Vec<(f64, f64)>) -> [u8; 256] {
+    if points.is_empty() {
+        return identity_lut();
+    }
+    points.sort_by(|a, b| a.0.total_cmp(&b.0));
+    points.dedup_by(|a, b| (a.0 - b.0).abs() < 0.5);
+    if points.len() == 1 {
+        let v = points[0].1.round().clamp(0.0, 255.0) as u8;
+        return [v; 256];
+    }
+    let n = points.len();
+    if n == 2 {
+        let (x0, y0) = points[0];
+        let (x1, y1) = points[1];
+        let span = (x1 - x0).max(1e-6);
+        return std::array::from_fn(|i| {
+            let x = i as f64;
+            let y = if x <= x0 {
+                y0
+            } else if x >= x1 {
+                y1
+            } else {
+                y0 + (y1 - y0) * ((x - x0) / span)
+            };
+            y.round().clamp(0.0, 255.0) as u8
+        });
+    }
+
+    // Fritsch–Carlson monotone cubic Hermite spline (never overshoots control points).
+    let mut dx = vec![0.0_f64; n - 1];
+    let mut sec = vec![0.0_f64; n - 1];
+    for k in 0..(n - 1) {
+        dx[k] = (points[k + 1].0 - points[k].0).max(1e-6);
+        sec[k] = (points[k + 1].1 - points[k].1) / dx[k];
+    }
+    let mut m = vec![0.0_f64; n];
+    m[0] = sec[0];
+    m[n - 1] = sec[n - 2];
+    for k in 1..(n - 1) {
+        if sec[k - 1] * sec[k] <= 0.0 {
+            m[k] = 0.0;
+        } else {
+            m[k] = 0.5 * (sec[k - 1] + sec[k]);
+        }
+    }
+    for k in 0..(n - 1) {
+        if sec[k].abs() <= 1e-9 {
+            m[k] = 0.0;
+            m[k + 1] = 0.0;
+        } else {
+            let a = m[k] / sec[k];
+            let b = m[k + 1] / sec[k];
+            let h = a.hypot(b);
+            if h > 3.0 {
+                let tau = 3.0 / h;
+                m[k] = tau * a * sec[k];
+                m[k + 1] = tau * b * sec[k];
+            }
+        }
+    }
+
+    std::array::from_fn(|i| {
+        let x = i as f64;
+        if x <= points[0].0 {
+            return points[0].1.round().clamp(0.0, 255.0) as u8;
+        }
+        if x >= points[n - 1].0 {
+            return points[n - 1].1.round().clamp(0.0, 255.0) as u8;
+        }
+        let seg = points
+            .partition_point(|(px, _)| *px <= x)
+            .saturating_sub(1)
+            .min(n - 2);
+        let h = dx[seg];
+        let t = ((x - points[seg].0) / h).clamp(0.0, 1.0);
+        let t2 = t * t;
+        let t3 = t2 * t;
+        let h00 = 2.0 * t3 - 3.0 * t2 + 1.0;
+        let h10 = t3 - 2.0 * t2 + t;
+        let h01 = -2.0 * t3 + 3.0 * t2;
+        let h11 = t3 - t2;
+        let y =
+            h00 * points[seg].1 + h10 * h * m[seg] + h01 * points[seg + 1].1 + h11 * h * m[seg + 1];
+        y.round().clamp(0.0, 255.0) as u8
+    })
+}
+
+/// Parse a Photoshop adjustment layer payload (`levl`, `curv`, `brit`/`CgEd`, `hue `/`hue2`,
+/// `blnc`, `nvrt`, `post`, `thrs`, `expA`, `vibr`/`vibA`, `bw  `/`blwh`) safely (`T-501`).
+pub fn parse_psd_adjustment_block(key: &[u8; 4], block: &[u8]) -> Option<PsdAdjustmentOp> {
+    match key {
+        b"nvrt" => Some(PsdAdjustmentOp::Invert),
+        b"brit" | b"CgEd" => {
+            if block.len() >= 20
+                && u32::from_be_bytes([block[0], block[1], block[2], block[3]]) == 16
+            {
+                let mut pos = 4usize;
+                let desc = parse_descriptor_body(block, &mut pos, 0)?;
+                let brgh = desc.number("Brgh").unwrap_or(0.0).clamp(-150.0, 150.0);
+                let cntr = desc.number("Cntr").unwrap_or(0.0).clamp(-100.0, 100.0);
+                return Some(PsdAdjustmentOp::BrightnessContrast {
+                    brightness: brgh,
+                    contrast: cntr,
+                });
+            }
+            if block.len() < 4 {
+                return None;
+            }
+            let brgh = f64::from(i16::from_be_bytes([block[0], block[1]])).clamp(-150.0, 150.0);
+            let cntr = f64::from(i16::from_be_bytes([block[2], block[3]])).clamp(-100.0, 100.0);
+            Some(PsdAdjustmentOp::BrightnessContrast {
+                brightness: brgh,
+                contrast: cntr,
+            })
+        }
+        b"hue " | b"hue2" => {
+            if block.len() >= 20
+                && u32::from_be_bytes([block[0], block[1], block[2], block[3]]) == 16
+            {
+                let mut pos = 4usize;
+                let desc = parse_descriptor_body(block, &mut pos, 0)?;
+                let colorize = desc.bool_or("Clrz", false);
+                let hue_deg = desc.number("H   ").unwrap_or(0.0).clamp(-360.0, 360.0);
+                let saturation = desc.number("Strt").unwrap_or(0.0).clamp(-100.0, 100.0);
+                let lightness = desc.number("Lght").unwrap_or(0.0).clamp(-100.0, 100.0);
+                return Some(PsdAdjustmentOp::HueSaturation {
+                    hue_deg,
+                    saturation,
+                    lightness,
+                    colorize,
+                });
+            }
+            if block.len() < 10 {
+                return None;
+            }
+            let version = u16::from_be_bytes([block[0], block[1]]);
+            if version != 1 && version != 2 {
+                return None;
+            }
+            let colorize = block[2] != 0;
+            let tuple_offset = if block.len() >= 16 && !colorize {
+                10
+            } else {
+                4
+            };
+            let hue_deg = f64::from(i16::from_be_bytes([
+                block[tuple_offset],
+                block[tuple_offset + 1],
+            ]))
+            .clamp(-360.0, 360.0);
+            let saturation = f64::from(i16::from_be_bytes([
+                block[tuple_offset + 2],
+                block[tuple_offset + 3],
+            ]))
+            .clamp(-100.0, 100.0);
+            let lightness = f64::from(i16::from_be_bytes([
+                block[tuple_offset + 4],
+                block[tuple_offset + 5],
+            ]))
+            .clamp(-100.0, 100.0);
+            Some(PsdAdjustmentOp::HueSaturation {
+                hue_deg,
+                saturation,
+                lightness,
+                colorize,
+            })
+        }
+        b"bw  " | b"blwh" => {
+            if block.is_empty() {
+                return Some(PsdAdjustmentOp::BlackAndWhite {
+                    reds: 40.0,
+                    yellows: 60.0,
+                    greens: 40.0,
+                    cyans: 60.0,
+                    blues: 20.0,
+                    magentas: 80.0,
+                    tint_rgb: None,
+                });
+            }
+            if block.len() >= 20
+                && u32::from_be_bytes([block[0], block[1], block[2], block[3]]) == 16
+            {
+                let mut pos = 4usize;
+                let desc = parse_descriptor_body(block, &mut pos, 0)?;
+                let tint_rgb = if desc.bool_or("useTint", false) {
+                    desc.object("tintColor").map(|co| {
+                        let rgb = descriptor_color_to_rgb24(co, 0xe1_d3b3);
+                        [
+                            ((rgb >> 16) & 0xff) as u8,
+                            ((rgb >> 8) & 0xff) as u8,
+                            (rgb & 0xff) as u8,
+                        ]
+                    })
+                } else {
+                    None
+                };
+                return Some(PsdAdjustmentOp::BlackAndWhite {
+                    reds: desc.number("Rd  ").unwrap_or(40.0).clamp(-200.0, 300.0),
+                    yellows: desc.number("Yllw").unwrap_or(60.0).clamp(-200.0, 300.0),
+                    greens: desc.number("Grn ").unwrap_or(40.0).clamp(-200.0, 300.0),
+                    cyans: desc.number("Cyn ").unwrap_or(60.0).clamp(-200.0, 300.0),
+                    blues: desc.number("Bl  ").unwrap_or(20.0).clamp(-200.0, 300.0),
+                    magentas: desc.number("Mgnt").unwrap_or(80.0).clamp(-200.0, 300.0),
+                    tint_rgb,
+                });
+            }
+            let vals_slice = if block.len() == 14 && u16::from_be_bytes([block[0], block[1]]) == 1 {
+                &block[2..14]
+            } else if block.len() == 12 {
+                &block[0..12]
+            } else {
+                return None;
+            };
+            let rd = |o: usize| {
+                f64::from(i16::from_be_bytes([vals_slice[o], vals_slice[o + 1]]))
+                    .clamp(-200.0, 300.0)
+            };
+            Some(PsdAdjustmentOp::BlackAndWhite {
+                reds: rd(0),
+                yellows: rd(2),
+                greens: rd(4),
+                cyans: rd(6),
+                blues: rd(8),
+                magentas: rd(10),
+                tint_rgb: None,
+            })
+        }
+        b"expA" => {
+            let (exposure, offset, gamma) = if block.len() >= 20
+                && u32::from_be_bytes([block[0], block[1], block[2], block[3]]) == 16
+            {
+                let mut pos = 4usize;
+                let desc = parse_descriptor_body(block, &mut pos, 0)?;
+                (
+                    desc.number_any(&["Exps", "exposure"]).unwrap_or(0.0),
+                    desc.number_any(&["Ofst", "offset"]).unwrap_or(0.0),
+                    desc.number_any(&["Gmm ", "gammaCorrection"]).unwrap_or(1.0),
+                )
+            } else if block.len() >= 14 && u16::from_be_bytes([block[0], block[1]]) == 1 {
+                let exp = f64::from(f32::from_be_bytes([block[2], block[3], block[4], block[5]]));
+                let ofs = f64::from(f32::from_be_bytes([block[6], block[7], block[8], block[9]]));
+                let gam = f64::from(f32::from_be_bytes([
+                    block[10], block[11], block[12], block[13],
+                ]));
+                (exp, ofs, gam)
+            } else if block.len() == 12 {
+                let exp = f64::from(f32::from_be_bytes([block[0], block[1], block[2], block[3]]));
+                let ofs = f64::from(f32::from_be_bytes([block[4], block[5], block[6], block[7]]));
+                let gam = f64::from(f32::from_be_bytes([
+                    block[8], block[9], block[10], block[11],
+                ]));
+                (exp, ofs, gam)
+            } else {
+                return None;
+            };
+            if !exposure.is_finite() || !offset.is_finite() || !gamma.is_finite() || gamma <= 0.0 {
+                return None;
+            }
+            let mult = 2.0_f64.powf(exposure.clamp(-20.0, 20.0));
+            let ofs = offset.clamp(-2.0, 2.0);
+            let inv_gamma = 1.0 / gamma.clamp(0.01, 9.99);
+            let lut = Box::new(std::array::from_fn(|i| {
+                let x = (i as f64) / 255.0;
+                let lin = (x * mult + ofs).clamp(0.0, 1.0);
+                (lin.powf(inv_gamma) * 255.0).round().clamp(0.0, 255.0) as u8
+            }));
+            Some(PsdAdjustmentOp::Exposure { lut })
+        }
+        b"vibr" | b"vibA" => {
+            if block.len() >= 20
+                && u32::from_be_bytes([block[0], block[1], block[2], block[3]]) == 16
+            {
+                let mut pos = 4usize;
+                let desc = parse_descriptor_body(block, &mut pos, 0)?;
+                let vibrance = desc
+                    .number_any(&["vibrance", "Vibr"])
+                    .unwrap_or(0.0)
+                    .clamp(-100.0, 100.0);
+                let saturation = desc.number("Strt").unwrap_or(0.0).clamp(-100.0, 100.0);
+                return Some(PsdAdjustmentOp::Vibrance {
+                    vibrance,
+                    saturation,
+                });
+            }
+            let vals = if block.len() == 6 && u16::from_be_bytes([block[0], block[1]]) == 1 {
+                &block[2..6]
+            } else if block.len() == 4 {
+                &block[0..4]
+            } else {
+                return None;
+            };
+            let vibrance = f64::from(i16::from_be_bytes([vals[0], vals[1]])).clamp(-100.0, 100.0);
+            let saturation = f64::from(i16::from_be_bytes([vals[2], vals[3]])).clamp(-100.0, 100.0);
+            Some(PsdAdjustmentOp::Vibrance {
+                vibrance,
+                saturation,
+            })
+        }
+        b"levl" => {
+            if block.len() < 12 || u16::from_be_bytes([block[0], block[1]]) != 2 {
+                return None;
+            }
+            let master = parse_levels_record_10(&block[2..12])?;
+            let ch_r = if block.len() >= 22 {
+                parse_levels_record_10(&block[12..22])?
+            } else {
+                identity_lut()
+            };
+            let ch_g = if block.len() >= 32 {
+                parse_levels_record_10(&block[22..32])?
+            } else {
+                identity_lut()
+            };
+            let ch_b = if block.len() >= 42 {
+                parse_levels_record_10(&block[32..42])?
+            } else {
+                identity_lut()
+            };
+            let r_lut = Box::new(std::array::from_fn(|i| master[usize::from(ch_r[i])]));
+            let g_lut = Box::new(std::array::from_fn(|i| master[usize::from(ch_g[i])]));
+            let b_lut = Box::new(std::array::from_fn(|i| master[usize::from(ch_b[i])]));
+            Some(PsdAdjustmentOp::Levels {
+                r_lut,
+                g_lut,
+                b_lut,
+            })
+        }
+        b"curv" => {
+            if block.len() < 6 {
+                return None;
+            }
+            let (mut pos, is_map) = {
+                let v0 = u16::from_be_bytes([block[0], block[1]]);
+                if v0 == 1 || v0 == 4 {
+                    (2usize, false)
+                } else if block.len() >= 7
+                    && (block[0] == 0 || block[0] == 1)
+                    && matches!(u16::from_be_bytes([block[1], block[2]]), 1 | 4)
+                {
+                    (3usize, block[0] == 1)
+                } else {
+                    return None;
+                }
+            };
+            let bitmask = read_u32_be(block, &mut pos).ok()?;
+            if (bitmask & 0x0f) == 0 {
+                return None;
+            }
+            let mut luts = [identity_lut(); 4];
+            let mut decoded_any = false;
+            for ch in 0..32u32 {
+                if (bitmask & (1u32 << ch)) == 0 {
+                    continue;
+                }
+                if is_map {
+                    let end = pos.checked_add(256)?;
+                    let map_slice = block.get(pos..end)?;
+                    pos = end;
+                    if (ch as usize) < 4 {
+                        let mut arr = [0u8; 256];
+                        arr.copy_from_slice(map_slice);
+                        luts[ch as usize] = arr;
+                        decoded_any = true;
+                    }
+                } else {
+                    let pt_count = read_u16_be(block, &mut pos).ok()? as usize;
+                    if !(2..=256).contains(&pt_count) {
+                        return None;
+                    }
+                    let byte_len = pt_count.checked_mul(4)?;
+                    let end = pos.checked_add(byte_len)?;
+                    let raw_pts = block.get(pos..end)?;
+                    pos = end;
+                    if (ch as usize) < 4 {
+                        let mut pts = Vec::with_capacity(pt_count);
+                        for chunk in raw_pts.as_chunks::<4>().0 {
+                            let output =
+                                f64::from(u16::from_be_bytes([chunk[0], chunk[1]]).min(255));
+                            let input =
+                                f64::from(u16::from_be_bytes([chunk[2], chunk[3]]).min(255));
+                            pts.push((input, output));
+                        }
+                        luts[ch as usize] = build_monotone_curve_lut(pts);
+                        decoded_any = true;
+                    }
+                }
+            }
+            if !decoded_any {
+                return None;
+            }
+            let [master, cr, cg, cb] = luts;
+            let r_lut = Box::new(std::array::from_fn(|i| master[usize::from(cr[i])]));
+            let g_lut = Box::new(std::array::from_fn(|i| master[usize::from(cg[i])]));
+            let b_lut = Box::new(std::array::from_fn(|i| master[usize::from(cb[i])]));
+            Some(PsdAdjustmentOp::Curves {
+                r_lut,
+                g_lut,
+                b_lut,
+            })
+        }
+        b"post" => {
+            if block.len() < 2 {
+                return None;
+            }
+            let levels = u16::from_be_bytes([block[0], block[1]]);
+            if !(2..=255).contains(&levels) {
+                return None;
+            }
+            let lv = f64::from(levels);
+            let denom = (lv - 1.0).max(1.0);
+            let lut = Box::new(std::array::from_fn(|i| {
+                let step = ((i as f64 / 255.0) * lv).floor().min(lv - 1.0);
+                ((step / denom) * 255.0).round().clamp(0.0, 255.0) as u8
+            }));
+            Some(PsdAdjustmentOp::Posterize { lut })
+        }
+        b"thrs" => {
+            if block.len() < 2 {
+                return None;
+            }
+            let level = u16::from_be_bytes([block[0], block[1]]);
+            if !(1..=255).contains(&level) {
+                return None;
+            }
+            Some(PsdAdjustmentOp::Threshold { level: level as u8 })
+        }
+        b"blnc" => {
+            if block.len() < 18 {
+                return None;
+            }
+            let rd = |o: usize| {
+                f64::from(i16::from_be_bytes([block[o], block[o + 1]])).clamp(-100.0, 100.0)
+            };
+            let shadows = [rd(0), rd(2), rd(4)];
+            let midtones = [rd(6), rd(8), rd(10)];
+            let highlights = [rd(12), rd(14), rd(16)];
+            let preserve_luminosity = if block.len() >= 20 {
+                u16::from_be_bytes([block[18], block[19]]) != 0
+            } else {
+                true
+            };
+            Some(PsdAdjustmentOp::ColorBalance {
+                shadows,
+                midtones,
+                highlights,
+                preserve_luminosity,
+            })
+        }
         _ => None,
     }
 }
@@ -942,8 +1892,46 @@ fn parse_psd_document_with_plan(
                 // Layer mask data
                 checked_section_end(pos, 4, extra_end, "layer mask data length")?;
                 let mask_data_len = read_u32_be(bytes, &mut pos)? as usize;
-                let has_layer_mask = mask_data_len > 0;
-                pos = checked_section_end(pos, mask_data_len, extra_end, "layer mask data")?;
+                let mask_end =
+                    checked_section_end(pos, mask_data_len, extra_end, "layer mask data")?;
+                let mask_slice = &bytes[pos..mask_end];
+                let is_noop_white_mask = if mask_slice.len() >= 18 {
+                    let m_top = i32::from_be_bytes([
+                        mask_slice[0],
+                        mask_slice[1],
+                        mask_slice[2],
+                        mask_slice[3],
+                    ]);
+                    let m_left = i32::from_be_bytes([
+                        mask_slice[4],
+                        mask_slice[5],
+                        mask_slice[6],
+                        mask_slice[7],
+                    ]);
+                    let m_bottom = i32::from_be_bytes([
+                        mask_slice[8],
+                        mask_slice[9],
+                        mask_slice[10],
+                        mask_slice[11],
+                    ]);
+                    let m_right = i32::from_be_bytes([
+                        mask_slice[12],
+                        mask_slice[13],
+                        mask_slice[14],
+                        mask_slice[15],
+                    ]);
+                    let default_color = mask_slice[16];
+                    let mask_flags = mask_slice[17];
+                    (mask_flags & 0x02) != 0
+                        || (m_right <= m_left
+                            && m_bottom <= m_top
+                            && default_color == 255
+                            && (mask_flags & 0x04) == 0)
+                } else {
+                    false
+                };
+                let has_layer_mask = mask_data_len > 0 && !is_noop_white_mask;
+                pos = mask_end;
 
                 // Blending ranges
                 if pos.saturating_add(4) <= extra_end {
@@ -969,9 +1957,13 @@ fn parse_psd_document_with_plan(
                 let mut section_divider = PsdSectionDivider::Normal;
                 let mut text_data = None;
                 let mut has_vector_mask = false;
+                let mut vector_mask_paths = None;
                 let mut is_adjustment_layer = None;
+                let mut adjustment = None;
+                let mut has_unsupported_adjustment = false;
                 let mut is_smart_object = false;
                 let mut solid_fill_color: Option<Color> = None;
+                let mut gradient_fill: Option<PsdGradientFillData> = None;
                 let mut raw_lmfx: Option<&[u8]> = None;
                 let mut raw_lfx2: Option<&[u8]> = None;
                 let mut raw_lrfx: Option<&[u8]> = None;
@@ -1088,8 +2080,16 @@ fn parse_psd_document_with_plan(
                                 }
                             }
                         }
+                        b"GdFl" => {
+                            if let Some(gdfl) = parse_gdfl_block(block) {
+                                gradient_fill = Some(gdfl);
+                            }
+                        }
                         b"vmsk" | b"vsms" => {
                             has_vector_mask = true;
+                            if let Some(vp) = parse_vmsk_block(block, width, height) {
+                                vector_mask_paths = Some(vp);
+                            }
                         }
                         b"SoLd" | b"PlLd" => {
                             is_smart_object = true;
@@ -1097,6 +2097,11 @@ fn parse_psd_document_with_plan(
                         other => {
                             if let Some(adj) = is_adjustment_key(other) {
                                 is_adjustment_layer = Some(adj.to_owned());
+                                if let Some(op) = parse_psd_adjustment_block(other, block) {
+                                    adjustment = Some(op);
+                                } else {
+                                    has_unsupported_adjustment = true;
+                                }
                             }
                         }
                     }
@@ -1163,6 +2168,10 @@ fn parse_psd_document_with_plan(
                     folder_color_overlay_filter: parsed_effects.folder_color_overlay_filter,
                     effects_approximations: parsed_effects.approximations,
                     solid_fill_color,
+                    gradient_fill,
+                    vector_mask_paths,
+                    adjustment,
+                    has_unsupported_adjustment,
                     channels_meta,
                     rgba_pixels: None,
                 });
@@ -1186,14 +2195,24 @@ fn parse_psd_document_with_plan(
                         if !over_budget && let Some(n) = pixels {
                             retained = retained.saturating_add(n.saturating_mul(4));
                         }
+                        let unreconstructed_vector_mask = layer.has_vector_mask
+                            && (layer.vector_mask_paths.is_none()
+                                || (layer.solid_fill_color.is_none()
+                                    && layer.gradient_fill.is_none()));
+                        let unreconstructed_clipping = layer.clipping && layer.adjustment.is_none();
                         layer.visible
-                            && (layer.is_adjustment_layer.is_some()
-                                || layer.has_vector_mask
+                            && (layer.has_unsupported_adjustment
+                                || unreconstructed_vector_mask
                                 || layer.has_layer_mask
-                                || layer.clipping
+                                || unreconstructed_clipping
                                 || !map_psd_blend_mode(&layer.blend_key).1
                                 || over_budget
-                                || (pixels.is_none() && layer.width() > 0 && layer.height() > 0))
+                                || (pixels.is_none()
+                                    && layer.width() > 0
+                                    && layer.height() > 0
+                                    && layer.solid_fill_color.is_none()
+                                    && layer.gradient_fill.is_none()
+                                    && layer.adjustment.is_none()))
                     });
                 if (has_visible_effects || loses_visible_artwork)
                     && let Some(merged) = decode_merged(
@@ -1484,9 +2503,138 @@ fn import_psd_into_project_inner(
         return Ok(report);
     }
 
-    // PSD and NeoFlash both store bottom-to-top. Walk upwards to identify clipping bases,
-    // then walk downwards to attach children to folders before restoring the paint order.
+    // PSD and NeoFlash both store bottom-to-top. Compute folder ancestry first, resolve
+    // clipped and unclipped adjustment layers, identify clipping mask bases, and then walk
+    // top-to-bottom to attach children to folders before restoring bottom-to-top paint order.
     let layer_ids: Vec<String> = (0..psd_layers.len()).map(|_| new_id("layer")).collect();
+
+    let mut parent_folder_of: Vec<Option<usize>> = vec![None; psd_layers.len()];
+    {
+        let mut f_stack: Vec<usize> = Vec::new();
+        for i in (0..psd_layers.len()).rev() {
+            match psd_layers[i].section_divider {
+                PsdSectionDivider::OpenFolder | PsdSectionDivider::ClosedFolder => {
+                    parent_folder_of[i] = f_stack.last().copied();
+                    f_stack.push(i);
+                }
+                PsdSectionDivider::BoundingSectionEnd => {
+                    let _ = f_stack.pop();
+                }
+                PsdSectionDivider::Normal => {
+                    parent_folder_of[i] = f_stack.last().copied();
+                }
+            }
+        }
+    }
+
+    let isolated_scope_ancestor =
+        |idx: usize, layers_ref: &[PsdLayerRecord], parents: &[Option<usize>]| -> Option<usize> {
+            let mut cur = parents[idx];
+            while let Some(f_idx) = cur {
+                if layers_ref[f_idx].blend_key != "pass" {
+                    return Some(f_idx);
+                }
+                cur = parents[f_idx];
+            }
+            None
+        };
+
+    let has_folder_ancestor =
+        |idx: usize, target_folder: usize, parents: &[Option<usize>]| -> bool {
+            let mut cur = parents[idx];
+            while let Some(f_idx) = cur {
+                if f_idx == target_folder {
+                    return true;
+                }
+                cur = parents[f_idx];
+            }
+            false
+        };
+
+    let mut consumed_adjustment_layers: BTreeSet<usize> = BTreeSet::new();
+    let mut unclipped_folder_adjustments: BTreeMap<usize, FilterSpec> = BTreeMap::new();
+    {
+        let mut current_adj_base: Option<usize> = None;
+        for i in 0..psd_layers.len() {
+            if psd_layers[i].section_divider != PsdSectionDivider::Normal {
+                current_adj_base = None;
+                continue;
+            }
+            if !options.import_hidden_layers && !psd_layers[i].visible {
+                if !psd_layers[i].clipping && psd_layers[i].adjustment.is_none() {
+                    current_adj_base = None;
+                }
+                continue;
+            }
+            if let Some(adj_op) = psd_layers[i].adjustment.clone() {
+                let adj_vis = psd_layers[i].visible;
+                let w = (f64::from(psd_layers[i].opacity) / 255.0).clamp(0.0, 1.0);
+                if psd_layers[i].clipping {
+                    if let Some(base_idx) = current_adj_base {
+                        if let Some(mut spec) = adj_op.filter_spec(w)
+                            && psd_layers[base_idx].filters.len() < MAX_OBJECT_FILTERS
+                        {
+                            spec.set_enabled(adj_vis);
+                            psd_layers[base_idx].filters.push(spec);
+                        } else if adj_vis && w > 0.0 {
+                            adj_op.apply_to_layer(&mut psd_layers[base_idx], w);
+                        }
+                    }
+                    consumed_adjustment_layers.insert(i);
+                } else {
+                    current_adj_base = None;
+                    if let Some(mut spec) = adj_op.filter_spec(w)
+                        && matches!(
+                            mapping,
+                            PsdLayerMapping::TimelineLayers | PsdLayerMapping::MovieClipSymbols
+                        )
+                    {
+                        spec.set_enabled(adj_vis);
+                        unclipped_folder_adjustments.insert(i, spec);
+                    } else {
+                        if adj_vis && w > 0.0 {
+                            let iso_folder =
+                                isolated_scope_ancestor(i, &psd_layers, &parent_folder_of);
+                            for (k, layer_k) in psd_layers[..i].iter_mut().enumerate() {
+                                if layer_k.section_divider != PsdSectionDivider::Normal
+                                    || layer_k.adjustment.is_some()
+                                {
+                                    continue;
+                                }
+                                if let Some(req_f) = iso_folder
+                                    && !has_folder_ancestor(k, req_f, &parent_folder_of)
+                                {
+                                    continue;
+                                }
+                                if mapping == PsdLayerMapping::Keyframes
+                                    && let Some(spec) = adj_op.filter_spec(w)
+                                    && layer_k.filters.len() < MAX_OBJECT_FILTERS
+                                {
+                                    layer_k.filters.push(spec);
+                                } else {
+                                    adj_op.apply_to_layer(layer_k, w);
+                                }
+                            }
+                        }
+                        consumed_adjustment_layers.insert(i);
+                    }
+                }
+            } else if psd_layers[i].has_unsupported_adjustment {
+                let has_own_visuals = psd_layers[i].text_data.is_some()
+                    || psd_layers[i].rgba_pixels.is_some()
+                    || psd_layers[i].solid_fill_color.is_some()
+                    || psd_layers[i].gradient_fill.is_some();
+                if !has_own_visuals {
+                    consumed_adjustment_layers.insert(i);
+                } else if !psd_layers[i].clipping {
+                    current_adj_base = Some(i);
+                }
+            } else if !psd_layers[i].clipping {
+                current_adj_base = Some(i);
+            }
+        }
+    }
+
     let mut clipping_base_for: BTreeMap<usize, usize> = BTreeMap::new();
     let mut is_clipping_base: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
@@ -1505,6 +2653,14 @@ fn import_psd_into_project_inner(
             if !options.import_hidden_layers && !rec.visible {
                 continue;
             }
+            if consumed_adjustment_layers.contains(&i)
+                || unclipped_folder_adjustments.contains_key(&i)
+            {
+                if !rec.clipping {
+                    current_base = None;
+                }
+                continue;
+            }
             if !rec.clipping {
                 current_base = Some(i);
             } else if let Some(base_idx) = current_base {
@@ -1515,14 +2671,22 @@ fn import_psd_into_project_inner(
     }
 
     let mut built_layers = Vec::new();
-    let mut keyframe_mode_frames = Vec::new();
+    let mut keyframe_mode_frames: Vec<(String, Element, Vec<ElementVectorEffects>)> = Vec::new();
     let mut folder_stack: Vec<String> = Vec::new();
+    let mut adj_wrapper_stack: Vec<(usize, String)> = Vec::new();
 
     // Walk top-to-bottom (reverse of PSD bottom-to-top array)
     for (i, rec) in psd_layers.iter_mut().enumerate().rev() {
         let loc = format!("{source_name}::{}", rec.name);
 
         if rec.section_divider == PsdSectionDivider::BoundingSectionEnd {
+            let cur_depth = folder_stack.len();
+            while adj_wrapper_stack
+                .last()
+                .is_some_and(|(d, _)| *d == cur_depth)
+            {
+                let _ = adj_wrapper_stack.pop();
+            }
             folder_stack.pop();
             continue;
         }
@@ -1539,12 +2703,83 @@ fn import_psd_into_project_inner(
             );
         }
 
+        let active_parent_id = {
+            let cur_depth = folder_stack.len();
+            if let Some((_, wid)) = adj_wrapper_stack.last().filter(|(d, _)| *d == cur_depth) {
+                Some(wid.clone())
+            } else {
+                folder_stack.last().cloned()
+            }
+        };
+
+        if let Some(adj_spec) = unclipped_folder_adjustments.remove(&i) {
+            let wrapper_id = layer_ids[i].clone();
+            let (adj_blend, exact_adj_blend) = if options.preserve_blend_modes {
+                map_psd_blend_mode(&rec.blend_key)
+            } else {
+                (BlendMode::Normal, true)
+            };
+            if options.preserve_blend_modes && !exact_adj_blend {
+                report.warning(
+                    "psd-unsupported-blend-mode",
+                    loc.clone(),
+                    format!(
+                        "PSD adjustment layer blend mode '{}' is not natively supported; approximated as '{}'.",
+                        rec.blend_key,
+                        adj_blend.label()
+                    ),
+                );
+            }
+            let mut folder_filters = rec.filters.clone();
+            if folder_filters.len() < MAX_OBJECT_FILTERS {
+                folder_filters.push(adj_spec);
+            }
+            built_layers.push(Layer {
+                id: wrapper_id.clone(),
+                name: rec.name.clone(),
+                visible: true,
+                locked: false,
+                keyframes: vec![Keyframe {
+                    frame: 0,
+                    elements: Vec::new(),
+                    ..Keyframe::default()
+                }],
+                properties: LayerProperties {
+                    role: LayerRole::Folder,
+                    parent: active_parent_id,
+                    collapsed: false,
+                    blend_mode: adj_blend,
+                    filters: folder_filters,
+                    ..LayerProperties::default()
+                },
+            });
+            report.statistics.layers += 1;
+            report.statistics.keyframes += 1;
+            adj_wrapper_stack.push((folder_stack.len(), wrapper_id));
+            continue;
+        }
+
+        if consumed_adjustment_layers.contains(&i) {
+            if rec.has_unsupported_adjustment
+                && let Some(adj_kind) = &rec.is_adjustment_layer
+            {
+                report.warning(
+                    "psd-adjustment-layer-approximated",
+                    loc,
+                    format!(
+                        "PSD adjustment layer '{adj_kind}' was malformed or unsupported and could not be reconstructed."
+                    ),
+                );
+            }
+            continue;
+        }
+
         if matches!(
             rec.section_divider,
             PsdSectionDivider::OpenFolder | PsdSectionDivider::ClosedFolder
         ) {
             let folder_id = layer_ids[i].clone();
-            let parent_id = folder_stack.last().cloned();
+            let parent_id = active_parent_id;
             if matches!(
                 mapping,
                 PsdLayerMapping::TimelineLayers | PsdLayerMapping::MovieClipSymbols
@@ -1608,7 +2843,9 @@ fn import_psd_into_project_inner(
         }
 
         // Emit fidelity diagnostics for special PSD layer features
-        if let Some(adj_kind) = &rec.is_adjustment_layer {
+        if rec.has_unsupported_adjustment
+            && let Some(adj_kind) = &rec.is_adjustment_layer
+        {
             report.warning(
                 "psd-adjustment-layer-approximated",
                 loc.clone(),
@@ -1617,7 +2854,10 @@ fn import_psd_into_project_inner(
                 ),
             );
         }
-        if rec.has_vector_mask {
+        let vector_mask_reconstructed = rec.vector_mask_paths.is_some()
+            && (rec.solid_fill_color.is_some() || rec.gradient_fill.is_some())
+            && rec.rgba_pixels.is_none();
+        if rec.has_vector_mask && !vector_mask_reconstructed {
             report.warning(
                 "psd-vector-mask-approximated",
                 loc.clone(),
@@ -1650,6 +2890,7 @@ fn import_psd_into_project_inner(
         }
 
         let alpha = (rec.opacity as f64 / 255.0).clamp(0.0, 1.0);
+        let mut element_vector_effects: Vec<ElementVectorEffects> = Vec::new();
 
         // Build the visual Element for this layer
         let element = if let Some(text_info) = &rec.text_data
@@ -1695,6 +2936,153 @@ fn import_psd_into_project_inner(
                 kind,
                 ..Element::default()
             }
+        } else if let Some(gdfl) = &rec.gradient_fill
+            && rec.rgba_pixels.is_none()
+        {
+            let el_id = new_id("element");
+            if let Some((cmds, rule)) = rec.vector_mask_paths.clone() {
+                let paint_bounds = if gdfl.align_with_layer
+                    && let Ok(Some(b)) = path_bounds(&cmds)
+                {
+                    [
+                        b.x_min,
+                        b.y_min,
+                        (b.x_max - b.x_min).max(1.0),
+                        (b.y_max - b.y_min).max(1.0),
+                    ]
+                } else {
+                    [0.0, 0.0, f64::from(header.width), f64::from(header.height)]
+                };
+                let (fallback, fill_gradient, mesh_opt) = gdfl.build_paint_and_mesh(paint_bounds);
+                if let Some(mesh) = mesh_opt {
+                    element_vector_effects.push(ElementVectorEffects {
+                        element_id: el_id.clone(),
+                        vector_mesh: Some(mesh),
+                        ..ElementVectorEffects::default()
+                    });
+                }
+                Element {
+                    id: el_id,
+                    name: rec.name.clone(),
+                    transform: Transform {
+                        x: 0.0,
+                        y: 0.0,
+                        alpha,
+                        ..Transform::default()
+                    },
+                    blend_mode: mapped_blend,
+                    kind: ElementKind::PaintedPath {
+                        commands: cmds,
+                        fill_rule: rule,
+                        fill: fallback,
+                        stroke: [0; 4],
+                        fill_gradient,
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }
+            } else {
+                let (bx, by, bw, bh) = if rec.width() > 0 && rec.height() > 0 {
+                    (
+                        f64::from(rec.left),
+                        f64::from(rec.top),
+                        f64::from(rec.width()),
+                        f64::from(rec.height()),
+                    )
+                } else {
+                    (0.0, 0.0, f64::from(header.width), f64::from(header.height))
+                };
+                let cmds = rectangle_path_commands(bw, bh, RectangleOptions::default());
+                let paint_bounds = if gdfl.align_with_layer {
+                    [0.0, 0.0, bw, bh]
+                } else {
+                    [-bx, -by, f64::from(header.width), f64::from(header.height)]
+                };
+                let (fallback, fill_gradient, mesh_opt) = gdfl.build_paint_and_mesh(paint_bounds);
+                if let Some(mesh) = mesh_opt {
+                    element_vector_effects.push(ElementVectorEffects {
+                        element_id: el_id.clone(),
+                        vector_mesh: Some(mesh),
+                        ..ElementVectorEffects::default()
+                    });
+                }
+                Element {
+                    id: el_id,
+                    name: rec.name.clone(),
+                    transform: Transform {
+                        x: bx,
+                        y: by,
+                        alpha,
+                        ..Transform::default()
+                    },
+                    blend_mode: mapped_blend,
+                    kind: ElementKind::PaintedPath {
+                        commands: cmds,
+                        fill_rule: FillRule::NonZero,
+                        fill: fallback,
+                        stroke: [0; 4],
+                        fill_gradient,
+                        stroke_gradient: None,
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }
+            }
+        } else if let Some(fill_col) = rec.solid_fill_color
+            && rec.rgba_pixels.is_none()
+        {
+            if let Some((cmds, rule)) = rec.vector_mask_paths.clone() {
+                Element {
+                    id: new_id("element"),
+                    name: rec.name.clone(),
+                    transform: Transform {
+                        x: 0.0,
+                        y: 0.0,
+                        alpha,
+                        ..Transform::default()
+                    },
+                    blend_mode: mapped_blend,
+                    kind: ElementKind::Path {
+                        commands: cmds,
+                        fill_rule: rule,
+                        fill: fill_col,
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }
+            } else {
+                let (bx, by, bw, bh) = if rec.width() > 0 && rec.height() > 0 {
+                    (
+                        f64::from(rec.left),
+                        f64::from(rec.top),
+                        f64::from(rec.width()),
+                        f64::from(rec.height()),
+                    )
+                } else {
+                    (0.0, 0.0, f64::from(header.width), f64::from(header.height))
+                };
+                Element {
+                    id: new_id("element"),
+                    name: rec.name.clone(),
+                    transform: Transform {
+                        x: bx,
+                        y: by,
+                        alpha,
+                        ..Transform::default()
+                    },
+                    blend_mode: mapped_blend,
+                    kind: ElementKind::Rectangle {
+                        width: bw,
+                        height: bh,
+                        fill: fill_col,
+                        stroke: [0; 4],
+                        stroke_width: 0.0,
+                    },
+                    ..Element::default()
+                }
+            }
         } else if portable_pixel_count(rec.width() as usize, rec.height() as usize).is_some() {
             let lw = rec.width().max(1);
             let lh = rec.height().max(1);
@@ -1726,26 +3114,6 @@ fn import_psd_into_project_inner(
                         width: lw,
                         height: lh,
                         smoothing: true,
-                    },
-                    ..Element::default()
-                }
-            } else if let Some(fill_col) = rec.solid_fill_color {
-                Element {
-                    id: new_id("element"),
-                    name: rec.name.clone(),
-                    transform: Transform {
-                        x: rec.left as f64,
-                        y: rec.top as f64,
-                        alpha,
-                        ..Transform::default()
-                    },
-                    blend_mode: mapped_blend,
-                    kind: ElementKind::Rectangle {
-                        width: f64::from(lw),
-                        height: f64::from(lh),
-                        fill: fill_col,
-                        stroke: [0; 4],
-                        stroke_width: 0.0,
                     },
                     ..Element::default()
                 }
@@ -1832,11 +3200,11 @@ fn import_psd_into_project_inner(
                 if let Some(tint) = layer_tint {
                     element.transform.color_transform = tint;
                 }
-                keyframe_mode_frames.push((rec.name.clone(), element));
+                keyframe_mode_frames.push((rec.name.clone(), element, element_vector_effects));
             }
             PsdLayerMapping::MovieClipSymbols | PsdLayerMapping::TimelineLayers => {
                 let is_mask_base = is_clipping_base.contains(&i);
-                let placed_element =
+                let (placed_element, outer_vector_effects) =
                     if mapping == PsdLayerMapping::MovieClipSymbols && !is_mask_base {
                         let sym_id = new_id("symbol");
                         let sym_pos = [element.transform.x, element.transform.y];
@@ -1858,6 +3226,7 @@ fn import_psd_into_project_inner(
                                     keyframes: vec![Keyframe {
                                         frame: 0,
                                         elements: vec![local_elem],
+                                        vector_effects: element_vector_effects,
                                         ..Keyframe::default()
                                     }],
                                     properties: LayerProperties::default(),
@@ -1874,33 +3243,36 @@ fn import_psd_into_project_inner(
                         report.statistics.keyframes += 1;
                         report.statistics.elements += 1;
 
-                        Element {
-                            id: new_id("element"),
-                            name: rec.name.clone(),
-                            transform: Transform {
-                                x: sym_pos[0],
-                                y: sym_pos[1],
-                                color_transform: layer_tint.unwrap_or_default(),
-                                ..Transform::default()
+                        (
+                            Element {
+                                id: new_id("element"),
+                                name: rec.name.clone(),
+                                transform: Transform {
+                                    x: sym_pos[0],
+                                    y: sym_pos[1],
+                                    color_transform: layer_tint.unwrap_or_default(),
+                                    ..Transform::default()
+                                },
+                                blend_mode: mapped_blend,
+                                filters: layer_filters,
+                                kind: ElementKind::Instance {
+                                    symbol_id: sym_id,
+                                    playback: InstancePlayback::Independent,
+                                },
+                                ..Element::default()
                             },
-                            blend_mode: mapped_blend,
-                            filters: layer_filters,
-                            kind: ElementKind::Instance {
-                                symbol_id: sym_id,
-                                playback: InstancePlayback::Independent,
-                            },
-                            ..Element::default()
-                        }
+                            Vec::new(),
+                        )
                     } else {
                         element.filters = layer_filters;
                         if let Some(tint) = layer_tint {
                             element.transform.color_transform = tint;
                         }
-                        element
+                        (element, element_vector_effects)
                     };
 
                 let mut props = LayerProperties {
-                    parent: folder_stack.last().cloned(),
+                    parent: active_parent_id,
                     blend_mode: mapped_blend,
                     ..LayerProperties::default()
                 };
@@ -1920,6 +3292,7 @@ fn import_psd_into_project_inner(
                     keyframes: vec![Keyframe {
                         frame: 0,
                         elements: vec![placed_element],
+                        vector_effects: outer_vector_effects,
                         ..Keyframe::default()
                     }],
                     properties: props,
@@ -1936,11 +3309,20 @@ fn import_psd_into_project_inner(
         // Keyframes are ordered bottom-to-top in PSD (so Layer 1 is frame 0, Layer 2 is frame 1...)
         keyframe_mode_frames.reverse();
         let mut keyframes = Vec::with_capacity(keyframe_mode_frames.len());
-        for (f_idx, (label, elem)) in keyframe_mode_frames.into_iter().enumerate() {
+        for (f_idx, (label, elem, vfx)) in keyframe_mode_frames.into_iter().enumerate() {
             keyframes.push(Keyframe {
                 frame: f_idx as u32,
                 label,
                 elements: vec![elem],
+                vector_effects: vfx,
+                ..Keyframe::default()
+            });
+            report.statistics.keyframes += 1;
+        }
+        if keyframes.is_empty() {
+            keyframes.push(Keyframe {
+                frame: 0,
+                elements: Vec::new(),
                 ..Keyframe::default()
             });
             report.statistics.keyframes += 1;

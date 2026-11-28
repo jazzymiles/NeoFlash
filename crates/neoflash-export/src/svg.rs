@@ -261,6 +261,100 @@ fn emit_gradient_def(
     }
 }
 
+fn emit_meshgradient_def(
+    defs: &mut String,
+    id: &str,
+    mesh: &neoflash_core::VectorMeshPaint,
+    ct: ColorTransform,
+    prec: usize,
+) {
+    let mut patches: Vec<neoflash_core::VectorMeshPatch> = mesh.patches.clone();
+    for tri in &mesh.triangles {
+        let [a, b, c] = tri.points;
+        let lerp2 =
+            |p: [f64; 2], q: [f64; 2], t: f64| [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+        let boundary = [
+            a,
+            lerp2(a, b, 1.0 / 3.0),
+            lerp2(a, b, 2.0 / 3.0),
+            b,
+            lerp2(b, c, 1.0 / 3.0),
+            lerp2(b, c, 2.0 / 3.0),
+            c,
+            c,
+            c,
+            lerp2(c, a, 1.0 / 3.0),
+            lerp2(c, a, 2.0 / 3.0),
+            a,
+        ];
+        patches.push(neoflash_core::VectorMeshPatch::from_coons_12(
+            boundary,
+            [tri.colors[0], tri.colors[1], tri.colors[2], tri.colors[2]],
+        ));
+    }
+    let first_origin = patches.first().map_or([0.0, 0.0], |p| p.points[0]);
+    let interp = if mesh.linear_rgb {
+        " color-interpolation=\"linearRGB\""
+    } else {
+        ""
+    };
+    let _ = writeln!(
+        defs,
+        "    <meshgradient id=\"{id}\" gradientUnits=\"userSpaceOnUse\" x=\"{}\" y=\"{}\"{interp}>",
+        fmt_num(first_origin[0], prec),
+        fmt_num(first_origin[1], prec),
+    );
+    for (idx, patch) in patches.iter().enumerate() {
+        let m = &patch.points;
+        let [c00, c03, c30, c33] = patch.colors.map(|c| apply_color_transform(c, ct));
+        let origin_attr = if idx == 0 {
+            String::new()
+        } else {
+            format!(
+                " data-nf-patch-origin=\"{},{}\"",
+                fmt_num(m[0][0], prec),
+                fmt_num(m[0][1], prec)
+            )
+        };
+        let inner_attr = format!(
+            " data-nf-inner=\"{},{},{},{},{},{},{},{}\"",
+            fmt_num(m[5][0], prec),
+            fmt_num(m[5][1], prec),
+            fmt_num(m[6][0], prec),
+            fmt_num(m[6][1], prec),
+            fmt_num(m[9][0], prec),
+            fmt_num(m[9][1], prec),
+            fmt_num(m[10][0], prec),
+            fmt_num(m[10][1], prec),
+        );
+        let _ = writeln!(defs, "      <meshrow>");
+        let _ = writeln!(defs, "        <meshpatch{origin_attr}{inner_attr}>");
+        let edges = [
+            (m[1], m[2], m[3], c00),
+            (m[7], m[11], m[15], c03),
+            (m[14], m[13], m[12], c33),
+            (m[8], m[4], m[0], c30),
+        ];
+        for (c1, c2, end, col) in edges {
+            let alpha = fmt_num(f64::from(col[3]) / 255.0, prec);
+            let _ = writeln!(
+                defs,
+                "          <stop path=\"C {},{} {},{} {},{}\" stop-color=\"{}\" stop-opacity=\"{alpha}\"/>",
+                fmt_num(c1[0], prec),
+                fmt_num(c1[1], prec),
+                fmt_num(c2[0], prec),
+                fmt_num(c2[1], prec),
+                fmt_num(end[0], prec),
+                fmt_num(end[1], prec),
+                svg_color_hex(col),
+            );
+        }
+        let _ = writeln!(defs, "        </meshpatch>");
+        let _ = writeln!(defs, "      </meshrow>");
+    }
+    let _ = writeln!(defs, "    </meshgradient>");
+}
+
 fn emit_filter_def(defs: &mut String, id: &str, filters: &[FilterSpec], prec: usize) {
     let _ = writeln!(
         defs,
@@ -558,6 +652,12 @@ fn render_draw_svg(
         let mut attrs = String::new();
         if let Some(paint) = &bitmap {
             let _ = write!(attrs, " fill=\"{paint}\"");
+        } else if let Some(mesh) = item.mesh_fill.as_ref().filter(|m| m.has_visible_alpha()) {
+            let gid = format!("nf-grad-{}", *grad_counter);
+            *grad_counter += 1;
+            *defs_count += 1;
+            emit_meshgradient_def(defs, &gid, mesh, ct, prec);
+            let _ = write!(attrs, " fill=\"url(#{gid})\"");
         } else if let Some(fg) = fill_grad {
             let gid = format!("nf-grad-{}", *grad_counter);
             *grad_counter += 1;

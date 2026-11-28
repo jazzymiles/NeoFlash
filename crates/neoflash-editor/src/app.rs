@@ -561,12 +561,40 @@ impl Editor {
                 draft.updates.last_check_unix = Some(now);
             }
         }
+        self.reconcile_staged_self_update();
         if allow_auto_check && !cfg!(test) && !screenshot_mode {
             self.updater.maybe_auto_check(
                 &self.workspace.updates,
                 crate::recovery::unix_now_secs(),
                 ctx,
             );
+        }
+    }
+
+    /// Initiate dirty-document-safe editor quit after staging a verified self-update (`T-501`).
+    pub(crate) fn begin_staged_self_update_quit(&mut self, ctx: &egui::Context) {
+        if !self.updater.has_staged_self_update() {
+            return;
+        }
+        self.request_quit(ctx);
+        self.reconcile_staged_self_update();
+    }
+
+    /// Spawn the staged self-update helper once quit is confirmed, or discard it if quit was cancelled.
+    pub(crate) fn reconcile_staged_self_update(&mut self) {
+        if !self.updater.has_staged_self_update() {
+            return;
+        }
+        if self.allow_close {
+            if let Err(err) = self.updater.commit_staged_self_update() {
+                self.allow_close = false;
+                self.notify_with_output(
+                    neoflash_ui::components::ToastType::Error,
+                    format!("Update install failed: {err}"),
+                );
+            }
+        } else if self.confirm.is_none() && self.close_origin.is_none() && !self.close_quit {
+            self.updater.abort_staged_self_update();
         }
     }
 
@@ -2520,7 +2548,9 @@ impl eframe::App for Editor {
         crate::preview::shutdown_shared_preview_server();
         if self.allow_close {
             self.clear_all_session_recovery();
+            let _ = self.updater.commit_staged_self_update();
         } else {
+            self.updater.abort_staged_self_update();
             let protected = self.recovery.pending_ids();
             if !self.dirty() {
                 self.clear_active_recovery();

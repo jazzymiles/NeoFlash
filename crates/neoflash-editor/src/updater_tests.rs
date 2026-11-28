@@ -2150,3 +2150,1216 @@ fn t347_live_github_release_and_sandboxed_build_605_handoff_verification() {
     )
     .expect("write verification-report.json");
 }
+
+// ---------------------------------------------------------------------------
+// T-501: Self-update staging, verification, atomic swap, rollback & UI E2E
+// ---------------------------------------------------------------------------
+
+fn t501_crc32(bytes: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &b in bytes {
+        crc ^= u32::from(b);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+struct SyntheticZipEntry<'a> {
+    name: &'a str,
+    data: &'a [u8],
+    unix_mode: u32,
+    use_deflate: bool,
+    force_zip64: bool,
+}
+
+fn build_synthetic_zip(entries: &[SyntheticZipEntry<'_>]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut cd = Vec::new();
+
+    for entry in entries {
+        let lfh_offset = out.len() as u64;
+        let name_bytes = entry.name.as_bytes();
+        let crc = t501_crc32(entry.data);
+        let uncomp_len = entry.data.len() as u64;
+        let (method, comp_bytes): (u16, Vec<u8>) = if entry.use_deflate && !entry.data.is_empty() {
+            let deflated = neoflash_core::as_binary::binary_transform(
+                "compress",
+                entry.data,
+                "",
+                "deflate",
+                entry.data.len().saturating_add(4096).max(64),
+            )
+            .expect("deflate synthetic zip entry");
+            (8, deflated)
+        } else {
+            (0, entry.data.to_vec())
+        };
+        let comp_len = comp_bytes.len() as u64;
+
+        let mut extra = Vec::new();
+        let (lfh_comp_32, lfh_uncomp_32, cd_lfh_32) = if entry.force_zip64 {
+            extra.extend_from_slice(&0x0001u16.to_le_bytes());
+            extra.extend_from_slice(&24u16.to_le_bytes());
+            extra.extend_from_slice(&uncomp_len.to_le_bytes());
+            extra.extend_from_slice(&comp_len.to_le_bytes());
+            extra.extend_from_slice(&lfh_offset.to_le_bytes());
+            (0xFFFF_FFFFu32, 0xFFFF_FFFFu32, 0xFFFF_FFFFu32)
+        } else {
+            (comp_len as u32, uncomp_len as u32, lfh_offset as u32)
+        };
+
+        // Local File Header
+        out.extend_from_slice(b"PK\x03\x04");
+        out.extend_from_slice(&45u16.to_le_bytes()); // version needed
+        out.extend_from_slice(&0x0800u16.to_le_bytes()); // UTF-8 flag
+        out.extend_from_slice(&method.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // mod time
+        out.extend_from_slice(&0u16.to_le_bytes()); // mod date
+        out.extend_from_slice(&crc.to_le_bytes());
+        out.extend_from_slice(&lfh_comp_32.to_le_bytes());
+        out.extend_from_slice(&lfh_uncomp_32.to_le_bytes());
+        out.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(extra.len() as u16).to_le_bytes());
+        out.extend_from_slice(name_bytes);
+        out.extend_from_slice(&extra);
+        out.extend_from_slice(&comp_bytes);
+
+        // Central Directory Header
+        let external_attr = entry.unix_mode << 16;
+        cd.extend_from_slice(b"PK\x01\x02");
+        cd.extend_from_slice(&((3u16 << 8) | 45u16).to_le_bytes()); // Unix creator OS
+        cd.extend_from_slice(&45u16.to_le_bytes());
+        cd.extend_from_slice(&0x0800u16.to_le_bytes());
+        cd.extend_from_slice(&method.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes());
+        cd.extend_from_slice(&crc.to_le_bytes());
+        cd.extend_from_slice(&lfh_comp_32.to_le_bytes());
+        cd.extend_from_slice(&lfh_uncomp_32.to_le_bytes());
+        cd.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+        cd.extend_from_slice(&(extra.len() as u16).to_le_bytes());
+        cd.extend_from_slice(&0u16.to_le_bytes()); // comment len
+        cd.extend_from_slice(&0u16.to_le_bytes()); // disk start
+        cd.extend_from_slice(&0u16.to_le_bytes()); // internal attr
+        cd.extend_from_slice(&external_attr.to_le_bytes());
+        cd.extend_from_slice(&cd_lfh_32.to_le_bytes());
+        cd.extend_from_slice(name_bytes);
+        cd.extend_from_slice(&extra);
+    }
+
+    let cd_offset = out.len() as u32;
+    let cd_size = cd.len() as u32;
+    out.extend_from_slice(&cd);
+
+    // End of Central Directory
+    out.extend_from_slice(b"PK\x05\x06");
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&cd_size.to_le_bytes());
+    out.extend_from_slice(&cd_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+fn build_synthetic_pe64_bytes(machine: u16, opt_magic: u16) -> Vec<u8> {
+    let mut pe = vec![0u8; 512];
+    pe[0] = b'M';
+    pe[1] = b'Z';
+    let e_lfanew: u32 = 0x80;
+    pe[0x3c..0x40].copy_from_slice(&e_lfanew.to_le_bytes());
+    let off = e_lfanew as usize;
+    pe[off..off + 4].copy_from_slice(b"PE\0\0");
+    pe[off + 4..off + 6].copy_from_slice(&machine.to_le_bytes());
+    pe[off + 6..off + 8].copy_from_slice(&1u16.to_le_bytes()); // 1 section
+    pe[off + 20..off + 22].copy_from_slice(&240u16.to_le_bytes()); // SizeOfOptionalHeader
+    pe[off + 22..off + 24].copy_from_slice(&0x0022u16.to_le_bytes()); // EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+    pe[off + 24..off + 26].copy_from_slice(&opt_magic.to_le_bytes());
+    pe
+}
+
+fn build_synthetic_elf64_bytes(ei_class: u8, e_machine: u16) -> Vec<u8> {
+    let mut elf = vec![0u8; 128];
+    elf[0..4].copy_from_slice(b"\x7fELF");
+    elf[4] = ei_class; // 2 = ELFCLASS64
+    elf[5] = 1; // little endian
+    elf[6] = 1; // EV_CURRENT
+    elf[16..18].copy_from_slice(&3u16.to_le_bytes()); // ET_DYN PIE executable
+    elf[18..20].copy_from_slice(&e_machine.to_le_bytes()); // 0x003E = EM_X86_64
+    elf[20..24].copy_from_slice(&1u32.to_le_bytes());
+    elf
+}
+
+fn build_synthetic_tar_gz(entries: &[(&str, u8, u32, &[u8])]) -> Vec<u8> {
+    let mut tar = Vec::new();
+    for &(name, typeflag, mode, payload) in entries {
+        let mut hdr = [0u8; 512];
+        let name_bytes = name.as_bytes();
+        assert!(name_bytes.len() <= 100);
+        hdr[0..name_bytes.len()].copy_from_slice(name_bytes);
+        let mode_str = format!("{mode:07o}\0");
+        hdr[100..108].copy_from_slice(mode_str.as_bytes());
+        hdr[108..116].copy_from_slice(b"0000000\0");
+        hdr[116..124].copy_from_slice(b"0000000\0");
+        let size_len = if typeflag == b'0' { payload.len() } else { 0 };
+        let size_str = format!("{size_len:011o}\0");
+        hdr[124..136].copy_from_slice(size_str.as_bytes());
+        hdr[136..148].copy_from_slice(b"00000000000\0");
+        hdr[148..156].fill(b' ');
+        hdr[156] = typeflag;
+        if typeflag == b'2' {
+            hdr[157..157 + payload.len()].copy_from_slice(payload);
+        }
+        hdr[257..263].copy_from_slice(b"ustar\0");
+        hdr[263..265].copy_from_slice(b"00");
+        let chksum: u32 = hdr.iter().map(|&b| u32::from(b)).sum();
+        let chk_str = format!("{chksum:06o}\0 ");
+        hdr[148..156].copy_from_slice(chk_str.as_bytes());
+        tar.extend_from_slice(&hdr);
+        if typeflag == b'0' && !payload.is_empty() {
+            tar.extend_from_slice(payload);
+            let rem = payload.len() % 512;
+            if rem != 0 {
+                tar.extend(std::iter::repeat_n(0u8, 512 - rem));
+            }
+        }
+    }
+    // Two 512-byte zero EOF blocks.
+    tar.extend(std::iter::repeat_n(0u8, 1024));
+
+    let deflated = neoflash_core::as_binary::binary_transform(
+        "compress",
+        &tar,
+        "",
+        "deflate",
+        tar.len() + 4096,
+    )
+    .expect("deflate synthetic tar");
+    let crc = t501_crc32(&tar);
+    let isize_val = tar.len() as u32;
+
+    let mut gz = Vec::with_capacity(10 + deflated.len() + 8);
+    gz.extend_from_slice(&[0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03]);
+    gz.extend_from_slice(&deflated);
+    gz.extend_from_slice(&crc.to_le_bytes());
+    gz.extend_from_slice(&isize_val.to_le_bytes());
+    gz
+}
+
+#[cfg(target_os = "macos")]
+fn create_signed_mock_macos_app(
+    app_dir: &std::path::Path,
+    bundle_id: &str,
+    short_version: &str,
+    build_num: &str,
+) {
+    use std::os::unix::fs::PermissionsExt;
+    let macos_dir = app_dir.join("Contents/MacOS");
+    let res_dir = app_dir.join("Contents/Resources");
+    std::fs::create_dir_all(&macos_dir).expect("create Contents/MacOS");
+    std::fs::create_dir_all(&res_dir).expect("create Contents/Resources");
+
+    // Copy a genuine system Mach-O binary so `/usr/bin/codesign --verify --deep --strict`
+    // performs real Mach-O code signature validation.
+    let exe_path = macos_dir.join("neoflash-editor");
+    std::fs::copy("/usr/bin/true", &exe_path).expect("copy Mach-O stub");
+    std::fs::set_permissions(&exe_path, std::fs::Permissions::from_mode(0o755))
+        .expect("chmod 0755 Mach-O stub");
+
+    let plist = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\"><dict>\n\
+         <key>CFBundleName</key><string>NeoFlash</string>\n\
+         <key>CFBundleIdentifier</key><string>{bundle_id}</string>\n\
+         <key>CFBundleExecutable</key><string>neoflash-editor</string>\n\
+         <key>CFBundlePackageType</key><string>APPL</string>\n\
+         <key>CFBundleShortVersionString</key><string>{short_version}</string>\n\
+         <key>CFBundleVersion</key><string>{build_num}</string>\n\
+         </dict></plist>\n"
+    );
+    std::fs::write(app_dir.join("Contents/Info.plist"), plist).expect("write Info.plist");
+    std::fs::write(
+        res_dir.join("RELEASE-STAMP.txt"),
+        format!("NeoFlash {short_version} ({build_num})\n"),
+    )
+    .expect("write RELEASE-STAMP.txt");
+
+    let sign_out = std::process::Command::new("/usr/bin/codesign")
+        .args(["--force", "--deep", "--sign", "-"])
+        .arg(app_dir)
+        .output()
+        .expect("ad-hoc codesign mock NeoFlash.app");
+    assert!(
+        sign_out.status.success(),
+        "ad-hoc codesign failed: {}",
+        String::from_utf8_lossy(&sign_out.stderr)
+    );
+}
+
+#[cfg(target_os = "macos")]
+fn zip_macos_app_with_ditto(app_dir: &std::path::Path, zip_dest: &std::path::Path) {
+    let out = std::process::Command::new("/usr/bin/ditto")
+        .args(["-c", "-k", "--sequesterRsrc", "--keepParent"])
+        .arg(app_dir)
+        .arg(zip_dest)
+        .output()
+        .expect("ditto zip mock NeoFlash.app");
+    assert!(
+        out.status.success(),
+        "ditto zip failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn t501_macos_zip_staging_codesign_atomic_swap_rollback_and_readonly_guard() {
+    use crate::updater::{
+        apply_staged_bundle_swap, parse_macos_info_plist, prepare_verified_install,
+    };
+    use std::os::unix::fs::PermissionsExt;
+
+    let sandbox = TempDirGuard::new("neoflash-t501-macos-e2e");
+    let apps_dir = sandbox.0.join("Applications");
+    let app_support = sandbox.0.join("Home/Library/Application Support/NeoFlash");
+    std::fs::create_dir_all(&apps_dir).unwrap();
+    std::fs::create_dir_all(app_support.join("Recovery")).unwrap();
+
+    // Populate simulated Application Support user state and hash it before any update action.
+    let prefs_file = app_support.join("workspace.json");
+    let recovery_file = app_support.join("Recovery/active-session.nflash");
+    std::fs::write(
+        &prefs_file,
+        br#"{"channel":"beta","recent":["scene1.nflash"]}"#,
+    )
+    .unwrap();
+    std::fs::write(&recovery_file, Project::blank().to_json().unwrap()).unwrap();
+    let prefs_sha_before = Sha256::digest_hex(&std::fs::read(&prefs_file).unwrap());
+    let recovery_sha_before = Sha256::digest_hex(&std::fs::read(&recovery_file).unwrap());
+
+    // 1. Create existing installed NeoFlash.app (v0.1.0-beta.1, com.neoflash.editor).
+    let installed_app = apps_dir.join("NeoFlash.app");
+    create_signed_mock_macos_app(&installed_app, "com.neoflash.editor", "0.1.0-beta.1", "605");
+
+    // 2. Build & sign v0.1.0-beta.2 release ZIP and stage + verify via real `codesign --verify --deep --strict`.
+    let build_stage = sandbox.0.join("build-beta2");
+    let beta2_src_app = build_stage.join("NeoFlash.app");
+    create_signed_mock_macos_app(&beta2_src_app, "com.neoflash.editor", "0.1.0-beta.2", "640");
+    let beta2_zip = sandbox.0.join("NeoFlash-0.1.0-beta.2-macos-arm64.zip");
+    zip_macos_app_with_ditto(&beta2_src_app, &beta2_zip);
+
+    let prepared = prepare_verified_install(&beta2_zip, Some(&installed_app))
+        .expect("stage & codesign-verify v0.1.0-beta.2 NeoFlash.app");
+    assert_eq!(
+        prepared.bundle_identifier.as_deref(),
+        Some("com.neoflash.editor")
+    );
+    assert_eq!(prepared.bundle_version.as_deref(), Some("0.1.0-beta.2"));
+    let staging_root_copy = prepared.staging_root.clone();
+    assert!(staging_root_copy.is_dir());
+
+    // 3. Atomic swap: v0.1.0-beta.1 -> v0.1.0-beta.2 with zero leftover .rollback and Application Support untouched.
+    apply_staged_bundle_swap(&prepared.staged_payload_path, &installed_app, 42424)
+        .expect("atomic swap v0.1.0-beta.1 -> v0.1.0-beta.2");
+    drop(prepared);
+    assert!(
+        !staging_root_copy.exists(),
+        "PreparedSelfUpdate Drop must clean up temporary staging directory"
+    );
+    assert!(!apps_dir.join("NeoFlash.app.rollback-42424").exists());
+
+    let upgraded_plist =
+        parse_macos_info_plist(&installed_app.join("Contents/Info.plist")).unwrap();
+    assert_eq!(upgraded_plist.bundle_id, "com.neoflash.editor");
+    assert_eq!(
+        upgraded_plist.short_version.as_deref(),
+        Some("0.1.0-beta.2")
+    );
+    let cs_after = std::process::Command::new("/usr/bin/codesign")
+        .args(["--verify", "--deep", "--strict"])
+        .arg(&installed_app)
+        .status()
+        .unwrap();
+    assert!(
+        cs_after.success(),
+        "upgraded NeoFlash.app must pass strict codesign"
+    );
+    assert_eq!(
+        Sha256::digest_hex(&std::fs::read(&prefs_file).unwrap()),
+        prefs_sha_before
+    );
+    assert_eq!(
+        Sha256::digest_hex(&std::fs::read(&recovery_file).unwrap()),
+        recovery_sha_before
+    );
+
+    // 4. Fail-closed Bundle ID mismatch (`com.evil.other` and `org.neoflash.ui-studio`).
+    for wrong_id in ["com.evil.other", "org.neoflash.ui-studio"] {
+        let wrong_dir = sandbox.0.join(format!("wrong-{wrong_id}"));
+        let wrong_app = wrong_dir.join("NeoFlash.app");
+        create_signed_mock_macos_app(&wrong_app, wrong_id, "0.1.0-beta.3", "650");
+        let wrong_zip = sandbox.0.join(format!("wrong-{wrong_id}.zip"));
+        zip_macos_app_with_ditto(&wrong_app, &wrong_zip);
+        let err = prepare_verified_install(&wrong_zip, Some(&installed_app))
+            .expect_err("bundle ID mismatch must fail closed");
+        assert!(
+            err.contains("CFBundleIdentifier"),
+            "expected CFBundleIdentifier rejection, got: {err}"
+        );
+    }
+
+    // 5. Fail-closed tampered binary signature (flip bytes in signed Mach-O after signing).
+    let tampered_dir = sandbox.0.join("tampered-sig");
+    let tampered_app = tampered_dir.join("NeoFlash.app");
+    create_signed_mock_macos_app(&tampered_app, "com.neoflash.editor", "0.1.0-beta.3", "651");
+    std::fs::write(
+        tampered_app.join("Contents/Resources/RELEASE-STAMP.txt"),
+        b"TAMPERED AFTER CODESIGN\n",
+    )
+    .unwrap();
+    let tampered_zip = sandbox.0.join("tampered-sig.zip");
+    zip_macos_app_with_ditto(&tampered_app, &tampered_zip);
+    let sig_err = prepare_verified_install(&tampered_zip, Some(&installed_app))
+        .expect_err("tampered signed bundle must fail codesign --verify --deep --strict");
+    assert!(
+        sig_err.contains("Code signature verification failed"),
+        "expected codesign failure, got: {sig_err}"
+    );
+
+    // 6. Fail-closed symlink escape inside NeoFlash.app (`../../../outside` and `/etc/hosts`).
+    let sym_escape_zip = sandbox.0.join("symlink-escape.zip");
+    let zip_bytes = build_synthetic_zip(&[
+        SyntheticZipEntry {
+            name: "NeoFlash.app/Contents/Info.plist",
+            data: b"<plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>com.neoflash.editor</string></dict></plist>",
+            unix_mode: 0o100644,
+            use_deflate: true,
+            force_zip64: false,
+        },
+        SyntheticZipEntry {
+            name: "NeoFlash.app/Contents/Resources/escape_link",
+            data: b"../../../../etc/passwd",
+            unix_mode: 0o120777,
+            use_deflate: false,
+            force_zip64: false,
+        },
+    ]);
+    std::fs::write(&sym_escape_zip, zip_bytes).unwrap();
+    let sym_err = prepare_verified_install(&sym_escape_zip, Some(&installed_app))
+        .expect_err("escaping symlink inside NeoFlash.app must fail closed");
+    assert!(
+        sym_err.contains("symlink"),
+        "expected symlink escape rejection, got: {sym_err}"
+    );
+
+    // 7. Atomic rollback when activating staged payload fails mid-swap (`NeoFlash.app.rollback-<pid>` -> `NeoFlash.app`).
+    let missing_staged = sandbox.0.join("does-not-exist/NeoFlash.app");
+    let swap_err = apply_staged_bundle_swap(&missing_staged, &installed_app, 77777)
+        .expect_err("missing staged payload must trigger rollback");
+    assert!(
+        swap_err.contains("restored from rollback backup"),
+        "expected rollback confirmation in error, got: {swap_err}"
+    );
+    assert!(installed_app.is_dir(), "installed_app must be restored");
+    assert!(!apps_dir.join("NeoFlash.app.rollback-77777").exists());
+    let after_rollback_plist =
+        parse_macos_info_plist(&installed_app.join("Contents/Info.plist")).unwrap();
+    assert_eq!(
+        after_rollback_plist.short_version.as_deref(),
+        Some("0.1.0-beta.2")
+    );
+    assert_eq!(
+        Sha256::digest_hex(&std::fs::read(&prefs_file).unwrap()),
+        prefs_sha_before
+    );
+    assert_eq!(
+        Sha256::digest_hex(&std::fs::read(&recovery_file).unwrap()),
+        recovery_sha_before
+    );
+
+    // 8. Read-only parent `/Applications` directory fails closed BEFORE quitting while keeping Reveal in Finder hint.
+    if unsafe { libc::geteuid() } != 0 {
+        let ro_apps = sandbox.0.join("ReadOnlyApplications");
+        let ro_app = ro_apps.join("NeoFlash.app");
+        create_signed_mock_macos_app(&ro_app, "com.neoflash.editor", "0.1.0-beta.1", "605");
+        std::fs::set_permissions(&ro_apps, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let ro_res = prepare_verified_install(&beta2_zip, Some(&ro_app));
+        std::fs::set_permissions(&ro_apps, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let ro_err =
+            ro_res.expect_err("read-only Applications folder must fail closed before quit");
+        assert!(
+            ro_err.contains("Reveal in Finder") && ro_err.contains("not writable"),
+            "expected actionable read-only error mentioning Reveal in Finder, got: {ro_err}"
+        );
+    }
+}
+
+#[test]
+fn t501_windows_zip_pe64_linux_targz_elf64_staging_and_zip_slip_rejection() {
+    use crate::updater::{
+        apply_staged_bundle_swap, can_self_install_for_platform,
+        prepare_verified_install_with_config,
+    };
+
+    let dir = TempDirGuard::new("neoflash-t501-cross-platform");
+
+    // 1. Windows x64 ZIP (with ZIP64 headers matching scripts/package-portable.py) + PE32+ x64 validation + swap.
+    let win_install_dir = dir.0.join("LocalAppData/Programs/NeoFlash");
+    let win_appdata = dir.0.join("AppData/Roaming/NeoFlash");
+    std::fs::create_dir_all(&win_install_dir).unwrap();
+    std::fs::create_dir_all(&win_appdata).unwrap();
+    std::fs::write(win_install_dir.join("neoflash-editor.exe"), b"OLD-WIN-EXE").unwrap();
+    std::fs::write(
+        win_install_dir.join("BUILD_METADATA.json"),
+        br#"{"name":"NeoFlash","version":"0.1.0-beta.1"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        win_install_dir.join("PACKAGE-SHA256SUMS.txt"),
+        format!("{}  neoflash-editor.exe\n", "0".repeat(64)),
+    )
+    .unwrap();
+    let win_prefs_path = win_appdata.join("workspace.json");
+    std::fs::write(&win_prefs_path, br#"{"theme":"dark"}"#).unwrap();
+
+    let pe64_bytes = build_synthetic_pe64_bytes(0x8664, 0x020b);
+    let win_zip_path = dir.0.join("NeoFlash-0.1.0-beta.2-windows-x64-preview.zip");
+    let win_zip_bytes = build_synthetic_zip(&[
+        SyntheticZipEntry {
+            name: "NeoFlash-0.1.0-beta.2-windows-x64-preview/neoflash-editor.exe",
+            data: &pe64_bytes,
+            unix_mode: 0o100755,
+            use_deflate: true,
+            force_zip64: true,
+        },
+        SyntheticZipEntry {
+            name: "NeoFlash-0.1.0-beta.2-windows-x64-preview/runtime/neoflash_web.js",
+            data: b"// web runtime",
+            unix_mode: 0o100644,
+            use_deflate: true,
+            force_zip64: true,
+        },
+    ]);
+    std::fs::write(&win_zip_path, win_zip_bytes).unwrap();
+    assert!(can_self_install_for_platform(
+        &win_zip_path,
+        PlatformTarget::WindowsX64
+    ));
+    assert!(!can_self_install_for_platform(
+        std::path::Path::new("NeoFlash-0.1.0-windows-x64.msix"),
+        PlatformTarget::WindowsX64
+    ));
+
+    let win_cfg = UpdaterConfig {
+        platform: PlatformTarget::WindowsX64,
+        install_target_override: Some(win_install_dir.clone()),
+        ..Default::default()
+    };
+    let win_prepared = prepare_verified_install_with_config(&win_zip_path, None, &win_cfg)
+        .expect("stage valid Windows x64 PE32+ zip");
+    let ps1_helper = std::fs::read_to_string(win_prepared.helper_script_path.as_ref().unwrap())
+        .expect("read generated Windows PowerShell swap helper");
+    assert!(ps1_helper.contains(".incoming-"));
+    assert!(
+        ps1_helper
+            .contains("Copy-Item -LiteralPath $Staged -Destination $Incoming -Recurse -Force")
+    );
+    assert!(ps1_helper.contains(".rollback-"));
+    assert!(ps1_helper.contains("Move-Item -LiteralPath $Incoming -Destination $Target -Force"));
+    assert!(ps1_helper.contains("neoflash-editor.exe"));
+
+    apply_staged_bundle_swap(&win_prepared.staged_payload_path, &win_install_dir, 8888)
+        .expect("swap Windows install dir");
+    assert_eq!(
+        std::fs::read(win_install_dir.join("neoflash-editor.exe")).unwrap(),
+        pe64_bytes
+    );
+    assert!(win_install_dir.join("runtime/neoflash_web.js").is_file());
+    assert_eq!(
+        std::fs::read(&win_prefs_path).unwrap(),
+        br#"{"theme":"dark"}"#
+    );
+
+    // Reject 32-bit x86 PE (`0x014c`) on WindowsX64.
+    let pe32_bytes = build_synthetic_pe64_bytes(0x014c, 0x010b);
+    let bad_pe_zip = dir.0.join("bad-pe32.zip");
+    std::fs::write(
+        &bad_pe_zip,
+        build_synthetic_zip(&[SyntheticZipEntry {
+            name: "neoflash-editor.exe",
+            data: &pe32_bytes,
+            unix_mode: 0o100755,
+            use_deflate: true,
+            force_zip64: false,
+        }]),
+    )
+    .unwrap();
+    let bad_pe_err = prepare_verified_install_with_config(&bad_pe_zip, None, &win_cfg)
+        .expect_err("x86 32-bit PE must fail x64 PE64 check");
+    assert!(bad_pe_err.contains("0x8664"), "got: {bad_pe_err}");
+
+    // Reject zip-slip (`../../evil.dll`, `..\evil.dll`, `/abs/evil.dll`, `C:\evil.dll`) & symlinks.
+    for malicious_name in [
+        "../../evil.dll",
+        "..\\..\\evil.dll",
+        "/etc/evil.dll",
+        "C:\\Windows\\evil.dll",
+    ] {
+        let slip_zip = dir.0.join("zip-slip.zip");
+        std::fs::write(
+            &slip_zip,
+            build_synthetic_zip(&[SyntheticZipEntry {
+                name: malicious_name,
+                data: &pe64_bytes,
+                unix_mode: 0o100644,
+                use_deflate: false,
+                force_zip64: false,
+            }]),
+        )
+        .unwrap();
+        let slip_err = prepare_verified_install_with_config(&slip_zip, None, &win_cfg).unwrap_err();
+        assert!(
+            slip_err.contains("Unsafe"),
+            "expected zip-slip rejection for '{malicious_name}', got: {slip_err}"
+        );
+    }
+
+    let win_symlink_zip = dir.0.join("win-symlink.zip");
+    std::fs::write(
+        &win_symlink_zip,
+        build_synthetic_zip(&[SyntheticZipEntry {
+            name: "NeoFlash/evil-link",
+            data: b"../secret",
+            unix_mode: 0o120777,
+            use_deflate: false,
+            force_zip64: false,
+        }]),
+    )
+    .unwrap();
+    assert!(
+        prepare_verified_install_with_config(&win_symlink_zip, None, &win_cfg)
+            .unwrap_err()
+            .contains("symlink")
+    );
+
+    // 2. Linux x64 .tar.gz ELF64 validation, 0o755 mode, swap, AppImage & .deb handling, and tar-slip rejection.
+    let linux_install_dir = dir.0.join("opt/neoflash");
+    let linux_xdg_data = dir.0.join("local/share/NeoFlash");
+    std::fs::create_dir_all(&linux_install_dir).unwrap();
+    std::fs::create_dir_all(&linux_xdg_data).unwrap();
+    std::fs::write(linux_install_dir.join("neoflash-editor"), b"OLD-LINUX-ELF").unwrap();
+    std::fs::write(
+        linux_install_dir.join("BUILD_METADATA.json"),
+        br#"{"name":"NeoFlash","version":"0.1.0-beta.1"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        linux_install_dir.join("PACKAGE-SHA256SUMS.txt"),
+        format!("{}  neoflash-editor\n", "0".repeat(64)),
+    )
+    .unwrap();
+    std::fs::write(linux_xdg_data.join("workspace.json"), b"{}").unwrap();
+
+    let elf64_bytes = build_synthetic_elf64_bytes(2, 0x003e);
+    let linux_tgz_path = dir.0.join("NeoFlash-0.1.0-beta.2-linux-x64-preview.tar.gz");
+    let linux_tgz_bytes = build_synthetic_tar_gz(&[
+        (
+            "NeoFlash-0.1.0-beta.2-linux-x64-preview/neoflash-editor",
+            b'0',
+            0o755,
+            &elf64_bytes,
+        ),
+        (
+            "NeoFlash-0.1.0-beta.2-linux-x64-preview/runtime/neoflash_web.js",
+            b'0',
+            0o644,
+            b"// linux web runtime",
+        ),
+    ]);
+    std::fs::write(&linux_tgz_path, linux_tgz_bytes).unwrap();
+
+    assert!(can_self_install_for_platform(
+        &linux_tgz_path,
+        PlatformTarget::LinuxX64
+    ));
+    assert!(can_self_install_for_platform(
+        std::path::Path::new("NeoFlash-0.1.0-linux-x86_64.AppImage"),
+        PlatformTarget::LinuxX64
+    ));
+    assert!(!can_self_install_for_platform(
+        std::path::Path::new("neoflash_0.1.0_amd64.deb"),
+        PlatformTarget::LinuxX64
+    ));
+
+    let linux_cfg = UpdaterConfig {
+        platform: PlatformTarget::LinuxX64,
+        install_target_override: Some(linux_install_dir.clone()),
+        ..Default::default()
+    };
+    let linux_prepared = prepare_verified_install_with_config(&linux_tgz_path, None, &linux_cfg)
+        .expect("stage valid Linux ELF64 tar.gz");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(linux_prepared.staged_payload_path.join("neoflash-editor"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o755);
+    }
+    let sh_helper = std::fs::read_to_string(linux_prepared.helper_script_path.as_ref().unwrap())
+        .expect("read generated POSIX sh swap helper");
+    assert!(sh_helper.contains(".rollback-"));
+    assert!(sh_helper.contains("neoflash-editor"));
+
+    apply_staged_bundle_swap(
+        &linux_prepared.staged_payload_path,
+        &linux_install_dir,
+        9999,
+    )
+    .expect("swap Linux install dir");
+    assert_eq!(
+        std::fs::read(linux_install_dir.join("neoflash-editor")).unwrap(),
+        elf64_bytes
+    );
+    assert_eq!(
+        std::fs::read(linux_xdg_data.join("workspace.json")).unwrap(),
+        b"{}"
+    );
+
+    // Reject .deb self-install with clear apt message.
+    let deb_path = dir.0.join("neoflash_0.1.0_amd64.deb");
+    std::fs::write(&deb_path, b"!<arch>\ndebian-binary").unwrap();
+    let deb_err = prepare_verified_install_with_config(&deb_path, None, &linux_cfg).unwrap_err();
+    assert!(deb_err.contains("sudo apt install"), "got: {deb_err}");
+
+    // Reject TAR path traversal (`../escape`) and TAR symlink (`typeflag == b'2'`).
+    let tar_slip_path = dir.0.join("tar-slip.tar.gz");
+    std::fs::write(
+        &tar_slip_path,
+        build_synthetic_tar_gz(&[("../escaped-binary", b'0', 0o755, &elf64_bytes)]),
+    )
+    .unwrap();
+    assert!(
+        prepare_verified_install_with_config(&tar_slip_path, None, &linux_cfg)
+            .unwrap_err()
+            .contains("Unsafe")
+    );
+
+    let tar_sym_path = dir.0.join("tar-symlink.tar.gz");
+    std::fs::write(
+        &tar_sym_path,
+        build_synthetic_tar_gz(&[("NeoFlash/sym", b'2', 0o777, b"../../etc/shadow")]),
+    )
+    .unwrap();
+    assert!(
+        prepare_verified_install_with_config(&tar_sym_path, None, &linux_cfg)
+            .unwrap_err()
+            .contains("symlink")
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn t501_ui_install_and_relaunch_dirty_document_prompt_and_clean_swap() {
+    use crate::updater::parse_macos_info_plist;
+
+    let sandbox = TempDirGuard::new("neoflash-t501-ui-relaunch");
+    let apps_dir = sandbox.0.join("Applications");
+    std::fs::create_dir_all(&apps_dir).unwrap();
+    let installed_app = apps_dir.join("NeoFlash.app");
+    create_signed_mock_macos_app(&installed_app, "com.neoflash.editor", "0.1.0-beta.1", "605");
+
+    let build_stage = sandbox.0.join("build-beta2");
+    let beta2_app = build_stage.join("NeoFlash.app");
+    create_signed_mock_macos_app(&beta2_app, "com.neoflash.editor", "0.1.0-beta.2", "640");
+    let asset_name = "NeoFlash-0.1.0-beta.2-macos-arm64.zip";
+    let release_zip_src = sandbox.0.join(asset_name);
+    zip_macos_app_with_ditto(&beta2_app, &release_zip_src);
+    let zip_bytes = std::fs::read(&release_zip_src).unwrap();
+    let zip_sha = Sha256::digest_hex(&zip_bytes);
+
+    let server = FixtureServer::start();
+    let base = server.base_url.clone();
+    let release_json = serde_json::json!([
+        {
+            "tag_name": "v0.1.0-beta.2",
+            "html_url": format!("{base}/jazzymiles/NeoFlash/releases/tag/v0.1.0-beta.2"),
+            "draft": false,
+            "prerelease": true,
+            "assets": [
+                {
+                    "name": asset_name,
+                    "browser_download_url": format!("{base}/dl/{asset_name}"),
+                    "size": zip_bytes.len() as u64
+                },
+                {
+                    "name": "NeoFlash-0.1.0-beta.2-SHA256SUMS.txt",
+                    "browser_download_url": format!("{base}/dl/SHA256SUMS.txt"),
+                    "size": 128
+                }
+            ]
+        }
+    ]);
+    server.set_route(
+        "/repos/jazzymiles/NeoFlash/releases?per_page=20",
+        FixtureResponse::Static {
+            status: 200,
+            headers: vec![("Content-Type".into(), "application/json".into())],
+            body: release_json.to_string().into_bytes(),
+        },
+    );
+    server.set_route(
+        &format!("/dl/{asset_name}"),
+        FixtureResponse::Static {
+            status: 200,
+            headers: vec![],
+            body: zip_bytes,
+        },
+    );
+    server.set_route(
+        "/dl/SHA256SUMS.txt",
+        FixtureResponse::Static {
+            status: 200,
+            headers: vec![],
+            body: format!("{zip_sha}  {asset_name}\n").into_bytes(),
+        },
+    );
+
+    let dl_dest = sandbox.0.join("Downloads").join(asset_name);
+    std::fs::create_dir_all(dl_dest.parent().unwrap()).unwrap();
+
+    let mut d = UpdaterUiDriver::new();
+    d.editor.updater.config = UpdaterConfig {
+        api_base_override: Some(base),
+        current_version: "0.1.0-beta.1".into(),
+        platform: PlatformTarget::MacosArm64,
+        download_dest_override: Some(dl_dest.clone()),
+        install_target_override: Some(installed_app.clone()),
+        dry_run_relaunch: true,
+        ..Default::default()
+    };
+
+    // Make the active document dirty so Install and Relaunch must guard unsaved work first!
+    d.editor.transact(|ed| {
+        ed.project.name = "UnsavedAnimation".into();
+    });
+    assert!(
+        d.editor.dirty(),
+        "document must be dirty before self-update"
+    );
+
+    d.click("Edit");
+    d.click("Preferences… (⌘U)");
+    d.click("Updates");
+    d.click("Beta");
+    d.click("Check now");
+    let check_start = Instant::now();
+    while d.editor.updater.is_checking() {
+        assert!(check_start.elapsed() < Duration::from_secs(5));
+        thread::sleep(Duration::from_millis(10));
+        d.step(vec![]);
+    }
+    d.settle();
+
+    d.click("Download");
+    let dl_start = Instant::now();
+    while d.editor.updater.is_downloading() {
+        assert!(dl_start.elapsed() < Duration::from_secs(5));
+        thread::sleep(Duration::from_millis(10));
+        d.step(vec![]);
+    }
+    d.settle();
+
+    assert!(d.find("Install and Relaunch").is_some());
+    assert!(d.find("Reveal in Finder").is_some());
+
+    // 1. Click Install and Relaunch with unsaved changes -> prompts "Save changes before continuing?",
+    //    then click Cancel -> update swap MUST NOT run and staged dir is cleaned up!
+    d.click("Install and Relaunch");
+    assert!(!d.editor.allow_close);
+    assert_eq!(d.editor.updater.committed_self_updates(), 0);
+    assert!(
+        d.texts()
+            .iter()
+            .any(|t| t.contains("UnsavedAnimation") && t.contains("will be lost")),
+        "expected dirty-document confirmation prompt; texts={:#?}",
+        d.texts()
+    );
+    assert!(d.find("Discard").is_some() && d.find("Save").is_some());
+    d.click("Cancel");
+    d.settle();
+    assert!(!d.editor.allow_close);
+    assert!(!d.editor.updater.has_staged_self_update());
+    assert_eq!(d.editor.updater.committed_self_updates(), 0);
+    assert_eq!(
+        parse_macos_info_plist(&installed_app.join("Contents/Info.plist"))
+            .unwrap()
+            .short_version
+            .as_deref(),
+        Some("0.1.0-beta.1"),
+        "cancelling dirty-document prompt must leave installed app untouched"
+    );
+
+    // 2. Re-open Preferences -> Updates, mutate an unconfirmed draft preference (`undo_levels = 77.0`
+    //    without clicking Save), download/stage on Beta, click Install and Relaunch, then click Discard ->
+    //    quit is confirmed, unconfirmed draft edits are NOT saved, and NeoFlash.app upgrades to 0.1.0-beta.2!
+    d.click("Edit");
+    d.click("Preferences… (⌘U)");
+    if let Some(draft) = &mut d.editor.preferences {
+        draft.undo_levels = 77.0;
+    }
+    d.click("Updates");
+    d.click("Beta");
+    d.click("Check now");
+    let recheck_start = Instant::now();
+    while d.editor.updater.is_checking() {
+        assert!(recheck_start.elapsed() < Duration::from_secs(5));
+        thread::sleep(Duration::from_millis(10));
+        d.step(vec![]);
+    }
+    d.settle();
+    d.click("Download");
+    let redl_start = Instant::now();
+    while d.editor.updater.is_downloading() {
+        assert!(redl_start.elapsed() < Duration::from_secs(5));
+        thread::sleep(Duration::from_millis(10));
+        d.step(vec![]);
+    }
+    d.settle();
+    d.click("Install and Relaunch");
+    assert_ne!(
+        d.editor.workspace.undo_levels, 77,
+        "Install and Relaunch must never save unconfirmed Preferences draft edits"
+    );
+    assert_eq!(
+        d.editor.workspace.updates.channel,
+        UpdateChannel::Stable,
+        "Install and Relaunch must not save unconfirmed channel draft edit either"
+    );
+    assert!(
+        d.texts()
+            .iter()
+            .any(|t| t.contains("UnsavedAnimation") && t.contains("will be lost"))
+    );
+    d.click("Discard");
+    d.settle();
+    assert!(d.editor.allow_close);
+    assert_eq!(d.editor.updater.committed_self_updates(), 1);
+    assert_eq!(
+        parse_macos_info_plist(&installed_app.join("Contents/Info.plist"))
+            .unwrap()
+            .short_version
+            .as_deref(),
+        Some("0.1.0-beta.2"),
+        "confirming quit must atomically replace NeoFlash.app with 0.1.0-beta.2"
+    );
+}
+
+fn build_large_zero_rle_gzip(repeat_258_count: usize) -> (Vec<u8>, u64) {
+    // Valid RFC 1951 Fixed-Huffman block:
+    //   BFINAL=1, BTYPE=01 (3 bits: 0b011)
+    //   1x literal 0x00 (8 bits LSB-first: 0x0C)
+    //   `repeat_258_count` x (len=258 sym 285 -> 8 bits 0xA3, dist=1 sym 0 -> 5 bits 0x00)
+    //   EOB sym 256 (7 bits: 0)
+    let total_uncomp: u64 = 1 + 258 * (repeat_258_count as u64);
+    let mut deflate = Vec::with_capacity((repeat_258_count * 13) / 8 + 16);
+    let mut bit_acc: u64 = 0;
+    let mut bit_cnt: u8 = 0;
+    let mut push_bits = |bits: u32, n: u8| {
+        bit_acc |= u64::from(bits) << bit_cnt;
+        bit_cnt += n;
+        while bit_cnt >= 8 {
+            deflate.push((bit_acc & 0xFF) as u8);
+            bit_acc >>= 8;
+            bit_cnt -= 8;
+        }
+    };
+    push_bits(0b011, 3);
+    push_bits(0x0C, 8);
+    for _ in 0..repeat_258_count {
+        push_bits(0x00A3, 13);
+    }
+    push_bits(0, 7);
+    if bit_cnt > 0 {
+        deflate.push((bit_acc & 0xFF) as u8);
+    }
+
+    // Compute exact IEEE CRC-32 for `total_uncomp` zero bytes via 64 KiB chunks.
+    const TABLE: [u32; 256] = {
+        let mut t = [0u32; 256];
+        let mut i = 0usize;
+        while i < 256 {
+            let mut c = i as u32;
+            let mut k = 0;
+            while k < 8 {
+                c = if (c & 1) != 0 {
+                    (c >> 1) ^ 0xEDB8_8320
+                } else {
+                    c >> 1
+                };
+                k += 1;
+            }
+            t[i] = c;
+            i += 1;
+        }
+        t
+    };
+    let mut crc: u32 = 0xFFFF_FFFF;
+    let mut rem = total_uncomp;
+    while rem > 0 {
+        let step = rem.min(65_536) as usize;
+        for _ in 0..step {
+            crc = (crc >> 8) ^ TABLE[(crc as u8) as usize];
+        }
+        rem -= step as u64;
+    }
+    let final_crc = !crc;
+    let isize_le = (total_uncomp as u32).to_le_bytes();
+
+    let mut gz = Vec::with_capacity(10 + deflate.len() + 8);
+    gz.extend_from_slice(&[0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0, 0x03]);
+    gz.extend_from_slice(&deflate);
+    gz.extend_from_slice(&final_crc.to_le_bytes());
+    gz.extend_from_slice(&isize_le);
+    (gz, total_uncomp)
+}
+
+#[test]
+fn t501_audit_hardening_wipe_guard_zip_differential_large_stream_and_linux_assets() {
+    use crate::updater::{
+        MAX_ARCHIVE_TOTAL_BYTES, decompress_gzip_stream_bounded, inspect_zip_safety,
+        prepare_verified_install_with_config, reject_dangerous_install_target,
+        resolve_portable_exe_install_dir, select_linux_runtime_asset,
+    };
+
+    let dir = TempDirGuard::new("neoflash-t501-audit");
+
+    // 1. Portable Directory Wipe Guard: unmarked directories & shared/system roots fail closed!
+    let unmarked_downloads = dir.0.join("FakeDownloads");
+    std::fs::create_dir_all(&unmarked_downloads).unwrap();
+    let loose_exe = unmarked_downloads.join("neoflash-editor.exe");
+    std::fs::write(&loose_exe, build_synthetic_pe64_bytes(0x8664, 0x020b)).unwrap();
+    let unmarked_err = resolve_portable_exe_install_dir(&loose_exe, PlatformTarget::WindowsX64)
+        .expect_err("unmarked directory without BUILD_METADATA.json + PACKAGE-SHA256SUMS.txt must be rejected");
+    assert!(
+        unmarked_err.contains("BUILD_METADATA.json")
+            && unmarked_err.contains("PACKAGE-SHA256SUMS.txt"),
+        "got: {unmarked_err}"
+    );
+
+    // Adding only one of the two markers is still rejected.
+    std::fs::write(unmarked_downloads.join("BUILD_METADATA.json"), b"{}").unwrap();
+    assert!(resolve_portable_exe_install_dir(&loose_exe, PlatformTarget::WindowsX64).is_err());
+
+    // Adding both markers on an isolated folder succeeds.
+    std::fs::write(
+        unmarked_downloads.join("PACKAGE-SHA256SUMS.txt"),
+        format!("{}  neoflash-editor.exe\n", "a".repeat(64)),
+    )
+    .unwrap();
+    assert_eq!(
+        resolve_portable_exe_install_dir(&loose_exe, PlatformTarget::WindowsX64).unwrap(),
+        unmarked_downloads
+    );
+
+    // Dangerous system/shared roots are unconditionally rejected even via `install_target_override`.
+    let pe_zip = dir.0.join("valid-win.zip");
+    std::fs::write(
+        &pe_zip,
+        build_synthetic_zip(&[SyntheticZipEntry {
+            name: "neoflash-editor.exe",
+            data: &build_synthetic_pe64_bytes(0x8664, 0x020b),
+            unix_mode: 0o100755,
+            use_deflate: true,
+            force_zip64: false,
+        }]),
+    )
+    .unwrap();
+
+    for bad_root in [
+        PathBuf::from("/"),
+        PathBuf::from("/usr"),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/usr/local"),
+        PathBuf::from("/usr/local/bin"),
+        PathBuf::from("/bin"),
+        PathBuf::from("/opt"),
+        std::env::temp_dir(),
+    ] {
+        assert!(
+            reject_dangerous_install_target(&bad_root, PlatformTarget::LinuxX64).is_err(),
+            "expected dangerous target '{}' to be rejected",
+            bad_root.display()
+        );
+    }
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        for user_shared in [
+            home.clone(),
+            home.join("Downloads"),
+            home.join("Desktop"),
+            home.join("Documents"),
+            home.join(".local/bin"),
+        ] {
+            let cfg = UpdaterConfig {
+                platform: PlatformTarget::WindowsX64,
+                install_target_override: Some(user_shared.clone()),
+                ..Default::default()
+            };
+            let err = prepare_verified_install_with_config(&pe_zip, None, &cfg)
+                .expect_err("shared user folder must be rejected");
+            assert!(
+                err.contains("shared or system directory"),
+                "expected shared directory rejection for '{}', got: {err}",
+                user_shared.display()
+            );
+        }
+    }
+
+    // 2. ZIP Parser Differential: reject LFH/CD filename mismatch, 0x7075/0x6375 Unicode extra
+    //    overrides, and unreferenced leading/gap LFH records!
+    let mut mismatch_zip = build_synthetic_zip(&[SyntheticZipEntry {
+        name: "NeoFlash/safe_name.txt",
+        data: b"payload",
+        unix_mode: 0o100644,
+        use_deflate: false,
+        force_zip64: false,
+    }]);
+    // Mutate LFH filename (`offset 30..30+22`) to `../../evil_escape!.txt` (same byte length 22)
+    // while keeping Central Directory filename `NeoFlash/safe_name.txt` untouched!
+    assert_eq!(&mismatch_zip[30..52], b"NeoFlash/safe_name.txt");
+    mismatch_zip[30..52].copy_from_slice(b"../../evil_escape!.txt");
+    let diff_err = inspect_zip_safety(&mismatch_zip, true)
+        .expect_err("LFH vs CD filename mismatch must fail closed");
+    assert!(
+        diff_err.contains("Local File Header filename does not match Central Directory"),
+        "got: {diff_err}"
+    );
+
+    // Inject Info-ZIP Unicode Path (`0x7075`) extra field into Central Directory.
+    let base_zip = build_synthetic_zip(&[SyntheticZipEntry {
+        name: "NeoFlash/file.txt",
+        data: b"abc",
+        unix_mode: 0o100644,
+        use_deflate: false,
+        force_zip64: false,
+    }]);
+    let cd_pos = base_zip
+        .windows(4)
+        .position(|w| w == b"PK\x01\x02")
+        .expect("locate CD");
+    let eocd_pos = base_zip
+        .windows(4)
+        .rposition(|w| w == b"PK\x05\x06")
+        .expect("locate EOCD");
+    let mut unicode_extra_zip = Vec::new();
+    unicode_extra_zip.extend_from_slice(&base_zip[..cd_pos]);
+    let new_cd_start = unicode_extra_zip.len();
+    let mut cd_entry = base_zip[cd_pos..eocd_pos].to_vec();
+    let up_extra = [0x75u8, 0x70, 0x06, 0x00, 0x01, 0, 0, 0, 0, b'x']; // tag 0x7075, len 6
+    cd_entry[30..32].copy_from_slice(&(up_extra.len() as u16).to_le_bytes());
+    cd_entry.extend_from_slice(&up_extra);
+    let new_cd_size = cd_entry.len() as u32;
+    unicode_extra_zip.extend_from_slice(&cd_entry);
+    let mut eocd_rec = base_zip[eocd_pos..].to_vec();
+    eocd_rec[12..16].copy_from_slice(&new_cd_size.to_le_bytes());
+    eocd_rec[16..20].copy_from_slice(&(new_cd_start as u32).to_le_bytes());
+    unicode_extra_zip.extend_from_slice(&eocd_rec);
+    let up_err = inspect_zip_safety(&unicode_extra_zip, true)
+        .expect_err("0x7075 Info-ZIP Unicode Path extra tag must fail closed");
+    assert!(up_err.contains("0x7075"), "got: {up_err}");
+
+    // Inject unreferenced leading LFH before the CD-referenced archive.
+    let mut prepended_zip = Vec::new();
+    let smuggled = build_synthetic_zip(&[SyntheticZipEntry {
+        name: "smuggled.txt",
+        data: b"hidden",
+        unix_mode: 0o100644,
+        use_deflate: false,
+        force_zip64: false,
+    }]);
+    let smuggled_cd = smuggled
+        .windows(4)
+        .position(|w| w == b"PK\x01\x02")
+        .unwrap();
+    let lead_len = smuggled_cd;
+    prepended_zip.extend_from_slice(&smuggled[..lead_len]);
+    prepended_zip.extend_from_slice(&base_zip[..cd_pos]);
+    let shifted_cd_offset = prepended_zip.len() as u32;
+    let mut shifted_cd = base_zip[cd_pos..eocd_pos].to_vec();
+    shifted_cd[42..46].copy_from_slice(&(lead_len as u32).to_le_bytes());
+    prepended_zip.extend_from_slice(&shifted_cd);
+    let mut shifted_eocd = base_zip[eocd_pos..].to_vec();
+    shifted_eocd[16..20].copy_from_slice(&shifted_cd_offset.to_le_bytes());
+    prepended_zip.extend_from_slice(&shifted_eocd);
+    let gap_err = inspect_zip_safety(&prepended_zip, true)
+        .expect_err("unreferenced leading LFH must fail closed");
+    assert!(gap_err.contains("unreferenced"), "got: {gap_err}");
+
+    // 3. Streaming GZIP >256 MiB (~258.35 MiB > old MAX_BINARY_BYTES) succeeds in constant memory
+    //    and enforces streaming byte cap fail-closed!
+    let (gz_258mib, expected_len) = build_large_zero_rle_gzip(1_050_000);
+    assert!(
+        expected_len > 256 * 1024 * 1024,
+        "stream must exceed 256 MiB"
+    );
+    let decoded_len =
+        decompress_gzip_stream_bounded(&gz_258mib, MAX_ARCHIVE_TOTAL_BYTES, std::io::sink())
+            .expect("stream-decompress >256 MiB GZIP payload");
+    assert_eq!(decoded_len, expected_len);
+
+    let cap_err = decompress_gzip_stream_bounded(&gz_258mib, 250 * 1024 * 1024, std::io::sink())
+        .expect_err("exceeding max_uncompressed cap must fail closed");
+    assert!(cap_err.contains("safety limit"), "got: {cap_err}");
+
+    // 4. Linux runtime asset preference (`APPIMAGE` -> .AppImage, portable -> .tar.gz, system -> .deb).
+    let linux_assets = vec![
+        GitHubAsset {
+            name: "neoflash_0.1.0_amd64.deb".into(),
+            browser_download_url: "https://github.com/jazzymiles/NeoFlash/releases/download/v0.1.0/neoflash_0.1.0_amd64.deb".into(),
+            size: 100,
+        },
+        GitHubAsset {
+            name: "NeoFlash-0.1.0-linux-x64-preview.tar.gz".into(),
+            browser_download_url: "https://github.com/jazzymiles/NeoFlash/releases/download/v0.1.0/NeoFlash-0.1.0-linux-x64-preview.tar.gz".into(),
+            size: 100,
+        },
+        GitHubAsset {
+            name: "NeoFlash-0.1.0-linux-x86_64.AppImage".into(),
+            browser_download_url: "https://github.com/jazzymiles/NeoFlash/releases/download/v0.1.0/NeoFlash-0.1.0-linux-x86_64.AppImage".into(),
+            size: 100,
+        },
+    ];
+    assert_eq!(
+        select_linux_runtime_asset(
+            &linux_assets,
+            Some(std::ffi::OsStr::new("/tmp/NeoFlash.AppImage")),
+            Some(std::path::Path::new("/usr/bin/neoflash-editor")),
+        )
+        .map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-linux-x86_64.AppImage")
+    );
+    assert_eq!(
+        select_linux_runtime_asset(
+            &linux_assets,
+            None,
+            Some(std::path::Path::new("/home/alice/NeoFlash/neoflash-editor")),
+        )
+        .map(|a| a.name.as_str()),
+        Some("NeoFlash-0.1.0-linux-x64-preview.tar.gz")
+    );
+    assert_eq!(
+        select_linux_runtime_asset(
+            &linux_assets,
+            None,
+            Some(std::path::Path::new("/usr/bin/neoflash")),
+        )
+        .map(|a| a.name.as_str()),
+        Some("neoflash_0.1.0_amd64.deb")
+    );
+}

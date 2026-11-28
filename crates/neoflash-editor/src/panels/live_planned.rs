@@ -173,6 +173,24 @@ impl BoneDraft {
         self.y = armature.target_pos[1];
     }
 
+    fn load_persisted_joint_spec(&mut self, spec: Option<&neoflash_core::IkJointSpec>) {
+        let Some(spec) = spec else {
+            return;
+        };
+        self.rot_enable = spec.enable_rotation;
+        self.rot_constrain = spec.constrain_rotation;
+        self.rot_min = spec.min_angle_deg;
+        self.rot_max = spec.max_angle_deg;
+        self.trans_enable = spec.enable_x_translation || spec.enable_y_translation;
+        self.trans_constrain = spec.constrain_x_translation || spec.constrain_y_translation;
+        self.speed_pct = spec.speed.clamp(0.0, 1.0) * 100.0;
+        self.spring_strength = spec.spring_strength.clamp(0.0, 100.0);
+        self.spring_damping = spec.spring_damping.clamp(0.0, 100.0);
+        if spec.spring_strength > 0.0 {
+            self.enable_spring = true;
+        }
+    }
+
     fn persist_supported_bone_fields(&self, armature: &mut IkArmature, bone_index: usize) {
         let Some(bone) = armature.bones.get_mut(bone_index) else {
             return;
@@ -181,8 +199,8 @@ impl BoneDraft {
         if self.rot_constrain {
             // IkBone constraints use the same degree unit as Transform::rotation and both
             // core IK solvers. Keep the panel/model boundary unit-free.
-            bone.min_angle = Some(self.rot_min);
-            bone.max_angle = Some(self.rot_max);
+            bone.min_angle = Some(self.rot_min.min(self.rot_max));
+            bone.max_angle = Some(self.rot_max.max(self.rot_min));
         } else {
             bone.min_angle = None;
             bone.max_angle = None;
@@ -191,31 +209,50 @@ impl BoneDraft {
         armature.target_pos = [self.x, self.y];
     }
 
+    #[cfg(test)]
     fn transient_joint_spec(&self, persisted_bone_id: &str) -> neoflash_core::IkJointSpec {
+        self.transient_joint_spec_with_base(persisted_bone_id, None)
+    }
+
+    fn transient_joint_spec_with_base(
+        &self,
+        persisted_bone_id: &str,
+        base: Option<&neoflash_core::IkJointSpec>,
+    ) -> neoflash_core::IkJointSpec {
+        let (pinned, min_x, max_x, min_y, max_y) =
+            base.map_or((false, -50.0, 50.0, -50.0, 50.0), |b| {
+                (
+                    b.pinned,
+                    b.min_x_offset.min(b.max_x_offset),
+                    b.max_x_offset.max(b.min_x_offset),
+                    b.min_y_offset.min(b.max_y_offset),
+                    b.max_y_offset.max(b.min_y_offset),
+                )
+            });
         neoflash_core::IkJointSpec {
             // The name field is not a persisted rename workflow. Always target the actual
             // armature bone so editing that draft cannot silently disable this one-shot solve.
             bone_id: persisted_bone_id.to_owned(),
-            pinned: false,
+            pinned,
             enable_rotation: self.rot_enable,
             constrain_rotation: self.rot_constrain,
-            min_angle_deg: self.rot_min,
-            max_angle_deg: self.rot_max,
+            min_angle_deg: self.rot_min.min(self.rot_max),
+            max_angle_deg: self.rot_max.max(self.rot_min),
             enable_x_translation: self.trans_enable,
             constrain_x_translation: self.trans_constrain,
-            min_x_offset: -50.0,
-            max_x_offset: 50.0,
+            min_x_offset: min_x,
+            max_x_offset: max_x,
             enable_y_translation: self.trans_enable,
             constrain_y_translation: self.trans_constrain,
-            min_y_offset: -50.0,
-            max_y_offset: 50.0,
+            min_y_offset: min_y,
+            max_y_offset: max_y,
             speed: (self.speed_pct / 100.0).clamp(0.0, 1.0),
             spring_strength: if self.enable_spring {
-                self.spring_strength
+                self.spring_strength.clamp(0.0, 100.0)
             } else {
                 0.0
             },
-            spring_damping: self.spring_damping,
+            spring_damping: self.spring_damping.clamp(0.0, 100.0),
         }
     }
 }
@@ -1255,11 +1292,7 @@ impl Editor {
                 )
                 .width(width)
                 .show(ui, |ui| {
-                    for preset in [
-                        StrokeStyleKind::Solid,
-                        StrokeStyleKind::Dashed,
-                        StrokeStyleKind::Dotted,
-                    ] {
+                    for preset in StrokeStyleKind::ALL {
                         if ui
                             .add(c::MenuItem::new(preset.label()).checked(current_kind == preset))
                             .clicked()
@@ -2435,16 +2468,19 @@ impl Editor {
             .data(|d| d.get_temp::<BoneDraft>(id))
             .unwrap_or_default();
 
-        let existing_armature = self
+        let existing_ik = self
             .symbol()
             .timeline
             .layers
             .get(self.layer)
             .and_then(|l| l.key_at(self.frame))
-            .and_then(|k| k.ik_armatures.first())
-            .cloned();
+            .and_then(|k| {
+                let arm = k.ik_armatures.first()?.clone();
+                let specs = self.effective_keyframe_ik_joint_specs(k, &arm);
+                Some((arm, specs))
+            });
 
-        let Some(armature) = existing_armature else {
+        let Some((armature, joint_specs)) = existing_ik else {
             ui.add(c::TypeHeader {
                 icon: i16::ARMATURE,
                 title: "IK bone",
@@ -2458,10 +2494,25 @@ impl Editor {
         };
 
         let bone_total = armature.bones.len().max(1);
-        draft.bone_index = draft.bone_index.min(bone_total.saturating_sub(1));
+        if let Some(sess_bone_id) = self.stage_active_ik_bone_id()
+            && let Some(active_idx) = armature.bones.iter().position(|b| b.id == sess_bone_id)
+        {
+            draft.bone_index = active_idx;
+        } else {
+            draft.bone_index = draft.bone_index.min(bone_total.saturating_sub(1));
+            self.set_stage_active_ik_bone_id(
+                armature.bones.get(draft.bone_index).map(|b| b.id.clone()),
+            );
+        }
         draft.load_persisted_bone_fields(&armature, draft.bone_index);
+        let persisted_spec = armature
+            .bones
+            .get(draft.bone_index)
+            .and_then(|b| joint_specs.iter().find(|s| s.bone_id == b.id));
+        draft.load_persisted_joint_spec(persisted_spec);
 
         let mut changed = false;
+        let mut navigated_bone = false;
         ui.add(c::TypeHeader {
             icon: i16::ARMATURE,
             title: "IK bone",
@@ -2494,6 +2545,7 @@ impl Editor {
                 .clicked()
             {
                 draft.bone_index = draft.bone_index.saturating_sub(1);
+                navigated_bone = true;
             }
             if ui
                 .add_enabled(
@@ -2503,6 +2555,7 @@ impl Editor {
                 .clicked()
             {
                 draft.bone_index += 1;
+                navigated_bone = true;
             }
         });
         section(ui, "Position", true, |ui| {
@@ -2580,13 +2633,12 @@ impl Editor {
         });
         section(ui, "Joint: X / Y translation", false, |ui| {
             ui.horizontal(|ui| {
-                let t_en = ui.add_enabled(false, c::Switch::new(&mut draft.trans_enable, "Enable"));
-                let _ = c::not_available(t_en, "IK translation joint");
-                let t_con = ui.add_enabled(
-                    false,
-                    c::Switch::new(&mut draft.trans_constrain, "Constrain"),
-                );
-                let _ = c::not_available(t_con, "IK translation constraint");
+                changed |= ui
+                    .add(c::Switch::new(&mut draft.trans_enable, "Enable"))
+                    .changed();
+                changed |= ui
+                    .add(c::Switch::new(&mut draft.trans_constrain, "Constrain"))
+                    .changed();
             });
         });
         section(ui, "Spring", true, |ui| {
@@ -2615,6 +2667,9 @@ impl Editor {
                     )
                 },
             );
+            if strength_response.changed() && draft.spring_strength > 0.0 {
+                draft.enable_spring = true;
+            }
             changed |= strength_response.changed() || damping_response.changed();
         });
         section(ui, "Armature", true, |ui| {
@@ -2677,6 +2732,11 @@ impl Editor {
             });
         });
 
+        if navigated_bone {
+            self.set_stage_active_ik_bone_id(
+                armature.bones.get(draft.bone_index).map(|b| b.id.clone()),
+            );
+        }
         let snapshot_draft = draft.clone();
         ui.ctx().data_mut(|d| d.insert_temp(id, draft));
 
@@ -2690,8 +2750,9 @@ impl Editor {
                 .bones
                 .get(b_idx)
                 .map_or(snapshot_draft.name.as_str(), |bone| bone.id.as_str());
-            let joint_spec = snapshot_draft.transient_joint_spec(persisted_bone_id);
-            let _ = self.set_keyframe_ik_armature_with_specs(arm, vec![joint_spec]);
+            let joint_spec =
+                snapshot_draft.transient_joint_spec_with_base(persisted_bone_id, persisted_spec);
+            let _ = self.apply_persisted_ik_armature_and_joint_spec(arm, joint_spec);
         }
     }
 
@@ -3299,6 +3360,367 @@ mod bone_panel_tests {
         assert!(elements[0].transform.rotation >= -7.5 - 1e-6);
         assert!(elements[0].transform.rotation <= 6.5 + 1e-6);
         assert!((elements[0].transform.rotation - 6.5).abs() <= 1e-6);
+    }
+
+    #[test]
+    fn ik_bind_skin_weights_and_spring_damping_persist_across_save_load_evaluate_and_undo() {
+        use neoflash_core::{
+            Element, FillRule, PathCommand, Project, Transform, extract_path_control_points,
+            sample_layer_at_fps,
+        };
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        neoflash_ui::theme::install(&ctx, crate::theme::ThemeMode::Dark.nf2());
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![
+            Element {
+                id: "bone-root".into(),
+                transform: Transform {
+                    x: 100.0,
+                    y: 100.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 20.0,
+                    height: 10.0,
+                    fill: [80, 80, 80, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "bone-tip".into(),
+                transform: Transform {
+                    x: 180.0,
+                    y: 100.0,
+                    ..Transform::default()
+                },
+                kind: ElementKind::Rectangle {
+                    width: 20.0,
+                    height: 10.0,
+                    fill: [120, 120, 120, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "sleeve-shape".into(),
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 100.0, y: 90.0 },
+                        PathCommand::LineTo { x: 200.0, y: 90.0 },
+                        PathCommand::LineTo { x: 200.0, y: 110.0 },
+                        PathCommand::LineTo { x: 100.0, y: 110.0 },
+                        PathCommand::Close,
+                    ],
+                    fill_rule: FillRule::NonZero,
+                    fill: [220, 90, 60, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+        ];
+        editor.history.clear();
+
+        let tip_bone_id = editor
+            .stage_connect_ik_bone("bone-root", "bone-tip")
+            .expect("connected IK bone chain");
+        let root_bone_id = editor.symbol().timeline.layers[0].keyframes[0].ik_armatures[0].bones[0]
+            .id
+            .clone();
+        assert_eq!(
+            editor.symbol().timeline.layers[0].keyframes[0]
+                .ik_joint_specs
+                .len(),
+            2,
+            "connecting bones persists initial IkJointSpec entries on the keyframe"
+        );
+
+        // Set spring_strength = 65, spring_damping = 35 on the root bone and verify 1 Undo step.
+        let before_spring = editor.project.clone();
+        editor.history.clear();
+        assert!(editor.set_ik_bone_spring_and_damping(&root_bone_id, 65.0, 35.0, Some(false)));
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.project.validate().expect("valid after spring edit");
+        {
+            let kf = &editor.symbol().timeline.layers[0].keyframes[0];
+            let spec = kf
+                .ik_joint_specs
+                .iter()
+                .find(|s| s.bone_id == root_bone_id)
+                .expect("persisted root joint spec");
+            assert!((spec.spring_strength - 65.0).abs() < 1e-6);
+            assert!((spec.spring_damping - 35.0).abs() < 1e-6);
+        }
+        editor.undo();
+        assert_eq!(editor.project, before_spring);
+        editor.redo();
+
+        // Bind vertex 1 (x=200, y=90) with 75% weight to tip_bone_id and verify 1 Undo step.
+        editor.history.clear();
+        let before_bind = editor.project.clone();
+        let skin = editor
+            .stage_bind_assign_vertices_to_bone("sleeve-shape", &tip_bone_id, &[1, 2], 0.75, false)
+            .expect("bound vertices to tip bone");
+        assert_eq!(editor.history.undo_len(), 1);
+        editor.project.validate().expect("valid after vertex bind");
+        assert!(editor.project.format_version >= 16);
+        let v1_tip_w = skin
+            .bindings
+            .iter()
+            .find(|b| b.vertex_index == 1)
+            .and_then(|b| b.weights.iter().find(|w| w.bone_id == tip_bone_id))
+            .map(|w| w.weight)
+            .expect("tip bone weight on vertex 1");
+        assert!(
+            (v1_tip_w - 0.75).abs() < 1e-6,
+            "expected exact 75% weight, got {v1_tip_w}"
+        );
+        editor.undo();
+        assert_eq!(editor.project, before_bind);
+        editor.redo();
+
+        // Round-trip through JSON (.nflash) into a brand-new Editor session with empty transient state!
+        let saved_json = serde_json::to_string(&editor.project).expect("serialize .nflash");
+        let reloaded_project: Project =
+            serde_json::from_str(&saved_json).expect("deserialize .nflash");
+        reloaded_project
+            .validate()
+            .expect("reloaded project passes validation");
+
+        let mut fresh_editor = Editor::from_project(&ctx, reloaded_project);
+        fresh_editor.set_tool(crate::app::Tool::Bind);
+        {
+            let kf = &fresh_editor.symbol().timeline.layers[0].keyframes[0];
+            assert_eq!(kf.ik_skins.len(), 1);
+            let spec = kf
+                .ik_joint_specs
+                .iter()
+                .find(|s| s.bone_id == root_bone_id)
+                .unwrap();
+            assert!((spec.spring_strength - 65.0).abs() < 1e-6);
+            assert!((spec.spring_damping - 35.0).abs() < 1e-6);
+        }
+
+        // Render live_bone_properties & bone_inspector_section_ui on the reloaded project.
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(360.0, 960.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    fresh_editor.live_bone_properties(ui);
+                    fresh_editor.bone_inspector_section_ui(ui);
+                });
+            },
+        );
+
+        // Pose effector downward on the fresh editor: persisted skin deforms the sleeve shape!
+        let rest_pts = {
+            let el = &fresh_editor.symbol().timeline.layers[0].keyframes[0].elements[2];
+            let (cmds, _) = el.to_path_commands().unwrap();
+            extract_path_control_points(&cmds)
+        };
+        assert!(fresh_editor.stage_drag_ik_effector([160.0, 200.0], None));
+        fresh_editor
+            .project
+            .validate()
+            .expect("valid after effector drag");
+        let posed_pts = {
+            let sampled = sample_layer_at_fps(
+                &fresh_editor.symbol().timeline.layers[0],
+                0,
+                f64::from(fresh_editor.project.fps),
+            );
+            let (cmds, _) = sampled[2].to_path_commands().unwrap();
+            extract_path_control_points(&cmds)
+        };
+        assert!(
+            (posed_pts[1][1] - rest_pts[1][1]).abs() > 5.0,
+            "bound sleeve vertex 1 must deform with effector pose ({:?} -> {:?})",
+            rest_pts[1],
+            posed_pts[1]
+        );
+    }
+
+    #[test]
+    fn ik_lifecycle_orphan_pruning_symbol_duplication_and_validation_bounds_hold() {
+        use neoflash_core::{Element, ElementKind, FillRule, PathCommand, Project, Transform};
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(neoflash_ui::typography::font_definitions());
+        neoflash_ui::theme::install(&ctx, crate::theme::ThemeMode::Dark.nf2());
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        editor.symbol_mut().timeline.layers[0].keyframes[0].elements = vec![
+            Element {
+                id: "b-root".into(),
+                kind: ElementKind::Rectangle {
+                    width: 40.0,
+                    height: 12.0,
+                    fill: [80, 120, 220, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                transform: Transform {
+                    x: 80.0,
+                    y: 94.0,
+                    ..Transform::default()
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "b-tip".into(),
+                kind: ElementKind::Rectangle {
+                    width: 40.0,
+                    height: 12.0,
+                    fill: [100, 160, 240, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                transform: Transform {
+                    x: 130.0,
+                    y: 94.0,
+                    ..Transform::default()
+                },
+                ..Element::default()
+            },
+            Element {
+                id: "skin-path".into(),
+                kind: ElementKind::Path {
+                    commands: vec![
+                        PathCommand::MoveTo { x: 80.0, y: 90.0 },
+                        PathCommand::LineTo { x: 170.0, y: 90.0 },
+                        PathCommand::LineTo { x: 170.0, y: 110.0 },
+                        PathCommand::LineTo { x: 80.0, y: 110.0 },
+                        PathCommand::Close,
+                    ],
+                    fill_rule: FillRule::NonZero,
+                    fill: [220, 90, 60, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                ..Element::default()
+            },
+        ];
+        let tip_bone_id = editor
+            .stage_connect_ik_bone("b-root", "b-tip")
+            .expect("connected bone chain");
+        let root_bone_id = editor.symbol().timeline.layers[0].keyframes[0].ik_armatures[0].bones[0]
+            .id
+            .clone();
+        editor
+            .stage_bind_assign_vertices_to_bone("skin-path", &tip_bone_id, &[1, 2], 0.8, false)
+            .expect("bound skin vertices");
+        editor.project.validate().unwrap();
+
+        // Active bone sync between stage session and live_bone_properties draft.
+        editor.set_stage_active_ik_bone_id(Some(tip_bone_id.clone()));
+        let out = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(360.0, 960.0),
+                )),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    editor.live_bone_properties(ui);
+                    editor.bone_inspector_section_ui(ui);
+                });
+            },
+        );
+        assert_eq!(
+            editor.stage_active_ik_bone_id().as_deref(),
+            Some(tip_bone_id.as_str())
+        );
+        let mut spring_heading_count = 0usize;
+        fn count_label(shape: &egui::Shape, needle: &str, count: &mut usize) {
+            match shape {
+                egui::Shape::Text(t) => {
+                    if t.galley.text().trim().eq_ignore_ascii_case(needle) {
+                        *count += 1;
+                    }
+                }
+                egui::Shape::Vec(v) => {
+                    for s in v {
+                        count_label(s, needle, count);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for clipped in &out.shapes {
+            count_label(&clipped.shape, "Spring", &mut spring_heading_count);
+        }
+        assert_eq!(
+            spring_heading_count, 1,
+            "Properties — IK bone must render exactly one locked Spring section"
+        );
+
+        // Validation bounds: inverted min > max on IkJointSpec, out-of-range skin weight, and
+        // invalid PatternBrushKind parameters must be rejected; non-finite Hatched angle is safe.
+        {
+            let mut bad_joint = editor.project.clone();
+            let root_id = bad_joint.root.clone();
+            {
+                let js = &mut bad_joint.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes
+                    [0]
+                .ik_joint_specs[0];
+                js.constrain_rotation = true;
+                js.min_angle_deg = 45.0;
+                js.max_angle_deg = -45.0;
+            }
+            assert!(bad_joint.validate().is_err());
+
+            let mut bad_skin = editor.project.clone();
+            bad_skin.symbol_mut(&root_id).unwrap().timeline.layers[0].keyframes[0].ik_skins[0]
+                .bindings[0]
+                .weights[0]
+                .weight = 1.5;
+            assert!(bad_skin.validate().is_err());
+
+            let safe_hatched = neoflash_core::expand_pattern_brush_stroke(
+                &[
+                    PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                    PathCommand::LineTo { x: 40.0, y: 0.0 },
+                ],
+                4.0,
+                &neoflash_core::PatternBrushKind::Hatched {
+                    spacing: 8.0,
+                    angle_deg: f64::NAN,
+                },
+            );
+            assert!(!safe_hatched.is_empty());
+        }
+
+        // Orphan pruning: removing the bound shape prunes `ik_skins`; removing bone elements
+        // prunes `ik_joint_specs`, keeping `project.validate()` valid.
+        {
+            let kf = &mut editor.symbol_mut().timeline.layers[0].keyframes[0];
+            kf.elements.retain(|el| el.id != "skin-path");
+            crate::timeline_commands::prune_keyframe_orphan_element_refs(kf);
+            assert!(kf.ik_skins.is_empty());
+            assert_eq!(kf.ik_joint_specs.len(), 2);
+        }
+        editor.project.validate().unwrap();
+        {
+            let kf = &mut editor.symbol_mut().timeline.layers[0].keyframes[0];
+            kf.elements.retain(|el| el.id != "b-tip");
+            crate::timeline_commands::prune_keyframe_orphan_element_refs(kf);
+            assert_eq!(kf.ik_joint_specs.len(), 1);
+            assert_eq!(kf.ik_joint_specs[0].bone_id, root_bone_id);
+        }
+        editor.project.validate().unwrap();
     }
 }
 

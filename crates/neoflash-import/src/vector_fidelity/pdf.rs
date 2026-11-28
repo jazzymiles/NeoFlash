@@ -4,7 +4,7 @@
 //! and `/Image` XObjects (`DCTDecode` / `FlateDecode` + `/SMask`, `<= 4096x4096`, `<= 64 MiB`).
 
 use super::pdf_color_fn::{
-    PdfColorSpace, cmyk_to_rgba, function_dict, numbers, parse_pdf_color_space,
+    PdfColorSpace, PdfShadingPaint, cmyk_to_rgba, function_dict, numbers, parse_pdf_color_space,
     parse_shading_pattern_with_cs, parse_shading_with_cs, scalar,
 };
 use super::pdf_text_font::{PdfFontResource, parse_pdf_font_resource};
@@ -74,8 +74,8 @@ pub(super) struct PdfResourceScope {
     pub doc: Arc<Document>,
     pub(super) caches: Arc<Mutex<PdfParseCaches>>,
     pub color_spaces: BTreeMap<String, PdfColorSpace>,
-    pub shadings: BTreeMap<String, GradientPaint>,
-    pub patterns: BTreeMap<String, GradientPaint>,
+    pub shadings: BTreeMap<String, PdfShadingPaint>,
+    pub patterns: BTreeMap<String, PdfShadingPaint>,
     pub ext_gstates: BTreeMap<String, PdfExtGState>,
     pub fonts: BTreeMap<String, PdfFontResource>,
     pub forms: BTreeMap<String, PdfFormRef>,

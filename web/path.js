@@ -166,7 +166,64 @@
     }
     return gradient;
   }
+  function meshVisible(mesh) {
+    if (!mesh || typeof mesh !== 'object') return false;
+    const patchVis = Array.isArray(mesh.patches) && mesh.patches.some(p => Array.isArray(p?.colors) && p.colors.some(c => (c?.[3] || 0) > 0));
+    const triVis = Array.isArray(mesh.triangles) && mesh.triangles.some(t => Array.isArray(t?.colors) && t.colors.some(c => (c?.[3] || 0) > 0));
+    return patchVis || triVis;
+  }
+  function evalMeshPatch(patch, u, v, linearRgb) {
+    const iu = 1 - u, iv = 1 - v;
+    const bu = [iu*iu*iu, 3*u*iu*iu, 3*u*u*iu, u*u*u];
+    const bv = [iv*iv*iv, 3*v*iv*iv, 3*v*v*iv, v*v*v];
+    let x = 0, y = 0;
+    const pts = patch.points;
+    for (let r = 0; r < 4; r++) {
+      const wr = bv[r];
+      for (let c = 0; c < 4; c++) {
+        const w = wr * bu[c], pt = pts[r * 4 + c];
+        x += w * pt[0]; y += w * pt[1];
+      }
+    }
+    const [c00, c03, c30, c33] = patch.colors;
+    const top = interpolateColor(c00, c03, u, linearRgb);
+    const bot = interpolateColor(c30, c33, u, linearRgb);
+    return { x, y, color: interpolateColor(top, bot, v, linearRgb) };
+  }
+  function tessellateVectorMesh(mesh) {
+    const patches = Array.isArray(mesh?.patches) ? mesh.patches : [];
+    const tris = Array.isArray(mesh?.triangles) ? mesh.triangles : [];
+    const linearRgb = Boolean(mesh?.linear_rgb);
+    const steps = patches.length === 0 ? 1 : patches.length <= 16 ? 12 : patches.length <= 64 ? 8 : 5;
+    const out = [];
+    for (const patch of patches) {
+      if (!Array.isArray(patch?.points) || patch.points.length !== 16 || !Array.isArray(patch?.colors) || patch.colors.length !== 4) continue;
+      const grid = [];
+      for (let r = 0; r <= steps; r++) {
+        const v = r / steps;
+        for (let c = 0; c <= steps; c++) grid.push(evalMeshPatch(patch, c / steps, v, linearRgb));
+      }
+      const stride = steps + 1;
+      for (let r = 0; r < steps; r++) {
+        for (let c = 0; c < steps; c++) {
+          const v00 = grid[r * stride + c], v10 = grid[r * stride + c + 1], v01 = grid[(r + 1) * stride + c], v11 = grid[(r + 1) * stride + c + 1];
+          if ((r + c) % 2 === 0) { out.push([v00, v10, v11], [v00, v11, v01]); }
+          else { out.push([v00, v10, v01], [v10, v11, v01]); }
+        }
+      }
+    }
+    for (const t of tris) {
+      if (!Array.isArray(t?.points) || t.points.length !== 3 || !Array.isArray(t?.colors) || t.colors.length !== 3) continue;
+      out.push([
+        { x: t.points[0][0], y: t.points[0][1], color: t.colors[0] },
+        { x: t.points[1][0], y: t.points[1][1], color: t.colors[1] },
+        { x: t.points[2][0], y: t.points[2][1], color: t.colors[2] },
+      ]);
+    }
+    return out;
+  }
   function paintVisible(kind,channel) {
+    if(channel==='fill'&&kind.fill_mesh)return meshVisible(kind.fill_mesh);
     if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0;
     if(channel==='stroke'&&kind.stroke_bitmap)return kind.stroke_bitmap.width>0&&kind.stroke_bitmap.height>0;
     const paint=kind[channel+'_gradient'];return paint?validateGradient(paint).stops.some(s=>s.color[3]>0):(kind[channel]?.[3]||0)>0;
@@ -180,6 +237,7 @@
     return denominator>0?n/denominator:null; // Endpoint focal cones do not paint their exterior.
   }
   function paintAlpha(kind,channel,x,y) {
+    if(channel==='fill'&&kind.fill_mesh)return meshVisible(kind.fill_mesh)?1:0;
     if(channel==='fill'&&kind.fill_bitmap)return kind.fill_bitmap.width>0&&kind.fill_bitmap.height>0?1:0;
     if(channel==='stroke'&&kind.stroke_bitmap)return kind.stroke_bitmap.width>0&&kind.stroke_bitmap.height>0?1:0;
     const paint=kind[channel+'_gradient'];if(!paint)return(kind[channel]?.[3]||0)/255;validateGradient(paint);
@@ -308,9 +366,87 @@
       if(!Number.isSafeInteger(maxMaskPixels)||maxMaskPixels<1)throw new Error('Gradient mask pixel budget must be a positive safe integer.');this.maxMaskPixels=maxMaskPixels;this.surface=null;
       this.createCanvas=createCanvas||(()=>typeof OffscreenCanvas==='function'?new OffscreenCanvas(1,1):global.document.createElement('canvas'));
     }
-    clear(){if(this.surface){this.surface.width=1;this.surface.height=1;this.surface=null;}}
+    clear(){if(this.surface){this.surface.width=1;this.surface.height=1;this.surface=null;}if(this.meshSurface){this.meshSurface.width=1;this.meshSurface.height=1;this.meshSurface=null;}}
+    paintMeshFill(context,mesh,canvasW,canvasH) {
+      const tris=tessellateVectorMesh(mesh);if(!tris.length)return;
+      const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;
+      let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+      const screenTris=[];
+      for(const [v0,v1,v2] of tris){
+        const p0=point(m,v0.x,v0.y),p1=point(m,v1.x,v1.y),p2=point(m,v2.x,v2.y);
+        if(![...p0,...p1,...p2].every(Number.isFinite))continue;
+        minX=Math.min(minX,p0[0],p1[0],p2[0]);minY=Math.min(minY,p0[1],p1[1],p2[1]);
+        maxX=Math.max(maxX,p0[0],p1[0],p2[0]);maxY=Math.max(maxY,p0[1],p1[1],p2[1]);
+        screenTris.push([p0,v0.color,p1,v1.color,p2,v2.color]);
+      }
+      if(!screenTris.length||maxX<=0||maxY<=0||minX>=canvasW||minY>=canvasH)return;
+      const left=Math.max(0,Math.floor(minX)-1),top=Math.max(0,Math.floor(minY)-1);
+      const right=Math.min(canvasW,Math.ceil(maxX)+1),bottom=Math.min(canvasH,Math.ceil(maxY)+1);
+      const bw=right-left,bh=bottom-top;if(!(bw>0&&bh>0))return;
+      let scratch=null,mctx=null;
+      if(bw*bh<=this.maxMaskPixels){
+        try{
+          scratch=this.meshSurface||(this.meshSurface=this.createCanvas());
+          if(scratch.width!==bw||scratch.height!==bh){scratch.width=1;scratch.height=bh;scratch.width=bw;}
+          mctx=scratch.getContext('2d');
+        }catch(_){mctx=null;}
+      }
+      if(mctx&&typeof mctx.createImageData==='function'&&typeof mctx.putImageData==='function'&&typeof context.drawImage==='function'){
+        const img=mctx.createImageData(bw,bh),data=img.data;
+        for(const [p0,c0,p1,c1,p2,c2] of screenTris){
+          const ax=p0[0]-left,ay=p0[1]-top,bx=p1[0]-left,by=p1[1]-top,cx=p2[0]-left,cy=p2[1]-top;
+          const denom=(by-cy)*(ax-cx)+(cx-bx)*(ay-cy);if(Math.abs(denom)<1e-6)continue;
+          const inv=1/denom;
+          const x0=Math.max(0,Math.floor(Math.min(ax,bx,cx))),y0=Math.max(0,Math.floor(Math.min(ay,by,cy)));
+          const x1=Math.min(bw-1,Math.ceil(Math.max(ax,bx,cx))),y1=Math.min(bh-1,Math.ceil(Math.max(ay,by,cy)));
+          for(let py=y0;py<=y1;py++){
+            const sy=py+0.5,rowOff=py*bw;
+            for(let px=x0;px<=x1;px++){
+              const sx=px+0.5;
+              const w0=((by-cy)*(sx-cx)+(cx-bx)*(sy-cy))*inv;
+              const w1=((cy-ay)*(sx-cx)+(ax-cx)*(sy-cy))*inv;
+              const w2=1-w0-w1;
+              if(w0<-1e-4||w1<-1e-4||w2<-1e-4)continue;
+              const cw0=Math.max(0,Math.min(1,w0)),cw1=Math.max(0,Math.min(1,w1)),cw2=Math.max(0,Math.min(1,1-cw0-cw1));
+              const idx=(rowOff+px)*4;
+              const sr=Math.round(cw0*c0[0]+cw1*c1[0]+cw2*c2[0]);
+              const sg=Math.round(cw0*c0[1]+cw1*c1[1]+cw2*c2[1]);
+              const sb=Math.round(cw0*c0[2]+cw1*c1[2]+cw2*c2[2]);
+              const sa=Math.round(cw0*c0[3]+cw1*c1[3]+cw2*c2[3]);
+              if(sa<=0)continue;
+              const da=data[idx+3];
+              if(da===0||sa>=255){
+                data[idx]=sr;data[idx+1]=sg;data[idx+2]=sb;data[idx+3]=sa;
+              }else{
+                const saF=sa/255,daF=(da/255)*(1-saF),outAF=saF+daF;
+                if(outAF>1e-6){
+                  data[idx]=Math.round((sr*saF+data[idx]*daF)/outAF);
+                  data[idx+1]=Math.round((sg*saF+data[idx+1]*daF)/outAF);
+                  data[idx+2]=Math.round((sb*saF+data[idx+2]*daF)/outAF);
+                  data[idx+3]=Math.round(outAF*255);
+                }
+              }
+            }
+          }
+        }
+        mctx.putImageData(img,0,0);
+        context.setTransform(1,0,0,1,0,0);
+        context.drawImage(scratch,left,top);
+        return;
+      }
+      for(const [v0,v1,v2] of tris){
+        const avg=[
+          Math.round((v0.color[0]+v1.color[0]+v2.color[0])/3),
+          Math.round((v0.color[1]+v1.color[1]+v2.color[1])/3),
+          Math.round((v0.color[2]+v1.color[2]+v2.color[2])/3),
+          Math.round((v0.color[3]+v1.color[3]+v2.color[3])/3),
+        ];
+        context.beginPath();context.moveTo(v0.x,v0.y);context.lineTo(v1.x,v1.y);context.lineTo(v2.x,v2.y);context.closePath();
+        context.fillStyle=rgba(avg);context.fill();
+      }
+    }
     draw(context,kind,path,bitmaps=null) {
-      if(kind.fill_gradient||kind.stroke_gradient||kind.fill_bitmap||kind.stroke_bitmap){const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;}
+      if(kind.fill_mesh||kind.fill_gradient||kind.stroke_gradient||kind.fill_bitmap||kind.stroke_bitmap){const m=matrixOf(context),det=m[0]*m[3]-m[1]*m[2];if(!Number.isFinite(det)||det===0)return;}
       const hasStroke = kind.stroke_width > 0 || Boolean(kind.stroke_hairline);
       for(const channel of ['fill','stroke']){
         if(!paintVisible(kind,channel)||(channel==='stroke'&&!hasStroke))continue;
@@ -319,6 +455,7 @@
           if(channel==='stroke'){context.lineWidth=kind.stroke_hairline?1:kind.stroke_width;context.lineCap=lineCapOf(kind);context.lineJoin=lineJoinOf(kind);context.miterLimit=miterLimitOf(kind);}
           if(bitmap&&channel==='fill'){context.clip(path,kind.fill_rule||'nonzero');bitmapBrush(context,bitmap,bitmaps,context.canvas.width,context.canvas.height);}
           else if(bitmap)this.stroke(context,kind,path,bitmap,bitmaps);
+          else if(channel==='fill'&&kind.fill_mesh){context.clip(path,kind.fill_rule||'nonzero');this.paintMeshFill(context,kind.fill_mesh,context.canvas.width,context.canvas.height);}
           else if(!paint){
             context[channel+'Style']=rgba(kind[channel]);
             if(channel==='fill')context.fill(path,kind.fill_rule||'nonzero');

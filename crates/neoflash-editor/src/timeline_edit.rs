@@ -698,6 +698,11 @@ impl Editor {
                         arm.id = new_id.clone();
                     }
                 }
+                for skin in &mut kf.ik_skins {
+                    if let Some(new_id) = ik_map.get(&skin.armature_id) {
+                        skin.armature_id = new_id.clone();
+                    }
+                }
                 if let Some(maps) = &imported_maps {
                     for app in &mut kf.appearances {
                         crate::clipboard::remap_appearance_refs(

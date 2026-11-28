@@ -429,7 +429,21 @@
         try {
         context.transform(...bitmapMatrix(item));
         context.globalAlpha = Math.max(0, Math.min(1, item.alpha));
-        if (kind.type === 'rectangle' || kind.type === 'ellipse') {
+        if (item.mesh_fill && (kind.type === 'rectangle' || kind.type === 'ellipse' || kind.type === 'path' || kind.type === 'gradient_path')) {
+          const cmds = kind.type === 'rectangle'
+            ? [{op:'move_to',x:0,y:0},{op:'line_to',x:kind.width,y:0},{op:'line_to',x:kind.width,y:kind.height},{op:'line_to',x:0,y:kind.height},{op:'close'}]
+            : kind.type === 'ellipse'
+              ? (() => { const rx = kind.width / 2, ry = kind.height / 2, cx = rx, cy = ry, k = 0.5522847498307936; return [
+                  {op:'move_to',x:cx+rx,y:cy},
+                  {op:'cubic_to',cx1:cx+rx,cy1:cy+ry*k,cx2:cx+rx*k,cy2:cy+ry,x:cx,y:cy+ry},
+                  {op:'cubic_to',cx1:cx-rx*k,cy1:cy+ry,cx2:cx-rx,cy2:cy+ry*k,x:cx-rx,y:cy},
+                  {op:'cubic_to',cx1:cx-rx,cy1:cy-ry*k,cx2:cx-rx*k,cy2:cy-ry,x:cx,y:cy-ry},
+                  {op:'cubic_to',cx1:cx+rx*k,cy1:cy-ry,cx2:cx+rx,cy2:cy-ry*k,x:cx+rx,y:cy},
+                  {op:'close'}
+                ]; })()
+              : kind.commands;
+          gradients.draw(context, { ...kind, commands: cmds, fill_mesh: item.mesh_fill }, paths.get(cmds), bitmapHost?.cache);
+        } else if (kind.type === 'rectangle' || kind.type === 'ellipse') {
           context.beginPath();
           if (kind.type === 'rectangle') context.rect(0, 0, kind.width, kind.height);
           else context.ellipse(kind.width / 2, kind.height / 2, Math.max(0, kind.width / 2), Math.max(0, kind.height / 2), 0, 0, Math.PI * 2);

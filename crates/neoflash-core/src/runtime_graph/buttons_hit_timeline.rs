@@ -354,6 +354,7 @@ impl Player {
                     alpha: 1.0,
                     color_transform: ColorTransform::default(),
                     bitmap_fill: None,
+                    mesh_fill: None,
                     path_fingerprint: None,
                     kind,
                 });

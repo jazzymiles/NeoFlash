@@ -425,6 +425,12 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
     let bitmap_fill = bitmap_texture.filter(|_| !outlines).and_then(|id| {
         crate::bitmaps::BitmapFillPaint::new(p.ctx(), item, id, self::color([255; 4], alpha, tint))
     });
+    let has_mesh_fill = !outlines
+        && bitmap_fill.is_none()
+        && item
+            .mesh_fill
+            .as_ref()
+            .is_some_and(VectorMeshPaint::has_visible_alpha);
     if let Some(paint) = bitmap_fill
         && let ElementKind::Path {
             commands,
@@ -454,6 +460,59 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
             }
             Err(error) => paint_stage_error_plate(p, screen(Pos2::ZERO), &error),
         }
+    } else if has_mesh_fill && let Some(mesh_paint) = item.mesh_fill.as_ref() {
+        let generated_cmds;
+        let (cmds, rule): (&[PathCommand], FillRule) = match &item.kind {
+            ElementKind::Path {
+                commands,
+                fill_rule,
+                ..
+            }
+            | ElementKind::PaintedPath {
+                commands,
+                fill_rule,
+                ..
+            } => (commands, *fill_rule),
+            ElementKind::Rectangle { width, height, .. } if *width > 0.0 && *height > 0.0 => {
+                generated_cmds = rectangle_path_commands(*width, *height, Default::default());
+                (&generated_cmds, FillRule::NonZero)
+            }
+            ElementKind::Ellipse { width, height, .. } if *width > 0.0 && *height > 0.0 => {
+                generated_cmds = oval_path_commands(*width, *height, Default::default());
+                (&generated_cmds, FillRule::NonZero)
+            }
+            _ => (&[], FillRule::NonZero),
+        };
+        if !cmds.is_empty() {
+            let tess = mesh_paint.tessellate(None, item.color_transform);
+            let mut raw_mesh = egui::Mesh::default();
+            raw_mesh.vertices.reserve(tess.vertices.len());
+            for (pt, col) in &tess.vertices {
+                raw_mesh.colored_vertex(
+                    screen(Pos2::new(pt[0] as f32, pt[1] as f32)),
+                    self::color(*col, alpha, tint),
+                );
+            }
+            raw_mesh.indices.clone_from(&tess.indices);
+            if reflected {
+                reverse_mesh_winding(&mut raw_mesh);
+            }
+            match crate::stage_clipping::clip_mesh_to_fill_commands(
+                &raw_mesh,
+                cmds,
+                item.path_fingerprint,
+                rule,
+                item.transform,
+                origin,
+                zoom,
+            ) {
+                Ok(clipped) if !clipped.indices.is_empty() => {
+                    p.add(Shape::mesh(clipped));
+                }
+                Ok(_) => {}
+                Err(error) => paint_stage_error_plate(p, screen(Pos2::ZERO), &error),
+            }
+        }
     }
     match &item.kind {
         ElementKind::Rectangle { fill, stroke, .. } | ElementKind::Ellipse { fill, stroke, .. } => {
@@ -467,7 +526,14 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                 item,
                 origin,
                 zoom,
-                [color(*fill, alpha, tint), color(stroke, alpha, tint)],
+                [
+                    if has_mesh_fill {
+                        Color32::TRANSPARENT
+                    } else {
+                        color(*fill, alpha, tint)
+                    },
+                    color(stroke, alpha, tint),
+                ],
                 outlines,
                 bitmap_fill,
             );
@@ -743,7 +809,7 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                 item.path_fingerprint,
                 *fill_rule,
                 *stroke_width,
-                if bitmap_fill.is_some() {
+                if bitmap_fill.is_some() || has_mesh_fill {
                     (&[0; 4], None)
                 } else {
                     (fill, fill_gradient.as_ref())
@@ -773,7 +839,7 @@ fn draw_item(p: &egui::Painter, item: &DrawItem, style: DrawStyle, retain_solid_
                 .max(0.001);
             let paint = crate::vector::PathPaint {
                 rule: *fill_rule,
-                fill: if outlines || bitmap_fill.is_some() {
+                fill: if outlines || bitmap_fill.is_some() || has_mesh_fill {
                     Color32::TRANSPARENT
                 } else {
                     color(*fill, alpha, tint)
@@ -3255,6 +3321,7 @@ impl Editor {
                     alpha: el.transform.alpha,
                     color_transform: el.transform.color_transform,
                     bitmap_fill: None,
+                    mesh_fill: None,
                     path_fingerprint: None,
                     kind: el.kind.clone(),
                 };
@@ -4311,6 +4378,7 @@ mod symbol_context_tests {
                 alpha: 1.,
                 color_transform: ColorTransform::default(),
                 bitmap_fill: None,
+                mesh_fill: None,
                 path_fingerprint: None,
                 kind: ElementKind::Rectangle {
                     width: 10.,
@@ -5856,5 +5924,87 @@ mod stage_tools_and_context_menu_tests {
             1,
             "Lasso under Edit in Place must select inner-box"
         );
+    }
+
+    #[test]
+    fn stage_renders_svg2_meshgradient_and_vector_mesh_as_untextured_egui_mesh_without_bitmaps() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90">
+  <defs>
+    <meshgradient id="mg1" gradientUnits="userSpaceOnUse" x="10" y="10">
+      <meshrow>
+        <meshpatch>
+          <stop path="l 100,0" stop-color="#ff2040"/>
+          <stop path="l 0,70" stop-color="#20e070"/>
+          <stop path="l -100,0" stop-color="#3060ff"/>
+          <stop path="l 0,-70" stop-color="#ffd020"/>
+        </meshpatch>
+      </meshrow>
+    </meshgradient>
+  </defs>
+  <path d="M 10 10 L 110 10 L 110 80 L 10 80 Z" fill="url(#mg1)"/>
+</svg>"##;
+        let prepared = crate::svg_graphics::prepare_svg_clipboard(svg, true)
+            .expect("SVG2 meshgradient prepares as native vector graphic");
+        assert!(
+            prepared.resources.is_empty(),
+            "SVG2 meshgradient must create ZERO raster resources"
+        );
+        assert!(
+            prepared
+                .elements
+                .iter()
+                .all(|e| !matches!(e.kind, ElementKind::Bitmap { .. })),
+            "SVG2 meshgradient must produce ZERO Bitmap elements"
+        );
+        assert_eq!(prepared.vector_effects.len(), 1);
+        assert!(prepared.vector_effects[0].vector_mesh.is_some());
+
+        let ctx = egui::Context::default();
+        let mut editor = Editor::from_project(&ctx, Project::blank());
+        assert!(editor.paste_svg(&ctx, svg, true));
+        assert!(editor.project.resources.is_empty());
+
+        let scene = evaluate_scene(&editor.project, &editor.project.root, 0, false, true);
+        assert_eq!(scene.draws.len(), 1);
+        assert!(scene.draws[0].item.mesh_fill.is_some());
+
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let scratch =
+                    egui::LayerId::new(egui::Order::Foreground, egui::Id::new("mesh-fill-test"));
+                let sp = ui.painter().clone().with_layer_id(scratch);
+                draw_item(
+                    &sp,
+                    &scene.draws[0].item,
+                    DrawStyle {
+                        origin: Pos2::new(20.0, 20.0),
+                        zoom: 1.0,
+                        opacity: 1.0,
+                        tint: None,
+                        outlines: false,
+                        bitmap_texture: None,
+                    },
+                    false,
+                );
+                ctx.graphics_mut(|g| {
+                    let entries: Vec<_> = g.entry(scratch).all_entries().cloned().collect();
+                    let mut untextured_mesh_tris = 0usize;
+                    for e in entries {
+                        if let Shape::Mesh(mesh) = e.shape {
+                            assert_eq!(
+                                mesh.texture_id,
+                                egui::TextureId::default(),
+                                "vector mesh fill on Stage must use TextureId::default() (zero bitmap textures)"
+                            );
+                            untextured_mesh_tris += mesh.indices.len() / 3;
+                        }
+                    }
+                    assert!(
+                        untextured_mesh_tris >= 16,
+                        "expected tessellated Gouraud vector mesh triangles on Stage, got {untextured_mesh_tris}"
+                    );
+                });
+            });
+        });
     }
 }

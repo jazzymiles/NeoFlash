@@ -121,11 +121,15 @@ impl Editor {
                     .add(
                         nf::BrushPreset::new(label, &format!("{size:.0}"))
                             .stroke(sample)
-                            .selected(self.authoring_tools.brush_shape == shape)
+                            .selected(
+                                self.authoring_tools.artistic_brush.is_none()
+                                    && self.authoring_tools.brush_shape == shape,
+                            )
                             .width(ui.available_width()),
                     )
                     .clicked()
                 {
+                    self.authoring_tools.artistic_brush = None;
                     self.authoring_tools.brush_shape = shape;
                     self.authoring_tools.brush_size = size;
                 }
@@ -151,15 +155,44 @@ impl Editor {
                         nf::BrushPreset::new(&preset_label, &format!("{preset_size:.0}"))
                             .stroke(sample)
                             .selected(
-                                self.authoring_tools.brush_shape == preset_shape
+                                self.authoring_tools.artistic_brush.is_none()
+                                    && self.authoring_tools.brush_shape == preset_shape
                                     && (self.authoring_tools.brush_size - preset_size).abs() < 0.5,
                             )
                             .width(ui.available_width()),
                     )
                     .clicked()
                 {
+                    self.authoring_tools.artistic_brush = None;
                     self.authoring_tools.brush_shape = preset_shape;
                     self.authoring_tools.brush_size = preset_size;
+                }
+            }
+        });
+        nf::SectionHeader::new("Artistic").show(ui, |ui| {
+            // One row per preset, rows touch.
+            ui.spacing_mut().item_spacing.y = 0.;
+            for (preset, label, size, shape, sample) in
+                crate::authoring_tools::ArtisticBrushPreset::ALL
+            {
+                if !label
+                    .to_lowercase()
+                    .contains(&self.authoring_tools.brush_search.to_lowercase())
+                {
+                    continue;
+                }
+                if ui
+                    .add(
+                        nf::BrushPreset::new(label, &format!("{size:.0}"))
+                            .stroke(sample)
+                            .selected(self.authoring_tools.artistic_brush == Some(preset))
+                            .width(ui.available_width()),
+                    )
+                    .clicked()
+                {
+                    self.authoring_tools.artistic_brush = Some(preset);
+                    self.authoring_tools.brush_shape = shape;
+                    self.authoring_tools.brush_size = size;
                 }
             }
         });
@@ -254,12 +287,13 @@ impl Editor {
                 ui.spacing_mut().item_spacing.x = space::s1();
                 for shape in nf::BrushShapeKind::ALL {
                     if ui
-                        .add(
-                            nf::BrushShape::new(shape)
-                                .selected(self.authoring_tools.brush_shape == shape),
-                        )
+                        .add(nf::BrushShape::new(shape).selected(
+                            self.authoring_tools.artistic_brush.is_none()
+                                && self.authoring_tools.brush_shape == shape,
+                        ))
                         .clicked()
                     {
+                        self.authoring_tools.artistic_brush = None;
                         self.authoring_tools.brush_shape = shape;
                     }
                 }

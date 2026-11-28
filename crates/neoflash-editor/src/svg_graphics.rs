@@ -44,6 +44,9 @@ fn prepare_svg_str(
         return Err("The file has no SVG root element.".into());
     }
     let mut has_text = false;
+    let mut has_meshgradient = false;
+    let mut has_raster_or_filter = false;
+    let mut has_true_raster_or_svg_filter = false;
     for node in xml.descendants().filter(|node| node.is_element()) {
         let tag = node.tag_name().name();
         if matches!(
@@ -55,6 +58,21 @@ fn prepare_svg_str(
             ));
         }
         has_text |= tag == "text";
+        has_meshgradient |= tag.eq_ignore_ascii_case("meshgradient");
+        let is_raster_or_svg_filter = matches!(
+            tag,
+            "image"
+                | "filter"
+                | "pattern"
+                | "mask"
+                | "feGaussianBlur"
+                | "feDropShadow"
+                | "feColorMatrix"
+                | "feComposite"
+                | "feBlend"
+        );
+        has_true_raster_or_svg_filter |= is_raster_or_svg_filter;
+        has_raster_or_filter |= is_raster_or_svg_filter || matches!(tag, "clipPath" | "use");
         for attribute in node.attributes() {
             if attribute.name().starts_with("on") {
                 return Err("SVG event scripts cannot be imported as static artwork.".into());
@@ -64,6 +82,39 @@ fn prepare_svg_str(
                 && !attribute.value().starts_with("data:")
             {
                 return Err("SVG references an external file. Embed linked images in the SVG before importing.".into());
+            }
+        }
+    }
+    if has_meshgradient && !has_true_raster_or_svg_filter {
+        let svg_opts = neoflash_import::VectorImportOptions {
+            layer_mapping: neoflash_import::VectorLayerMapping::FlattenToSingleLayer,
+            mask_handling: neoflash_import::VectorMaskHandling::FlattenClip,
+            text_handling: neoflash_import::VectorTextHandling::ConvertToPaths,
+            transform_handling: neoflash_import::VectorTransformHandling::BakeTransformsIntoPaths,
+            ..Default::default()
+        };
+        if let Ok((mut imported, _)) =
+            neoflash_import::import_svg_with_options(text, &name, &svg_opts)
+        {
+            let width = f64::from(imported.width.max(1));
+            let height = f64::from(imported.height.max(1));
+            if width <= 1_000_000. && height <= 1_000_000. {
+                let root_id = imported.root.clone();
+                if let Some(root_sym) = imported.symbol_mut(&root_id)
+                    && let Some(layer) = root_sym.timeline.layers.first_mut()
+                    && let Some(kf) = layer.keyframes.first_mut()
+                    && !kf.elements.is_empty()
+                {
+                    return Ok(PreparedGraphic {
+                        name,
+                        width,
+                        height,
+                        elements: std::mem::take(&mut kf.elements),
+                        vector_effects: std::mem::take(&mut kf.vector_effects),
+                        resources: source.into_iter().collect(),
+                        notice: None,
+                    });
+                }
             }
         }
     }
@@ -192,11 +243,51 @@ fn prepare_svg_str(
                 width,
                 height,
                 elements,
+                vector_effects: Vec::new(),
                 resources: source.into_iter().collect(),
                 notice: has_text.then(|| {
                     "SVG text was converted to editable outlines using installed fonts.".into()
                 }),
             });
+        }
+        if !has_raster_or_filter && !has_text {
+            let svg_opts = neoflash_import::VectorImportOptions {
+                layer_mapping: neoflash_import::VectorLayerMapping::FlattenToSingleLayer,
+                transform_handling:
+                    neoflash_import::VectorTransformHandling::BakeTransformsIntoPaths,
+                ..Default::default()
+            };
+            if let Ok((mut imported, _)) =
+                neoflash_import::import_svg_with_options(text, &name, &svg_opts)
+                && imported.resources.is_empty()
+            {
+                let root_id = imported.root.clone();
+                if let Some(root_sym) = imported.symbol_mut(&root_id)
+                    && let Some(layer) = root_sym.timeline.layers.first_mut()
+                    && let Some(kf) = layer.keyframes.first_mut()
+                    && !kf.elements.is_empty()
+                    && kf.elements.iter().all(|el| {
+                        el.to_path_commands()
+                            .and_then(|(cmds, _)| path_bounds(&cmds).ok().flatten())
+                            .is_some_and(|b| {
+                                b.x_min >= -0.001
+                                    && b.y_min >= -0.001
+                                    && b.x_max <= width + 0.001
+                                    && b.y_max <= height + 0.001
+                            })
+                    })
+                {
+                    return Ok(PreparedGraphic {
+                        name,
+                        width,
+                        height,
+                        elements: std::mem::take(&mut kf.elements),
+                        vector_effects: std::mem::take(&mut kf.vector_effects),
+                        resources: source.into_iter().collect(),
+                        notice: None,
+                    });
+                }
+            }
         }
     }
     let scale = (4096. / width).min(4096. / height).min(1.);
@@ -253,6 +344,7 @@ fn prepare_svg_str(
         width,
         height,
         elements: vec![element],
+        vector_effects: Vec::new(),
         resources,
         notice,
     })

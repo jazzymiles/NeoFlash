@@ -176,6 +176,51 @@ pub(crate) fn prune_keyframe_orphan_element_refs(key: &mut Keyframe) {
         }
         true
     });
+    let valid_armature_bones: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        key.ik_armatures
+            .iter()
+            .map(|arm| {
+                (
+                    arm.id.clone(),
+                    arm.bones.iter().map(|b| b.id.clone()).collect(),
+                )
+            })
+            .collect();
+    let all_bone_ids: std::collections::HashSet<&str> = key
+        .ik_armatures
+        .iter()
+        .flat_map(|arm| arm.bones.iter().map(|b| b.id.as_str()))
+        .collect();
+    key.ik_joint_specs
+        .retain(|js| all_bone_ids.contains(js.bone_id.as_str()));
+    key.ik_skins.retain_mut(|skin| {
+        if !present.contains(skin.shape_element_id.as_str()) {
+            return false;
+        }
+        let Some(arm_bones) = valid_armature_bones.get(&skin.armature_id) else {
+            return false;
+        };
+        skin.rest_bones
+            .retain(|(bid, _, _)| arm_bones.contains(bid));
+        if skin.rest_bones.is_empty() {
+            return false;
+        }
+        for vb in &mut skin.bindings {
+            let before_len = vb.weights.len();
+            vb.weights.retain(|bw| {
+                arm_bones.contains(&bw.bone_id) && bw.weight.is_finite() && bw.weight >= 0.0
+            });
+            if vb.weights.len() < before_len {
+                let sum: f64 = vb.weights.iter().map(|bw| bw.weight).sum();
+                if sum > 1e-12 {
+                    for bw in &mut vb.weights {
+                        bw.weight = (bw.weight / sum).clamp(0.0, 1.0);
+                    }
+                }
+            }
+        }
+        true
+    });
     key.appearances
         .retain(|ap| present.contains(ap.element_id.as_str()));
     key.extended_accessibility

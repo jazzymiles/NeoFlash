@@ -73,7 +73,7 @@
     // The renderer supplies the actual clipped alpha coverage when needed by a
     // semantic ancestor; null means no remaining visible pixels.
     if(Object.hasOwn(item,'clipped_bounds')){const b=item.clipped_bounds;return b&&Object.values(b).every(Number.isFinite)&&b.right>b.left&&b.bottom>b.top?b:null;}
-    const m=item.transform, kind=item.kind;
+    const m=item.transform, kind=item.mesh_fill?{...item.kind,fill_mesh:item.mesh_fill}:item.kind;
     if (!m.every(Number.isFinite) || Math.abs(m[0]*m[3]-m[1]*m[2])<1e-12) return null;
     let bounds=null;
     const sx=Math.hypot(m[0],m[1]),sy=Math.hypot(m[2],m[3]),avgScale=Math.max(1e-6,Math.sqrt((sx*sx+sy*sy)/2));

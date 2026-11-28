@@ -32,6 +32,42 @@ const MAX_AUTHORED_ELEMENTS: usize = 92_000;
 const MAX_EXPANDED_SCENE_NODES: usize = 90_000;
 /// Safe ceiling for symbol nesting depth (`< 64` `evaluate::MAX_DEPTH`).
 const MAX_SYMBOL_GRAPH_DEPTH: usize = 52;
+/// Hard step ceiling per Auto Layout reflow pass so cyclic or diamond `INSTANCE` DAGs always finish in milliseconds.
+const MAX_REFLOW_STEPS: usize = 100_000;
+
+struct ReflowCtx {
+    remaining_steps: usize,
+    visiting_masters: HashSet<String>,
+    hug_memo: HashMap<u64, (f64, f64)>,
+}
+
+impl ReflowCtx {
+    fn new() -> Self {
+        Self {
+            remaining_steps: MAX_REFLOW_STEPS,
+            visiting_masters: HashSet::new(),
+            hug_memo: HashMap::new(),
+        }
+    }
+}
+
+trait MasterNodeRef {
+    fn as_figma_node(&self) -> &FigmaNode;
+}
+
+impl MasterNodeRef for FigmaNode {
+    #[inline]
+    fn as_figma_node(&self) -> &FigmaNode {
+        self
+    }
+}
+
+impl MasterNodeRef for &FigmaNode {
+    #[inline]
+    fn as_figma_node(&self) -> &FigmaNode {
+        self
+    }
+}
 
 #[derive(Clone)]
 struct BuiltSymbolInfo {
@@ -48,6 +84,7 @@ struct FigmaBuildCtx<'a, 'b> {
     component_symbols: HashMap<String, BuiltSymbolInfo>,
     building_components: HashSet<String>,
     variant_cache: HashMap<u64, BuiltSymbolInfo>,
+    reflow_ctx: ReflowCtx,
     image_resources: HashMap<String, (String, u32, u32)>,
     project: &'a mut Project,
     report: &'a mut ImportReport,
@@ -429,10 +466,19 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         inst_node: &FigmaNode,
         location: &str,
     ) -> Option<BuiltSymbolInfo> {
-        if inst_node.symbol_overrides.is_empty() && inst_node.instance_text_layouts.is_empty() {
+        let master_ref = *self.master_nodes.get(comp_id)?;
+        let resizes_layout_master = inst_node.instance_text_layouts.is_empty()
+            && inst_node.auto_layout.has_explicit_size
+            && master_uses_layout_or_constraints(master_ref)
+            && ((inst_node.width - master_ref.width).abs() > 0.25
+                || (inst_node.height - master_ref.height).abs() > 0.25);
+        if inst_node.symbol_overrides.is_empty()
+            && inst_node.instance_text_layouts.is_empty()
+            && !resizes_layout_master
+        {
             return self.ensure_component_symbol(comp_id);
         }
-        let sig = hash_instance_overrides(comp_id, inst_node);
+        let sig = hash_instance_overrides(comp_id, inst_node, resizes_layout_master);
         if let Some(cached) = self.variant_cache.get(&sig) {
             return Some(cached.clone());
         }
@@ -452,16 +498,52 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             return self.ensure_component_symbol(comp_id);
         }
 
-        let master = (*self.master_nodes.get(comp_id)?).clone();
-        let mut specialized = master;
+        let mut specialized = master_ref.clone();
+        let had_text_layouts = !inst_node.instance_text_layouts.is_empty();
         let mut any_applied = apply_instance_text_layouts(&mut specialized, inst_node);
+        let mut needs_layout_reflow = false;
         for ov in &inst_node.symbol_overrides {
-            if apply_override_at_path(&mut specialized, &ov.guid_path, ov) {
+            if apply_override_at_path(&mut specialized, &ov.guid_path, ov, !had_text_layouts) {
                 any_applied = true;
+                if !had_text_layouts
+                    && (ov.characters.is_some()
+                        || ov.font_size.is_some()
+                        || ov.text_auto_resize.is_some()
+                        || ov.visible.is_some()
+                        || ov.overridden_symbol_id.is_some())
+                {
+                    needs_layout_reflow = true;
+                }
             }
+        }
+        if resizes_layout_master {
+            self.reflow_ctx.visiting_masters.insert(comp_id.to_owned());
+            resize_container_to_dimensions(
+                &mut specialized,
+                inst_node.width,
+                inst_node.height,
+                &self.master_nodes,
+                &mut self.reflow_ctx,
+                0,
+            );
+            self.reflow_ctx.visiting_masters.remove(comp_id);
+            any_applied = true;
+            needs_layout_reflow = true;
         }
         if !any_applied {
             return self.ensure_component_symbol(comp_id);
+        }
+        if needs_layout_reflow {
+            self.reflow_ctx.visiting_masters.insert(comp_id.to_owned());
+            let _ = reflow_figma_node_inner(
+                &mut specialized,
+                &self.master_nodes,
+                &mut self.reflow_ctx,
+                false,
+                0,
+            );
+            self.reflow_ctx.visiting_masters.remove(comp_id);
+            apply_reverse_z_order_recursive(&mut specialized, 0);
         }
 
         self.building_components.insert(comp_id.to_owned());
@@ -527,6 +609,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 bg_node.stroke_paths_are_outlines = false;
             }
             let mut bg_bfs = Vec::new();
+            let mut bg_vfs = Vec::new();
             let mut bg_els = self.shape_elements(
                 &bg_node,
                 Transform::default(),
@@ -535,6 +618,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 &format!("{} / Background", container.name),
                 expanded_budget.saturating_sub(expanded_used),
                 &mut bg_bfs,
+                &mut bg_vfs,
             );
             // The placed instance owns visibility, including instances of hidden masters.
             for element in &mut bg_els {
@@ -551,6 +635,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                         frame: 0,
                         elements: bg_els,
                         bitmap_fills: bg_bfs,
+                        vector_effects: bg_vfs,
                         ..Keyframe::default()
                     }],
                     properties: LayerProperties::default(),
@@ -591,6 +676,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             border_node.fills.clear();
             border_node.effects.clear();
             let mut border_bfs = Vec::new();
+            let mut border_vfs = Vec::new();
             let mut border_els = self.shape_elements(
                 &border_node,
                 Transform::default(),
@@ -599,6 +685,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 &format!("{} / Border", container.name),
                 expanded_budget.saturating_sub(expanded_used),
                 &mut border_bfs,
+                &mut border_vfs,
             );
             for element in &mut border_els {
                 element.visible = true;
@@ -614,6 +701,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                         frame: 0,
                         elements: border_els,
                         bitmap_fills: border_bfs,
+                        vector_effects: border_vfs,
                         ..Keyframe::default()
                     }],
                     properties: LayerProperties::default(),
@@ -692,6 +780,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         expanded_budget: usize,
         depth: usize,
         bitmap_fills: &mut Vec<AuthoredBitmapFill>,
+        vector_effects: &mut Vec<ElementVectorEffects>,
     ) -> (Vec<Element>, usize, usize) {
         if depth > MAX_SYMBOL_GRAPH_DEPTH
             || expanded_budget == 0
@@ -995,6 +1084,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             location,
             expanded_budget,
             bitmap_fills,
+            vector_effects,
         );
         let count = elements.len();
         (elements, count, 1)
@@ -1010,38 +1100,68 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         location: &str,
         expanded_budget: usize,
         bitmap_fills: &mut Vec<AuthoredBitmapFill>,
+        vector_effects: &mut Vec<ElementVectorEffects>,
     ) -> Vec<Element> {
+        #[derive(Clone)]
+        enum ResolvedFigmaStroke {
+            Standard {
+                solid: Color,
+                grad: Option<GradientPaint>,
+            },
+            Mesh {
+                solid: Color,
+                kind: FigmaGradientKind,
+                stops: Vec<GradientStop>,
+                uv_transform: Option<[f64; 6]>,
+            },
+        }
+
         let mut out = Vec::new();
         let (fallback_cmds, prim_opt) = self.fallback_shape_commands(node);
         let indep_borders = has_unequal_border_weights(node);
-        let mut resolved_strokes: Vec<(Color, Option<GradientPaint>)> = Vec::new();
+        let mut resolved_strokes: Vec<ResolvedFigmaStroke> = Vec::new();
         for sp in &node.strokes {
             match sp {
-                FigmaPaint::Solid { color } => resolved_strokes.push((*color, None)),
+                FigmaPaint::Solid { color } => {
+                    resolved_strokes.push(ResolvedFigmaStroke::Standard {
+                        solid: *color,
+                        grad: None,
+                    })
+                }
                 FigmaPaint::Gradient {
                     kind,
                     stops,
                     uv_transform,
-                    approximated_from,
                 } => {
-                    if let Some(approx) = approximated_from {
-                        self.report.warning(
-                            "figma-gradient-approximated",
-                            location.to_owned(),
-                            format!(
-                                "Figma {approx} stroke gradient approximated as Radial gradient."
-                            ),
-                        );
-                    }
                     let fallback_c = stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]);
-                    let grad = build_figma_gradient_paint(
-                        *kind,
-                        stops,
-                        *uv_transform,
-                        node.width,
-                        node.height,
-                    );
-                    resolved_strokes.push((fallback_c, grad));
+                    match kind {
+                        FigmaGradientKind::Linear | FigmaGradientKind::Radial => {
+                            let gkind = if *kind == FigmaGradientKind::Radial {
+                                GradientKind::Radial
+                            } else {
+                                GradientKind::Linear
+                            };
+                            let grad = build_figma_gradient_paint(
+                                gkind,
+                                stops,
+                                *uv_transform,
+                                node.width,
+                                node.height,
+                            );
+                            resolved_strokes.push(ResolvedFigmaStroke::Standard {
+                                solid: fallback_c,
+                                grad,
+                            });
+                        }
+                        FigmaGradientKind::Angular | FigmaGradientKind::Diamond => {
+                            resolved_strokes.push(ResolvedFigmaStroke::Mesh {
+                                solid: fallback_c,
+                                kind: *kind,
+                                stops: stops.clone(),
+                                uv_transform: *uv_transform,
+                            });
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -1057,19 +1177,27 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             .filter(|(c, _)| validate_path_commands(c).is_ok())
             .cloned()
             .collect();
+        let any_mesh_stroke = resolved_strokes
+            .iter()
+            .any(|s| matches!(s, ResolvedFigmaStroke::Mesh { .. }));
         let use_expanded_stroke_outlines = !indep_borders
             && stroke_w > 0.0
             && node.stroke_paths_are_outlines
             && !valid_stroke_paths.is_empty();
-        let (stroke_solid, stroke_grad) = if use_expanded_stroke_outlines {
+        // Mesh-painted strokes cannot be stored inline on `ElementKind::Path::stroke`; emit them as
+        // dedicated expanded outline `Path` elements carrying `ElementVectorEffects.vector_mesh`!
+        let defer_all_strokes_to_trailing = !node.fills.is_empty()
+            && stroke_w > 0.0
+            && (use_expanded_stroke_outlines || any_mesh_stroke);
+        let (stroke_solid, stroke_grad) = if defer_all_strokes_to_trailing {
             ([0, 0, 0, 0], None)
         } else {
-            resolved_strokes
-                .first()
-                .cloned()
-                .unwrap_or(([0, 0, 0, 0], None))
+            match resolved_strokes.first() {
+                Some(ResolvedFigmaStroke::Standard { solid, grad }) => (*solid, grad.clone()),
+                _ => ([0, 0, 0, 0], None),
+            }
         };
-        let inline_stroke_w = if use_expanded_stroke_outlines {
+        let inline_stroke_w = if defer_all_strokes_to_trailing {
             0.0
         } else {
             stroke_w
@@ -1099,7 +1227,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             };
             let total_stroke_els = resolved_strokes.len() * centerline_cmds.len();
             let mut emitted_stroke_els = 0usize;
-            for (sc_solid, sc_grad) in &resolved_strokes {
+            for rstroke in &resolved_strokes {
                 for scmds in &centerline_cmds {
                     if self.authored_elements >= MAX_AUTHORED_ELEMENTS
                         || out.len() >= expanded_budget
@@ -1109,27 +1237,84 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     }
                     emitted_stroke_els += 1;
                     let is_last = emitted_stroke_els == total_stroke_els;
-                    let kind = if sc_grad.is_some() {
-                        ElementKind::PaintedPath {
-                            commands: scmds.clone(),
-                            fill_rule: FillRule::NonZero,
-                            fill: [0, 0, 0, 0],
-                            stroke: *sc_solid,
-                            fill_gradient: None,
-                            stroke_gradient: sc_grad.clone(),
-                            stroke_width: stroke_w,
+                    let el_id = new_id("el");
+                    let kind = match rstroke {
+                        ResolvedFigmaStroke::Standard { solid, grad } => {
+                            if grad.is_some() {
+                                ElementKind::PaintedPath {
+                                    commands: scmds.clone(),
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [0, 0, 0, 0],
+                                    stroke: *solid,
+                                    fill_gradient: None,
+                                    stroke_gradient: grad.clone(),
+                                    stroke_width: stroke_w,
+                                }
+                            } else {
+                                ElementKind::Path {
+                                    commands: scmds.clone(),
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [0, 0, 0, 0],
+                                    stroke: *solid,
+                                    stroke_width: stroke_w,
+                                }
+                            }
                         }
-                    } else {
-                        ElementKind::Path {
-                            commands: scmds.clone(),
-                            fill_rule: FillRule::NonZero,
-                            fill: [0, 0, 0, 0],
-                            stroke: *sc_solid,
-                            stroke_width: stroke_w,
+                        ResolvedFigmaStroke::Mesh {
+                            solid,
+                            kind,
+                            stops,
+                            uv_transform,
+                        } => {
+                            let expanded = expand_variable_width_stroke(
+                                scmds,
+                                stroke_w,
+                                &StrokeWidthProfile::default(),
+                            );
+                            if !expanded.is_empty() && validate_path_commands(&expanded).is_ok() {
+                                if let Some(mesh) = build_figma_mesh_paint(
+                                    *kind,
+                                    stops,
+                                    *uv_transform,
+                                    node.width,
+                                    node.height,
+                                    &expanded,
+                                ) {
+                                    let rep = mesh.representative_color();
+                                    vector_effects.push(ElementVectorEffects {
+                                        element_id: el_id.clone(),
+                                        vector_mesh: Some(mesh),
+                                        ..ElementVectorEffects::default()
+                                    });
+                                    ElementKind::Path {
+                                        commands: expanded,
+                                        fill_rule: FillRule::NonZero,
+                                        fill: rep,
+                                        stroke: [0, 0, 0, 0],
+                                        stroke_width: 0.0,
+                                    }
+                                } else {
+                                    ElementKind::Path {
+                                        commands: scmds.clone(),
+                                        fill_rule: FillRule::NonZero,
+                                        fill: [0, 0, 0, 0],
+                                        stroke: *solid,
+                                        stroke_width: stroke_w,
+                                    }
+                                }
+                            } else {
+                                ElementKind::Path {
+                                    commands: scmds.clone(),
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [0, 0, 0, 0],
+                                    stroke: *solid,
+                                    stroke_width: stroke_w,
+                                }
+                            }
                         }
                     };
                     out.push(Element {
-                        id: new_id("el"),
+                        id: el_id,
                         name: sanitize_element_name(&node.name),
                         transform: base_tf,
                         kind,
@@ -1149,10 +1334,11 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }
         }
 
-        let extra_centerline_strokes =
-            !node.fills.is_empty() && !use_expanded_stroke_outlines && resolved_strokes.len() > 1;
-        let has_trailing_stroke_elements =
-            use_expanded_stroke_outlines || (extra_centerline_strokes && inline_stroke_w > 0.0);
+        let extra_centerline_strokes = !node.fills.is_empty()
+            && !use_expanded_stroke_outlines
+            && stroke_w > 0.0
+            && (any_mesh_stroke || resolved_strokes.len() > 1);
+        let has_trailing_stroke_elements = use_expanded_stroke_outlines || extra_centerline_strokes;
 
         for (fi, paint) in node.fills.iter().enumerate() {
             if self.authored_elements >= MAX_AUTHORED_ELEMENTS || out.len() >= expanded_budget {
@@ -1418,70 +1604,133 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     kind,
                     stops,
                     uv_transform,
-                    approximated_from,
-                } => {
-                    if let Some(approx) = approximated_from {
-                        self.report.warning(
-                            "figma-gradient-approximated",
-                            location.to_owned(),
-                            format!(
-                                "Figma {approx} fill gradient approximated as Radial gradient."
-                            ),
-                        );
-                    }
-                    let grad = build_figma_gradient_paint(
-                        *kind,
-                        stops,
-                        *uv_transform,
-                        node.width,
-                        node.height,
-                    );
-                    let fallback_c = stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]);
-                    for (cmds, rule) in &paths_to_fill {
-                        if self.authored_elements >= MAX_AUTHORED_ELEMENTS
-                            || out.len() >= expanded_budget
-                        {
-                            self.page_truncated = true;
-                            break;
-                        }
-                        let kind = if grad.is_some() || cur_stroke_grad.is_some() {
-                            ElementKind::PaintedPath {
-                                commands: cmds.clone(),
-                                fill_rule: *rule,
-                                fill: fallback_c,
-                                stroke: cur_stroke,
-                                fill_gradient: grad.clone(),
-                                stroke_gradient: cur_stroke_grad.clone(),
-                                stroke_width: cur_stroke_w,
-                            }
+                } => match kind {
+                    FigmaGradientKind::Linear | FigmaGradientKind::Radial => {
+                        let gkind = if *kind == FigmaGradientKind::Radial {
+                            GradientKind::Radial
                         } else {
-                            ElementKind::Path {
-                                commands: cmds.clone(),
-                                fill_rule: *rule,
-                                fill: fallback_c,
-                                stroke: cur_stroke,
-                                stroke_width: cur_stroke_w,
-                            }
+                            GradientKind::Linear
                         };
-                        out.push(Element {
-                            id: new_id("el"),
-                            name: sanitize_element_name(&node.name),
-                            transform: base_tf,
-                            kind,
-                            visible: node.visible,
-                            cache_as_bitmap: !filters.is_empty(),
-                            blend_mode,
-                            filters: if apply_filters_on_fill {
-                                filters.to_vec()
+                        let grad = build_figma_gradient_paint(
+                            gkind,
+                            stops,
+                            *uv_transform,
+                            node.width,
+                            node.height,
+                        );
+                        let fallback_c = stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]);
+                        for (cmds, rule) in &paths_to_fill {
+                            if self.authored_elements >= MAX_AUTHORED_ELEMENTS
+                                || out.len() >= expanded_budget
+                            {
+                                self.page_truncated = true;
+                                break;
+                            }
+                            let kind = if grad.is_some() || cur_stroke_grad.is_some() {
+                                ElementKind::PaintedPath {
+                                    commands: cmds.clone(),
+                                    fill_rule: *rule,
+                                    fill: fallback_c,
+                                    stroke: cur_stroke,
+                                    fill_gradient: grad.clone(),
+                                    stroke_gradient: cur_stroke_grad.clone(),
+                                    stroke_width: cur_stroke_w,
+                                }
                             } else {
-                                Vec::new()
-                            },
-                            ..Element::default()
-                        });
-                        self.authored_elements += 1;
-                        self.report.statistics.elements += 1;
+                                ElementKind::Path {
+                                    commands: cmds.clone(),
+                                    fill_rule: *rule,
+                                    fill: fallback_c,
+                                    stroke: cur_stroke,
+                                    stroke_width: cur_stroke_w,
+                                }
+                            };
+                            out.push(Element {
+                                id: new_id("el"),
+                                name: sanitize_element_name(&node.name),
+                                transform: base_tf,
+                                kind,
+                                visible: node.visible,
+                                cache_as_bitmap: !filters.is_empty(),
+                                blend_mode,
+                                filters: if apply_filters_on_fill {
+                                    filters.to_vec()
+                                } else {
+                                    Vec::new()
+                                },
+                                ..Element::default()
+                            });
+                            self.authored_elements += 1;
+                            self.report.statistics.elements += 1;
+                        }
                     }
-                }
+                    FigmaGradientKind::Angular | FigmaGradientKind::Diamond => {
+                        let fallback_c = stops.first().map(|s| s.color).unwrap_or([0, 0, 0, 255]);
+                        for (cmds, rule) in &paths_to_fill {
+                            if self.authored_elements >= MAX_AUTHORED_ELEMENTS
+                                || out.len() >= expanded_budget
+                            {
+                                self.page_truncated = true;
+                                break;
+                            }
+                            let el_id = new_id("el");
+                            let fill_color = if let Some(mesh) = build_figma_mesh_paint(
+                                *kind,
+                                stops,
+                                *uv_transform,
+                                node.width,
+                                node.height,
+                                cmds,
+                            ) {
+                                let rep = mesh.representative_color();
+                                vector_effects.push(ElementVectorEffects {
+                                    element_id: el_id.clone(),
+                                    vector_mesh: Some(mesh),
+                                    ..ElementVectorEffects::default()
+                                });
+                                rep
+                            } else {
+                                fallback_c
+                            };
+                            let el_kind = if cur_stroke_grad.is_some() {
+                                ElementKind::PaintedPath {
+                                    commands: cmds.clone(),
+                                    fill_rule: *rule,
+                                    fill: fill_color,
+                                    stroke: cur_stroke,
+                                    fill_gradient: None,
+                                    stroke_gradient: cur_stroke_grad.clone(),
+                                    stroke_width: cur_stroke_w,
+                                }
+                            } else {
+                                ElementKind::Path {
+                                    commands: cmds.clone(),
+                                    fill_rule: *rule,
+                                    fill: fill_color,
+                                    stroke: cur_stroke,
+                                    stroke_width: cur_stroke_w,
+                                }
+                            };
+                            out.push(Element {
+                                id: el_id,
+                                name: sanitize_element_name(&node.name),
+                                transform: base_tf,
+                                kind: el_kind,
+                                visible: node.visible,
+                                cache_as_bitmap: !filters.is_empty(),
+                                blend_mode,
+                                filters: if apply_filters_on_fill {
+                                    filters.to_vec()
+                                } else {
+                                    Vec::new()
+                                },
+                                ..Element::default()
+                            });
+                            self.authored_elements += 1;
+                            self.report.statistics.elements += 1;
+                        }
+                    }
+                },
             }
         }
 
@@ -1490,7 +1739,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             // emit as filled `Path` / `PaintedPath` (`stroke_width = 0.0`) across all visible `node.strokes`!
             let total_outline_els = resolved_strokes.len() * valid_stroke_paths.len();
             let mut emitted_outline_els = 0usize;
-            for (sc_solid, sc_grad) in &resolved_strokes {
+            for rstroke in &resolved_strokes {
                 for (scmds, srule) in &valid_stroke_paths {
                     if self.authored_elements >= MAX_AUTHORED_ELEMENTS
                         || out.len() >= expanded_budget
@@ -1500,27 +1749,64 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     }
                     emitted_outline_els += 1;
                     let is_last = emitted_outline_els == total_outline_els;
-                    let kind = if let Some(grad) = sc_grad {
-                        ElementKind::PaintedPath {
-                            commands: scmds.clone(),
-                            fill_rule: *srule,
-                            fill: *sc_solid,
-                            stroke: [0, 0, 0, 0],
-                            fill_gradient: Some(grad.clone()),
-                            stroke_gradient: None,
-                            stroke_width: 0.0,
+                    let el_id = new_id("el");
+                    let kind = match rstroke {
+                        ResolvedFigmaStroke::Standard { solid, grad } => {
+                            if let Some(grad) = grad {
+                                ElementKind::PaintedPath {
+                                    commands: scmds.clone(),
+                                    fill_rule: *srule,
+                                    fill: *solid,
+                                    stroke: [0, 0, 0, 0],
+                                    fill_gradient: Some(grad.clone()),
+                                    stroke_gradient: None,
+                                    stroke_width: 0.0,
+                                }
+                            } else {
+                                ElementKind::Path {
+                                    commands: scmds.clone(),
+                                    fill_rule: *srule,
+                                    fill: *solid,
+                                    stroke: [0, 0, 0, 0],
+                                    stroke_width: 0.0,
+                                }
+                            }
                         }
-                    } else {
-                        ElementKind::Path {
-                            commands: scmds.clone(),
-                            fill_rule: *srule,
-                            fill: *sc_solid,
-                            stroke: [0, 0, 0, 0],
-                            stroke_width: 0.0,
+                        ResolvedFigmaStroke::Mesh {
+                            solid,
+                            kind,
+                            stops,
+                            uv_transform,
+                        } => {
+                            let fill_c = if let Some(mesh) = build_figma_mesh_paint(
+                                *kind,
+                                stops,
+                                *uv_transform,
+                                node.width,
+                                node.height,
+                                scmds,
+                            ) {
+                                let rep = mesh.representative_color();
+                                vector_effects.push(ElementVectorEffects {
+                                    element_id: el_id.clone(),
+                                    vector_mesh: Some(mesh),
+                                    ..ElementVectorEffects::default()
+                                });
+                                rep
+                            } else {
+                                *solid
+                            };
+                            ElementKind::Path {
+                                commands: scmds.clone(),
+                                fill_rule: *srule,
+                                fill: fill_c,
+                                stroke: [0, 0, 0, 0],
+                                stroke_width: 0.0,
+                            }
                         }
                     };
                     out.push(Element {
-                        id: new_id("el"),
+                        id: el_id,
                         name: if node.fills.is_empty() {
                             sanitize_element_name(&node.name)
                         } else {
@@ -1542,7 +1828,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     self.report.statistics.elements += 1;
                 }
             }
-        } else if extra_centerline_strokes && inline_stroke_w > 0.0 {
+        } else if extra_centerline_strokes && stroke_w > 0.0 {
             let extra_cmds: Vec<Vec<PathCommand>> = if !valid_stroke_paths.is_empty() {
                 valid_stroke_paths.iter().map(|(c, _)| c.clone()).collect()
             } else if validate_path_commands(&fallback_cmds).is_ok() {
@@ -1550,9 +1836,14 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             } else {
                 Vec::new()
             };
-            let total_extra = (resolved_strokes.len() - 1) * extra_cmds.len();
+            let trailing_slice = if defer_all_strokes_to_trailing {
+                &resolved_strokes[..]
+            } else {
+                &resolved_strokes[1..]
+            };
+            let total_extra = trailing_slice.len() * extra_cmds.len();
             let mut emitted_extra = 0usize;
-            for (sc_solid, sc_grad) in &resolved_strokes[1..] {
+            for rstroke in trailing_slice {
                 for scmds in &extra_cmds {
                     if self.authored_elements >= MAX_AUTHORED_ELEMENTS
                         || out.len() >= expanded_budget
@@ -1562,27 +1853,84 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     }
                     emitted_extra += 1;
                     let is_last = emitted_extra == total_extra;
-                    let kind = if sc_grad.is_some() {
-                        ElementKind::PaintedPath {
-                            commands: scmds.clone(),
-                            fill_rule: FillRule::NonZero,
-                            fill: [0, 0, 0, 0],
-                            stroke: *sc_solid,
-                            fill_gradient: None,
-                            stroke_gradient: sc_grad.clone(),
-                            stroke_width: inline_stroke_w,
+                    let el_id = new_id("el");
+                    let kind = match rstroke {
+                        ResolvedFigmaStroke::Standard { solid, grad } => {
+                            if grad.is_some() {
+                                ElementKind::PaintedPath {
+                                    commands: scmds.clone(),
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [0, 0, 0, 0],
+                                    stroke: *solid,
+                                    fill_gradient: None,
+                                    stroke_gradient: grad.clone(),
+                                    stroke_width: stroke_w,
+                                }
+                            } else {
+                                ElementKind::Path {
+                                    commands: scmds.clone(),
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [0, 0, 0, 0],
+                                    stroke: *solid,
+                                    stroke_width: stroke_w,
+                                }
+                            }
                         }
-                    } else {
-                        ElementKind::Path {
-                            commands: scmds.clone(),
-                            fill_rule: FillRule::NonZero,
-                            fill: [0, 0, 0, 0],
-                            stroke: *sc_solid,
-                            stroke_width: inline_stroke_w,
+                        ResolvedFigmaStroke::Mesh {
+                            solid,
+                            kind,
+                            stops,
+                            uv_transform,
+                        } => {
+                            let expanded = expand_variable_width_stroke(
+                                scmds,
+                                stroke_w,
+                                &StrokeWidthProfile::default(),
+                            );
+                            if !expanded.is_empty() && validate_path_commands(&expanded).is_ok() {
+                                if let Some(mesh) = build_figma_mesh_paint(
+                                    *kind,
+                                    stops,
+                                    *uv_transform,
+                                    node.width,
+                                    node.height,
+                                    &expanded,
+                                ) {
+                                    let rep = mesh.representative_color();
+                                    vector_effects.push(ElementVectorEffects {
+                                        element_id: el_id.clone(),
+                                        vector_mesh: Some(mesh),
+                                        ..ElementVectorEffects::default()
+                                    });
+                                    ElementKind::Path {
+                                        commands: expanded,
+                                        fill_rule: FillRule::NonZero,
+                                        fill: rep,
+                                        stroke: [0, 0, 0, 0],
+                                        stroke_width: 0.0,
+                                    }
+                                } else {
+                                    ElementKind::Path {
+                                        commands: scmds.clone(),
+                                        fill_rule: FillRule::NonZero,
+                                        fill: [0, 0, 0, 0],
+                                        stroke: *solid,
+                                        stroke_width: stroke_w,
+                                    }
+                                }
+                            } else {
+                                ElementKind::Path {
+                                    commands: scmds.clone(),
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [0, 0, 0, 0],
+                                    stroke: *solid,
+                                    stroke_width: stroke_w,
+                                }
+                            }
                         }
                     };
                     out.push(Element {
-                        id: new_id("el"),
+                        id: el_id,
                         name: format!("{} Stroke", sanitize_element_name(&node.name)),
                         transform: base_tf,
                         kind,
@@ -1603,17 +1951,30 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         }
 
         if indep_borders && self.authored_elements + 4 <= MAX_AUTHORED_ELEMENTS {
-            for (sc_solid, sc_grad) in &resolved_strokes {
+            for rstroke in &resolved_strokes {
                 if self.authored_elements + 4 > MAX_AUTHORED_ELEMENTS {
                     break;
                 }
-                let borders = build_independent_border_elements(
-                    node,
-                    base_tf,
-                    *sc_solid,
-                    sc_grad.clone(),
-                    blend_mode,
-                );
+                let (sc_solid, sc_grad) = match rstroke {
+                    ResolvedFigmaStroke::Standard { solid, grad } => (*solid, grad.clone()),
+                    ResolvedFigmaStroke::Mesh {
+                        solid,
+                        stops,
+                        uv_transform,
+                        ..
+                    } => (
+                        *solid,
+                        build_figma_gradient_paint(
+                            GradientKind::Radial,
+                            stops,
+                            *uv_transform,
+                            node.width,
+                            node.height,
+                        ),
+                    ),
+                };
+                let borders =
+                    build_independent_border_elements(node, base_tf, sc_solid, sc_grad, blend_mode);
                 let added = borders.len();
                 self.authored_elements += added;
                 self.report.statistics.elements += added;
@@ -1748,6 +2109,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
         if self.options.layer_mapping == FigmaLayerMapping::FlattenSingleLayer && depth <= 1 {
             let mut all_elements = Vec::new();
             let mut all_bfs = Vec::new();
+            let mut all_vfs = Vec::new();
             for child in children {
                 if !child.visible && !self.options.import_hidden_layers {
                     continue;
@@ -1766,6 +2128,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     rem,
                     depth + 1,
                     &mut all_bfs,
+                    &mut all_vfs,
                 );
                 expanded_used = expanded_used.saturating_add(c_exp);
                 max_depth = max_depth.max(c_dep);
@@ -1780,6 +2143,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     frame: 0,
                     elements: all_elements,
                     bitmap_fills: all_bfs,
+                    vector_effects: all_vfs,
                     ..Keyframe::default()
                 }],
                 properties: LayerProperties {
@@ -1888,6 +2252,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
             }
 
             let mut bfs = Vec::new();
+            let mut vfs = Vec::new();
             let (mut elements, c_exp, c_dep) = self.convert_leaf_to_elements(
                 child,
                 offset_x,
@@ -1896,6 +2261,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 rem_budget,
                 depth + 1,
                 &mut bfs,
+                &mut vfs,
             );
             expanded_used = expanded_used.saturating_add(c_exp);
             max_depth = max_depth.max(c_dep);
@@ -1911,6 +2277,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 let outer_cache = !outer_filters.is_empty() || inner_el.cache_as_bitmap;
                 inner_el.cache_as_bitmap = false;
                 let inner_bfs = std::mem::take(&mut bfs);
+                let inner_vfs = std::mem::take(&mut vfs);
                 self.project.symbols.push(Symbol {
                     id: sym_id.clone(),
                     name: sanitize_symbol_name(&child.name),
@@ -1927,6 +2294,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                                 frame: 0,
                                 elements: vec![inner_el],
                                 bitmap_fills: inner_bfs,
+                                vector_effects: inner_vfs,
                                 ..Keyframe::default()
                             }],
                             properties: LayerProperties::default(),
@@ -2058,6 +2426,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     frame: 0,
                     elements,
                     bitmap_fills: bfs,
+                    vector_effects: vfs,
                     ..Keyframe::default()
                 }],
                 properties: props,
@@ -2202,6 +2571,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
 
         let mut all_elements = Vec::new();
         let mut all_bfs = Vec::new();
+        let mut all_vfs = Vec::new();
         let mut expanded_used = 0usize;
 
         let has_canvas_root_mask =
@@ -2288,6 +2658,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                     rem,
                     2,
                     &mut all_bfs,
+                    &mut all_vfs,
                 );
                 expanded_used = expanded_used.saturating_add(c_exp);
                 all_elements.extend(els);
@@ -2307,6 +2678,7 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
                 frame: 0,
                 elements: all_elements,
                 bitmap_fills: all_bfs,
+                vector_effects: all_vfs,
                 ..Keyframe::default()
             }],
             properties: LayerProperties::default(),
@@ -2319,11 +2691,12 @@ impl<'a, 'b> FigmaBuildCtx<'a, 'b> {
 }
 
 pub(super) fn build_project_from_figma_doc(
-    doc: FigmaDoc,
+    mut doc: FigmaDoc,
     images: &mut FigmaImageArchive<'_>,
     options: &FigmaImportOptions,
     source_label: &str,
 ) -> Result<(Project, ImportReport), ImportError> {
+    reflow_figma_doc(&mut doc);
     let mut project = Project::blank();
     project.name = sanitize_symbol_name(&doc.name);
     // Each static design page occupies exactly one frame, including the root scene.
@@ -2430,6 +2803,7 @@ pub(super) fn build_project_from_figma_doc(
         component_symbols: HashMap::new(),
         building_components: HashSet::new(),
         variant_cache: HashMap::new(),
+        reflow_ctx: ReflowCtx::new(),
         image_resources: HashMap::new(),
         project: &mut project,
         report: &mut report,
@@ -2799,10 +3173,11 @@ pub(super) type FigmaClipboardProjectResult = (
 /// gradients, corner radii, editable text, filters, clipping masks, and `Internal Only Canvas`
 /// component symbols.
 pub(super) fn build_clipboard_project_from_figma_doc(
-    doc: FigmaDoc,
+    mut doc: FigmaDoc,
     images: &mut FigmaImageArchive<'_>,
     source_label: &str,
 ) -> Result<FigmaClipboardProjectResult, ImportError> {
+    reflow_figma_doc(&mut doc);
     let options = FigmaImportOptions {
         layer_mapping: FigmaLayerMapping::TimelineLayers,
         import_hidden_layers: true,
@@ -2901,6 +3276,7 @@ pub(super) fn build_clipboard_project_from_figma_doc(
         component_symbols: HashMap::new(),
         building_components: HashSet::new(),
         variant_cache: HashMap::new(),
+        reflow_ctx: ReflowCtx::new(),
         image_resources: HashMap::new(),
         project: &mut project,
         report: &mut report,
@@ -2923,6 +3299,7 @@ pub(super) fn build_clipboard_project_from_figma_doc(
 
     let mut all_elements = Vec::new();
     let mut all_bfs = Vec::new();
+    let mut all_vfs = Vec::new();
     let mut expanded_used = 1usize;
 
     for &page in &user_pages {
@@ -3009,6 +3386,7 @@ pub(super) fn build_clipboard_project_from_figma_doc(
                     rem,
                     2,
                     &mut all_bfs,
+                    &mut all_vfs,
                 );
                 if include_hidden_top && !child.visible {
                     for el in &mut els {
@@ -3038,6 +3416,7 @@ pub(super) fn build_clipboard_project_from_figma_doc(
                 frame: 0,
                 elements: all_elements,
                 bitmap_fills: all_bfs,
+                vector_effects: all_vfs,
                 ..Keyframe::default()
             }],
             properties: LayerProperties::default(),
@@ -3751,11 +4130,16 @@ fn build_independent_border_elements(
     out
 }
 
-fn hash_instance_overrides(comp_id: &str, instance: &FigmaNode) -> u64 {
+fn hash_instance_overrides(
+    comp_id: &str,
+    instance: &FigmaNode,
+    resizes_layout_master: bool,
+) -> u64 {
     let overrides = &instance.symbol_overrides;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     comp_id.hash(&mut h);
-    if !instance.instance_text_layouts.is_empty() {
+    resizes_layout_master.hash(&mut h);
+    if !instance.instance_text_layouts.is_empty() || resizes_layout_master {
         instance.width.to_bits().hash(&mut h);
         instance.height.to_bits().hash(&mut h);
         for layout in &instance.instance_text_layouts {
@@ -3804,10 +4188,9 @@ fn hash_instance_overrides(comp_id: &str, instance: &FigmaNode) -> u64 {
                             kind,
                             stops,
                             uv_transform,
-                            ..
                         } => {
                             2u8.hash(&mut h);
-                            std::mem::discriminant(kind).hash(&mut h);
+                            kind.hash(&mut h);
                             uv_transform.map(|m| m.map(f64::to_bits)).hash(&mut h);
                             for s in stops {
                                 s.ratio.hash(&mut h);
@@ -3904,7 +4287,12 @@ fn apply_instance_text_layouts(master: &mut FigmaNode, instance: &FigmaNode) -> 
     changed
 }
 
-fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbolOverride) -> bool {
+fn apply_override_at_path(
+    node: &mut FigmaNode,
+    path: &[String],
+    ov: &FigmaSymbolOverride,
+    remeasure_overridden_text: bool,
+) -> bool {
     if path.is_empty() {
         return false;
     }
@@ -3912,11 +4300,18 @@ fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbo
     for child in &mut node.children {
         if guid_matches_target(&child.id, &path[0]) {
             if path.len() == 1 {
+                let mut text_metrics_dirty = false;
                 if let Some(txt) = &mut child.text {
                     if let Some(mode) = &ov.text_auto_resize {
+                        if &txt.auto_resize != mode {
+                            text_metrics_dirty = true;
+                        }
                         txt.auto_resize.clone_from(mode);
                     }
                     if let Some(size) = ov.font_size {
+                        if (txt.font_size - size).abs() > 1e-4 {
+                            text_metrics_dirty = true;
+                        }
                         txt.font_size = size;
                     }
                 }
@@ -3934,6 +4329,7 @@ fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbo
                     } else {
                         false
                     };
+                    text_metrics_dirty |= chars_changed;
                     if let Some(char_ids) = &ov.text_style_ids {
                         let override_map: HashMap<u64, FigmaTextStyleOverride> =
                             ov.text_style_overrides.iter().cloned().collect();
@@ -3946,6 +4342,13 @@ fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbo
                         txt.style_runs.clear();
                     }
                 }
+                if remeasure_overridden_text
+                    && text_metrics_dirty
+                    && let Some(td) = &child.text
+                    && matches!(td.auto_resize.as_str(), "WIDTH_AND_HEIGHT" | "HEIGHT")
+                {
+                    child.auto_layout.has_explicit_size = false;
+                }
                 if let Some(fills) = &ov.fills {
                     child.fills.clone_from(fills);
                 }
@@ -3956,10 +4359,12 @@ fn apply_override_at_path(node: &mut FigmaNode, path: &[String], ov: &FigmaSymbo
                     child.component_id = Some(sym_id.clone());
                 }
                 applied = true;
-            } else if apply_override_at_path(child, &path[1..], ov) {
+            } else if apply_override_at_path(child, &path[1..], ov, remeasure_overridden_text) {
                 applied = true;
             }
-        } else if path.len() == 1 && apply_override_at_path(child, path, ov) {
+        } else if path.len() == 1
+            && apply_override_at_path(child, path, ov, remeasure_overridden_text)
+        {
             applied = true;
         }
     }
@@ -4061,4 +4466,1740 @@ fn build_figma_gradient_paint(
         ..paint
     };
     fallback.validate().ok().map(|()| fallback)
+}
+
+fn lerp_rgba_stop(c0: Color, c1: Color, t: f64) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    std::array::from_fn(|i| {
+        (f64::from(c0[i]) + (f64::from(c1[i]) - f64::from(c0[i])) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    })
+}
+
+fn sample_sorted_stops(sorted: &[(f64, Color)], t: f64) -> Color {
+    if sorted.is_empty() {
+        return [0, 0, 0, 255];
+    }
+    let t = t.clamp(0.0, 1.0);
+    if t <= sorted[0].0 {
+        return sorted[0].1;
+    }
+    if t >= sorted[sorted.len() - 1].0 {
+        return sorted[sorted.len() - 1].1;
+    }
+    for pair in sorted.windows(2) {
+        let (t0, c0) = pair[0];
+        let (t1, c1) = pair[1];
+        if t <= t1 {
+            let span = t1 - t0;
+            if span <= 1e-9 {
+                return c1;
+            }
+            return lerp_rgba_stop(c0, c1, (t - t0) / span);
+        }
+    }
+    sorted[sorted.len() - 1].1
+}
+
+/// Convert a Figma `GRADIENT_DIAMOND` or `GRADIENT_ANGULAR` paint into a true scalable
+/// [`VectorMeshPaint`] in local element coordinates without generating any bitmap resource.
+fn build_figma_mesh_paint(
+    kind: FigmaGradientKind,
+    stops: &[GradientStop],
+    uv_transform: Option<[f64; 6]>,
+    width: f64,
+    height: f64,
+    commands: &[PathCommand],
+) -> Option<VectorMeshPaint> {
+    if stops.len() < 2 {
+        return None;
+    }
+    let mut norm_stops: Vec<(f64, Color)> = stops
+        .iter()
+        .map(|s| ((f64::from(s.ratio) / 255.0).clamp(0.0, 1.0), s.color))
+        .collect();
+    norm_stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    let sw = if width.is_finite() {
+        width.clamp(1.0, 1e6)
+    } else {
+        100.0
+    };
+    let sh = if height.is_finite() {
+        height.clamp(1.0, 1e6)
+    } else {
+        100.0
+    };
+    let raw_m = uv_transform.unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+    let det = raw_m[0] * raw_m[4] - raw_m[1] * raw_m[3];
+    let [
+        m00,
+        m01,
+        m02,
+        m10,
+        m11,
+        m12,
+        inv00,
+        inv01,
+        inv02,
+        inv10,
+        inv11,
+        inv12,
+    ] = if det.is_finite() && det.abs() > 1e-9 {
+        let i00 = raw_m[4] / det;
+        let i01 = -raw_m[1] / det;
+        let i02 = -(i00 * raw_m[2] + i01 * raw_m[5]);
+        let i10 = -raw_m[3] / det;
+        let i11 = raw_m[0] / det;
+        let i12 = -(i10 * raw_m[2] + i11 * raw_m[5]);
+        [
+            raw_m[0], raw_m[1], raw_m[2], raw_m[3], raw_m[4], raw_m[5], i00, i01, i02, i10, i11,
+            i12,
+        ]
+    } else {
+        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    };
+
+    // Map canonical gradient space `(u, v)` (`[-1, 1]` around center `(gx, gy) = (0.5, 0.5)`)
+    // into element-local coordinates `[lx, ly]`.
+    let uv_to_local = |u: f64, v: f64| -> [f64; 2] {
+        let gx = 0.5 + 0.5 * u;
+        let gy = 0.5 + 0.5 * v;
+        let sx = inv00 * gx + inv01 * gy + inv02;
+        let sy = inv10 * gx + inv11 * gy + inv12;
+        [(sw * sx).clamp(-1e6, 1e6), (sh * sy).clamp(-1e6, 1e6)]
+    };
+
+    // Measure local contour bounds so the outer pad ring covers 100% of the vector shape.
+    let (mut bx0, mut by0, mut bx1, mut by1) = (0.0_f64, 0.0_f64, sw, sh);
+    if let Ok(Some(pb)) = path_bounds(commands) {
+        bx0 = bx0.min(pb.x_min);
+        by0 = by0.min(pb.y_min);
+        bx1 = bx1.max(pb.x_max);
+        by1 = by1.max(pb.y_max);
+    }
+    let local_to_uv = |lx: f64, ly: f64| -> [f64; 2] {
+        let sx = lx / sw;
+        let sy = ly / sh;
+        let gx = m00 * sx + m01 * sy + m02;
+        let gy = m10 * sx + m11 * sy + m12;
+        [2.0 * (gx - 0.5), 2.0 * (gy - 0.5)]
+    };
+
+    let mut max_manhattan = 1.0_f64;
+    let mut max_hypot = 1.0_f64;
+    for (cx, cy) in [(bx0, by0), (bx1, by0), (bx1, by1), (bx0, by1)] {
+        let [cu, cv] = local_to_uv(cx, cy);
+        if cu.is_finite() && cv.is_finite() {
+            max_manhattan = max_manhattan.max(cu.abs() + cv.abs());
+            max_hypot = max_hypot.max(cu.hypot(cv));
+        }
+    }
+
+    let mut triangles = Vec::new();
+    match kind {
+        FigmaGradientKind::Diamond => {
+            // Build ordered `(d_inner, c_inner, d_outer, c_outer)` Manhattan-distance bands.
+            let mut ring_knots: Vec<(f64, Color)> = Vec::with_capacity(norm_stops.len() + 3);
+            ring_knots.push((0.0, norm_stops[0].1));
+            for &(pos, col) in &norm_stops {
+                if let Some(last) = ring_knots.last()
+                    && (pos - last.0).abs() <= 1e-6
+                {
+                    if ring_knots.len() == 1 {
+                        ring_knots[0].1 = col;
+                    } else {
+                        ring_knots.push((pos, col));
+                    }
+                } else {
+                    ring_knots.push((pos, col));
+                }
+            }
+            let last_col = norm_stops[norm_stops.len() - 1].1;
+            if ring_knots.last().is_some_and(|&(d, _)| d < 1.0 - 1e-6) {
+                ring_knots.push((1.0, last_col));
+            }
+            let outer_d = (max_manhattan * 1.08).clamp(1.25, 1e4);
+            ring_knots.push((outer_d, last_col));
+
+            let dirs: [[f64; 2]; 4] = [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]];
+            let center_pt = uv_to_local(0.0, 0.0);
+            for q in 0..4 {
+                let d_a = dirs[q];
+                let d_b = dirs[(q + 1) % 4];
+                for band in ring_knots.windows(2) {
+                    let (r0, c0) = band[0];
+                    let (r1, c1) = band[1];
+                    if r1 - r0 <= 1e-6 {
+                        continue;
+                    }
+                    let a1 = uv_to_local(d_a[0] * r1, d_a[1] * r1);
+                    let b1 = uv_to_local(d_b[0] * r1, d_b[1] * r1);
+                    if r0 <= 1e-6 {
+                        triangles.push(VectorMeshTriangle {
+                            points: [center_pt, a1, b1],
+                            colors: [c0, c1, c1],
+                        });
+                    } else {
+                        let a0 = uv_to_local(d_a[0] * r0, d_a[1] * r0);
+                        let b0 = uv_to_local(d_b[0] * r0, d_b[1] * r0);
+                        triangles.push(VectorMeshTriangle {
+                            points: [a0, a1, b1],
+                            colors: [c0, c1, c1],
+                        });
+                        triangles.push(VectorMeshTriangle {
+                            points: [a0, b1, b0],
+                            colors: [c0, c1, c0],
+                        });
+                    }
+                }
+            }
+        }
+        FigmaGradientKind::Angular => {
+            const BASE_WEDGES: usize = 24;
+            let mut angles_t: Vec<f64> = (0..=BASE_WEDGES)
+                .map(|i| (i as f64) / (BASE_WEDGES as f64))
+                .collect();
+            for &(pos, _) in &norm_stops {
+                angles_t.push(pos.clamp(0.0, 1.0));
+            }
+            angles_t.sort_by(|a, b| a.total_cmp(b));
+            let mut unique_t: Vec<f64> = Vec::with_capacity(angles_t.len());
+            for t in angles_t {
+                if unique_t.last().is_none_or(|&prev| (t - prev).abs() > 1e-5) {
+                    unique_t.push(t);
+                }
+            }
+            if unique_t.len() < 2 {
+                unique_t = vec![0.0, 1.0];
+            }
+
+            // Average center colour for the tiny inner origin cap (`r in 0..0.02`).
+            let mut sum = [0u64; 4];
+            for k in 0..BASE_WEDGES {
+                let c = sample_sorted_stops(&norm_stops, ((k as f64) + 0.5) / (BASE_WEDGES as f64));
+                for ch in 0..4 {
+                    sum[ch] += u64::from(c[ch]);
+                }
+            }
+            let center_col: Color =
+                std::array::from_fn(|ch| (sum[ch] / (BASE_WEDGES as u64)) as u8);
+            let center_pt = uv_to_local(0.0, 0.0);
+
+            let outer_r = (max_hypot * 1.15).clamp(1.5, 1e4);
+            let radii = [0.02_f64, 0.35, 1.0, outer_r];
+
+            for pair in unique_t.windows(2) {
+                let t0 = pair[0];
+                let t1 = pair[1];
+                if t1 - t0 <= 1e-6 {
+                    continue;
+                }
+                let c0 = sample_sorted_stops(&norm_stops, (t0 + 1e-7).min(t1));
+                let c1 = sample_sorted_stops(&norm_stops, (t1 - 1e-7).max(t0));
+                let ang0 = t0 * std::f64::consts::TAU;
+                let ang1 = t1 * std::f64::consts::TAU;
+                let (s0, cos0) = ang0.sin_cos();
+                let (s1, cos1) = ang1.sin_cos();
+
+                let p_cap0 = uv_to_local(radii[0] * cos0, radii[0] * s0);
+                let p_cap1 = uv_to_local(radii[0] * cos1, radii[0] * s1);
+                triangles.push(VectorMeshTriangle {
+                    points: [center_pt, p_cap0, p_cap1],
+                    colors: [center_col, c0, c1],
+                });
+
+                for rw in radii.windows(2) {
+                    let r_in = rw[0];
+                    let r_out = rw[1];
+                    if r_out <= r_in {
+                        continue;
+                    }
+                    let q00 = uv_to_local(r_in * cos0, r_in * s0);
+                    let q10 = uv_to_local(r_out * cos0, r_out * s0);
+                    let q11 = uv_to_local(r_out * cos1, r_out * s1);
+                    let q01 = uv_to_local(r_in * cos1, r_in * s1);
+                    triangles.push(VectorMeshTriangle {
+                        points: [q00, q10, q11],
+                        colors: [c0, c0, c1],
+                    });
+                    triangles.push(VectorMeshTriangle {
+                        points: [q00, q11, q01],
+                        colors: [c0, c1, c1],
+                    });
+                }
+            }
+        }
+        FigmaGradientKind::Linear | FigmaGradientKind::Radial => return None,
+    }
+
+    let mesh = VectorMeshPaint {
+        patches: Vec::new(),
+        triangles,
+        linear_rgb: false,
+    };
+    mesh.validate().ok().map(|()| mesh)
+}
+
+// ============================================================================
+// Recursive Figma Auto Layout & Constraint Reflow Engine (`T-501`)
+// ============================================================================
+
+fn clamp_opt_dim(val: f64, min_v: Option<f64>, max_v: Option<f64>) -> f64 {
+    let mut out = if val.is_finite() {
+        val.clamp(0.0, 1e7)
+    } else {
+        0.0
+    };
+    if let Some(lo) = min_v.filter(|v| v.is_finite() && *v >= 0.0) {
+        out = out.max(lo.min(1e7));
+    }
+    if let Some(hi) = max_v.filter(|v| v.is_finite() && *v >= 0.0) {
+        let eff_hi = match min_v.filter(|v| v.is_finite() && *v >= 0.0) {
+            Some(lo) => hi.max(lo).min(1e7),
+            None => hi.min(1e7),
+        };
+        out = out.min(eff_hi);
+    }
+    out
+}
+
+fn estimate_char_advance_em(ch: char) -> f64 {
+    match ch {
+        ' ' => 0.28,
+        'i' | 'l' | 'I' | 'j' | '!' | '.' | ',' | ':' | ';' | '\'' | '|' => 0.28,
+        't' | 'f' | 'r' | '1' | '(' | ')' | '[' | ']' | '-' => 0.36,
+        'm' | 'w' => 0.80,
+        'M' | 'W' | '@' | '%' => 0.86,
+        'A'..='Z' => 0.64,
+        '0'..='9' => 0.56,
+        c if (c as u32) >= 0x2E80 => 1.0,
+        _ => 0.53,
+    }
+}
+
+fn measure_figma_text_line(line: &str, td: &FigmaTextData) -> f64 {
+    let fs = td.font_size.clamp(1.0, 1024.0);
+    let weight_scale = if td.bold { 1.06 } else { 1.0 };
+    let ls = td.letter_spacing.clamp(-60.0, 60.0);
+    let mut width = 0.0;
+    let mut count = 0usize;
+    for ch in line.chars() {
+        width += estimate_char_advance_em(ch) * fs * weight_scale;
+        count += 1;
+    }
+    if count > 1 {
+        width += (count - 1) as f64 * ls;
+    }
+    width.max(0.0)
+}
+
+fn measure_figma_text_intrinsic(td: &FigmaTextData, constrained_width: Option<f64>) -> (f64, f64) {
+    let fs = td.font_size.clamp(1.0, 1024.0);
+    let line_adv = td
+        .line_height
+        .filter(|lh| lh.is_finite() && *lh > 0.0)
+        .unwrap_or_else(|| (fs * 1.2).ceil())
+        .max(1.0);
+    let norm = neoflash_core::normalize_text(&td.characters);
+    if norm.is_empty() {
+        return (constrained_width.unwrap_or(1.0).max(1.0), line_adv);
+    }
+
+    if let Some(max_w) = constrained_width {
+        let cap_w = max_w.max(fs * 0.6).max(1.0);
+        let space_w = (0.28 * fs * if td.bold { 1.06 } else { 1.0 } + td.letter_spacing).max(1.0);
+        let mut total_lines = 0usize;
+        for para in norm.split('\n') {
+            if para.is_empty() {
+                total_lines += 1;
+                continue;
+            }
+            let mut cur_w = 0.0;
+            let mut any_word = false;
+            for word in para.split(' ') {
+                let ww = measure_figma_text_line(word, td);
+                if !any_word {
+                    cur_w = ww;
+                    any_word = true;
+                    if ww > cap_w && word.chars().count() > 1 {
+                        let extra = ((ww / cap_w).ceil() as usize).saturating_sub(1);
+                        total_lines += extra;
+                        cur_w = ww % cap_w;
+                    }
+                } else if cur_w + space_w + ww <= cap_w + 1e-3 {
+                    cur_w += space_w + ww;
+                } else {
+                    total_lines += 1;
+                    cur_w = ww;
+                    if ww > cap_w && word.chars().count() > 1 {
+                        let extra = ((ww / cap_w).ceil() as usize).saturating_sub(1);
+                        total_lines += extra;
+                        cur_w = ww % cap_w;
+                    }
+                }
+            }
+            total_lines += 1;
+        }
+        let h = (total_lines.max(1) as f64 * line_adv).ceil().max(1.0);
+        return (max_w.max(1.0), h);
+    }
+
+    let mut max_line_w = 1.0_f64;
+    let mut lines = 0usize;
+    for para in norm.split('\n') {
+        max_line_w = max_line_w.max(measure_figma_text_line(para, td).ceil());
+        lines += 1;
+    }
+    let h = (lines.max(1) as f64 * line_adv).ceil().max(1.0);
+    (max_line_w.max(1.0), h)
+}
+
+fn master_uses_layout_or_constraints(node: &FigmaNode) -> bool {
+    if node.auto_layout.layout_mode != FigmaLayoutMode::None {
+        return true;
+    }
+    node.children.iter().any(|c| {
+        c.auto_layout.constraint_h != FigmaConstraintH::Left
+            || c.auto_layout.constraint_v != FigmaConstraintV::Top
+            || c.auto_layout.layout_mode != FigmaLayoutMode::None
+            || master_uses_layout_or_constraints(c)
+    })
+}
+
+fn set_node_rel_xy(node: &mut FigmaNode, nx: f64, ny: f64) {
+    let sx = if nx.is_finite() {
+        nx.clamp(-1e7, 1e7)
+    } else {
+        0.0
+    };
+    let sy = if ny.is_finite() {
+        ny.clamp(-1e7, 1e7)
+    } else {
+        0.0
+    };
+    node.x = sx;
+    node.y = sy;
+    if let Some([a, b, c, d, _, _]) = node.relative_transform {
+        node.relative_transform = Some([a, b, c, d, sx, sy]);
+    } else if node.rotation_deg == 0.0 {
+        node.relative_transform = Some([1.0, 0.0, 0.0, 1.0, sx, sy]);
+    }
+    node.auto_layout.has_explicit_position = true;
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_child_constraints_for_parent_resize<M: MasterNodeRef>(
+    child: &mut FigmaNode,
+    old_pw: f64,
+    old_ph: f64,
+    new_pw: f64,
+    new_ph: f64,
+    masters: &HashMap<String, M>,
+    ctx: &mut ReflowCtx,
+    depth: usize,
+) {
+    if depth > 64 || ctx.remaining_steps == 0 {
+        return;
+    }
+    ctx.remaining_steps -= 1;
+
+    let dw = new_pw - old_pw;
+    let dh = new_ph - old_ph;
+    let mut nx = if child.x.is_finite() {
+        child.x.clamp(-1e7, 1e7)
+    } else {
+        0.0
+    };
+    let mut ny = if child.y.is_finite() {
+        child.y.clamp(-1e7, 1e7)
+    } else {
+        0.0
+    };
+    let mut nw = clamp_opt_dim(child.width, None, None);
+    let mut nh = clamp_opt_dim(child.height, None, None);
+
+    if dw.is_finite() && dw.abs() > 1e-4 {
+        match child.auto_layout.constraint_h {
+            FigmaConstraintH::Left => {}
+            FigmaConstraintH::Right => nx += dw,
+            FigmaConstraintH::LeftAndRight => {
+                nw = clamp_opt_dim(
+                    nw + dw,
+                    child.auto_layout.min_width,
+                    child.auto_layout.max_width,
+                );
+            }
+            FigmaConstraintH::Center => nx += dw * 0.5,
+            FigmaConstraintH::Scale => {
+                if old_pw > 1e-6 && new_pw.is_finite() {
+                    let sx = (new_pw / old_pw).clamp(0.0, 1e4);
+                    nx *= sx;
+                    nw = clamp_opt_dim(
+                        nw * sx,
+                        child.auto_layout.min_width,
+                        child.auto_layout.max_width,
+                    );
+                }
+            }
+        }
+    }
+    if dh.is_finite() && dh.abs() > 1e-4 {
+        match child.auto_layout.constraint_v {
+            FigmaConstraintV::Top => {}
+            FigmaConstraintV::Bottom => ny += dh,
+            FigmaConstraintV::TopAndBottom => {
+                nh = clamp_opt_dim(
+                    nh + dh,
+                    child.auto_layout.min_height,
+                    child.auto_layout.max_height,
+                );
+            }
+            FigmaConstraintV::Center => ny += dh * 0.5,
+            FigmaConstraintV::Scale => {
+                if old_ph > 1e-6 && new_ph.is_finite() {
+                    let sy = (new_ph / old_ph).clamp(0.0, 1e4);
+                    ny *= sy;
+                    nh = clamp_opt_dim(
+                        nh * sy,
+                        child.auto_layout.min_height,
+                        child.auto_layout.max_height,
+                    );
+                }
+            }
+        }
+    }
+
+    let size_changed = (nw - child.width).abs() > 1e-4 || (nh - child.height).abs() > 1e-4;
+    let old_cw = child.width;
+    let old_ch = child.height;
+    set_node_rel_xy(child, nx, ny);
+    child.width = nw;
+    child.height = nh;
+
+    if size_changed && depth < 64 && ctx.remaining_steps > 0 {
+        child.auto_layout.has_explicit_size = true;
+        if let Some(td) = &child.text
+            && td.auto_resize == "HEIGHT"
+            && (nw - old_cw).abs() > 1e-4
+        {
+            let (_, th) = measure_figma_text_intrinsic(td, Some(nw));
+            child.height = clamp_opt_dim(
+                th,
+                child.auto_layout.min_height,
+                child.auto_layout.max_height,
+            );
+        } else if child.auto_layout.layout_mode != FigmaLayoutMode::None {
+            if (nw - old_cw).abs() > 1e-4
+                && child.auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug
+            {
+                child.auto_layout.sizing_horizontal = FigmaLayoutSizing::Fixed;
+            }
+            if (nh - old_ch).abs() > 1e-4
+                && child.auto_layout.sizing_vertical == FigmaLayoutSizing::Hug
+            {
+                child.auto_layout.sizing_vertical = FigmaLayoutSizing::Fixed;
+            }
+            let _ = reflow_figma_node_inner(child, masters, ctx, true, depth + 1);
+        } else if !child.children.is_empty() {
+            for grand in &mut child.children {
+                if ctx.remaining_steps == 0 {
+                    break;
+                }
+                apply_child_constraints_for_parent_resize(
+                    grand,
+                    old_cw,
+                    old_ch,
+                    nw,
+                    nh,
+                    masters,
+                    ctx,
+                    depth + 1,
+                );
+            }
+        }
+    }
+}
+
+fn resize_container_to_dimensions<M: MasterNodeRef>(
+    node: &mut FigmaNode,
+    target_w: f64,
+    target_h: f64,
+    masters: &HashMap<String, M>,
+    ctx: &mut ReflowCtx,
+    depth: usize,
+) {
+    if depth > 64 || ctx.remaining_steps == 0 {
+        return;
+    }
+    ctx.remaining_steps -= 1;
+
+    let nw = clamp_opt_dim(
+        target_w,
+        node.auto_layout.min_width,
+        node.auto_layout.max_width,
+    );
+    let nh = clamp_opt_dim(
+        target_h,
+        node.auto_layout.min_height,
+        node.auto_layout.max_height,
+    );
+    let old_w = node.width;
+    let old_h = node.height;
+    if (nw - old_w).abs() <= 1e-4 && (nh - old_h).abs() <= 1e-4 {
+        return;
+    }
+    node.width = nw;
+    node.height = nh;
+    node.auto_layout.has_explicit_size = true;
+
+    if node.auto_layout.layout_mode != FigmaLayoutMode::None {
+        if (nw - old_w).abs() > 1e-4 {
+            node.auto_layout.sizing_horizontal = FigmaLayoutSizing::Fixed;
+        }
+        if (nh - old_h).abs() > 1e-4 {
+            node.auto_layout.sizing_vertical = FigmaLayoutSizing::Fixed;
+        }
+        for child in &mut node.children {
+            if ctx.remaining_steps == 0 {
+                break;
+            }
+            if child.auto_layout.layout_positioning == FigmaLayoutPositioning::Absolute {
+                apply_child_constraints_for_parent_resize(
+                    child,
+                    old_w,
+                    old_h,
+                    nw,
+                    nh,
+                    masters,
+                    ctx,
+                    depth + 1,
+                );
+            }
+        }
+        let _ = reflow_figma_node_inner(node, masters, ctx, true, depth + 1);
+    } else {
+        for child in &mut node.children {
+            if ctx.remaining_steps == 0 {
+                break;
+            }
+            apply_child_constraints_for_parent_resize(
+                child,
+                old_w,
+                old_h,
+                nw,
+                nh,
+                masters,
+                ctx,
+                depth + 1,
+            );
+        }
+    }
+}
+
+fn child_stroke_outset(child: &FigmaNode, include_strokes: bool) -> f64 {
+    if !include_strokes || child.strokes.is_empty() {
+        return 0.0;
+    }
+    let w = if let Some([bt, br, bb, bl]) = child.border_weights {
+        bt.max(br).max(bb).max(bl)
+    } else {
+        child.stroke_weight
+    };
+    if !w.is_finite() || w <= 0.0 {
+        return 0.0;
+    }
+    match child.auto_layout.stroke_align.as_str() {
+        "OUTSIDE" => w,
+        "CENTER" => w * 0.5,
+        _ => 0.0,
+    }
+}
+
+fn parent_inside_border_pads(node: &FigmaNode) -> [f64; 4] {
+    if !node.auto_layout.strokes_included_in_layout || node.strokes.is_empty() {
+        return [0.0; 4];
+    }
+    let factor = match node.auto_layout.stroke_align.as_str() {
+        "INSIDE" => 1.0,
+        "CENTER" => 0.5,
+        _ => 0.0,
+    };
+    if factor <= 0.0 {
+        return [0.0; 4];
+    }
+    if let Some([bt, br, bb, bl]) = node.border_weights {
+        [
+            bt.max(0.0) * factor,
+            br.max(0.0) * factor,
+            bb.max(0.0) * factor,
+            bl.max(0.0) * factor,
+        ]
+    } else {
+        let w = node.stroke_weight.max(0.0) * factor;
+        [w; 4]
+    }
+}
+
+fn child_fills_primary(child: &FigmaNode, is_row: bool) -> bool {
+    let axis_sz = if is_row {
+        child.auto_layout.sizing_horizontal
+    } else {
+        child.auto_layout.sizing_vertical
+    };
+    axis_sz == FigmaLayoutSizing::Fill || child.auto_layout.layout_grow >= 1.0
+}
+
+fn child_fills_counter(child: &FigmaNode, is_row: bool) -> bool {
+    let axis_sz = if is_row {
+        child.auto_layout.sizing_vertical
+    } else {
+        child.auto_layout.sizing_horizontal
+    };
+    axis_sz == FigmaLayoutSizing::Fill || child.auto_layout.layout_align == "STRETCH"
+}
+
+fn auto_layout_should_reflow(node: &FigmaNode, any_child_changed: bool, force: bool) -> bool {
+    if force || any_child_changed {
+        return true;
+    }
+    let is_row = node.auto_layout.layout_mode == FigmaLayoutMode::Horizontal;
+    let primary_hug = if is_row {
+        node.auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug
+    } else {
+        node.auto_layout.sizing_vertical == FigmaLayoutSizing::Hug
+    };
+    let counter_hug = if is_row {
+        node.auto_layout.sizing_vertical == FigmaLayoutSizing::Hug
+    } else {
+        node.auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug
+    };
+    if (primary_hug || counter_hug) && !node.auto_layout.has_explicit_size {
+        return true;
+    }
+
+    let flow: Vec<&FigmaNode> = node
+        .children
+        .iter()
+        .filter(|c| c.visible && c.auto_layout.layout_positioning == FigmaLayoutPositioning::Auto)
+        .collect();
+    if flow.is_empty() {
+        return primary_hug || counter_hug;
+    }
+    if flow.iter().any(|c| !c.auto_layout.has_explicit_position) {
+        return true;
+    }
+
+    // Detect unpositioned `[0, 0]` children when layout offsets should place at least one child away from `[0, 0]`.
+    let all_at_zero = flow.iter().all(|c| c.x.abs() <= 1e-4 && c.y.abs() <= 1e-4);
+    if all_at_zero
+        && (flow.len() >= 2
+            || node.auto_layout.padding_left > 0.5
+            || node.auto_layout.padding_top > 0.5
+            || node.auto_layout.primary_axis_align_items != FigmaPrimaryAlign::Min
+            || node.auto_layout.counter_axis_align_items != FigmaCounterAlign::Min)
+    {
+        return true;
+    }
+
+    // Detect unapplied `FILL`, `HUG`, `WRAP`, or min/max constraints on authored JSON/Kiwi nodes.
+    let [bt, br, bb, bl] = parent_inside_border_pads(node);
+    let pad_p = if is_row {
+        node.auto_layout.padding_left + node.auto_layout.padding_right + bl + br
+    } else {
+        node.auto_layout.padding_top + node.auto_layout.padding_bottom + bt + bb
+    };
+    let pad_c = if is_row {
+        node.auto_layout.padding_top + node.auto_layout.padding_bottom + bt + bb
+    } else {
+        node.auto_layout.padding_left + node.auto_layout.padding_right + bl + br
+    };
+    let parent_p = if is_row { node.width } else { node.height };
+    let parent_c = if is_row { node.height } else { node.width };
+    let avail_p = (parent_p - pad_p).max(0.0);
+    let avail_c = (parent_c - pad_c).max(0.0);
+
+    let sum_p: f64 = flow
+        .iter()
+        .map(|c| if is_row { c.width } else { c.height })
+        .sum::<f64>()
+        + (flow.len().saturating_sub(1) as f64) * node.auto_layout.item_spacing;
+    let max_c: f64 = flow
+        .iter()
+        .map(|c| if is_row { c.height } else { c.width })
+        .fold(0.0, f64::max);
+
+    if node.auto_layout.layout_wrap == FigmaLayoutWrap::Wrap
+        && !primary_hug
+        && sum_p > avail_p + 2.0
+    {
+        let same_cross = flow.windows(2).all(|w| {
+            let c0 = if is_row { w[0].y } else { w[0].x };
+            let c1 = if is_row { w[1].y } else { w[1].x };
+            (c0 - c1).abs() <= 1.0
+        });
+        if same_cross {
+            return true;
+        }
+    }
+    if node.auto_layout.layout_wrap == FigmaLayoutWrap::NoWrap {
+        if primary_hug && (parent_p - (sum_p + pad_p)).abs() > 2.0 {
+            return true;
+        }
+        if !primary_hug
+            && flow.iter().any(|c| child_fills_primary(c, is_row))
+            && (avail_p - sum_p).abs() > 2.0
+        {
+            return true;
+        }
+        if counter_hug && (parent_c - (max_c + pad_c)).abs() > 2.0 {
+            return true;
+        }
+        if !counter_hug {
+            for c in &flow {
+                if child_fills_counter(c, is_row) {
+                    let cc = if is_row { c.height } else { c.width };
+                    if (cc - avail_c).abs() > 2.0 {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Reflow a [`FigmaNode`] hierarchy's nested Auto Layout (`HORIZONTAL` / `VERTICAL` / `WRAP` /
+/// `HUG` / `FILL` / `SPACE_BETWEEN` / `BASELINE` / `ABSOLUTE` constraints / `min`/`max` bounds).
+#[allow(dead_code)]
+pub(super) fn reflow_figma_auto_layout(node: &mut FigmaNode) {
+    let empty_masters: HashMap<String, FigmaNode> = HashMap::new();
+    let mut ctx = ReflowCtx::new();
+    let _ = reflow_figma_node_inner(node, &empty_masters, &mut ctx, false, 0);
+    apply_reverse_z_order_recursive(node, 0);
+}
+
+fn collect_owned_masters(node: &FigmaNode, out: &mut HashMap<String, FigmaNode>, depth: usize) {
+    if depth > 64 {
+        return;
+    }
+    if matches!(node.node_type.as_str(), "COMPONENT" | "SYMBOL")
+        && !node.is_state_group
+        && !out.contains_key(&node.id)
+    {
+        out.insert(node.id.clone(), node.clone());
+    }
+    for child in &node.children {
+        collect_owned_masters(child, out, depth + 1);
+    }
+}
+
+fn reflow_figma_doc(doc: &mut FigmaDoc) {
+    let mut ctx = ReflowCtx::new();
+    // Pass 1: Reflow any Auto Layout inside master `COMPONENT` / `SYMBOL` definitions first.
+    let mut seed_masters = HashMap::new();
+    for page in &doc.pages {
+        collect_owned_masters(page, &mut seed_masters, 0);
+    }
+    for page in &mut doc.pages {
+        if ctx.remaining_steps == 0 {
+            break;
+        }
+        reflow_masters_in_subtree(page, &seed_masters, &mut ctx, 0);
+    }
+    let mut masters = HashMap::new();
+    for page in &doc.pages {
+        collect_owned_masters(page, &mut masters, 0);
+    }
+    // Pass 2: Reflow all pages (sharing cycle guard + memo + step budget).
+    ctx.remaining_steps = MAX_REFLOW_STEPS;
+    ctx.visiting_masters.clear();
+    for page in &mut doc.pages {
+        let _ = reflow_figma_node_inner(page, &masters, &mut ctx, false, 0);
+        apply_reverse_z_order_recursive(page, 0);
+    }
+}
+
+fn reflow_masters_in_subtree<M: MasterNodeRef>(
+    node: &mut FigmaNode,
+    masters: &HashMap<String, M>,
+    ctx: &mut ReflowCtx,
+    depth: usize,
+) {
+    if depth > 64 || ctx.remaining_steps == 0 {
+        return;
+    }
+    if matches!(node.node_type.as_str(), "COMPONENT" | "SYMBOL") && !node.is_state_group {
+        let mid = node.id.clone();
+        if !ctx.visiting_masters.insert(mid.clone()) {
+            return;
+        }
+        let _ = reflow_figma_node_inner(node, masters, ctx, false, depth);
+        ctx.visiting_masters.remove(&mid);
+        return;
+    }
+    for child in &mut node.children {
+        if ctx.remaining_steps == 0 {
+            break;
+        }
+        reflow_masters_in_subtree(child, masters, ctx, depth + 1);
+    }
+}
+
+fn apply_reverse_z_order_recursive(node: &mut FigmaNode, depth: usize) {
+    if depth > 64 {
+        return;
+    }
+    for child in &mut node.children {
+        apply_reverse_z_order_recursive(child, depth + 1);
+    }
+    if node.auto_layout.layout_mode != FigmaLayoutMode::None
+        && node.auto_layout.item_reverse_z_index
+    {
+        let flow_indices: Vec<usize> = node
+            .children
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.auto_layout.layout_positioning == FigmaLayoutPositioning::Auto)
+            .map(|(i, _)| i)
+            .collect();
+        let n = flow_indices.len();
+        for k in 0..(n / 2) {
+            node.children.swap(flow_indices[k], flow_indices[n - 1 - k]);
+        }
+        node.auto_layout.item_reverse_z_index = false;
+    }
+}
+
+fn reflow_figma_node_inner<M: MasterNodeRef>(
+    node: &mut FigmaNode,
+    masters: &HashMap<String, M>,
+    ctx: &mut ReflowCtx,
+    force_self: bool,
+    depth: usize,
+) -> bool {
+    if depth > 64 || ctx.remaining_steps == 0 {
+        return false;
+    }
+    ctx.remaining_steps -= 1;
+
+    node.width = clamp_opt_dim(node.width, None, None);
+    node.height = clamp_opt_dim(node.height, None, None);
+    let old_self_w = node.width;
+    let old_self_h = node.height;
+
+    // 1. Intrinsic text measurement when a `TEXT` leaf has no explicit size (or was marked dirty by override).
+    if let Some(td) = &node.text
+        && !node.auto_layout.has_explicit_size
+    {
+        let (tw, th) = match td.auto_resize.as_str() {
+            "HEIGHT" => measure_figma_text_intrinsic(td, Some(node.width.max(1.0))),
+            "WIDTH_AND_HEIGHT" => measure_figma_text_intrinsic(td, None),
+            _ => (node.width, node.height),
+        };
+        node.width = clamp_opt_dim(tw, node.auto_layout.min_width, node.auto_layout.max_width);
+        node.height = clamp_opt_dim(th, node.auto_layout.min_height, node.auto_layout.max_height);
+        node.auto_layout.has_explicit_size = true;
+    }
+
+    // 2. If `INSTANCE` has overrides without pre-baked `instance_text_layouts` and references a `HUG`
+    //    Auto Layout master, update its intrinsic `HUG` dimensions (breaking cycles via `visiting_masters`,
+    //    memoizing DAG nodes in `hug_memo`, and enforcing `remaining_steps`).
+    if node.node_type == "INSTANCE"
+        && !node.symbol_overrides.is_empty()
+        && node.instance_text_layouts.is_empty()
+        && let Some(cid) = node.component_id.clone()
+        && !ctx.visiting_masters.contains(&cid)
+        && let Some(master_entry) = masters.get(&cid)
+    {
+        let master = master_entry.as_figma_node();
+        if master.auto_layout.layout_mode != FigmaLayoutMode::None {
+            let hug_h = node.auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug
+                || (!node.auto_layout.has_explicit_size
+                    && master.auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug)
+                || ((node.width - master.width).abs() < 0.5
+                    && master.auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug);
+            let hug_v = node.auto_layout.sizing_vertical == FigmaLayoutSizing::Hug
+                || (!node.auto_layout.has_explicit_size
+                    && master.auto_layout.sizing_vertical == FigmaLayoutSizing::Hug)
+                || ((node.height - master.height).abs() < 0.5
+                    && master.auto_layout.sizing_vertical == FigmaLayoutSizing::Hug);
+            if hug_h || hug_v {
+                let memo_key = hash_instance_overrides(&cid, node, false);
+                let resolved_dims = if let Some(&cached) = ctx.hug_memo.get(&memo_key) {
+                    Some(cached)
+                } else if ctx.remaining_steps > 0 {
+                    let mut spec = master.clone();
+                    let mut any_ov = false;
+                    for ov in &node.symbol_overrides {
+                        if apply_override_at_path(&mut spec, &ov.guid_path, ov, true) {
+                            any_ov = true;
+                        }
+                    }
+                    if any_ov {
+                        ctx.visiting_masters.insert(cid.clone());
+                        let _ = reflow_figma_node_inner(&mut spec, masters, ctx, true, depth + 1);
+                        ctx.visiting_masters.remove(&cid);
+                        let dims = (spec.width, spec.height);
+                        if ctx.remaining_steps > 0 && ctx.hug_memo.len() < 8_192 {
+                            ctx.hug_memo.insert(memo_key, dims);
+                        }
+                        Some(dims)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if let Some((sw, sh)) = resolved_dims {
+                    if hug_h {
+                        node.width = clamp_opt_dim(
+                            sw,
+                            node.auto_layout.min_width,
+                            node.auto_layout.max_width,
+                        );
+                    }
+                    if hug_v {
+                        node.height = clamp_opt_dim(
+                            sh,
+                            node.auto_layout.min_height,
+                            node.auto_layout.max_height,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Bottom-up recursive reflow of children first.
+    let mut any_child_changed = false;
+    for child in &mut node.children {
+        if ctx.remaining_steps == 0 {
+            break;
+        }
+        if reflow_figma_node_inner(child, masters, ctx, false, depth + 1) {
+            any_child_changed = true;
+        }
+    }
+
+    if node.auto_layout.layout_mode == FigmaLayoutMode::None {
+        return (node.width - old_self_w).abs() > 1e-3 || (node.height - old_self_h).abs() > 1e-3;
+    }
+
+    if !auto_layout_should_reflow(node, any_child_changed, force_self) {
+        return (node.width - old_self_w).abs() > 1e-3 || (node.height - old_self_h).abs() > 1e-3;
+    }
+
+    let is_row = node.auto_layout.layout_mode == FigmaLayoutMode::Horizontal;
+    let include_strokes = node.auto_layout.strokes_included_in_layout;
+    let [bt, br, bb, bl] = parent_inside_border_pads(node);
+    let (pad_p_start, pad_p_end, pad_c_start, pad_c_end) = if is_row {
+        (
+            node.auto_layout.padding_left + bl,
+            node.auto_layout.padding_right + br,
+            node.auto_layout.padding_top + bt,
+            node.auto_layout.padding_bottom + bb,
+        )
+    } else {
+        (
+            node.auto_layout.padding_top + bt,
+            node.auto_layout.padding_bottom + bb,
+            node.auto_layout.padding_left + bl,
+            node.auto_layout.padding_right + br,
+        )
+    };
+    let (primary_sizing, counter_sizing) = if is_row {
+        (
+            node.auto_layout.sizing_horizontal,
+            node.auto_layout.sizing_vertical,
+        )
+    } else {
+        (
+            node.auto_layout.sizing_vertical,
+            node.auto_layout.sizing_horizontal,
+        )
+    };
+    let (min_p, max_p, min_c, max_c) = if is_row {
+        (
+            node.auto_layout.min_width,
+            node.auto_layout.max_width,
+            node.auto_layout.min_height,
+            node.auto_layout.max_height,
+        )
+    } else {
+        (
+            node.auto_layout.min_height,
+            node.auto_layout.max_height,
+            node.auto_layout.min_width,
+            node.auto_layout.max_width,
+        )
+    };
+
+    let flow_indices: Vec<usize> = node
+        .children
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| {
+            c.visible && c.auto_layout.layout_positioning == FigmaLayoutPositioning::Auto
+        })
+        .map(|(i, _)| i)
+        .collect();
+
+    if flow_indices.is_empty() {
+        let mut new_p = if is_row { node.width } else { node.height };
+        let mut new_c = if is_row { node.height } else { node.width };
+        if primary_sizing == FigmaLayoutSizing::Hug {
+            new_p = pad_p_start + pad_p_end;
+        }
+        if counter_sizing == FigmaLayoutSizing::Hug {
+            new_c = pad_c_start + pad_c_end;
+        }
+        new_p = clamp_opt_dim(new_p, min_p, max_p);
+        new_c = clamp_opt_dim(new_c, min_c, max_c);
+        let (nw, nh) = if is_row {
+            (new_p, new_c)
+        } else {
+            (new_c, new_p)
+        };
+        let prev_w = node.width;
+        let prev_h = node.height;
+        node.width = nw;
+        node.height = nh;
+        node.auto_layout.has_explicit_size = true;
+        if (nw - prev_w).abs() > 1e-4 || (nh - prev_h).abs() > 1e-4 {
+            for child in &mut node.children {
+                if ctx.remaining_steps == 0 {
+                    break;
+                }
+                if child.auto_layout.layout_positioning == FigmaLayoutPositioning::Absolute {
+                    apply_child_constraints_for_parent_resize(
+                        child,
+                        prev_w,
+                        prev_h,
+                        nw,
+                        nh,
+                        masters,
+                        ctx,
+                        depth + 1,
+                    );
+                }
+            }
+        }
+        return (node.width - old_self_w).abs() > 1e-3 || (node.height - old_self_h).abs() > 1e-3;
+    }
+
+    let gap_p = node.auto_layout.item_spacing;
+    let gap_for_wrap =
+        if node.auto_layout.primary_axis_align_items == FigmaPrimaryAlign::SpaceBetween {
+            gap_p.max(0.0)
+        } else {
+            gap_p
+        };
+
+    // Base primary box size (including optional stroke outset) for line breaking.
+    let child_p_bounds = |c: &FigmaNode| -> (Option<f64>, Option<f64>) {
+        if is_row {
+            (c.auto_layout.min_width, c.auto_layout.max_width)
+        } else {
+            (c.auto_layout.min_height, c.auto_layout.max_height)
+        }
+    };
+    let child_c_bounds = |c: &FigmaNode| -> (Option<f64>, Option<f64>) {
+        if is_row {
+            (c.auto_layout.min_height, c.auto_layout.max_height)
+        } else {
+            (c.auto_layout.min_width, c.auto_layout.max_width)
+        }
+    };
+
+    let mut base_p_box = vec![0.0_f64; node.children.len()];
+    for &ci in &flow_indices {
+        let c = &node.children[ci];
+        let out = child_stroke_outset(c, include_strokes);
+        let (lo, hi) = child_p_bounds(c);
+        let raw = if is_row { c.width } else { c.height };
+        let inner = if child_fills_primary(c, is_row)
+            && node.auto_layout.layout_wrap == FigmaLayoutWrap::Wrap
+        {
+            clamp_opt_dim(lo.unwrap_or(raw), lo, hi)
+        } else {
+            clamp_opt_dim(raw, lo, hi)
+        };
+        base_p_box[ci] = (inner + 2.0 * out).max(0.0);
+    }
+
+    let authored_p = if is_row { node.width } else { node.height };
+    let wrap_avail: Option<f64> = if node.auto_layout.layout_wrap == FigmaLayoutWrap::Wrap {
+        if primary_sizing != FigmaLayoutSizing::Hug {
+            let eff_p = clamp_opt_dim(authored_p, min_p, max_p);
+            Some((eff_p - pad_p_start - pad_p_end).max(0.0))
+        } else {
+            max_p.map(|mp| (mp - pad_p_start - pad_p_end).max(0.0))
+        }
+    } else {
+        None
+    };
+
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    if let Some(limit_p) = wrap_avail {
+        let mut cur_line: Vec<usize> = Vec::new();
+        let mut cur_used = 0.0_f64;
+        for &ci in &flow_indices {
+            let b = base_p_box[ci];
+            let next_used = if cur_line.is_empty() {
+                b
+            } else {
+                cur_used + gap_for_wrap + b
+            };
+            if !cur_line.is_empty() && next_used > limit_p + 1e-4 {
+                lines.push(cur_line);
+                cur_line = vec![ci];
+                cur_used = b;
+            } else {
+                cur_line.push(ci);
+                cur_used = next_used;
+            }
+        }
+        if !cur_line.is_empty() {
+            lines.push(cur_line);
+        }
+    } else {
+        lines.push(flow_indices.clone());
+    }
+
+    // Measure natural primary span across lines and resolve container primary dimension.
+    let natural_max_line_p = lines
+        .iter()
+        .map(|line| {
+            line.iter().map(|&ci| base_p_box[ci]).sum::<f64>()
+                + (line.len().saturating_sub(1) as f64) * gap_p
+        })
+        .fold(0.0_f64, f64::max);
+
+    let container_p = if primary_sizing == FigmaLayoutSizing::Hug {
+        clamp_opt_dim(natural_max_line_p + pad_p_start + pad_p_end, min_p, max_p)
+    } else {
+        clamp_opt_dim(authored_p, min_p, max_p)
+    };
+    let avail_p = (container_p - pad_p_start - pad_p_end).max(0.0);
+
+    // Resolve per-item primary sizes on each line (including `FILL` distribution with min/max clamping).
+    let can_distribute_fill_p = primary_sizing != FigmaLayoutSizing::Hug
+        || container_p > natural_max_line_p + pad_p_start + pad_p_end + 1e-4;
+    let mut solved_p_box = base_p_box.clone();
+    if can_distribute_fill_p {
+        for line in &lines {
+            let gaps_total = if node.auto_layout.primary_axis_align_items
+                == FigmaPrimaryAlign::SpaceBetween
+                && line.len() > 1
+            {
+                0.0
+            } else {
+                (line.len().saturating_sub(1) as f64) * gap_p
+            };
+            let mut frozen = vec![false; line.len()];
+            let mut sizes = vec![0.0_f64; line.len()];
+            for (k, &ci) in line.iter().enumerate() {
+                if !child_fills_primary(&node.children[ci], is_row) {
+                    frozen[k] = true;
+                    sizes[k] = base_p_box[ci];
+                }
+            }
+            for _ in 0..4 {
+                let unfrozen_count = frozen.iter().filter(|&&f| !f).count();
+                if unfrozen_count == 0 {
+                    break;
+                }
+                let frozen_sum: f64 = sizes
+                    .iter()
+                    .zip(&frozen)
+                    .filter(|(_, f)| **f)
+                    .map(|(s, _)| *s)
+                    .sum();
+                let rem = (avail_p - gaps_total - frozen_sum).max(0.0);
+                let share = rem / (unfrozen_count as f64);
+                let mut any_clamped = false;
+                for (k, &ci) in line.iter().enumerate() {
+                    if frozen[k] {
+                        continue;
+                    }
+                    let c = &node.children[ci];
+                    let out = child_stroke_outset(c, include_strokes);
+                    let (lo, hi) = child_p_bounds(c);
+                    let target_inner = (share - 2.0 * out).max(0.0);
+                    let clamped_inner = clamp_opt_dim(target_inner, lo, hi);
+                    let clamped_box = clamped_inner + 2.0 * out;
+                    sizes[k] = clamped_box;
+                    if (clamped_inner - target_inner).abs() > 1e-4 {
+                        frozen[k] = true;
+                        any_clamped = true;
+                    }
+                }
+                if !any_clamped {
+                    break;
+                }
+            }
+            for (k, &ci) in line.iter().enumerate() {
+                solved_p_box[ci] = sizes[k];
+            }
+        }
+    }
+
+    // Apply primary widths first when `is_row`, so `HEIGHT`-wrapping text and nested `Wrap` frames
+    // update their cross-axis height before we measure line heights!
+    if is_row {
+        for &ci in &flow_indices {
+            if ctx.remaining_steps == 0 {
+                break;
+            }
+            let out = child_stroke_outset(&node.children[ci], include_strokes);
+            let new_w = (solved_p_box[ci] - 2.0 * out).max(0.0);
+            if (new_w - node.children[ci].width).abs() > 1e-4 {
+                let prev_cw = node.children[ci].width;
+                let prev_ch = node.children[ci].height;
+                node.children[ci].width = new_w;
+                node.children[ci].auto_layout.has_explicit_size = true;
+                if let Some(td) = &node.children[ci].text
+                    && td.auto_resize == "HEIGHT"
+                {
+                    let (_, th) = measure_figma_text_intrinsic(td, Some(new_w));
+                    node.children[ci].height = clamp_opt_dim(
+                        th,
+                        node.children[ci].auto_layout.min_height,
+                        node.children[ci].auto_layout.max_height,
+                    );
+                } else if node.children[ci].auto_layout.layout_mode != FigmaLayoutMode::None {
+                    if node.children[ci].auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug {
+                        node.children[ci].auto_layout.sizing_horizontal = FigmaLayoutSizing::Fixed;
+                    }
+                    let _ = reflow_figma_node_inner(
+                        &mut node.children[ci],
+                        masters,
+                        ctx,
+                        true,
+                        depth + 1,
+                    );
+                } else if !node.children[ci].children.is_empty() {
+                    let c_children = &mut node.children[ci];
+                    for grand in &mut c_children.children {
+                        if ctx.remaining_steps == 0 {
+                            break;
+                        }
+                        apply_child_constraints_for_parent_resize(
+                            grand,
+                            prev_cw,
+                            prev_ch,
+                            new_w,
+                            prev_ch,
+                            masters,
+                            ctx,
+                            depth + 1,
+                        );
+                    }
+                }
+            }
+        }
+    } else {
+        for &ci in &flow_indices {
+            if ctx.remaining_steps == 0 {
+                break;
+            }
+            let out = child_stroke_outset(&node.children[ci], include_strokes);
+            let new_h = (solved_p_box[ci] - 2.0 * out).max(0.0);
+            if (new_h - node.children[ci].height).abs() > 1e-4 {
+                let prev_cw = node.children[ci].width;
+                let prev_ch = node.children[ci].height;
+                node.children[ci].height = new_h;
+                node.children[ci].auto_layout.has_explicit_size = true;
+                if node.children[ci].auto_layout.layout_mode != FigmaLayoutMode::None {
+                    if node.children[ci].auto_layout.sizing_vertical == FigmaLayoutSizing::Hug {
+                        node.children[ci].auto_layout.sizing_vertical = FigmaLayoutSizing::Fixed;
+                    }
+                    let _ = reflow_figma_node_inner(
+                        &mut node.children[ci],
+                        masters,
+                        ctx,
+                        true,
+                        depth + 1,
+                    );
+                } else if !node.children[ci].children.is_empty() {
+                    let c_children = &mut node.children[ci];
+                    for grand in &mut c_children.children {
+                        if ctx.remaining_steps == 0 {
+                            break;
+                        }
+                        apply_child_constraints_for_parent_resize(
+                            grand,
+                            prev_cw,
+                            prev_ch,
+                            prev_cw,
+                            new_h,
+                            masters,
+                            ctx,
+                            depth + 1,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Measure counter-axis line metrics (supporting `BASELINE` alignment in horizontal rows).
+    let item_baseline = |c: &FigmaNode, box_h: f64| -> f64 {
+        if let Some(td) = &c.text {
+            let fs = td.font_size.clamp(1.0, 1024.0);
+            let lh = td.line_height.unwrap_or(fs * 1.2).max(fs);
+            ((lh - fs) * 0.5 + fs * 0.8).clamp(0.0, box_h)
+        } else {
+            box_h
+        }
+    };
+
+    let mut line_cross_sizes = Vec::with_capacity(lines.len());
+    let mut line_max_ascents = Vec::with_capacity(lines.len());
+    for line in &lines {
+        if is_row && node.auto_layout.counter_axis_align_items == FigmaCounterAlign::Baseline {
+            let mut max_asc = 0.0_f64;
+            let mut max_desc = 0.0_f64;
+            for &ci in line {
+                let c = &node.children[ci];
+                let out = child_stroke_outset(c, include_strokes);
+                let (lo, hi) = child_c_bounds(c);
+                let bh = clamp_opt_dim(c.height, lo, hi) + 2.0 * out;
+                let asc = item_baseline(c, bh);
+                max_asc = max_asc.max(asc);
+                max_desc = max_desc.max((bh - asc).max(0.0));
+            }
+            line_cross_sizes.push(max_asc + max_desc);
+            line_max_ascents.push(max_asc);
+        } else {
+            let mut mc = 0.0_f64;
+            for &ci in line {
+                let c = &node.children[ci];
+                let out = child_stroke_outset(c, include_strokes);
+                let (lo, hi) = child_c_bounds(c);
+                let raw_c = if is_row { c.height } else { c.width };
+                mc = mc.max(clamp_opt_dim(raw_c, lo, hi) + 2.0 * out);
+            }
+            line_cross_sizes.push(mc);
+            line_max_ascents.push(mc);
+        }
+    }
+
+    let counter_gap = node
+        .auto_layout
+        .counter_axis_spacing
+        .unwrap_or_else(|| gap_p.max(0.0));
+    let sum_line_cross: f64 = line_cross_sizes.iter().sum();
+    let total_lines_cross = sum_line_cross + (lines.len().saturating_sub(1) as f64) * counter_gap;
+
+    let authored_c = if is_row { node.height } else { node.width };
+    let mut container_c = if counter_sizing == FigmaLayoutSizing::Hug {
+        clamp_opt_dim(total_lines_cross + pad_c_start + pad_c_end, min_c, max_c)
+    } else {
+        clamp_opt_dim(authored_c, min_c, max_c)
+    };
+    let mut avail_c = (container_c - pad_c_start - pad_c_end).max(0.0);
+
+    // Stretch counter-axis `FILL` / `STRETCH` items; in Vertical layout (`!is_row`), stretching
+    // a child's width may change its `HEIGHT` text or wrapped height, so re-evaluate primary if needed!
+    let mut vertical_height_changed_after_stretch = false;
+    for (li, line) in lines.iter().enumerate() {
+        let stretch_target = if lines.len() == 1
+            && (counter_sizing != FigmaLayoutSizing::Hug || avail_c > line_cross_sizes[li])
+        {
+            avail_c
+        } else {
+            line_cross_sizes[li]
+        };
+        for &ci in line {
+            if ctx.remaining_steps == 0 {
+                break;
+            }
+            if !child_fills_counter(&node.children[ci], is_row) {
+                continue;
+            }
+            let out = child_stroke_outset(&node.children[ci], include_strokes);
+            let (lo, hi) = child_c_bounds(&node.children[ci]);
+            let new_inner_c = clamp_opt_dim((stretch_target - 2.0 * out).max(0.0), lo, hi);
+            if is_row {
+                if (new_inner_c - node.children[ci].height).abs() > 1e-4 {
+                    let prev_cw = node.children[ci].width;
+                    let prev_ch = node.children[ci].height;
+                    node.children[ci].height = new_inner_c;
+                    node.children[ci].auto_layout.has_explicit_size = true;
+                    if node.children[ci].auto_layout.layout_mode != FigmaLayoutMode::None {
+                        if node.children[ci].auto_layout.sizing_vertical == FigmaLayoutSizing::Hug {
+                            node.children[ci].auto_layout.sizing_vertical =
+                                FigmaLayoutSizing::Fixed;
+                        }
+                        let _ = reflow_figma_node_inner(
+                            &mut node.children[ci],
+                            masters,
+                            ctx,
+                            true,
+                            depth + 1,
+                        );
+                    } else if !node.children[ci].children.is_empty() {
+                        let c_children = &mut node.children[ci];
+                        for grand in &mut c_children.children {
+                            if ctx.remaining_steps == 0 {
+                                break;
+                            }
+                            apply_child_constraints_for_parent_resize(
+                                grand,
+                                prev_cw,
+                                prev_ch,
+                                prev_cw,
+                                new_inner_c,
+                                masters,
+                                ctx,
+                                depth + 1,
+                            );
+                        }
+                    }
+                }
+            } else if (new_inner_c - node.children[ci].width).abs() > 1e-4 {
+                let prev_cw = node.children[ci].width;
+                let prev_ch = node.children[ci].height;
+                node.children[ci].width = new_inner_c;
+                node.children[ci].auto_layout.has_explicit_size = true;
+                if let Some(td) = &node.children[ci].text
+                    && td.auto_resize == "HEIGHT"
+                {
+                    let (_, th) = measure_figma_text_intrinsic(td, Some(new_inner_c));
+                    let nh = clamp_opt_dim(
+                        th,
+                        node.children[ci].auto_layout.min_height,
+                        node.children[ci].auto_layout.max_height,
+                    );
+                    if !child_fills_primary(&node.children[ci], false) {
+                        node.children[ci].height = nh;
+                        solved_p_box[ci] = nh + 2.0 * out;
+                        vertical_height_changed_after_stretch = true;
+                    }
+                } else if node.children[ci].auto_layout.layout_mode != FigmaLayoutMode::None {
+                    if node.children[ci].auto_layout.sizing_horizontal == FigmaLayoutSizing::Hug {
+                        node.children[ci].auto_layout.sizing_horizontal = FigmaLayoutSizing::Fixed;
+                    }
+                    let _ = reflow_figma_node_inner(
+                        &mut node.children[ci],
+                        masters,
+                        ctx,
+                        true,
+                        depth + 1,
+                    );
+                    if !child_fills_primary(&node.children[ci], false) {
+                        solved_p_box[ci] = node.children[ci].height + 2.0 * out;
+                        vertical_height_changed_after_stretch = true;
+                    }
+                } else if !node.children[ci].children.is_empty() {
+                    let c_children = &mut node.children[ci];
+                    for grand in &mut c_children.children {
+                        if ctx.remaining_steps == 0 {
+                            break;
+                        }
+                        apply_child_constraints_for_parent_resize(
+                            grand,
+                            prev_cw,
+                            prev_ch,
+                            new_inner_c,
+                            prev_ch,
+                            masters,
+                            ctx,
+                            depth + 1,
+                        );
+                    }
+                }
+            }
+        }
+        line_cross_sizes[li] = line_cross_sizes[li].max(
+            line.iter()
+                .map(|&ci| {
+                    let c = &node.children[ci];
+                    let out = child_stroke_outset(c, include_strokes);
+                    (if is_row { c.height } else { c.width }) + 2.0 * out
+                })
+                .fold(0.0_f64, f64::max),
+        );
+    }
+
+    let mut final_container_p = container_p;
+    if !is_row && vertical_height_changed_after_stretch && primary_sizing == FigmaLayoutSizing::Hug
+    {
+        let updated_line_p = lines
+            .iter()
+            .map(|line| {
+                line.iter().map(|&ci| solved_p_box[ci]).sum::<f64>()
+                    + (line.len().saturating_sub(1) as f64) * gap_p
+            })
+            .fold(0.0_f64, f64::max);
+        final_container_p = clamp_opt_dim(updated_line_p + pad_p_start + pad_p_end, min_p, max_p);
+    }
+    if counter_sizing == FigmaLayoutSizing::Hug {
+        let updated_sum_c: f64 = line_cross_sizes.iter().sum();
+        let updated_tot_c = updated_sum_c + (lines.len().saturating_sub(1) as f64) * counter_gap;
+        container_c = clamp_opt_dim(updated_tot_c + pad_c_start + pad_c_end, min_c, max_c);
+        avail_c = (container_c - pad_c_start - pad_c_end).max(0.0);
+    }
+    let final_avail_p = (final_container_p - pad_p_start - pad_p_end).max(0.0);
+
+    // Compute counter-axis starting coordinate for each line.
+    let mut line_c_starts = Vec::with_capacity(lines.len());
+    if lines.len() == 1 {
+        let lc = line_cross_sizes[0];
+        let start_c = match node.auto_layout.counter_axis_align_items {
+            FigmaCounterAlign::Min | FigmaCounterAlign::Baseline => {
+                if node.auto_layout.counter_axis_align_items == FigmaCounterAlign::Baseline
+                    && counter_sizing != FigmaLayoutSizing::Hug
+                {
+                    pad_c_start + (avail_c - lc) * 0.5
+                } else {
+                    pad_c_start
+                }
+            }
+            FigmaCounterAlign::Center => pad_c_start + (avail_c - lc) * 0.5,
+            FigmaCounterAlign::Max => pad_c_start + (avail_c - lc),
+        };
+        line_c_starts.push((
+            start_c,
+            if counter_sizing == FigmaLayoutSizing::Hug {
+                lc
+            } else {
+                lc.max(avail_c)
+            },
+        ));
+    } else {
+        let sum_lc: f64 = line_cross_sizes.iter().sum();
+        let (mut cur_c, step_gap) = if node.auto_layout.counter_axis_align_content
+            == FigmaCounterAlignContent::SpaceBetween
+            && avail_c > sum_lc
+        {
+            (pad_c_start, (avail_c - sum_lc) / ((lines.len() - 1) as f64))
+        } else {
+            let block_h = sum_lc + ((lines.len() - 1) as f64) * counter_gap;
+            let offset = match node.auto_layout.counter_axis_align_items {
+                FigmaCounterAlign::Min | FigmaCounterAlign::Baseline => 0.0,
+                FigmaCounterAlign::Center => (avail_c - block_h) * 0.5,
+                FigmaCounterAlign::Max => avail_c - block_h,
+            };
+            (pad_c_start + offset, counter_gap)
+        };
+        for &lc in &line_cross_sizes {
+            line_c_starts.push((cur_c, lc));
+            cur_c += lc + step_gap;
+        }
+    }
+
+    // Place every flow item on its line!
+    for (li, line) in lines.iter().enumerate() {
+        let (line_c0, line_span_c) = if lines.len() == 1 {
+            // For single-line layout, items align directly within `avail_c` (except Baseline).
+            if node.auto_layout.counter_axis_align_items == FigmaCounterAlign::Baseline {
+                line_c_starts[0]
+            } else {
+                (pad_c_start, avail_c)
+            }
+        } else {
+            line_c_starts[li]
+        };
+        let used_p: f64 = line.iter().map(|&ci| solved_p_box[ci]).sum();
+        let (mut cur_p, step_p) = match node.auto_layout.primary_axis_align_items {
+            FigmaPrimaryAlign::SpaceBetween
+                if line.len() > 1 && primary_sizing != FigmaLayoutSizing::Hug =>
+            {
+                (
+                    pad_p_start,
+                    (final_avail_p - used_p) / ((line.len() - 1) as f64),
+                )
+            }
+            FigmaPrimaryAlign::Center => {
+                let tot = used_p + (line.len().saturating_sub(1) as f64) * gap_p;
+                (pad_p_start + (final_avail_p - tot) * 0.5, gap_p)
+            }
+            FigmaPrimaryAlign::Max => {
+                let tot = used_p + (line.len().saturating_sub(1) as f64) * gap_p;
+                (pad_p_start + (final_avail_p - tot), gap_p)
+            }
+            _ => (pad_p_start, gap_p),
+        };
+
+        let max_asc = line_max_ascents[li];
+        for &ci in line {
+            let out = child_stroke_outset(&node.children[ci], include_strokes);
+            let item_c_box = (if is_row {
+                node.children[ci].height
+            } else {
+                node.children[ci].width
+            }) + 2.0 * out;
+            let align_self = node.children[ci].auto_layout.layout_align.as_str();
+            let pos_c_box = match align_self {
+                "MIN" | "STRETCH" => line_c0,
+                "CENTER" => line_c0 + (line_span_c - item_c_box) * 0.5,
+                "MAX" => line_c0 + (line_span_c - item_c_box),
+                "BASELINE" if is_row => {
+                    let asc = item_baseline(&node.children[ci], item_c_box);
+                    line_c0 + (max_asc - asc)
+                }
+                _ => match node.auto_layout.counter_axis_align_items {
+                    FigmaCounterAlign::Min => line_c0,
+                    FigmaCounterAlign::Center => line_c0 + (line_span_c - item_c_box) * 0.5,
+                    FigmaCounterAlign::Max => line_c0 + (line_span_c - item_c_box),
+                    FigmaCounterAlign::Baseline => {
+                        if is_row {
+                            let asc = item_baseline(&node.children[ci], item_c_box);
+                            line_c0 + (max_asc - asc)
+                        } else {
+                            line_c0
+                        }
+                    }
+                },
+            };
+
+            let final_p = cur_p + out;
+            let final_c = pos_c_box + out;
+            let (nx, ny) = if is_row {
+                (final_p, final_c)
+            } else {
+                (final_c, final_p)
+            };
+            set_node_rel_xy(&mut node.children[ci], nx, ny);
+            cur_p += solved_p_box[ci] + step_p;
+        }
+    }
+
+    let (new_w, new_h) = if is_row {
+        (final_container_p, container_c)
+    } else {
+        (container_c, final_container_p)
+    };
+    let prev_w = node.width;
+    let prev_h = node.height;
+    node.width = new_w;
+    node.height = new_h;
+    node.auto_layout.has_explicit_size = true;
+
+    // Update `ABSOLUTE` children according to their horizontal & vertical constraints when container resized!
+    if (new_w - prev_w).abs() > 1e-4 || (new_h - prev_h).abs() > 1e-4 {
+        for child in &mut node.children {
+            if ctx.remaining_steps == 0 {
+                break;
+            }
+            if child.auto_layout.layout_positioning == FigmaLayoutPositioning::Absolute {
+                apply_child_constraints_for_parent_resize(
+                    child,
+                    prev_w,
+                    prev_h,
+                    new_w,
+                    new_h,
+                    masters,
+                    ctx,
+                    depth + 1,
+                );
+            }
+        }
+    }
+
+    (node.width - old_self_w).abs() > 1e-3 || (node.height - old_self_h).abs() > 1e-3
 }

@@ -535,6 +535,18 @@ impl Player {
             item.color_transform = ColorTransform::default();
             if let RuntimeDrawKind::Element(kind) = &mut item.kind {
                 concatenated_color_transform.transform_kind(kind);
+                if let Some(mesh) = &mut item.mesh_fill {
+                    for patch in &mut mesh.patches {
+                        for col in &mut patch.colors {
+                            *col = concatenated_color_transform.apply(*col);
+                        }
+                    }
+                    for tri in &mut mesh.triangles {
+                        for col in &mut tri.colors {
+                            *col = concatenated_color_transform.apply(*col);
+                        }
+                    }
+                }
                 if let Some(paint) = &item.bitmap_fill
                     && let Some(painted) =
                         self.graph
@@ -586,6 +598,7 @@ impl Player {
                     alpha: 1.,
                     color_transform: ColorTransform::default(),
                     bitmap_fill: None,
+                    mesh_fill: None,
                     path_fingerprint: None,
                     kind: RuntimeDrawKind::Element(kind),
                 },
@@ -606,6 +619,7 @@ impl Player {
                     alpha: 1.,
                     color_transform: ColorTransform::default(),
                     bitmap_fill: None,
+                    mesh_fill: None,
                     path_fingerprint: None,
                     kind: RuntimeDrawKind::VideoFrame {
                         width: video.width,
@@ -645,6 +659,7 @@ impl Player {
                         alpha: 1.,
                         color_transform: ColorTransform::default(),
                         bitmap_fill: None,
+                        mesh_fill: None,
                         path_fingerprint: None,
                         kind: RuntimeDrawKind::Element(kind),
                     },
@@ -667,6 +682,7 @@ impl Player {
                     alpha: 1.,
                     color_transform: ColorTransform::default(),
                     bitmap_fill: None,
+                    mesh_fill: None,
                     path_fingerprint: None,
                     kind: RuntimeDrawKind::TextField {
                         field: Box::new(concatenated_color_transform.transform_text(field)),
@@ -694,6 +710,7 @@ impl Player {
                     alpha: 1.,
                     color_transform: ColorTransform::default(),
                     bitmap_fill: None,
+                    mesh_fill: None,
                     path_fingerprint: None,
                     kind: RuntimeDrawKind::BitmapPixels {
                         pixel_ref: pixel.pixel_ref.clone(),
@@ -731,6 +748,7 @@ impl Player {
                     alpha: 1.,
                     color_transform: ColorTransform::default(),
                     bitmap_fill: None,
+                    mesh_fill: None,
                     path_fingerprint: None,
                     kind,
                 },
@@ -799,6 +817,7 @@ impl Player {
                             alpha: 1.,
                             color_transform: ColorTransform::default(),
                             bitmap_fill: None,
+                            mesh_fill: None,
                             path_fingerprint: None,
                             kind: RuntimeDrawKind::TextField {
                                 field: Box::new(
@@ -865,7 +884,13 @@ impl Player {
         // Each ancestor is visited once; no per-semantic-node scene scan.
         let mut painted = BTreeSet::new();
         for draw in &result.draws {
-            if is_runtime_draw_visible(&draw.item.kind) {
+            if draw
+                .item
+                .mesh_fill
+                .as_ref()
+                .is_some_and(crate::VectorMeshPaint::has_visible_alpha)
+                || is_runtime_draw_visible(&draw.item.kind)
+            {
                 let mut current = Some(draw.owner_ref.clone());
                 while let Some(reference) = current {
                     if !painted.insert(reference.clone()) {

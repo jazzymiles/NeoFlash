@@ -796,6 +796,8 @@ fn keyframe_shell_without_elements(kf: &crate::Keyframe) -> crate::Keyframe {
         element_parents: kf.element_parents.clone(),
         controller_elements: kf.controller_elements.clone(),
         ik_armatures: kf.ik_armatures.clone(),
+        ik_joint_specs: kf.ik_joint_specs.clone(),
+        ik_skins: kf.ik_skins.clone(),
         appearances: kf.appearances.clone(),
         video: kf.video.clone(),
         extended_accessibility: kf.extended_accessibility.clone(),
@@ -835,6 +837,8 @@ fn keyframe_shells_equal(a: &crate::Keyframe, b: &crate::Keyframe) -> bool {
         && a.element_parents == b.element_parents
         && a.controller_elements == b.controller_elements
         && a.ik_armatures == b.ik_armatures
+        && a.ik_joint_specs == b.ik_joint_specs
+        && a.ik_skins == b.ik_skins
         && a.appearances == b.appearances
         && a.video == b.video
         && a.extended_accessibility == b.extended_accessibility

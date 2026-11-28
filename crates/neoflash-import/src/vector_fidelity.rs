@@ -117,6 +117,7 @@ impl Default for VectorImportOptions {
 struct VectorGroupBucket {
     name: String,
     elements: Vec<Element>,
+    vector_effects: Vec<neoflash_core::ElementVectorEffects>,
     mask_elements: Vec<Element>,
     mask_mode: MaskMode,
 }
@@ -802,8 +803,23 @@ fn axial_gradient_matrix(x1: f64, y1: f64, x2: f64, y2: f64) -> [f64; 6] {
 }
 
 #[derive(Clone)]
+enum SvgGradientKind {
+    Paint(GradientPaint),
+    Mesh {
+        mesh: neoflash_core::VectorMeshPaint,
+        transform: [f64; 6],
+    },
+}
+
+#[derive(Clone)]
+enum SvgResolvedPaint {
+    Gradient(GradientPaint),
+    Mesh(neoflash_core::VectorMeshPaint),
+}
+
+#[derive(Clone)]
 struct SvgGradient {
-    paint: GradientPaint,
+    kind: SvgGradientKind,
     object_bounds: bool,
 }
 
@@ -813,8 +829,7 @@ impl SvgGradient {
         path: &[PathCommand],
         outer: [f64; 6],
         opacity: f64,
-    ) -> Option<GradientPaint> {
-        let mut paint = self.paint.clone();
+    ) -> Option<SvgResolvedPaint> {
         let bounds = if self.object_bounds {
             let b = neoflash_core::path_bounds(path).ok()??;
             [
@@ -828,24 +843,401 @@ impl SvgGradient {
         } else {
             identity_matrix()
         };
-        paint.matrix = affine_multiply(affine_multiply(outer, bounds), paint.matrix);
-        for stop in &mut paint.stops {
-            stop.color[3] = (f64::from(stop.color[3]) * opacity.clamp(0., 1.)).round() as u8;
+        match &self.kind {
+            SvgGradientKind::Paint(src) => {
+                let mut paint = src.clone();
+                paint.matrix = affine_multiply(affine_multiply(outer, bounds), paint.matrix);
+                for stop in &mut paint.stops {
+                    stop.color[3] =
+                        (f64::from(stop.color[3]) * opacity.clamp(0., 1.)).round() as u8;
+                }
+                paint.validate().ok()?;
+                Some(SvgResolvedPaint::Gradient(paint))
+            }
+            SvgGradientKind::Mesh { mesh, transform } => {
+                let mut m = mesh.clone();
+                let combined = affine_multiply(affine_multiply(outer, bounds), *transform);
+                m.transform_in_place(combined);
+                m.apply_alpha_in_place(opacity);
+                m.validate().ok()?;
+                Some(SvgResolvedPaint::Mesh(m))
+            }
         }
-        paint.validate().ok()?;
-        Some(paint)
     }
 
     fn fallback_solid_color(&self, opacity: f64) -> Color {
-        let mut col = self
-            .paint
-            .stops
-            .last()
-            .map(|s| s.color)
-            .unwrap_or([0, 0, 0, 255]);
+        let mut col = match &self.kind {
+            SvgGradientKind::Paint(paint) => paint
+                .stops
+                .last()
+                .map(|s| s.color)
+                .unwrap_or([0, 0, 0, 255]),
+            SvgGradientKind::Mesh { mesh, .. } => mesh.representative_color(),
+        };
         col[3] = (f64::from(col[3]) * opacity.clamp(0., 1.)).round() as u8;
         col
     }
+}
+
+fn parse_svg_mesh_edge_segment(
+    start: [f64; 2],
+    path_attr: Option<&str>,
+    fallback_end: Option<[f64; 2]>,
+) -> Option<([f64; 2], [f64; 2], [f64; 2])> {
+    let raw = path_attr.unwrap_or("").trim();
+    if raw.is_empty() {
+        let end = fallback_end?;
+        return Some((
+            [
+                start[0] + (end[0] - start[0]) / 3.0,
+                start[1] + (end[1] - start[1]) / 3.0,
+            ],
+            [
+                start[0] + 2.0 * (end[0] - start[0]) / 3.0,
+                start[1] + 2.0 * (end[1] - start[1]) / 3.0,
+            ],
+            end,
+        ));
+    }
+    let tokens = tokenize_svg_path_bounded(raw, 16);
+    let cmd = tokens.first()?.chars().next()?;
+    let nums: Vec<f64> = tokens[1..]
+        .iter()
+        .filter_map(|t| t.parse::<f64>().ok())
+        .collect();
+    match cmd {
+        'c' | 'C' => {
+            let rel = cmd == 'c';
+            let p1 = if nums.len() >= 2 {
+                if rel {
+                    [start[0] + nums[0], start[1] + nums[1]]
+                } else {
+                    [nums[0], nums[1]]
+                }
+            } else {
+                start
+            };
+            let p2 = if nums.len() >= 4 {
+                if rel {
+                    [start[0] + nums[2], start[1] + nums[3]]
+                } else {
+                    [nums[2], nums[3]]
+                }
+            } else {
+                p1
+            };
+            let end = if nums.len() >= 6 {
+                if rel {
+                    [start[0] + nums[4], start[1] + nums[5]]
+                } else {
+                    [nums[4], nums[5]]
+                }
+            } else {
+                fallback_end?
+            };
+            Some((p1, p2, end))
+        }
+        'l' | 'L' => {
+            let end = if nums.len() >= 2 {
+                if cmd == 'l' {
+                    [start[0] + nums[0], start[1] + nums[1]]
+                } else {
+                    [nums[0], nums[1]]
+                }
+            } else {
+                fallback_end?
+            };
+            Some((
+                [
+                    start[0] + (end[0] - start[0]) / 3.0,
+                    start[1] + (end[1] - start[1]) / 3.0,
+                ],
+                [
+                    start[0] + 2.0 * (end[0] - start[0]) / 3.0,
+                    start[1] + 2.0 * (end[1] - start[1]) / 3.0,
+                ],
+                end,
+            ))
+        }
+        'h' | 'H' if !nums.is_empty() => {
+            let ex = if cmd == 'h' {
+                start[0] + nums[0]
+            } else {
+                nums[0]
+            };
+            let end = [ex, start[1]];
+            Some((
+                [start[0] + (ex - start[0]) / 3.0, start[1]],
+                [start[0] + 2.0 * (ex - start[0]) / 3.0, start[1]],
+                end,
+            ))
+        }
+        'v' | 'V' if !nums.is_empty() => {
+            let ey = if cmd == 'v' {
+                start[1] + nums[0]
+            } else {
+                nums[0]
+            };
+            let end = [start[0], ey];
+            Some((
+                [start[0], start[1] + (ey - start[1]) / 3.0],
+                [start[0], start[1] + 2.0 * (ey - start[1]) / 3.0],
+                end,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn parse_svg_meshgradient<'a>(node: Node<'a, 'a>, styles: &SvgStyles<'a>) -> Option<SvgGradient> {
+    use neoflash_core::{MAX_VECTOR_MESH_PATCHES, VectorMeshPaint, VectorMeshPatch};
+
+    let parse_coord = |attr: &str| -> f64 {
+        node.attribute(attr)
+            .and_then(|s| {
+                let s = s.trim();
+                if let Some(pct) = s.strip_suffix('%') {
+                    pct.parse::<f64>().ok().map(|v| v / 100.0)
+                } else {
+                    s.trim_end_matches("px").parse::<f64>().ok()
+                }
+            })
+            .filter(|v| v.is_finite())
+            .unwrap_or(0.0)
+    };
+    let origin_x = parse_coord("x");
+    let origin_y = parse_coord("y");
+    let gradient_transform = node
+        .attribute("gradientTransform")
+        .or_else(|| node.attribute("transform"))
+        .map(parse_svg_transform)
+        .unwrap_or_else(identity_matrix);
+    let object_bounds = node.attribute("gradientUnits") == Some("objectBoundingBox");
+
+    #[derive(Clone, Copy)]
+    struct BuiltPatch {
+        b: [[f64; 2]; 12],
+        colors: [Color; 4], // [c00, c03, c30, c33]
+    }
+
+    let mut prev_row: Vec<BuiltPatch> = Vec::new();
+    let mut paint = VectorMeshPaint {
+        linear_rgb: node.attribute("color-interpolation") == Some("linearRGB"),
+        ..VectorMeshPaint::default()
+    };
+
+    for (r_idx, row_node) in node
+        .children()
+        .filter(|c| c.is_element() && c.tag_name().name() == "meshrow")
+        .enumerate()
+    {
+        let mut cur_row: Vec<BuiltPatch> = Vec::new();
+        for (c_idx, patch_node) in row_node
+            .children()
+            .filter(|c| c.is_element() && c.tag_name().name() == "meshpatch")
+            .enumerate()
+        {
+            if paint.patches.len() >= MAX_VECTOR_MESH_PATCHES {
+                break;
+            }
+            let stops: Vec<Node<'a, 'a>> = patch_node
+                .children()
+                .filter(|c| c.is_element() && c.tag_name().name() == "stop")
+                .collect();
+            let stop_col = |st: Node<'a, 'a>| -> Option<Color> {
+                let op = styles
+                    .value(st, "stop-opacity")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(1.0);
+                styles
+                    .value(st, "stop-color")
+                    .and_then(|c| parse_svg_color(&c, op))
+            };
+
+            let explicit_origin = patch_node.attribute("data-nf-patch-origin").and_then(|s| {
+                let mut parts = s.split(',').filter_map(|v| v.trim().parse::<f64>().ok());
+                let x = parts.next()?;
+                let y = parts.next()?;
+                (x.is_finite() && y.is_finite()).then_some([x, y])
+            });
+
+            let built = if (r_idx == 0 && c_idx == 0) || explicit_origin.is_some() {
+                if stops.len() < 4 {
+                    return None;
+                }
+                let p00 = explicit_origin.unwrap_or([origin_x, origin_y]);
+                let (p01, p02, p03) =
+                    parse_svg_mesh_edge_segment(p00, stops[0].attribute("path"), None)?;
+                let (p13, p23, p33) =
+                    parse_svg_mesh_edge_segment(p03, stops[1].attribute("path"), None)?;
+                let (p32, p31, p30) =
+                    parse_svg_mesh_edge_segment(p33, stops[2].attribute("path"), None)?;
+                let (p20, p10, _) =
+                    parse_svg_mesh_edge_segment(p30, stops[3].attribute("path"), Some(p00))?;
+                let c00 = stop_col(stops[0]).unwrap_or([0, 0, 0, 255]);
+                let c03 = stop_col(stops[1]).unwrap_or(c00);
+                let c33 = stop_col(stops[2]).unwrap_or(c03);
+                let c30 = stop_col(stops[3]).unwrap_or(c00);
+                BuiltPatch {
+                    b: [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10],
+                    colors: [c00, c03, c30, c33],
+                }
+            } else if r_idx == 0 {
+                // Left edge shared with `cur_row[c_idx - 1]` right edge
+                let left = cur_row.get(c_idx - 1)?;
+                let p00 = left.b[3];
+                let p10 = left.b[4];
+                let p20 = left.b[5];
+                let p30 = left.b[6];
+                let c00 = left.colors[1];
+                let c30 = left.colors[3];
+                if stops.len() >= 4 {
+                    let (p01, p02, p03) =
+                        parse_svg_mesh_edge_segment(p00, stops[0].attribute("path"), None)?;
+                    let (p13, p23, p33) =
+                        parse_svg_mesh_edge_segment(p03, stops[1].attribute("path"), None)?;
+                    let (p32, p31, _) =
+                        parse_svg_mesh_edge_segment(p33, stops[2].attribute("path"), Some(p30))?;
+                    let c03 = stop_col(stops[1]).unwrap_or(c00);
+                    let c33 = stop_col(stops[2]).unwrap_or(c03);
+                    BuiltPatch {
+                        b: [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10],
+                        colors: [
+                            stop_col(stops[0]).unwrap_or(c00),
+                            c03,
+                            stop_col(stops[3]).unwrap_or(c30),
+                            c33,
+                        ],
+                    }
+                } else if stops.len() >= 3 {
+                    let (p01, p02, p03) =
+                        parse_svg_mesh_edge_segment(p00, stops[0].attribute("path"), None)?;
+                    let (p13, p23, p33) =
+                        parse_svg_mesh_edge_segment(p03, stops[1].attribute("path"), None)?;
+                    let (p32, p31, _) =
+                        parse_svg_mesh_edge_segment(p33, stops[2].attribute("path"), Some(p30))?;
+                    let c03 = stop_col(stops[0]).unwrap_or(c00);
+                    let c33 = stop_col(stops[1]).unwrap_or(c03);
+                    BuiltPatch {
+                        b: [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10],
+                        colors: [c00, c03, stop_col(stops[2]).unwrap_or(c30), c33],
+                    }
+                } else {
+                    return None;
+                }
+            } else if c_idx == 0 {
+                // Top edge shared with `prev_row[0]` bottom edge
+                let above = prev_row.first()?;
+                let p00 = above.b[9];
+                let p01 = above.b[8];
+                let p02 = above.b[7];
+                let p03 = above.b[6];
+                let c00 = above.colors[2];
+                let c03 = above.colors[3];
+                if stops.len() >= 4 {
+                    let (p13, p23, p33) =
+                        parse_svg_mesh_edge_segment(p03, stops[1].attribute("path"), None)?;
+                    let (p32, p31, p30) =
+                        parse_svg_mesh_edge_segment(p33, stops[2].attribute("path"), None)?;
+                    let (p20, p10, _) =
+                        parse_svg_mesh_edge_segment(p30, stops[3].attribute("path"), Some(p00))?;
+                    BuiltPatch {
+                        b: [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10],
+                        colors: [
+                            stop_col(stops[0]).unwrap_or(c00),
+                            stop_col(stops[1]).unwrap_or(c03),
+                            stop_col(stops[3]).unwrap_or(c00),
+                            stop_col(stops[2]).unwrap_or(c03),
+                        ],
+                    }
+                } else if stops.len() >= 3 {
+                    let (p13, p23, p33) =
+                        parse_svg_mesh_edge_segment(p03, stops[0].attribute("path"), None)?;
+                    let (p32, p31, p30) =
+                        parse_svg_mesh_edge_segment(p33, stops[1].attribute("path"), None)?;
+                    let (p20, p10, _) =
+                        parse_svg_mesh_edge_segment(p30, stops[2].attribute("path"), Some(p00))?;
+                    let c33 = stop_col(stops[1]).unwrap_or(c03);
+                    let c30 = stop_col(stops[2]).unwrap_or(c00);
+                    BuiltPatch {
+                        b: [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10],
+                        colors: [c00, stop_col(stops[0]).unwrap_or(c03), c30, c33],
+                    }
+                } else {
+                    return None;
+                }
+            } else {
+                // Top edge shared with `prev_row[c_idx]` AND left edge shared with `cur_row[c_idx - 1]`
+                let above = prev_row.get(c_idx)?;
+                let left = cur_row.get(c_idx - 1)?;
+                let p00 = above.b[9];
+                let p01 = above.b[8];
+                let p02 = above.b[7];
+                let p03 = above.b[6];
+                let p10 = left.b[4];
+                let p20 = left.b[5];
+                let p30 = left.b[6];
+                let c00 = above.colors[2];
+                let c03 = above.colors[3];
+                let c30 = left.colors[3];
+                if stops.len() >= 4 {
+                    let (p13, p23, p33) =
+                        parse_svg_mesh_edge_segment(p03, stops[1].attribute("path"), None)?;
+                    let (p32, p31, _) =
+                        parse_svg_mesh_edge_segment(p33, stops[2].attribute("path"), Some(p30))?;
+                    BuiltPatch {
+                        b: [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10],
+                        colors: [
+                            stop_col(stops[0]).unwrap_or(c00),
+                            stop_col(stops[1]).unwrap_or(c03),
+                            stop_col(stops[3]).unwrap_or(c30),
+                            stop_col(stops[2]).unwrap_or(c03),
+                        ],
+                    }
+                } else if stops.len() >= 2 {
+                    let (p13, p23, p33) =
+                        parse_svg_mesh_edge_segment(p03, stops[0].attribute("path"), None)?;
+                    let (p32, p31, _) =
+                        parse_svg_mesh_edge_segment(p33, stops[1].attribute("path"), Some(p30))?;
+                    let c33 = stop_col(stops[0]).unwrap_or(c03);
+                    BuiltPatch {
+                        b: [p00, p01, p02, p03, p13, p23, p33, p32, p31, p30, p20, p10],
+                        colors: [c00, c03, stop_col(stops[1]).unwrap_or(c30), c33],
+                    }
+                } else {
+                    return None;
+                }
+            };
+            let mut patch = VectorMeshPatch::from_coons_12(built.b, built.colors);
+            if let Some(inner_str) = patch_node.attribute("data-nf-inner") {
+                let vals: Vec<f64> = inner_str
+                    .split(',')
+                    .filter_map(|v| v.trim().parse::<f64>().ok())
+                    .filter(|v| v.is_finite())
+                    .collect();
+                if vals.len() == 8 {
+                    patch.points[5] = [vals[0], vals[1]];
+                    patch.points[6] = [vals[2], vals[3]];
+                    patch.points[9] = [vals[4], vals[5]];
+                    patch.points[10] = [vals[6], vals[7]];
+                }
+            }
+            paint.patches.push(patch);
+            cur_row.push(built);
+        }
+        if !cur_row.is_empty() {
+            prev_row = cur_row;
+        }
+    }
+
+    paint.validate().ok()?;
+    Some(SvgGradient {
+        object_bounds,
+        kind: SvgGradientKind::Mesh {
+            mesh: paint,
+            transform: gradient_transform,
+        },
+    })
 }
 
 type SvgDefinitions = (
@@ -947,7 +1339,7 @@ fn parse_svg_defs<'a>(root: Node<'a, 'a>, styles: &SvgStyles<'a>) -> SvgDefiniti
                         SvgGradient {
                             object_bounds: node.attribute("gradientUnits")
                                 != Some("userSpaceOnUse"),
-                            paint: GradientPaint {
+                            kind: SvgGradientKind::Paint(GradientPaint {
                                 kind: if tag == "radialGradient" {
                                     GradientKind::Radial
                                 } else {
@@ -957,9 +1349,14 @@ fn parse_svg_defs<'a>(root: Node<'a, 'a>, styles: &SvgStyles<'a>) -> SvgDefiniti
                                 matrix: affine_multiply(gradient_transform, matrix),
                                 focal_point_ratio,
                                 ..Default::default()
-                            },
+                            }),
                         },
                     );
+                }
+            }
+            "meshgradient" | "meshGradient" => {
+                if let Some(mg) = parse_svg_meshgradient(node, styles) {
+                    gradients.insert(id.to_owned(), mg);
                 }
             }
             "clipPath" => {
@@ -1009,10 +1406,12 @@ fn assemble_vector_buckets(
     match options.layer_mapping {
         VectorLayerMapping::FlattenToSingleLayer => {
             let mut all_elements = Vec::new();
+            let mut all_vector_effects = Vec::new();
             let mut all_masks = Vec::new();
             let mut mask_mode = MaskMode::Geometry;
             for mut b in buckets {
                 all_elements.append(&mut b.elements);
+                all_vector_effects.append(&mut b.vector_effects);
                 if !b.mask_elements.is_empty() {
                     mask_mode = b.mask_mode;
                     all_masks.append(&mut b.mask_elements);
@@ -1050,6 +1449,7 @@ fn assemble_vector_buckets(
                 keyframes: vec![Keyframe {
                     frame: 0,
                     elements: all_elements,
+                    vector_effects: all_vector_effects,
                     ..Keyframe::default()
                 }],
                 properties: LayerProperties {
@@ -1070,6 +1470,7 @@ fn assemble_vector_buckets(
                     frame: idx as u32,
                     label: b.name,
                     elements: b.elements,
+                    vector_effects: b.vector_effects,
                     ..Keyframe::default()
                 });
                 report.statistics.keyframes += 1;
@@ -1119,7 +1520,7 @@ fn assemble_vector_buckets(
                     report.statistics.keyframes += 1;
                 }
 
-                let placed_elements =
+                let (placed_elements, placed_vector_effects) =
                     if options.layer_mapping == VectorLayerMapping::ConvertGroupsToSymbols {
                         let sym_id = new_id("symbol");
                         let sym = Symbol {
@@ -1137,6 +1538,7 @@ fn assemble_vector_buckets(
                                     keyframes: vec![Keyframe {
                                         frame: 0,
                                         elements: b.elements,
+                                        vector_effects: b.vector_effects,
                                         ..Keyframe::default()
                                     }],
                                     properties: LayerProperties::default(),
@@ -1152,18 +1554,21 @@ fn assemble_vector_buckets(
                         report.statistics.layers += 1;
                         report.statistics.keyframes += 1;
                         report.statistics.elements += 1;
-                        vec![Element {
-                            id: new_id("element"),
-                            name: b.name.clone(),
-                            transform: Transform::default(),
-                            kind: ElementKind::Instance {
-                                symbol_id: sym_id,
-                                playback: InstancePlayback::Independent,
-                            },
-                            ..Element::default()
-                        }]
+                        (
+                            vec![Element {
+                                id: new_id("element"),
+                                name: b.name.clone(),
+                                transform: Transform::default(),
+                                kind: ElementKind::Instance {
+                                    symbol_id: sym_id,
+                                    playback: InstancePlayback::Independent,
+                                },
+                                ..Element::default()
+                            }],
+                            Vec::new(),
+                        )
                     } else {
-                        b.elements
+                        (b.elements, b.vector_effects)
                     };
 
                 layers.push(Layer {
@@ -1174,6 +1579,7 @@ fn assemble_vector_buckets(
                     keyframes: vec![Keyframe {
                         frame: 0,
                         elements: placed_elements,
+                        vector_effects: placed_vector_effects,
                         ..Keyframe::default()
                     }],
                     properties: LayerProperties {
@@ -1281,6 +1687,7 @@ pub fn import_svg_into_project(
     let new_loose_bucket = || VectorGroupBucket {
         name: format!("{source_name} Artwork"),
         elements: Vec::new(),
+        vector_effects: Vec::new(),
         mask_elements: Vec::new(),
         mask_mode: MaskMode::Geometry,
     };
@@ -1327,6 +1734,8 @@ pub fn import_svg_into_project(
                     | "filter"
                     | "linearGradient"
                     | "radialGradient"
+                    | "meshgradient"
+                    | "meshGradient"
             ) {
                 continue;
             }
@@ -1537,30 +1946,43 @@ pub fn import_svg_into_project(
                     .as_deref()
                     .and_then(extract_url_id)
                     .and_then(|id| gradients.get(&id).map(|g| (id, g)));
-                let fill_grad = fill_grad_def.as_ref().and_then(|(_, gradient)| {
+                let fill_resolved = fill_grad_def.as_ref().and_then(|(_, gradient)| {
                     gradient.resolve(&raw_cmds, grad_outer, fill_opacity)
                 });
-                let fill_color = match (&fill_raw, &fill_grad_def, &fill_grad) {
-                    (_, Some((gid, gradient)), None) => {
-                        report.warning(
-                            "svg-gradient-approximated",
-                            loc.clone(),
-                            format!(
-                                "SVG fill gradient '#{gid}' has a degenerate vector, transform, or 1D bounding box and was approximated with its final stop color."
-                            ),
-                        );
-                        gradient.fallback_solid_color(fill_opacity)
+                let mut fill_mesh = None;
+                let fill_grad = match fill_resolved {
+                    Some(SvgResolvedPaint::Gradient(g)) => Some(g),
+                    Some(SvgResolvedPaint::Mesh(m)) => {
+                        fill_mesh = Some(m);
+                        None
                     }
-                    (Some(f), None, None) => {
-                        parse_svg_color(f, fill_opacity).unwrap_or([0, 0, 0, 255])
+                    None => None,
+                };
+                let fill_color = if let Some(ref m) = fill_mesh {
+                    m.representative_color()
+                } else {
+                    match (&fill_raw, &fill_grad_def, &fill_grad) {
+                        (_, Some((gid, gradient)), None) => {
+                            report.warning(
+                                "svg-gradient-approximated",
+                                loc.clone(),
+                                format!(
+                                    "SVG fill gradient '#{gid}' has a degenerate vector, transform, or 1D bounding box and was approximated with its final stop color."
+                                ),
+                            );
+                            gradient.fallback_solid_color(fill_opacity)
+                        }
+                        (Some(f), None, None) => {
+                            parse_svg_color(f, fill_opacity).unwrap_or([0, 0, 0, 255])
+                        }
+                        (None, _, _) => [
+                            0,
+                            0,
+                            0,
+                            (fill_opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+                        ],
+                        _ => [0, 0, 0, 255],
                     }
-                    (None, _, _) => [
-                        0,
-                        0,
-                        0,
-                        (fill_opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
-                    ],
-                    _ => [0, 0, 0, 255],
                 };
 
                 let stroke_raw = styles.value(node, "stroke");
@@ -1568,9 +1990,15 @@ pub fn import_svg_into_project(
                     .as_deref()
                     .and_then(extract_url_id)
                     .and_then(|id| gradients.get(&id).map(|g| (id, g)));
-                let stroke_grad = stroke_grad_def.as_ref().and_then(|(_, gradient)| {
-                    gradient.resolve(&raw_cmds, grad_outer, stroke_opacity)
-                });
+                let stroke_grad = stroke_grad_def
+                    .as_ref()
+                    .and_then(|(_, gradient)| {
+                        gradient.resolve(&raw_cmds, grad_outer, stroke_opacity)
+                    })
+                    .and_then(|res| match res {
+                        SvgResolvedPaint::Gradient(g) => Some(g),
+                        SvgResolvedPaint::Mesh(_) => None,
+                    });
                 let stroke_color = match (&stroke_raw, &stroke_grad_def, &stroke_grad) {
                     (_, Some((gid, gradient)), None) => {
                         report.warning(
@@ -1652,8 +2080,18 @@ pub fn import_svg_into_project(
                             quality: 1,
                         });
                     }
+                    let el_id = new_id("element");
+                    if let Some(mesh) = fill_mesh {
+                        bucket
+                            .vector_effects
+                            .push(neoflash_core::ElementVectorEffects {
+                                element_id: el_id.clone(),
+                                vector_mesh: Some(mesh),
+                                ..Default::default()
+                            });
+                    }
                     bucket.elements.push(Element {
-                        id: new_id("element"),
+                        id: el_id,
                         name: node_id.to_owned(),
                         transform: elem_transform,
                         kind,
@@ -1710,6 +2148,7 @@ pub fn import_svg_into_project(
             let mut group_bucket = VectorGroupBucket {
                 name: group_name,
                 elements: Vec::new(),
+                vector_effects: Vec::new(),
                 mask_elements: Vec::new(),
                 mask_mode: MaskMode::Geometry,
             };

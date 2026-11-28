@@ -3302,6 +3302,7 @@ fn t120_vector_effects_envelope_warp_mesh_perspective_and_expand() {
             2,
             [80, 160, 240, 255],
         )),
+        vector_mesh: None,
     };
     assert!(editor.set_element_vector_effects(veff));
     editor.project.validate().unwrap();
@@ -7857,6 +7858,7 @@ fn t318_undo_new_edit_clears_redo_and_element_deletion_prunes_keyframe_side_tabl
             }),
             freeform_gradient: None,
             gradient_mesh: None,
+            vector_mesh: None,
         });
     }
     project.upgrade_format_for_features();

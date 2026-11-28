@@ -732,6 +732,18 @@ pub fn collect_project_colors_scoped(
                             record(v.color, Role::Gradient);
                         }
                     }
+                    if let Some(vm) = &fx.vector_mesh {
+                        for patch in &vm.patches {
+                            for c in &patch.colors {
+                                record(*c, Role::Gradient);
+                            }
+                        }
+                        for tri in &vm.triangles {
+                            for c in &tri.colors {
+                                record(*c, Role::Gradient);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1013,6 +1025,24 @@ pub fn change_project_color(
                             if apply_slot(&mut v.color) {
                                 report.replaced_gradient_stops += 1;
                                 fx_changed = true;
+                            }
+                        }
+                    }
+                    if let Some(vm) = &mut fx.vector_mesh {
+                        for patch in &mut vm.patches {
+                            for col in &mut patch.colors {
+                                if apply_slot(col) {
+                                    report.replaced_gradient_stops += 1;
+                                    fx_changed = true;
+                                }
+                            }
+                        }
+                        for tri in &mut vm.triangles {
+                            for col in &mut tri.colors {
+                                if apply_slot(col) {
+                                    report.replaced_gradient_stops += 1;
+                                    fx_changed = true;
+                                }
                             }
                         }
                     }

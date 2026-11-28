@@ -809,6 +809,351 @@ class PortablePackageTests(unittest.TestCase):
         )
         self.assertEqual(sums[appimage_path.name], digest_file(appimage_path))
 
+    def _append_synthetic_authenticode_cert(self, pe_path: Path) -> None:
+        data = bytearray(pe_path.read_bytes())
+        (e_lfanew,) = struct.unpack_from("<I", data, 0x3C)
+        opt_off = e_lfanew + 24
+        cert_offset = len(data)
+        cert_blob = struct.pack("<IHH", 32, 0x0200, 0x0002) + (b"PKCS7-SIGNED-STUB-BYTES!" )
+        data.extend(cert_blob)
+        # IMAGE_DIRECTORY_ENTRY_SECURITY (index 4): file offset + byte size.
+        struct.pack_into("<II", data, opt_off + 112 + 4 * 8, cert_offset, len(cert_blob))
+        pe_path.write_bytes(bytes(data))
+
+    def test_windows_per_user_installer_and_uninstaller_scripts_generated_and_packaged(self):
+        source_root, _ = self.source_tree()
+        source_archive = self.archive_tree(source_root, "win-inst-source.tar.xz")
+        media = self.media_root(source_root)
+        project = self.root / "win-inst-project"
+        self.write(project, "LICENSE-MIT", b"MIT\n")
+        self.write(project, "LICENSE-APACHE", b"Apache\n")
+        self.write(project, "THIRD_PARTY_NOTICES.txt", b"third-party\n")
+        executable = self.write(
+            project,
+            "target/release/neoflash-editor.exe",
+            build_synthetic_pe64(["KERNEL32.dll", "USER32.dll", "ntdll.dll"]),
+        )
+        runtime = project / "target/web-runtime"
+        self.write(runtime, "neoflash_web.js", b"runtime")
+        self.write(runtime, "neoflash_web_bg.wasm", b"wasm")
+        rust_licenses = project / "target/rust-licenses"
+        evidence = self.write(rust_licenses, "evidence/fixture-LICENSE", b"license")
+        self.write(rust_licenses, "rust-dependency-licenses.md", b"fixture summary")
+        rust_manifest = {
+            "package_count": 1,
+            "packages": [
+                {
+                    "license_evidence": [
+                        {
+                            "bytes": evidence.stat().st_size,
+                            "bundle_path": "evidence/fixture-LICENSE",
+                            "sha256": digest_file(evidence),
+                        }
+                    ],
+                    "name": "fixture",
+                    "version": "1.0.0",
+                }
+            ],
+        }
+        self.write(
+            rust_licenses,
+            "rust-dependency-licenses.json",
+            (json.dumps(rust_manifest) + "\n").encode(),
+        )
+        version = "0.1.0-beta.2"
+        package_name = f"NeoFlash-{version}-windows-x64-preview"
+        args = SimpleNamespace(
+            archive=project / "dist" / f"{package_name}.zip",
+            build_number=640,
+            checksum_file=project / "dist/win-inst-SHA256SUMS.txt",
+            commit="a" * 40,
+            executable=executable,
+            media_root=media,
+            media_source_archive=source_archive,
+            package_name=package_name,
+            platform="windows-x64",
+            profile="release",
+            project_root=project,
+            runtime_dir=runtime,
+            rust_licenses=rust_licenses,
+            source_output=project / "dist/win-inst-portable-media-corresponding-source.tar.xz",
+            stage_dir=project / "target/package" / package_name,
+            version=version,
+        )
+        package_portable.stage_package(args)
+        package_portable.finalize_package(args)
+
+        install_ps1 = (args.stage_dir / "Install-NeoFlash.ps1").read_text(encoding="utf-8")
+        uninstall_ps1 = (args.stage_dir / "Uninstall-NeoFlash.ps1").read_text(encoding="utf-8")
+        provenance = json.loads((args.stage_dir / "BUNDLE-PROVENANCE.json").read_text(encoding="utf-8"))
+
+        # Per-user install root, Start Menu shortcut, HKCU .nflash & Installed apps registry, zero UAC.
+        self.assertIn('Programs\\NeoFlash', install_ps1)
+        self.assertIn("NeoFlash.lnk", install_ps1)
+        self.assertIn("HKCU:\\Software\\Classes\\.nflash", install_ps1)
+        self.assertIn("HKCU:\\Software\\Classes\\NeoFlash.Document", install_ps1)
+        self.assertIn(
+            "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeoFlash",
+            install_ps1,
+        )
+        self.assertIn(version, install_ps1)
+        self.assertNotIn("-Verb RunAs", install_ps1)
+        self.assertNotIn("HKLM:", install_ps1)
+
+        self.assertIn("NeoFlash.lnk", uninstall_ps1)
+        self.assertIn("HKCU:\\Software\\Classes\\.nflash", uninstall_ps1)
+        self.assertIn("HKCU:\\Software\\Classes\\NeoFlash.Document", uninstall_ps1)
+        self.assertIn(
+            "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeoFlash",
+            uninstall_ps1,
+        )
+        self.assertNotIn("HKLM:", uninstall_ps1)
+        self.assertNotIn("cmd.exe", uninstall_ps1)
+        self.assertNotIn("rmdir /s", uninstall_ps1)
+        self.assertIn("BUILD_METADATA.json", uninstall_ps1)
+        self.assertIn("PACKAGE-SHA256SUMS.txt", uninstall_ps1)
+        self.assertIn("$env:NEOFLASH_UNINSTALL_TARGET = $TargetDir", uninstall_ps1)
+        # Verify zero string interpolation of $TargetDir inside Start-Process / -Command.
+        for line in uninstall_ps1.splitlines():
+            if "Start-Process" in line or "$DeferredCleanup =" in line:
+                self.assertNotIn("$TargetDir", line)
+
+        self.assertFalse(provenance["authenticode"]["signed"])
+        internal_sums = package_portable.parse_sha_manifest(
+            (args.stage_dir / "PACKAGE-SHA256SUMS.txt").read_text(encoding="utf-8"),
+            "windows internal manifest",
+        )
+        self.assertIn("Install-NeoFlash.ps1", internal_sums)
+        self.assertIn("Uninstall-NeoFlash.ps1", internal_sums)
+        self.assertIn("BUNDLE-PROVENANCE.json", internal_sums)
+        with zipfile.ZipFile(args.archive) as zf:
+            names = set(zf.namelist())
+            self.assertIn(f"{package_name}/Install-NeoFlash.ps1", names)
+            self.assertIn(f"{package_name}/Uninstall-NeoFlash.ps1", names)
+            self.assertIn(f"{package_name}/BUNDLE-PROVENANCE.json", names)
+
+    def test_windows_authenticode_config_validation_and_signed_provenance(self):
+        # 1. Unsigned default when -Sign is not requested and no env vars are set.
+        cfg = package_portable.resolve_windows_authenticode_config({}, sign_requested=False)
+        self.assertFalse(cfg["enabled"])
+        self.assertEqual(cfg["mode"], "unsigned")
+        self.assertEqual(cfg["timestamp_url"], "http://timestamp.digicert.com")
+
+        # 2. Fail-closed validation errors.
+        with self.assertRaisesRegex(package_portable.PortablePackageError, "neither"):
+            package_portable.resolve_windows_authenticode_config({}, sign_requested=True)
+
+        pfx_file = self.write(self.root, "secrets/release-cert.pfx", b"PKCS12-DUMMY-BYTES")
+        with self.assertRaisesRegex(package_portable.PortablePackageError, "ambiguous"):
+            package_portable.resolve_windows_authenticode_config(
+                {
+                    "NEOFLASH_WINDOWS_CERT_SHA1": "a" * 40,
+                    "NEOFLASH_WINDOWS_PFX_PATH": str(pfx_file),
+                },
+                sign_requested=True,
+            )
+
+        with self.assertRaisesRegex(package_portable.PortablePackageError, "without NEOFLASH_WINDOWS_PFX_PATH"):
+            package_portable.resolve_windows_authenticode_config(
+                {"NEOFLASH_WINDOWS_PFX_PASSWORD": "super-secret-password"},
+                sign_requested=False,
+            )
+
+        with self.assertRaisesRegex(package_portable.PortablePackageError, "40-hex"):
+            package_portable.resolve_windows_authenticode_config(
+                {"NEOFLASH_WINDOWS_CERT_SHA1": "not-a-valid-sha1"},
+                sign_requested=True,
+            )
+
+        with self.assertRaisesRegex(package_portable.PortablePackageError, "missing or empty"):
+            package_portable.resolve_windows_authenticode_config(
+                {"NEOFLASH_WINDOWS_PFX_PATH": str(self.root / "missing.pfx")},
+                sign_requested=True,
+            )
+
+        with self.assertRaisesRegex(package_portable.PortablePackageError, "timestamp URL"):
+            package_portable.resolve_windows_authenticode_config(
+                {
+                    "NEOFLASH_WINDOWS_CERT_SHA1": "a" * 40,
+                    "NEOFLASH_WINDOWS_TIMESTAMP_URL": "http://user:secret@timestamp.example.com",
+                },
+                sign_requested=True,
+            )
+
+        # 3. Valid SHA-1 thumbprint and valid PFX configurations.
+        sha_cfg = package_portable.resolve_windows_authenticode_config(
+            {
+                "NEOFLASH_WINDOWS_CERT_SHA1": "ab" * 20,
+                "NEOFLASH_WINDOWS_TIMESTAMP_URL": "https://timestamp.digicert.com",
+            },
+            sign_requested=True,
+        )
+        self.assertTrue(sha_cfg["enabled"])
+        self.assertEqual(sha_cfg["mode"], "cert_store_sha1")
+        self.assertEqual(sha_cfg["cert_sha1"], "AB" * 20)
+        self.assertEqual(sha_cfg["timestamp_url"], "https://timestamp.digicert.com")
+
+        pfx_cfg = package_portable.resolve_windows_authenticode_config(
+            {
+                "NEOFLASH_WINDOWS_PFX_PATH": str(pfx_file),
+                "NEOFLASH_WINDOWS_PFX_PASSWORD": "top-secret-pfx-password-xyz",
+            },
+            sign_requested=True,
+        )
+        self.assertTrue(pfx_cfg["enabled"])
+        self.assertEqual(pfx_cfg["mode"], "pfx_file")
+        self.assertTrue(pfx_cfg["has_pfx_password"])
+
+        # 4. End-to-end signed Windows stage -> record_windows_authenticode_signing -> finalize_package,
+        #    verifying zero secret leakage and fail-closed post-signing hash/table checks.
+        self.win_tool = build_synthetic_pe64(["KERNEL32.dll"])
+        self.win_probe = build_synthetic_pe64(["KERNEL32.dll", "USER32.dll"])
+        self.pins["assets"]["windows-x64"]["ffmpeg_sha256"] = digest_bytes(self.win_tool)
+        self.pins["assets"]["windows-x64"]["ffprobe_sha256"] = digest_bytes(self.win_probe)
+
+        source_root, _ = self.source_tree()
+        source_archive = self.archive_tree(source_root, "win-signed-source.tar.xz")
+        media = self.media_root(source_root)
+        project = self.root / "win-signed-project"
+        self.write(project, "LICENSE-MIT", b"MIT\n")
+        self.write(project, "LICENSE-APACHE", b"Apache\n")
+        self.write(project, "THIRD_PARTY_NOTICES.txt", b"third-party\n")
+        executable = self.write(
+            project,
+            "target/release/neoflash-editor.exe",
+            build_synthetic_pe64(["KERNEL32.dll", "USER32.dll", "ntdll.dll"]),
+        )
+        runtime = project / "target/web-runtime"
+        self.write(runtime, "neoflash_web.js", b"runtime")
+        self.write(runtime, "neoflash_web_bg.wasm", b"wasm")
+        rust_licenses = project / "target/rust-licenses"
+        evidence = self.write(rust_licenses, "evidence/fixture-LICENSE", b"license")
+        self.write(rust_licenses, "rust-dependency-licenses.md", b"fixture summary")
+        rust_manifest = {
+            "package_count": 1,
+            "packages": [
+                {
+                    "license_evidence": [
+                        {
+                            "bytes": evidence.stat().st_size,
+                            "bundle_path": "evidence/fixture-LICENSE",
+                            "sha256": digest_file(evidence),
+                        }
+                    ],
+                    "name": "fixture",
+                    "version": "1.0.0",
+                }
+            ],
+        }
+        self.write(
+            rust_licenses,
+            "rust-dependency-licenses.json",
+            (json.dumps(rust_manifest) + "\n").encode(),
+        )
+        package_name = "NeoFlash-0.1.0-beta.2-windows-x64-preview"
+        args = SimpleNamespace(
+            archive=project / "dist" / f"{package_name}.zip",
+            build_number=641,
+            checksum_file=project / "dist/win-signed-SHA256SUMS.txt",
+            commit="f" * 40,
+            executable=executable,
+            media_root=media,
+            media_source_archive=source_archive,
+            package_name=package_name,
+            platform="windows-x64",
+            profile="release",
+            project_root=project,
+            runtime_dir=runtime,
+            rust_licenses=rust_licenses,
+            source_output=project / "dist/win-signed-portable-media-corresponding-source.tar.xz",
+            stage_dir=project / "target/package" / package_name,
+            version="0.1.0-beta.2",
+        )
+        package_portable.stage_package(args)
+
+        targets = package_portable.collect_windows_signable_binaries(args.stage_dir)
+        self.assertEqual(
+            [p.relative_to(args.stage_dir).as_posix() for p in targets],
+            ["neoflash-editor.exe", "media/bin/ffmpeg.exe", "media/bin/ffprobe.exe"],
+        )
+        pre_hashes = {
+            p.relative_to(args.stage_dir).as_posix(): digest_file(p) for p in targets
+        }
+
+        # Recording signing BEFORE binaries actually carry an Authenticode certificate table must fail closed!
+        with self.assertRaisesRegex(
+            package_portable.PortablePackageError, "Authenticode certificate table missing"
+        ):
+            package_portable.record_windows_authenticode_signing(
+                args.stage_dir,
+                credential_source="pfx_file",
+                timestamp_url="http://timestamp.digicert.com",
+                pre_hashes=pre_hashes,
+            )
+
+        for target_pe in targets:
+            self._append_synthetic_authenticode_cert(target_pe)
+
+        prov = package_portable.record_windows_authenticode_signing(
+            args.stage_dir,
+            credential_source="pfx_file",
+            timestamp_url="http://timestamp.digicert.com",
+            pre_hashes=pre_hashes,
+        )
+        self.assertTrue(prov["authenticode"]["signed"])
+        self.assertTrue(prov["authenticode"]["verified"])
+        self.assertEqual(prov["authenticode"]["verify_policy"], "signtool verify /pa /v")
+        prov_text = (args.stage_dir / "BUNDLE-PROVENANCE.json").read_text(encoding="utf-8")
+        self.assertNotIn("top-secret-pfx-password-xyz", prov_text)
+        self.assertNotIn("release-cert.pfx", prov_text)
+        self.assertNotIn("password", prov_text.lower())
+
+        package_portable.finalize_package(args)
+        self.assertTrue(args.archive.is_file())
+
+    def test_windows_uninstall_script_marker_guard_and_metacharacter_safety(self):
+        script = package_portable.render_windows_uninstall_script("0.1.0-beta.2")
+        self.assertNotIn("cmd.exe", script)
+        self.assertIn("Test-Path -LiteralPath $BuildMetaMarker", script)
+        self.assertIn("Test-Path -LiteralPath $SumsMarker", script)
+        self.assertIn("$env:NEOFLASH_UNINSTALL_TARGET = $TargetDir", script)
+        self.assertIn('"powershell.exe"', script)
+        self.assertIn('"-NoProfile"', script)
+        self.assertIn('"-NonInteractive"', script)
+        self.assertIn('"-WindowStyle", "Hidden"', script)
+        # Deferred cleanup literal must be single-quoted with zero $TargetDir interpolation
+        # so paths containing `&`, `%TEMP%`, `;`, or quotes can never inject commands.
+        deferred_lines = [
+            line for line in script.splitlines() if line.strip().startswith("$DeferredCleanup =")
+        ]
+        self.assertEqual(len(deferred_lines), 1)
+        rhs = deferred_lines[0].split("=", 1)[1].strip()
+        self.assertTrue(rhs.startswith("'") and rhs.endswith("'"), rhs)
+        self.assertNotIn("$TargetDir", rhs)
+        self.assertIn("$env:NEOFLASH_UNINSTALL_TARGET", rhs)
+        self.assertIn("Remove-Item -LiteralPath $t -Recurse -Force", rhs)
+
+        # If pwsh is available on the host, execute the marker guard directly against a path
+        # containing `&` and `%TEMP%` without markers and verify it refuses deletion!
+        pwsh = shutil.which("pwsh")
+        if pwsh:
+            tricky_dir = self.root / "Tricky & %TEMP% Dir"
+            sentinel = self.write(tricky_dir, "keep-user-file.txt", b"do not delete")
+            ps1_path = self.root / "Uninstall-NeoFlash.ps1"
+            ps1_path.write_text(script, encoding="utf-8")
+            env = os.environ.copy()
+            env["APPDATA"] = ""
+            env["LOCALAPPDATA"] = str(self.root / "LocalAppData")
+            proc = subprocess.run(
+                [pwsh, "-NoProfile", "-NonInteractive", "-File", str(ps1_path), "-InstallDir", str(tricky_dir), "-Quiet"],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("BUILD_METADATA.json", proc.stderr)
+            self.assertTrue(sentinel.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

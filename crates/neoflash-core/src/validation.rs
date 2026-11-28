@@ -166,11 +166,11 @@ fn validate_with_mode(
 ) -> Vec<ValidationIssue> {
     let mut issues = vec![];
     let mut add = |path: String, message: String| issues.push(ValidationIssue { path, message });
-    if !matches!(project.format_version, 1..=15) {
+    if !matches!(project.format_version, 1..=16) {
         add(
             "format_version".into(),
             format!(
-                "unsupported version {}; supported versions are 1 through 15",
+                "unsupported version {}; supported versions are 1 through 16",
                 project.format_version
             ),
         );
@@ -240,6 +240,12 @@ fn validate_with_mode(
         add(
             "format_version".into(),
             "publishing hidden layers requires document version 15".into(),
+        );
+    }
+    if project.uses_format_16() && project.format_version < 16 {
+        add(
+            "format_version".into(),
+            "vector mesh paints, persisted IK joint specs/skins, and Ragged/Stipple/Hatched pattern strokes require document version 16".into(),
         );
     }
     let mut scene_ids = HashSet::new();
@@ -1081,6 +1087,57 @@ fn validate_with_mode(
                             ),
                         );
                     }
+                    for (ei, entry) in app.entries.iter().enumerate() {
+                        if let crate::AppearancePaintEntry::Stroke {
+                            pattern_brush: Some(brush),
+                            ..
+                        } = entry
+                        {
+                            match brush {
+                                crate::PatternBrushKind::Ragged {
+                                    wavelength,
+                                    amplitude,
+                                } if !wavelength.is_finite()
+                                    || *wavelength <= 0.0
+                                    || !amplitude.is_finite()
+                                    || *amplitude < 0.0 =>
+                                {
+                                    add(
+                                        format!(
+                                            "{kp}.appearances[{ai}].entries[{ei}].pattern_brush"
+                                        ),
+                                        "Ragged pattern brush requires finite wavelength > 0 and amplitude >= 0".into(),
+                                    );
+                                }
+                                crate::PatternBrushKind::Stipple { dot_size, spacing }
+                                    if !dot_size.is_finite()
+                                        || *dot_size <= 0.0
+                                        || !spacing.is_finite()
+                                        || *spacing <= 0.0 =>
+                                {
+                                    add(
+                                        format!(
+                                            "{kp}.appearances[{ai}].entries[{ei}].pattern_brush"
+                                        ),
+                                        "Stipple pattern brush requires finite dot_size > 0 and spacing > 0".into(),
+                                    );
+                                }
+                                crate::PatternBrushKind::Hatched { spacing, angle_deg }
+                                    if !spacing.is_finite()
+                                        || *spacing <= 0.0
+                                        || !angle_deg.is_finite() =>
+                                {
+                                    add(
+                                        format!(
+                                            "{kp}.appearances[{ai}].entries[{ei}].pattern_brush"
+                                        ),
+                                        "Hatched pattern brush requires finite spacing > 0 and finite angle_deg".into(),
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     for (mi, modifier) in app.modifiers.iter().enumerate() {
                         match modifier {
                             VectorModifier::OffsetContour { delta } => {
@@ -1131,6 +1188,75 @@ fn validate_with_mode(
                                 }
                             }
                         }
+                    }
+                }
+                for (vfi, fx) in key.vector_effects.iter().enumerate() {
+                    if let Some(vm) = &fx.vector_mesh
+                        && let Err(reason) = vm.validate()
+                    {
+                        add(
+                            format!("{kp}.vector_effects[{vfi}].vector_mesh"),
+                            reason.into(),
+                        );
+                    }
+                }
+                for (jsi, js) in key.ik_joint_specs.iter().enumerate() {
+                    if js.bone_id.is_empty()
+                        || ![
+                            js.min_angle_deg,
+                            js.max_angle_deg,
+                            js.min_x_offset,
+                            js.max_x_offset,
+                            js.min_y_offset,
+                            js.max_y_offset,
+                            js.speed,
+                            js.spring_strength,
+                            js.spring_damping,
+                        ]
+                        .iter()
+                        .all(|v| v.is_finite())
+                        || !(0.0..=1.0).contains(&js.speed)
+                        || !(0.0..=100.0).contains(&js.spring_strength)
+                        || !(0.0..=100.0).contains(&js.spring_damping)
+                        || (js.constrain_rotation && js.min_angle_deg > js.max_angle_deg)
+                        || (js.constrain_x_translation && js.min_x_offset > js.max_x_offset)
+                        || (js.constrain_y_translation && js.min_y_offset > js.max_y_offset)
+                    {
+                        add(
+                            format!("{kp}.ik_joint_specs[{jsi}]"),
+                            "IK joint spec requires nonempty bone_id, finite ordered min/max bounds, speed in 0..=1, and spring/damping in 0..=100".into(),
+                        );
+                    }
+                }
+                for (isi, skin) in key.ik_skins.iter().enumerate() {
+                    let invalid_rest_bones = skin.rest_bones.iter().any(|(bid, pos, ang)| {
+                        bid.is_empty()
+                            || !pos[0].is_finite()
+                            || !pos[1].is_finite()
+                            || !ang.is_finite()
+                    });
+                    let invalid_rest_points = skin
+                        .rest_points
+                        .iter()
+                        .any(|pt| !pt[0].is_finite() || !pt[1].is_finite());
+                    let invalid_weights = skin.bindings.iter().any(|vb| {
+                        vb.weights.iter().any(|bw| {
+                            bw.bone_id.is_empty()
+                                || !bw.weight.is_finite()
+                                || !(0.0..=1.0).contains(&bw.weight)
+                        })
+                    });
+                    if skin.shape_element_id.is_empty()
+                        || skin.armature_id.is_empty()
+                        || invalid_rest_bones
+                        || invalid_rest_points
+                        || invalid_weights
+                    {
+                        add(
+                            format!("{kp}.ik_skins[{isi}]"),
+                            "IK shape skin requires nonempty shape_element_id/armature_id/bone_id, finite rest positions, and weights in 0..=1"
+                                .into(),
+                        );
                     }
                 }
                 for (pei, pe) in key.property_expressions.iter().enumerate() {

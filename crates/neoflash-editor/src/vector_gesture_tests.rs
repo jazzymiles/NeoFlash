@@ -2270,20 +2270,69 @@ fn drawing_pressure_gap_and_partial_stroke_gestures_preserve_content_and_undo() 
             if mode == EraserMode::Objects {
                 assert!(elements.is_empty());
             } else {
-                let ElementKind::Rectangle {
-                    fill,
-                    stroke,
-                    stroke_width,
-                    ..
-                } = elements[0].kind
-                else {
-                    panic!("whole modes retain the original geometry");
-                };
-                assert_eq!(fill[3] == 0, mode == EraserMode::Fills);
-                assert_eq!(
-                    stroke[3] == 0 && stroke_width == 0.,
-                    mode == EraserMode::Strokes
+                assert!(
+                    elements.iter().all(|e| !e.merge),
+                    "Object Drawing partial erasing retains merge == false"
                 );
+                let fill_at = |pt: [f64; 2]| {
+                    elements.iter().any(|e| {
+                        matches!(
+                            &e.kind,
+                            ElementKind::Path { fill, .. }
+                                | ElementKind::PaintedPath { fill, .. }
+                                | ElementKind::Rectangle { fill, .. }
+                                if fill[3] > 0
+                        ) && neoflash_core::element_world_commands(e).is_some_and(|(cmds, rule)| {
+                            hit_test_path(&cmds, rule, pt, true, 0., FlattenOptions::default())
+                                .unwrap()
+                        })
+                    })
+                };
+                let stroke_at = |pt: [f64; 2]| {
+                    elements.iter().any(|e| {
+                        let width = match &e.kind {
+                            ElementKind::Path {
+                                stroke,
+                                stroke_width,
+                                ..
+                            }
+                            | ElementKind::PaintedPath {
+                                stroke,
+                                stroke_width,
+                                ..
+                            }
+                            | ElementKind::Rectangle {
+                                stroke,
+                                stroke_width,
+                                ..
+                            } if stroke[3] > 0 && *stroke_width > 0. => *stroke_width,
+                            _ => return false,
+                        };
+                        neoflash_core::element_world_commands(e).is_some_and(|(cmds, rule)| {
+                            hit_test_path(&cmds, rule, pt, false, width, FlattenOptions::default())
+                                .unwrap()
+                        })
+                    })
+                };
+                if mode == EraserMode::Fills {
+                    assert!(
+                        !fill_at([103., 140.]) && fill_at([150., 140.]),
+                        "Erase fills carves touched Object Drawing fill and preserves untouched fill"
+                    );
+                    assert!(
+                        stroke_at([100., 140.]) && stroke_at([180., 140.]),
+                        "Erase fills preserves Object Drawing stroke"
+                    );
+                } else {
+                    assert!(
+                        !stroke_at([100., 140.]) && stroke_at([180., 140.]),
+                        "Erase lines carves touched Object Drawing stroke and preserves untouched stroke"
+                    );
+                    assert!(
+                        fill_at([103., 140.]) && fill_at([150., 140.]),
+                        "Erase lines preserves Object Drawing fill"
+                    );
+                }
             }
             editor.project.validate().unwrap();
             assert_eq!(editor.history.undo_len(), 1);
@@ -3095,4 +3144,136 @@ fn t497_stage_repaint_guard_tooltip_shortcuts_and_square_merge_eraser() {
         );
     }
     editor.project.validate().unwrap();
+}
+
+#[test]
+fn object_drawing_vector_mesh_bisection_preserves_mesh_fill_on_both_fragments_and_undoes() {
+    use crate::authoring_tools::{EraserMode, EraserShape};
+    use neoflash_core::{Element, ElementKind, FlattenOptions, Transform, hit_test_path};
+
+    let (mut editor, ctx, page) = rectangle_stage();
+    editor.workspace.drawing.object_drawing = true;
+    {
+        let key = &mut editor.symbol_mut().timeline.layers[0].keyframes[0];
+        key.elements = vec![Element {
+            id: "mesh-rect".into(),
+            merge: false,
+            kind: ElementKind::Rectangle {
+                width: 120.,
+                height: 80.,
+                fill: [0; 4],
+                stroke: [0; 4],
+                stroke_width: 0.,
+            },
+            transform: Transform {
+                x: 40.,
+                y: 60.,
+                ..Transform::default()
+            },
+            ..Element::default()
+        }];
+        key.vector_effects = vec![neoflash_core::ElementVectorEffects {
+            element_id: "mesh-rect".into(),
+            vector_mesh: Some(neoflash_core::VectorMeshPaint {
+                patches: Vec::new(),
+                triangles: vec![
+                    neoflash_core::VectorMeshTriangle {
+                        points: [[0.0, 0.0], [120.0, 0.0], [120.0, 80.0]],
+                        colors: [[255, 40, 80, 255], [40, 200, 120, 255], [60, 100, 255, 255]],
+                    },
+                    neoflash_core::VectorMeshTriangle {
+                        points: [[0.0, 0.0], [120.0, 80.0], [0.0, 80.0]],
+                        colors: [[255, 40, 80, 255], [60, 100, 255, 255], [255, 200, 40, 255]],
+                    },
+                ],
+                linear_rgb: false,
+            }),
+            ..Default::default()
+        }];
+    }
+    crate::timeline_commands::upgrade_all_format_versions(&mut editor.project);
+    editor.project.validate().unwrap();
+    editor.history.clear();
+    let before = editor.project.clone();
+
+    editor.set_tool(Tool::Eraser);
+    editor.authoring_tools.eraser_shape = EraserShape::Round;
+    editor.authoring_tools.eraser_size = 20.;
+
+    // In `Erase lines` (`Strokes`) mode, sweeping across a stroke-less mesh-filled Object Drawing
+    // shape must leave it untouched because `eraser_meshes` strips `item.mesh_fill`.
+    editor.authoring_tools.eraser_mode = EraserMode::Strokes;
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.2,
+        page.min + egui::vec2(100., 30.),
+        page.min + egui::vec2(100., 170.),
+    );
+    assert_eq!(editor.project, before);
+    assert_eq!(editor.history.undo_len(), 0);
+
+    // Bisect vertically across x = 100 (`y = 30..170`) in `Erase normal` (`StrokeSegments`):
+    // splits `(40..160, 60..140)` into two disconnected `merge == false` fragments, and BOTH
+    // fragments retain `vector_mesh` in `key.vector_effects` and evaluated `DrawItem.mesh_fill`.
+    editor.authoring_tools.eraser_mode = EraserMode::StrokeSegments;
+    pen_click(
+        &mut editor,
+        &ctx,
+        0.4,
+        page.min + egui::vec2(100., 30.),
+        page.min + egui::vec2(100., 170.),
+    );
+    assert_eq!(editor.history.undo_len(), 1);
+    editor.project.validate().unwrap();
+    {
+        let key = &editor.symbol().timeline.layers[0].keyframes[0];
+        assert_eq!(
+            key.elements.len(),
+            2,
+            "mesh-filled Object Drawing rectangle must split into 2 fragments"
+        );
+        for frag in &key.elements {
+            assert!(!frag.merge, "split fragments must remain Object Drawing");
+            assert!(
+                key.vector_effects
+                    .iter()
+                    .any(|fx| fx.element_id == frag.id && fx.vector_mesh.is_some()),
+                "fragment {} must retain vector_mesh in key.vector_effects",
+                frag.id
+            );
+            let (cmds, rule) = neoflash_core::element_world_commands(frag).unwrap();
+            let hits_left = hit_test_path(
+                &cmds,
+                rule,
+                [60., 100.],
+                true,
+                0.,
+                FlattenOptions::default(),
+            )
+            .unwrap();
+            let hits_right = hit_test_path(
+                &cmds,
+                rule,
+                [140., 100.],
+                true,
+                0.,
+                FlattenOptions::default(),
+            )
+            .unwrap();
+            assert!(
+                hits_left ^ hits_right,
+                "each split fragment must cover either left or right half"
+            );
+        }
+        let scene = editor.presented_interactive_authored_scene(false);
+        assert_eq!(scene.draws.len(), 2);
+        assert!(
+            scene.draws.iter().all(|d| d.item.mesh_fill.is_some()),
+            "both evaluated fragments must carry mesh_fill"
+        );
+    }
+
+    editor.undo();
+    assert_eq!(editor.project, before);
 }

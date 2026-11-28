@@ -435,6 +435,15 @@ impl Editor {
         } else {
             kf.ik_armatures[0] = armature.clone();
         }
+        for b in &armature.bones {
+            if !kf.ik_joint_specs.iter().any(|s| s.bone_id == b.id) {
+                kf.ik_joint_specs.push(IkJointSpec {
+                    bone_id: b.id.clone(),
+                    ..IkJointSpec::default()
+                });
+            }
+        }
+        let persisted_specs = kf.ik_joint_specs.clone();
         candidate.upgrade_format_for_features();
         candidate.validate().ok()?;
 
@@ -446,15 +455,178 @@ impl Editor {
         let sess = sessions.entry(self.clipboard.session.clone()).or_default();
         sess.active_armature_id = Some(arm_id);
         sess.active_bone_id = Some(bone_id.clone());
-        for b in &armature.bones {
-            if !sess.bone_joint_specs.iter().any(|s| s.bone_id == b.id) {
-                sess.bone_joint_specs.push(IkJointSpec {
-                    bone_id: b.id.clone(),
-                    ..IkJointSpec::default()
-                });
+        sess.bone_joint_specs = persisted_specs;
+        Some(bone_id)
+    }
+
+    /// Return the active IK bone ID for this Stage session, if any (`T-501`).
+    pub(crate) fn stage_active_ik_bone_id(&self) -> Option<Id> {
+        let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
+        sessions
+            .get(&self.clipboard.session)
+            .and_then(|s| s.active_bone_id.clone())
+    }
+
+    /// Set the active IK bone ID for this Stage session (`T-501`).
+    pub(crate) fn set_stage_active_ik_bone_id(&mut self, bone_id: Option<Id>) {
+        let mut sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
+        let sess = sessions.entry(self.clipboard.session.clone()).or_default();
+        sess.active_bone_id = bone_id;
+    }
+
+    /// Merge persisted keyframe `ik_joint_specs` with any transient session specs (`T-501`).
+    pub(crate) fn effective_keyframe_ik_joint_specs(
+        &self,
+        kf: &Keyframe,
+        armature: &IkArmature,
+    ) -> Vec<IkJointSpec> {
+        let mut specs = kf.ik_joint_specs.clone();
+        let session_specs = {
+            let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
+            sessions
+                .get(&self.clipboard.session)
+                .map(|s| s.bone_joint_specs.clone())
+                .unwrap_or_default()
+        };
+        for bone in &armature.bones {
+            if specs.iter().any(|s| s.bone_id == bone.id) {
+                continue;
+            }
+            if let Some(ab_spec) = self.stage_bone_joint_spec(&bone.id) {
+                specs.push(ab_spec);
+            } else if let Some(sess_spec) =
+                session_specs.iter().find(|s| s.bone_id == bone.id).cloned()
+            {
+                specs.push(sess_spec);
             }
         }
-        Some(bone_id)
+        specs
+    }
+
+    /// Persist an updated `IkArmature` and `IkJointSpec` onto the active keyframe, solve CCD/FABRIK,
+    /// deform bound `IkShapeSkin`s, and commit in one Undo step (`T-501`).
+    pub(crate) fn apply_persisted_ik_armature_and_joint_spec(
+        &mut self,
+        armature: IkArmature,
+        joint_spec: IkJointSpec,
+    ) -> bool {
+        if !self.layer_editable() {
+            return false;
+        }
+        self.finish_edits();
+        let sym_id = self.symbol_id().to_owned();
+        let layer_idx = self.layer;
+        let frame = self.frame;
+        let Some(layer_id) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .map(|l| l.id.clone())
+        else {
+            return false;
+        };
+        let mut candidate = self.project.clone();
+        Self::ensure_key_for_project(
+            &mut candidate,
+            &sym_id,
+            &layer_id,
+            frame,
+            false,
+            self.workspace.timeline_prefs.auto_keyframe,
+        );
+        let Some(sym) = candidate.symbol_mut(&sym_id) else {
+            return false;
+        };
+        let Some(layer) = sym.timeline.layers.get_mut(layer_idx) else {
+            return false;
+        };
+        let Some(kf) = layer.keyframes.iter_mut().find(|k| k.frame == frame) else {
+            return false;
+        };
+        let mut specs = self.effective_keyframe_ik_joint_specs(kf, &armature);
+        if let Some(slot) = specs.iter_mut().find(|s| s.bone_id == joint_spec.bone_id) {
+            *slot = joint_spec.clone();
+        } else {
+            specs.push(joint_spec.clone());
+        }
+        kf.ik_joint_specs = specs.clone();
+        solve_ik_armature_fabrik_ccd(&mut kf.elements, &armature, &kf.ik_joint_specs);
+        for skin in &kf.ik_skins {
+            if skin.armature_id == armature.id
+                && let Some(pos) = kf
+                    .elements
+                    .iter()
+                    .position(|e| e.id == skin.shape_element_id)
+            {
+                let deformed =
+                    deform_shape_with_ik_skin(&kf.elements[pos], skin, &armature, &kf.elements);
+                kf.elements[pos] = deformed;
+            }
+        }
+        if let Some(slot) = kf.ik_armatures.iter_mut().find(|a| a.id == armature.id) {
+            *slot = armature.clone();
+        } else {
+            kf.ik_armatures.push(armature.clone());
+        }
+        candidate.upgrade_format_for_features();
+        if candidate.validate().is_err() {
+            return false;
+        }
+        self.transact_named("Edit IK bone", |editor| {
+            editor.project = candidate;
+        });
+        let mut sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
+        let sess = sessions.entry(self.clipboard.session.clone()).or_default();
+        sess.active_armature_id = Some(armature.id);
+        sess.active_bone_id = Some(joint_spec.bone_id);
+        sess.bone_joint_specs = specs;
+        true
+    }
+
+    /// Update an IK bone's `spring_strength` (`0..=100`), `spring_damping` (`0..=100`), and optional
+    /// `pinned` flag on `Keyframe.ik_joint_specs` in one Undo step (`T-501`).
+    #[cfg(test)]
+    pub fn set_ik_bone_spring_and_damping(
+        &mut self,
+        bone_id: &str,
+        spring_strength: f64,
+        spring_damping: f64,
+        pinned: Option<bool>,
+    ) -> bool {
+        if bone_id.is_empty() || !spring_strength.is_finite() || !spring_damping.is_finite() {
+            return false;
+        }
+        let Some((armature, existing_specs)) = self
+            .symbol()
+            .timeline
+            .layers
+            .get(self.layer)
+            .and_then(|l| l.key_at(self.frame))
+            .and_then(|kf| {
+                let arm = kf.ik_armatures.first()?.clone();
+                let specs = self.effective_keyframe_ik_joint_specs(kf, &arm);
+                Some((arm, specs))
+            })
+        else {
+            return false;
+        };
+        if !armature.bones.iter().any(|b| b.id == bone_id) {
+            return false;
+        }
+        let mut spec = existing_specs
+            .into_iter()
+            .find(|s| s.bone_id == bone_id)
+            .unwrap_or_else(|| IkJointSpec {
+                bone_id: bone_id.to_owned(),
+                ..IkJointSpec::default()
+            });
+        spec.spring_strength = spring_strength.clamp(0.0, 100.0);
+        spec.spring_damping = spring_damping.clamp(0.0, 100.0);
+        if let Some(pin) = pinned {
+            spec.pinned = pin;
+        }
+        self.apply_persisted_ik_armature_and_joint_spec(armature, spec)
     }
 
     /// Drag the active IK effector to `target_local_pos` (and optional `pole_local_pos`), solve the armature
@@ -480,11 +652,11 @@ impl Editor {
         else {
             return false;
         };
-        let (joint_specs, skins) = {
+        let session_skins = {
             let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
             sessions
                 .get(&self.clipboard.session)
-                .map(|s| (s.bone_joint_specs.clone(), s.bind_skins.clone()))
+                .map(|s| s.bind_skins.clone())
                 .unwrap_or_default()
         };
 
@@ -497,33 +669,57 @@ impl Editor {
             false,
             self.workspace.timeline_prefs.auto_keyframe,
         );
-        let Some(sym) = candidate.symbol_mut(&sym_id) else {
-            return false;
-        };
-        let Some(layer) = sym.timeline.layers.get_mut(layer_idx) else {
-            return false;
-        };
-        let Some(kf) = layer.keyframes.iter_mut().find(|k| k.frame == frame) else {
-            return false;
-        };
-        let Some(armature) = kf.ik_armatures.first_mut() else {
-            return false;
-        };
-        armature.target_pos = target_local_pos;
-        if let Some(pole) = pole_local_pos {
-            armature.pole_pos = Some(pole);
-        }
-        let arm_clone = armature.clone();
-        solve_armature_ccd(&mut kf.elements, &arm_clone, &joint_specs);
-        for (shape_id, skin) in &skins {
-            if skin.armature_id == arm_clone.id
-                && let Some(pos) = kf.elements.iter().position(|e| &e.id == shape_id)
-            {
-                let deformed =
-                    deform_shape_with_ik_skin(&kf.elements[pos], skin, &arm_clone, &kf.elements);
-                kf.elements[pos] = deformed;
+        let (arm_id, synced_specs, synced_skins) = {
+            let Some(sym) = candidate.symbol_mut(&sym_id) else {
+                return false;
+            };
+            let Some(layer) = sym.timeline.layers.get_mut(layer_idx) else {
+                return false;
+            };
+            let Some(kf) = layer.keyframes.iter_mut().find(|k| k.frame == frame) else {
+                return false;
+            };
+            let Some(armature) = kf.ik_armatures.first_mut() else {
+                return false;
+            };
+            armature.target_pos = target_local_pos;
+            if let Some(pole) = pole_local_pos {
+                armature.pole_pos = Some(pole);
             }
-        }
+            let arm_clone = armature.clone();
+            let joint_specs = self.effective_keyframe_ik_joint_specs(kf, &arm_clone);
+            if !joint_specs.is_empty() {
+                kf.ik_joint_specs = joint_specs.clone();
+            }
+            for (shape_id, skin) in &session_skins {
+                if skin.armature_id == arm_clone.id
+                    && !kf
+                        .ik_skins
+                        .iter()
+                        .any(|s| &s.shape_element_id == shape_id && s.armature_id == arm_clone.id)
+                {
+                    kf.ik_skins.push(skin.clone());
+                }
+            }
+            solve_armature_ccd(&mut kf.elements, &arm_clone, &joint_specs);
+            for skin in &kf.ik_skins {
+                if skin.armature_id == arm_clone.id
+                    && let Some(pos) = kf
+                        .elements
+                        .iter()
+                        .position(|e| e.id == skin.shape_element_id)
+                {
+                    let deformed = deform_shape_with_ik_skin(
+                        &kf.elements[pos],
+                        skin,
+                        &arm_clone,
+                        &kf.elements,
+                    );
+                    kf.elements[pos] = deformed;
+                }
+            }
+            (arm_clone.id, kf.ik_joint_specs.clone(), kf.ik_skins.clone())
+        };
         candidate.upgrade_format_for_features();
         if candidate.validate().is_err() {
             return false;
@@ -531,6 +727,13 @@ impl Editor {
         self.transact_named("Pose IK armature", |editor| {
             editor.project = candidate;
         });
+        let mut sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
+        let sess = sessions.entry(self.clipboard.session.clone()).or_default();
+        sess.active_armature_id = Some(arm_id);
+        sess.bone_joint_specs = synced_specs;
+        for skin in synced_skins {
+            sess.bind_skins.insert(skin.shape_element_id.clone(), skin);
+        }
         true
     }
 
@@ -560,7 +763,8 @@ impl Editor {
         true
     }
 
-    /// Assign selected shape vertices to `bone_id` in Bind mode and update the shape skin (`T-186`).
+    /// Assign selected shape vertices to `bone_id` in Bind mode and persist the shape skin on
+    /// `Keyframe.ik_skins` (`T-186`, `T-501`).
     pub fn stage_bind_assign_vertices_to_bone(
         &mut self,
         shape_element_id: &str,
@@ -569,7 +773,7 @@ impl Editor {
         weight: f64,
         exclusive: bool,
     ) -> Option<IkShapeSkin> {
-        if !self.layer_editable() {
+        if !self.layer_editable() || bone_id.is_empty() || !weight.is_finite() {
             return None;
         }
         self.finish_edits();
@@ -591,26 +795,103 @@ impl Editor {
             false,
             self.workspace.timeline_prefs.auto_keyframe,
         );
-        let sym = candidate.symbol_mut(&sym_id)?;
-        let layer = sym.timeline.layers.get_mut(layer_idx)?;
-        let kf = layer.keyframes.iter_mut().find(|k| k.frame == frame)?;
-        let armature = kf.ik_armatures.first()?.clone();
-        let shape_idx = kf.elements.iter().position(|e| e.id == shape_element_id)?;
+        let skin = {
+            let sym = candidate.symbol_mut(&sym_id)?;
+            let layer = sym.timeline.layers.get_mut(layer_idx)?;
+            let kf = layer.keyframes.iter_mut().find(|k| k.frame == frame)?;
+            let armature = kf.ik_armatures.first()?.clone();
+            if !armature.bones.iter().any(|b| b.id == bone_id) {
+                return None;
+            }
+            let shape_idx = kf.elements.iter().position(|e| e.id == shape_element_id)?;
 
-        let mut skin = {
-            let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
-            sessions
-                .get(&self.clipboard.session)
-                .and_then(|s| s.bind_skins.get(shape_element_id).cloned())
-        }
-        .or_else(|| {
-            auto_bind_shape_to_armature(&kf.elements[shape_idx], &armature, &kf.elements)
-        })?;
+            let mut skin = kf
+                .ik_skins
+                .iter()
+                .find(|s| s.shape_element_id == shape_element_id && s.armature_id == armature.id)
+                .cloned()
+                .or_else(|| {
+                    let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
+                    sessions
+                        .get(&self.clipboard.session)
+                        .and_then(|s| s.bind_skins.get(shape_element_id).cloned())
+                        .filter(|s| s.armature_id == armature.id)
+                })
+                .or_else(|| {
+                    auto_bind_shape_to_armature(&kf.elements[shape_idx], &armature, &kf.elements)
+                })?;
 
-        bind_vertices_to_bone(&mut skin, bone_id, vertex_indices, weight, exclusive);
-        let deformed =
-            deform_shape_with_ik_skin(&kf.elements[shape_idx], &skin, &armature, &kf.elements);
-        kf.elements[shape_idx] = deformed;
+            let clamped = weight.clamp(0.0, 1.0);
+            if exclusive {
+                bind_vertices_to_bone(&mut skin, bone_id, vertex_indices, 1.0, true);
+            } else {
+                for &v_idx in vertex_indices {
+                    let Some(binding) = skin.bindings.iter_mut().find(|b| b.vertex_index == v_idx)
+                    else {
+                        continue;
+                    };
+                    if armature.bones.len() >= 2 {
+                        let mut others: Vec<IkBoneWeight> = binding
+                            .weights
+                            .iter()
+                            .filter(|w| {
+                                w.bone_id != bone_id && w.weight > 0.0 && w.weight.is_finite()
+                            })
+                            .cloned()
+                            .collect();
+                        if others.is_empty()
+                            && clamped < 1.0
+                            && let Some(fallback_bone) =
+                                armature.bones.iter().find(|b| b.id != bone_id)
+                        {
+                            others.push(IkBoneWeight {
+                                bone_id: fallback_bone.id.clone(),
+                                weight: 1.0,
+                            });
+                        }
+                        let rem = (1.0 - clamped).max(0.0);
+                        let other_sum: f64 = others.iter().map(|w| w.weight).sum();
+                        let mut next_weights = Vec::with_capacity(others.len() + 1);
+                        if clamped > 1e-6 || others.is_empty() {
+                            next_weights.push(IkBoneWeight {
+                                bone_id: bone_id.to_owned(),
+                                weight: clamped,
+                            });
+                        }
+                        if rem > 1e-6 && other_sum > 1e-12 {
+                            for mut ow in others {
+                                ow.weight = (ow.weight / other_sum) * rem;
+                                if ow.weight > 1e-6 {
+                                    next_weights.push(ow);
+                                }
+                            }
+                        }
+                        binding.weights = next_weights;
+                    } else if clamped <= 1e-6 {
+                        binding.weights.clear();
+                    } else {
+                        binding.weights = vec![IkBoneWeight {
+                            bone_id: bone_id.to_owned(),
+                            weight: clamped,
+                        }];
+                    }
+                }
+            }
+
+            let deformed =
+                deform_shape_with_ik_skin(&kf.elements[shape_idx], &skin, &armature, &kf.elements);
+            kf.elements[shape_idx] = deformed;
+            if let Some(slot) = kf
+                .ik_skins
+                .iter_mut()
+                .find(|s| s.shape_element_id == shape_element_id && s.armature_id == armature.id)
+            {
+                *slot = skin.clone();
+            } else {
+                kf.ik_skins.push(skin.clone());
+            }
+            skin
+        };
         candidate.upgrade_format_for_features();
         candidate.validate().ok()?;
 
@@ -622,6 +903,7 @@ impl Editor {
         let sess = sessions.entry(self.clipboard.session.clone()).or_default();
         sess.bind_shape_id = Some(shape_element_id.to_owned());
         sess.bind_selected_vertices = vertex_indices.to_vec();
+        sess.active_bone_id = Some(bone_id.to_owned());
         sess.bind_skins
             .insert(shape_element_id.to_owned(), skin.clone());
         Some(skin)
@@ -633,15 +915,25 @@ impl Editor {
             return 0;
         }
         self.finish_edits();
-        let joint_specs = {
-            let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
-            sessions
-                .get(&self.clipboard.session)
-                .map(|s| s.bone_joint_specs.clone())
-                .unwrap_or_default()
-        };
         let sym_id = self.symbol_id().to_owned();
         let layer_idx = self.layer;
+        let joint_specs = self
+            .symbol()
+            .timeline
+            .layers
+            .get(layer_idx)
+            .and_then(|layer| {
+                layer
+                    .keyframes
+                    .iter()
+                    .rfind(|k| k.frame <= start_frame && !k.ik_armatures.is_empty())
+                    .or_else(|| layer.keyframes.iter().find(|k| !k.ik_armatures.is_empty()))
+            })
+            .and_then(|kf| {
+                let arm = kf.ik_armatures.first()?;
+                Some(self.effective_keyframe_ik_joint_specs(kf, arm))
+            })
+            .unwrap_or_default();
         let mut candidate = self.project.clone();
         let Some(sym) = candidate.symbol_mut(&sym_id) else {
             return 0;
@@ -653,6 +945,31 @@ impl Editor {
         let baked = bake_armature_to_keyframes(layer, start_frame, end_frame, &joint_specs);
         if baked == 0 {
             return 0;
+        }
+        for kf in layer
+            .keyframes
+            .iter_mut()
+            .filter(|k| k.frame >= start_frame && k.frame <= end_frame)
+        {
+            if !joint_specs.is_empty() && kf.ik_joint_specs.is_empty() {
+                kf.ik_joint_specs = joint_specs.clone();
+            }
+            let arms = kf.ik_armatures.clone();
+            let skins = kf.ik_skins.clone();
+            for arm in &arms {
+                for skin in &skins {
+                    if skin.armature_id == arm.id
+                        && let Some(pos) = kf
+                            .elements
+                            .iter()
+                            .position(|e| e.id == skin.shape_element_id)
+                    {
+                        let deformed =
+                            deform_shape_with_ik_skin(&kf.elements[pos], skin, arm, &kf.elements);
+                        kf.elements[pos] = deformed;
+                    }
+                }
+            }
         }
         candidate.upgrade_format_for_features();
         if candidate.validate().is_err() {
@@ -1137,13 +1454,16 @@ impl Editor {
                 },
             );
         }
-        let (pressed, pos) = ui.input(|i| {
+        let (pressed, down, pos, shift_held, alt_held) = ui.input(|i| {
             (
                 i.pointer.primary_pressed(),
+                i.pointer.primary_down(),
                 i.pointer.interact_pos().or_else(|| i.pointer.latest_pos()),
+                i.modifiers.shift,
+                i.modifiers.alt,
             )
         });
-        if pressed
+        if (pressed || down)
             && let Some(pos) = pos
             && rect.contains(pos)
         {
@@ -1151,21 +1471,39 @@ impl Editor {
                 let stage_pt = crate::stage::affine(matrix, Pos2::new(pt[0] as f32, pt[1] as f32));
                 let scr = mapping.edit_to_screen(origin, self.zoom, stage_pt);
                 if scr.distance(pos) <= 9.0 {
-                    self.stage_bind_select_vertices(&el.id, vec![idx]);
-                    let active_bone = {
-                        let sessions = STAGE_TOOL_SESSIONS.lock().unwrap();
-                        sessions
-                            .get(&self.clipboard.session)
-                            .and_then(|s| s.active_bone_id.clone())
+                    if !pressed && selected_verts.contains(&idx) {
+                        return true;
+                    }
+                    let next_verts = if shift_held || (!pressed && !selected_verts.is_empty()) {
+                        let mut v = selected_verts.clone();
+                        if !v.contains(&idx) {
+                            v.push(idx);
+                        }
+                        v
+                    } else {
+                        vec![idx]
                     };
+                    self.stage_bind_select_vertices(&el.id, next_verts.clone());
+                    let active_bone = self.stage_active_ik_bone_id().or_else(|| {
+                        self.symbol()
+                            .timeline
+                            .layers
+                            .get(self.layer)
+                            .and_then(|l| l.key_at(self.frame))
+                            .and_then(|k| k.ik_armatures.first())
+                            .and_then(|a| a.bones.first())
+                            .map(|b| b.id.clone())
+                    });
                     if let Some(bone_id) = active_bone {
+                        let weight = if alt_held { 0.5 } else { 1.0 };
                         self.stage_bind_assign_vertices_to_bone(
                             &el.id,
                             &bone_id,
                             &[idx],
-                            1.0,
+                            weight,
                             false,
                         );
+                        self.stage_bind_select_vertices(&el.id, next_verts);
                     }
                     return true;
                 }

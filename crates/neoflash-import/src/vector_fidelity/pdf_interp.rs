@@ -5,7 +5,7 @@ use super::pdf::{
     MAX_PDF_FORM_DEPTH, Page, PdfFormRef, PdfResourceScope, resolve_color_in_cs,
     tokenize_pdf_content,
 };
-use super::pdf_color_fn::cmyk_to_rgba;
+use super::pdf_color_fn::{PdfShadingPaint, cmyk_to_rgba};
 use super::pdf_text_font::{PdfTextBlockBuilder, PdfTextStyleState};
 use super::*;
 use lopdf::ObjectId;
@@ -229,8 +229,8 @@ struct PdfGState {
     blend_mode: BlendMode,
     fill_cs_name: Option<String>,
     stroke_cs_name: Option<String>,
-    fill_pattern: Option<GradientPaint>,
-    stroke_pattern: Option<GradientPaint>,
+    fill_pattern: Option<PdfShadingPaint>,
+    stroke_pattern: Option<PdfShadingPaint>,
     line_width: f64,
     line_cap: i64,
     line_join: i64,
@@ -399,6 +399,7 @@ impl<'a> PdfSharedBuild<'a> {
                     keyframes: vec![Keyframe {
                         frame: 0,
                         elements: b.elements,
+                        vector_effects: b.vector_effects,
                         ..Keyframe::default()
                     }],
                     properties: LayerProperties {
@@ -471,6 +472,7 @@ impl<'a> PdfSharedBuild<'a> {
         let mut current_bucket = VectorGroupBucket {
             name: format!("{stream_label} Layer 1"),
             elements: Vec::new(),
+            vector_effects: Vec::new(),
             mask_elements: Vec::new(),
             mask_mode: MaskMode::Geometry,
         };
@@ -500,6 +502,7 @@ impl<'a> PdfSharedBuild<'a> {
                     let next = VectorGroupBucket {
                         name: current_bucket.name.clone(),
                         elements: Vec::new(),
+                        vector_effects: Vec::new(),
                         mask_elements: Vec::new(),
                         mask_mode: mode,
                     };
@@ -1118,29 +1121,56 @@ impl<'a> PdfSharedBuild<'a> {
                                     }
                                 }
                             };
-                            let resolve_fill_pat = |pat: &GradientPaint| -> Option<GradientPaint> {
-                                let mut p = pat.clone();
-                                let stage_mat = affine_multiply(initial_ctm, p.matrix);
-                                p.matrix = if fill_mat == identity_matrix() {
-                                    stage_mat
-                                } else {
-                                    affine_multiply(
-                                        invert_affine_2x2_with_origin(fill_mat)?,
-                                        stage_mat,
-                                    )
+                            let resolve_fill_pat =
+                                |pat: &PdfShadingPaint| -> Option<PdfShadingPaint> {
+                                    let stage_mat = initial_ctm;
+                                    let local_mat = if fill_mat == identity_matrix() {
+                                        stage_mat
+                                    } else {
+                                        affine_multiply(
+                                            invert_affine_2x2_with_origin(fill_mat)?,
+                                            stage_mat,
+                                        )
+                                    };
+                                    match pat {
+                                        PdfShadingPaint::Gradient(grad) => {
+                                            let mut p = grad.clone();
+                                            p.matrix = affine_multiply(local_mat, p.matrix);
+                                            for st in &mut p.stops {
+                                                st.color = with_alpha(st.color, gstate.fill_alpha);
+                                            }
+                                            p.validate().ok()?;
+                                            Some(PdfShadingPaint::Gradient(p))
+                                        }
+                                        PdfShadingPaint::Mesh(mesh) => {
+                                            let mut m = mesh.clone();
+                                            m.transform_in_place(local_mat);
+                                            m.apply_alpha_in_place(gstate.fill_alpha);
+                                            m.validate().ok()?;
+                                            Some(PdfShadingPaint::Mesh(m))
+                                        }
+                                    }
                                 };
-                                for st in &mut p.stops {
-                                    st.color = with_alpha(st.color, gstate.fill_alpha);
-                                }
-                                p.validate().ok()?;
-                                Some(p)
-                            };
-                            let fg = gstate.fill_pattern.as_ref().and_then(resolve_fill_pat);
+                            let resolved_fp =
+                                gstate.fill_pattern.as_ref().and_then(resolve_fill_pat);
                             if validate_path_commands(&fill_final).is_ok() {
-                                let fc = if fg.is_none() {
-                                    with_alpha(gstate.fill_color, gstate.fill_alpha)
-                                } else {
-                                    [0, 0, 0, 0]
+                                let el_id = new_id("element");
+                                let (fg, fc) = match resolved_fp {
+                                    Some(PdfShadingPaint::Gradient(g)) => (Some(g), [0, 0, 0, 0]),
+                                    Some(PdfShadingPaint::Mesh(mesh)) => {
+                                        let rep = mesh.representative_color();
+                                        current_bucket.vector_effects.push(
+                                            neoflash_core::ElementVectorEffects {
+                                                element_id: el_id.clone(),
+                                                vector_mesh: Some(mesh),
+                                                ..Default::default()
+                                            },
+                                        );
+                                        (None, rep)
+                                    }
+                                    None => {
+                                        (None, with_alpha(gstate.fill_color, gstate.fill_alpha))
+                                    }
                                 };
                                 let kind = if fg.is_some() {
                                     ElementKind::PaintedPath {
@@ -1162,7 +1192,7 @@ impl<'a> PdfSharedBuild<'a> {
                                     }
                                 };
                                 current_bucket.elements.push(Element {
-                                    id: new_id("element"),
+                                    id: el_id,
                                     name: format!("PDF Path {}", current_bucket.elements.len() + 1),
                                     transform: fill_tf,
                                     kind,
@@ -1195,23 +1225,35 @@ impl<'a> PdfSharedBuild<'a> {
                                     }
                                 }
                             };
-                        let resolve_pat = |pat: &GradientPaint,
+                        let resolve_pat = |pat: &PdfShadingPaint,
                                            alpha_mul: f64|
-                         -> Option<GradientPaint> {
-                            let mut p = pat.clone();
-                            let stage_mat = affine_multiply(initial_ctm, p.matrix);
-                            p.matrix = if elem_mat == identity_matrix() {
+                         -> Option<PdfShadingPaint> {
+                            let stage_mat = initial_ctm;
+                            let local_mat = if elem_mat == identity_matrix() {
                                 stage_mat
                             } else {
                                 affine_multiply(invert_affine_2x2_with_origin(elem_mat)?, stage_mat)
                             };
-                            for st in &mut p.stops {
-                                st.color = with_alpha(st.color, alpha_mul);
+                            match pat {
+                                PdfShadingPaint::Gradient(grad) => {
+                                    let mut p = grad.clone();
+                                    p.matrix = affine_multiply(local_mat, p.matrix);
+                                    for st in &mut p.stops {
+                                        st.color = with_alpha(st.color, alpha_mul);
+                                    }
+                                    p.validate().ok()?;
+                                    Some(PdfShadingPaint::Gradient(p))
+                                }
+                                PdfShadingPaint::Mesh(mesh) => {
+                                    let mut m = mesh.clone();
+                                    m.transform_in_place(local_mat);
+                                    m.apply_alpha_in_place(alpha_mul);
+                                    m.validate().ok()?;
+                                    Some(PdfShadingPaint::Mesh(m))
+                                }
                             }
-                            p.validate().ok()?;
-                            Some(p)
                         };
-                        let fill_grad = if effective_do_fill {
+                        let resolved_fill = if effective_do_fill {
                             gstate
                                 .fill_pattern
                                 .as_ref()
@@ -1220,19 +1262,35 @@ impl<'a> PdfSharedBuild<'a> {
                             None
                         };
                         let stroke_grad = if do_stroke {
-                            gstate
-                                .stroke_pattern
-                                .as_ref()
-                                .and_then(|p| resolve_pat(p, gstate.stroke_alpha))
+                            gstate.stroke_pattern.as_ref().and_then(|p| {
+                                match resolve_pat(p, gstate.stroke_alpha)? {
+                                    PdfShadingPaint::Gradient(g) => Some(g),
+                                    PdfShadingPaint::Mesh(_) => None,
+                                }
+                            })
                         } else {
                             None
                         };
 
                         if validate_path_commands(&final_cmds).is_ok() {
-                            let fill_col = if effective_do_fill && fill_grad.is_none() {
-                                with_alpha(gstate.fill_color, gstate.fill_alpha)
-                            } else {
-                                [0, 0, 0, 0]
+                            let el_id = new_id("element");
+                            let (fill_grad, fill_col) = match resolved_fill {
+                                Some(PdfShadingPaint::Gradient(g)) => (Some(g), [0, 0, 0, 0]),
+                                Some(PdfShadingPaint::Mesh(mesh)) => {
+                                    let rep = mesh.representative_color();
+                                    current_bucket.vector_effects.push(
+                                        neoflash_core::ElementVectorEffects {
+                                            element_id: el_id.clone(),
+                                            vector_mesh: Some(mesh),
+                                            ..Default::default()
+                                        },
+                                    );
+                                    (None, rep)
+                                }
+                                None if effective_do_fill => {
+                                    (None, with_alpha(gstate.fill_color, gstate.fill_alpha))
+                                }
+                                None => (None, [0, 0, 0, 0]),
                             };
                             let stroke_col = if do_stroke && stroke_grad.is_none() {
                                 with_alpha(gstate.stroke_color, gstate.stroke_alpha)
@@ -1268,7 +1326,7 @@ impl<'a> PdfSharedBuild<'a> {
                                 }
                             };
                             current_bucket.elements.push(Element {
-                                id: new_id("element"),
+                                id: el_id,
                                 name: format!("PDF Path {}", current_bucket.elements.len() + 1),
                                 transform: elem_transform,
                                 kind,
@@ -1444,6 +1502,7 @@ impl<'a> PdfSharedBuild<'a> {
                     current_bucket = VectorGroupBucket {
                         name: group_label,
                         elements: Vec::new(),
+                        vector_effects: Vec::new(),
                         mask_elements: Vec::new(),
                         mask_mode: MaskMode::Geometry,
                     };
@@ -1467,6 +1526,7 @@ impl<'a> PdfSharedBuild<'a> {
                         current_bucket = VectorGroupBucket {
                             name: format!("{stream_label} Layer {}", buckets.len() + 1),
                             elements: Vec::new(),
+                            vector_effects: Vec::new(),
                             mask_elements: Vec::new(),
                             mask_mode: MaskMode::Geometry,
                         };
@@ -1478,66 +1538,147 @@ impl<'a> PdfSharedBuild<'a> {
                     .and_then(|name| scope.shadings.get(name.trim_start_matches('/')))
                     .is_some() =>
                 {
-                    let mut paint = scope.shadings
+                    let shading_entry = scope.shadings
                         [operand_stack.last().unwrap().trim_start_matches('/')]
                     .clone();
-                    paint.matrix = affine_multiply(gstate.ctm, paint.matrix);
-                    for st in &mut paint.stops {
-                        st.color = with_alpha(st.color, gstate.fill_alpha);
-                    }
-                    if paint.validate().is_ok() {
-                        let (commands, rule) = if let Some(Element {
-                            kind:
-                                ElementKind::Path {
-                                    commands,
-                                    fill_rule,
+                    match shading_entry {
+                        PdfShadingPaint::Gradient(mut paint) => {
+                            paint.matrix = affine_multiply(gstate.ctm, paint.matrix);
+                            for st in &mut paint.stops {
+                                st.color = with_alpha(st.color, gstate.fill_alpha);
+                            }
+                            if paint.validate().is_ok() {
+                                let (commands, rule) = if let Some(Element {
+                                    kind:
+                                        ElementKind::Path {
+                                            commands,
+                                            fill_rule,
+                                            ..
+                                        },
                                     ..
-                                },
-                            ..
-                        }) = gstate.clip.as_deref()
-                        {
-                            (commands.clone(), *fill_rule)
-                        } else if let Some((commands, fill_rule)) = &gstate.clip_geom {
-                            (commands.clone(), *fill_rule)
-                        } else {
-                            let (w, h) = bounds_wh;
-                            (
-                                vec![
-                                    PathCommand::MoveTo { x: 0., y: 0. },
-                                    PathCommand::LineTo { x: w, y: 0. },
-                                    PathCommand::LineTo { x: w, y: h },
-                                    PathCommand::LineTo { x: 0., y: h },
-                                    PathCommand::Close,
-                                ],
-                                FillRule::NonZero,
-                            )
-                        };
-                        let name = match paint.kind {
-                            GradientKind::Radial => "PDF radial shading",
-                            _ => "PDF axial shading",
-                        };
-                        current_bucket.elements.push(Element {
-                            id: new_id("element"),
-                            name: name.into(),
-                            kind: ElementKind::PaintedPath {
-                                commands,
-                                fill_rule: rule,
-                                fill: [0; 4],
-                                stroke: [0; 4],
-                                stroke_width: 0.,
-                                fill_gradient: Some(paint),
-                                stroke_gradient: None,
-                            },
-                            blend_mode: gstate.blend_mode,
-                            ..Default::default()
-                        });
-                        self.report.statistics.elements += 1;
-                    } else {
-                        self.report.warning(
-                            "pdf-unsupported-operator",
-                            loc,
-                            "PDF shading transform became singular and was skipped.".to_owned(),
-                        );
+                                }) = gstate.clip.as_deref()
+                                {
+                                    (commands.clone(), *fill_rule)
+                                } else if let Some((commands, fill_rule)) = &gstate.clip_geom {
+                                    (commands.clone(), *fill_rule)
+                                } else {
+                                    let (w, h) = bounds_wh;
+                                    (
+                                        vec![
+                                            PathCommand::MoveTo { x: 0., y: 0. },
+                                            PathCommand::LineTo { x: w, y: 0. },
+                                            PathCommand::LineTo { x: w, y: h },
+                                            PathCommand::LineTo { x: 0., y: h },
+                                            PathCommand::Close,
+                                        ],
+                                        FillRule::NonZero,
+                                    )
+                                };
+                                let name = match paint.kind {
+                                    GradientKind::Radial => "PDF radial shading",
+                                    _ => "PDF axial shading",
+                                };
+                                current_bucket.elements.push(Element {
+                                    id: new_id("element"),
+                                    name: name.into(),
+                                    kind: ElementKind::PaintedPath {
+                                        commands,
+                                        fill_rule: rule,
+                                        fill: [0; 4],
+                                        stroke: [0; 4],
+                                        stroke_width: 0.,
+                                        fill_gradient: Some(paint),
+                                        stroke_gradient: None,
+                                    },
+                                    blend_mode: gstate.blend_mode,
+                                    ..Default::default()
+                                });
+                                self.report.statistics.elements += 1;
+                            } else {
+                                self.report.warning(
+                                    "pdf-unsupported-operator",
+                                    loc,
+                                    "PDF shading transform became singular and was skipped."
+                                        .to_owned(),
+                                );
+                            }
+                        }
+                        PdfShadingPaint::Mesh(mut mesh) => {
+                            mesh.transform_in_place(gstate.ctm);
+                            mesh.apply_alpha_in_place(gstate.fill_alpha);
+                            if mesh.validate().is_ok() {
+                                let (commands, rule) = if let Some(Element {
+                                    kind:
+                                        ElementKind::Path {
+                                            commands,
+                                            fill_rule,
+                                            ..
+                                        },
+                                    ..
+                                }) = gstate.clip.as_deref()
+                                {
+                                    (commands.clone(), *fill_rule)
+                                } else if let Some((commands, fill_rule)) = &gstate.clip_geom {
+                                    (commands.clone(), *fill_rule)
+                                } else if let Some([x0, y0, x1, y1]) = mesh.bounds()
+                                    && (x1 - x0) > 1e-6
+                                    && (y1 - y0) > 1e-6
+                                {
+                                    (
+                                        vec![
+                                            PathCommand::MoveTo { x: x0, y: y0 },
+                                            PathCommand::LineTo { x: x1, y: y0 },
+                                            PathCommand::LineTo { x: x1, y: y1 },
+                                            PathCommand::LineTo { x: x0, y: y1 },
+                                            PathCommand::Close,
+                                        ],
+                                        FillRule::NonZero,
+                                    )
+                                } else {
+                                    let (w, h) = bounds_wh;
+                                    (
+                                        vec![
+                                            PathCommand::MoveTo { x: 0., y: 0. },
+                                            PathCommand::LineTo { x: w, y: 0. },
+                                            PathCommand::LineTo { x: w, y: h },
+                                            PathCommand::LineTo { x: 0., y: h },
+                                            PathCommand::Close,
+                                        ],
+                                        FillRule::NonZero,
+                                    )
+                                };
+                                let el_id = new_id("element");
+                                let rep = mesh.representative_color();
+                                current_bucket.vector_effects.push(
+                                    neoflash_core::ElementVectorEffects {
+                                        element_id: el_id.clone(),
+                                        vector_mesh: Some(mesh),
+                                        ..Default::default()
+                                    },
+                                );
+                                current_bucket.elements.push(Element {
+                                    id: el_id,
+                                    name: "PDF mesh shading".into(),
+                                    kind: ElementKind::Path {
+                                        commands,
+                                        fill_rule: rule,
+                                        fill: rep,
+                                        stroke: [0; 4],
+                                        stroke_width: 0.,
+                                    },
+                                    blend_mode: gstate.blend_mode,
+                                    ..Default::default()
+                                });
+                                self.report.statistics.elements += 1;
+                            } else {
+                                self.report.warning(
+                                    "pdf-unsupported-operator",
+                                    loc,
+                                    "PDF mesh shading exceeded coordinate bounds and was skipped."
+                                        .to_owned(),
+                                );
+                            }
+                        }
                     }
                     operand_stack.clear();
                 }

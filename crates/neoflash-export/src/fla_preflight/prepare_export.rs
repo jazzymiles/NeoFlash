@@ -321,6 +321,8 @@ pub(super) fn clear_baked_keyframe_fields(kf: &mut Keyframe) {
     kf.roving = false;
     kf.orient_to_path = false;
     kf.ik_armatures.clear();
+    kf.ik_joint_specs.clear();
+    kf.ik_skins.clear();
     kf.asset_warps.clear();
     kf.camera = None;
     kf.element_parents.clear();

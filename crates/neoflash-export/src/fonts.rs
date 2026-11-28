@@ -149,8 +149,28 @@ pub fn font_family_for_resource(resource: &ResourceUnit) -> String {
 struct FontUsage {
     by_family: BTreeMap<String, BTreeSet<u32>>,
     by_face: BTreeMap<String, BTreeSet<u32>>,
+    texts_by_family: BTreeMap<String, Vec<String>>,
+    texts_by_face: BTreeMap<String, Vec<String>>,
     runtime_mutable_families: BTreeSet<String>,
     runtime_mutable_faces: BTreeSet<String>,
+}
+
+fn add_text_run_usage(usage: &mut FontUsage, format: &TextFormat, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let fam_vec = usage
+        .texts_by_family
+        .entry(format.font.clone())
+        .or_default();
+    if fam_vec.len() < 512 {
+        fam_vec.push(text.to_owned());
+    }
+    let fkey = face_key(&format.font, requested_style(format.bold, format.italic));
+    let face_vec = usage.texts_by_face.entry(fkey).or_default();
+    if face_vec.len() < 512 {
+        face_vec.push(text.to_owned());
+    }
 }
 
 fn add_character_usage(usage: &mut FontUsage, format: &TextFormat, character: char) {
@@ -188,6 +208,7 @@ fn collect_text_box_usage(usage: &mut FontUsage, field: &TextFieldState, has_ins
         || field.variable.as_ref().is_some_and(|name| !name.is_empty());
 
     if runs.is_empty() {
+        add_text_run_usage(usage, &field.format, &field.text);
         usage
             .by_family
             .entry(field.format.font.clone())
@@ -218,16 +239,30 @@ fn collect_text_box_usage(usage: &mut FontUsage, field: &TextFieldState, has_ins
 
     let mut cursor_utf16 = 0u32;
     let mut run_index = 0usize;
+    let mut active_run_text = String::new();
+    let mut active_run_idx: Option<usize> = None;
     for character in field.text.chars() {
         while run_index + 1 < runs.len() && cursor_utf16 >= runs[run_index].end {
             run_index += 1;
         }
-        let format = runs
+        let matched_idx = runs
             .get(run_index)
             .filter(|run| run.start <= cursor_utf16 && cursor_utf16 < run.end)
-            .map_or(&field.format, |run| &run.format);
+            .map(|_| run_index);
+        if matched_idx != active_run_idx && !active_run_text.is_empty() {
+            let prev_fmt = active_run_idx.map_or(&field.format, |idx| &runs[idx].format);
+            add_text_run_usage(usage, prev_fmt, &active_run_text);
+            active_run_text.clear();
+        }
+        active_run_idx = matched_idx;
+        active_run_text.push(character);
+        let format = matched_idx.map_or(&field.format, |idx| &runs[idx].format);
         add_character_usage(usage, format, character);
         cursor_utf16 = cursor_utf16.saturating_add(character.len_utf16() as u32);
+    }
+    if !active_run_text.is_empty() {
+        let prev_fmt = active_run_idx.map_or(&field.format, |idx| &runs[idx].format);
+        add_text_run_usage(usage, prev_fmt, &active_run_text);
     }
 }
 
@@ -245,6 +280,7 @@ fn collect_font_usage(project: &Project) -> FontUsage {
                                 font: font_family.clone(),
                                 ..TextFormat::default()
                             };
+                            add_text_run_usage(&mut usage, &format, text);
                             usage
                                 .by_family
                                 .entry(format.font.clone())
@@ -383,13 +419,293 @@ pub(super) fn matching_system_faces(
     faces
 }
 
+/// Deterministic shaped glyph placement produced by `harfrust` + `unicode_bidi` in visual
+/// left-to-right order along a single horizontal line.
+///
+/// `x_offset` and `y_offset` are in scaled pixel units (`font_size / units_per_em`); `y_offset`
+/// follows OpenType's Y-up convention so stage Y-down rendering places outlines at
+/// `(cursor_x + x_offset, baseline_y - y_offset)`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ShapedGlyphPlacement {
+    pub glyph_id: u16,
+    pub cluster: u32,
+    pub x_advance: f64,
+    pub y_advance: f64,
+    pub x_offset: f64,
+    pub y_offset: f64,
+}
+
+fn is_ignorable_or_whitespace(ch: char) -> bool {
+    ch.is_whitespace()
+        || matches!(
+            ch,
+            '\u{00AD}'
+                | '\u{034F}'
+                | '\u{061C}'
+                | '\u{180B}'..='\u{180F}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FE00}'..='\u{FE0F}'
+                | '\u{FEFF}'
+        )
+}
+
+/// Shapes a single UTF-8 line against raw TrueType/OpenType/WOFF1 font bytes (`face_index`),
+/// splitting mixed-direction text into visual `LTR`/`RTL` runs with `unicode_bidi::BidiInfo`,
+/// toggling OpenType `kern` (`kerning_enabled`), and preserving standard OpenType `GSUB`/`GPOS`
+/// features (`liga`, `clig`, `calt`, `rlig`, `ccmp`, `locl`, `mark`, `mkmk`, `curs`, Arabic
+/// `init`/`medi`/`fina`/`isol`, and Indic shaping).
+pub fn shape_opentype_line(
+    font_bytes: &[u8],
+    face_index: u32,
+    text: &str,
+    font_size: f64,
+    kerning_enabled: bool,
+    letter_spacing: f64,
+) -> Option<Vec<ShapedGlyphPlacement>> {
+    shape_opentype_line_with_direction(
+        font_bytes,
+        face_index,
+        text,
+        font_size,
+        kerning_enabled,
+        letter_spacing,
+        None,
+    )
+}
+
+/// Shapes a single UTF-8 line with an optional paragraph base direction (`Some(true)` = RTL,
+/// `Some(false)` = LTR, `None` = Unicode UAX #9 first-strong auto-detection).
+pub fn shape_opentype_line_with_direction(
+    font_bytes: &[u8],
+    face_index: u32,
+    text: &str,
+    font_size: f64,
+    kerning_enabled: bool,
+    letter_spacing: f64,
+    base_rtl: Option<bool>,
+) -> Option<Vec<ShapedGlyphPlacement>> {
+    let sfnt = if face_index == 0 {
+        neoflash_core::sfnt_view_bytes(font_bytes)
+    } else {
+        None
+    };
+    let raw = sfnt.as_deref().unwrap_or(font_bytes);
+    let font_ref = harfrust::FontRef::from_index(raw, face_index).ok()?;
+    let shaper_data = harfrust::ShaperData::new(&font_ref);
+    let shaper_instance = harfrust::ShaperInstance::default();
+    let shaper = shaper_data
+        .shaper(&font_ref)
+        .instance(Some(&shaper_instance))
+        .build();
+    let upem_i32 = shaper.units_per_em();
+    if upem_i32 <= 0 {
+        return None;
+    }
+    if text.is_empty() || !font_size.is_finite() || font_size <= 0.0 {
+        return Some(Vec::new());
+    }
+
+    let upem = f64::from(upem_i32);
+    let scale = font_size / upem;
+    let features = [harfrust::Feature::new(
+        harfrust::Tag::new(b"kern"),
+        u32::from(kerning_enabled),
+        ..,
+    )];
+    let default_level = base_rtl.map(|rtl| {
+        if rtl {
+            unicode_bidi::RTL_LEVEL
+        } else {
+            unicode_bidi::LTR_LEVEL
+        }
+    });
+    let bidi = unicode_bidi::BidiInfo::new(text, default_level);
+    let mut placements = Vec::with_capacity(text.chars().count());
+
+    for para in &bidi.paragraphs {
+        if para.range.is_empty() {
+            continue;
+        }
+        let (levels, visual_runs) = bidi.visual_runs(para, para.range.clone());
+        for run in visual_runs {
+            if run.is_empty() {
+                continue;
+            }
+            let is_rtl = levels[run.start].is_rtl();
+            let direction = if is_rtl {
+                harfrust::Direction::RightToLeft
+            } else {
+                harfrust::Direction::LeftToRight
+            };
+            let mut buffer = harfrust::UnicodeBuffer::new();
+            if run.start > para.range.start {
+                buffer.set_pre_context(&text[para.range.start..run.start]);
+            }
+            if run.end < para.range.end {
+                buffer.set_post_context(&text[run.end..para.range.end]);
+            }
+            for (rel_byte, ch) in text[run.clone()].char_indices() {
+                if ch == '\r' {
+                    continue;
+                }
+                buffer.add(ch, (run.start + rel_byte) as u32);
+            }
+            if buffer.is_empty() {
+                continue;
+            }
+            buffer.set_direction(direction);
+            buffer.guess_segment_properties();
+            let options = harfrust::ShapeOptions::new().features(&features);
+            let glyph_buffer = shaper.shape(buffer, options);
+            let infos = glyph_buffer.glyph_infos();
+            let positions = glyph_buffer.glyph_positions();
+            for (idx, (info, pos)) in infos.iter().zip(positions.iter()).enumerate() {
+                let mut x_advance = if text[run.clone()]
+                    .get((info.cluster as usize).saturating_sub(run.start)..)
+                    .and_then(|s| s.chars().next())
+                    == Some('\t')
+                {
+                    (font_size * 2.0).max(0.0)
+                } else {
+                    f64::from(pos.x_advance) * scale
+                };
+                let y_advance = f64::from(pos.y_advance) * scale;
+                let x_offset = f64::from(pos.x_offset) * scale;
+                let y_offset = f64::from(pos.y_offset) * scale;
+                let is_cluster_end = infos
+                    .get(idx + 1)
+                    .is_none_or(|next| next.cluster != info.cluster);
+                if is_cluster_end && letter_spacing != 0.0 {
+                    x_advance += letter_spacing;
+                }
+                placements.push(ShapedGlyphPlacement {
+                    glyph_id: u16::try_from(info.glyph_id).unwrap_or(0),
+                    cluster: info.cluster,
+                    x_advance,
+                    y_advance,
+                    x_offset,
+                    y_offset,
+                });
+            }
+        }
+    }
+
+    Some(placements)
+}
+
+/// Measures the maximum horizontal advance width of `text` (splitting on `\n`) using `harfrust` +
+/// `unicode_bidi` OpenType `GSUB`/`GPOS` shaping.
+pub fn measure_opentype_text(
+    font_bytes: &[u8],
+    face_index: u32,
+    text: &str,
+    font_size: f64,
+    kerning_enabled: bool,
+    letter_spacing: f64,
+) -> Option<f64> {
+    if !font_size.is_finite() || font_size <= 0.0 {
+        return Some(0.0);
+    }
+    let mut max_width = 0.0_f64;
+    let mut validated_face = false;
+    for line in text.split('\n') {
+        let shaped = shape_opentype_line(
+            font_bytes,
+            face_index,
+            line,
+            font_size,
+            kerning_enabled,
+            letter_spacing,
+        )?;
+        validated_face = true;
+        let line_width: f64 = shaped.iter().map(|g| g.x_advance).sum::<f64>().max(0.0);
+        max_width = max_width.max(line_width);
+    }
+    if !validated_face {
+        let _ = shape_opentype_line(
+            font_bytes,
+            face_index,
+            "",
+            font_size,
+            kerning_enabled,
+            letter_spacing,
+        )?;
+    }
+    Some(max_width)
+}
+
+fn cluster_char_spans(
+    line: &str,
+    shaped: &[ShapedGlyphPlacement],
+) -> BTreeMap<u32, (usize, usize)> {
+    let mut boundaries: Vec<usize> = shaped
+        .iter()
+        .map(|g| (g.cluster as usize).min(line.len()))
+        .filter(|&b| line.is_char_boundary(b))
+        .collect();
+    boundaries.push(0);
+    boundaries.push(line.len());
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let mut spans = BTreeMap::new();
+    for pair in boundaries.windows(2) {
+        spans.insert(pair[0] as u32, (pair[0], pair[1]));
+    }
+    spans
+}
+
 pub(super) fn positioned_text_runs(
     field: &TextFieldState,
     bytes: &[u8],
 ) -> Result<Vec<neoflash_core::TextRun>, String> {
     let sfnt = neoflash_core::sfnt_view_bytes(bytes);
-    let font =
-        FontRef::try_from_slice(sfnt.as_deref().unwrap_or(bytes)).map_err(|e| e.to_string())?;
+    let outline_slice = sfnt.as_deref().unwrap_or(bytes);
+    let base_rtl =
+        (!field.direction.is_empty()).then(|| field.direction.eq_ignore_ascii_case("rtl"));
+    if harfrust::FontRef::from_index(outline_slice, 0).is_ok() {
+        let layout = neoflash_core::layout_text(field, |strings, fmt| {
+            let kerning = fmt.kerning.unwrap_or(true);
+            Ok(strings
+                .iter()
+                .map(|s| {
+                    s.split('\n')
+                        .map(|line| {
+                            shape_opentype_line_with_direction(
+                                outline_slice,
+                                0,
+                                line,
+                                fmt.size.max(0.1),
+                                kerning,
+                                0.0,
+                                base_rtl,
+                            )
+                            .map_or(0.0, |glyphs| {
+                                glyphs.iter().map(|g| g.x_advance).sum::<f64>().max(0.0)
+                            })
+                        })
+                        .fold(0.0_f64, f64::max)
+                })
+                .collect())
+        })
+        .map_err(|e| e.to_string())?;
+        if !layout.runs.is_empty() {
+            return Ok(layout.runs);
+        }
+        return Ok(layout
+            .lines
+            .into_iter()
+            .map(|line| neoflash_core::TextRun {
+                text: line.text,
+                x: line.x,
+                y: line.y,
+                format: None,
+                rotation: 0.,
+            })
+            .collect());
+    }
+    let font = FontRef::try_from_slice(outline_slice).map_err(|e| e.to_string())?;
     positioned_text_runs_with_fonts(field, |_| &font)
 }
 
@@ -400,6 +716,7 @@ pub(super) fn positioned_text_runs_with_fonts<F: Font>(
     let layout = neoflash_core::layout_text(field, |strings, fmt| {
         let font = font_for(fmt);
         let units = font.units_per_em().unwrap_or(1000.0);
+        let kerning = fmt.kerning.unwrap_or(true);
         Ok(strings
             .iter()
             .map(|s| {
@@ -407,7 +724,7 @@ pub(super) fn positioned_text_runs_with_fonts<F: Font>(
                 let mut advance = 0.0;
                 for ch in s.chars() {
                     let id = font.glyph_id(ch);
-                    if let Some(prev) = prev {
+                    if kerning && let Some(prev) = prev {
                         advance += font.kern_unscaled(prev, id);
                     }
                     advance += font.h_advance_unscaled(id);
@@ -434,23 +751,18 @@ pub(super) fn positioned_text_runs_with_fonts<F: Font>(
         .collect())
 }
 
-/// Converts a single glyph's `ab_glyph::Outline` curves (`OutlineCurve::{Line, Quad, Cubic}`)
-/// from font design units (Y-up) into stage `PathCommand`s (Y-down) at `(origin_x, baseline_y)`.
-pub fn outline_glyph(
+/// Converts a single `ab_glyph::GlyphId`'s `Outline` curves (`OutlineCurve::{Line, Quad, Cubic}`)
+/// from font design units (Y-up) into stage `PathCommand`s (Y-down) positioned at `(origin_x, baseline_y)`.
+pub fn outline_shaped_glyph(
     font: &FontRef<'_>,
-    ch: char,
+    gid: ab_glyph::GlyphId,
     origin_x: f64,
-    top_y: f64,
+    baseline_y: f64,
     font_size: f64,
 ) -> Option<Vec<PathCommand>> {
-    if ch.is_whitespace() {
-        return Some(Vec::new());
-    }
-    let gid = font.glyph_id(ch);
     if gid.0 == 0 {
         return None;
     }
-    // Verify `outline_glyph` succeeds at the target pixel scale as well as raw `outline`.
     let px_scale = PxScale::from((font_size.max(1.0)) as f32);
     let _ = font.outline_glyph(gid.with_scale(px_scale))?;
     let outline = font.outline(gid)?;
@@ -459,8 +771,6 @@ pub fn outline_glyph(
     }
     let upm = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
     let scale = font_size.max(1.0) / upm;
-    let ascent = f64::from(font.ascent_unscaled());
-    let baseline = top_y + ascent * scale;
 
     let mut commands = Vec::with_capacity(outline.curves.len() + 4);
     let mut current_pos: Option<(f64, f64)> = None;
@@ -468,7 +778,7 @@ pub fn outline_glyph(
     let map_pt = |pt: ab_glyph::Point| -> (f64, f64) {
         (
             origin_x + f64::from(pt.x) * scale,
-            baseline - f64::from(pt.y) * scale,
+            baseline_y - f64::from(pt.y) * scale,
         )
     };
     let same_pt = |a: (f64, f64), b: (f64, f64)| -> bool {
@@ -539,8 +849,29 @@ pub fn outline_glyph(
     Some(commands)
 }
 
-/// Extracts vector outline `PathCommand`s for static `text`, supporting TrueType (`glyf`),
-/// composite TrueType glyphs, and OpenType/CFF (`OTTO` / `CFF ` / `CFF2`) faces via `ab_glyph`.
+/// Converts a single glyph's `ab_glyph::Outline` curves (`OutlineCurve::{Line, Quad, Cubic}`)
+/// from font design units (Y-up) into stage `PathCommand`s (Y-down) at `(origin_x, top_y)`.
+pub fn outline_glyph(
+    font: &FontRef<'_>,
+    ch: char,
+    origin_x: f64,
+    top_y: f64,
+    font_size: f64,
+) -> Option<Vec<PathCommand>> {
+    if ch.is_whitespace() {
+        return Some(Vec::new());
+    }
+    let gid = font.glyph_id(ch);
+    let upm = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
+    let scale = font_size.max(1.0) / upm;
+    let ascent = f64::from(font.ascent_unscaled());
+    let baseline = top_y + ascent * scale;
+    outline_shaped_glyph(font, gid, origin_x, baseline, font_size)
+}
+
+/// Extracts vector outline `PathCommand`s for static `text`, shaping via `harfrust` +
+/// `unicode_bidi` (`GSUB`/`GPOS`) and extracting TrueType (`glyf`), composite TrueType, and
+/// OpenType/CFF (`OTTO` / `CFF ` / `CFF2`) outlines via `ab_glyph`.
 /// When `font_bytes` contains unsupported bitmap/color tables (`CBDT`, `sbix`, `COLR`) or lacks
 /// glyph coverage for any non-whitespace character in `text`, returns `Err(diagnostics)` with
 /// actionable located diagnostics so the caller retains visible text fallback rather than dropping glyphs.
@@ -564,36 +895,109 @@ pub fn extract_text_outline_commands_with_diagnostics(
     if let Ok(font) = FontRef::try_from_slice(outline_slice) {
         let upm = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
         let scale = font_size.max(1.0) / upm;
+        let ascent = f64::from(font.ascent_unscaled()) * scale;
         let line_h = font_size.max(1.0) * 1.2;
 
         let mut missing_chars = Vec::new();
         let mut commands = Vec::new();
         for (line_idx, line) in text.split('\n').enumerate() {
             let top_y = (line_idx as f64) * line_h;
-            let mut cursor_x = 0.0;
-            for ch in line.chars() {
-                if ch == '\r' {
-                    continue;
-                }
-                let gid = font.glyph_id(ch);
-                let adv = f64::from(font.h_advance_unscaled(gid)) * scale;
-                if ch.is_whitespace() {
-                    cursor_x += adv.max(font_size * 0.25);
-                    continue;
-                }
-                match outline_glyph(&font, ch, cursor_x, top_y, font_size) {
-                    Some(glyph_cmds) => {
-                        commands.extend(glyph_cmds);
+            let mut baseline_y = top_y + ascent;
+            if let Some(shaped_line) =
+                shape_opentype_line(outline_slice, 0, line, font_size.max(1.0), true, 0.0)
+            {
+                let spans = cluster_char_spans(line, &shaped_line);
+                let mut cursor_x = 0.0;
+                for shaped in &shaped_line {
+                    let cluster_slice = spans
+                        .get(&shaped.cluster)
+                        .and_then(|&(s, e)| line.get(s..e))
+                        .unwrap_or("");
+                    let all_ignorable = !cluster_slice.is_empty()
+                        && cluster_slice.chars().all(is_ignorable_or_whitespace);
+                    if shaped.glyph_id == 0 {
+                        if all_ignorable {
+                            let adv = if cluster_slice.chars().any(char::is_whitespace) {
+                                shaped.x_advance.max(font_size * 0.25)
+                            } else {
+                                shaped.x_advance
+                            };
+                            cursor_x += adv;
+                            baseline_y -= shaped.y_advance;
+                        } else {
+                            for ch in cluster_slice
+                                .chars()
+                                .filter(|c| !is_ignorable_or_whitespace(*c))
+                            {
+                                let cp = ch as u32;
+                                let item = format!("U+{cp:04X} ('{ch}')");
+                                if !missing_chars.contains(&item) {
+                                    missing_chars.push(item);
+                                }
+                            }
+                            cursor_x += shaped.x_advance;
+                            baseline_y -= shaped.y_advance;
+                        }
+                        continue;
                     }
-                    None => {
-                        let cp = ch as u32;
-                        let item = format!("U+{cp:04X} ('{ch}')");
-                        if !missing_chars.contains(&item) {
-                            missing_chars.push(item);
+                    match outline_shaped_glyph(
+                        &font,
+                        ab_glyph::GlyphId(shaped.glyph_id),
+                        cursor_x + shaped.x_offset,
+                        baseline_y - shaped.y_offset,
+                        font_size,
+                    ) {
+                        Some(glyph_cmds) => {
+                            commands.extend(glyph_cmds);
+                        }
+                        None if all_ignorable => {}
+                        None => {
+                            for ch in cluster_slice
+                                .chars()
+                                .filter(|c| !is_ignorable_or_whitespace(*c))
+                            {
+                                let cp = ch as u32;
+                                let item = format!("U+{cp:04X} ('{ch}')");
+                                if !missing_chars.contains(&item) {
+                                    missing_chars.push(item);
+                                }
+                            }
                         }
                     }
+                    cursor_x += if all_ignorable && cluster_slice.chars().any(char::is_whitespace) {
+                        shaped.x_advance.max(font_size * 0.25)
+                    } else {
+                        shaped.x_advance
+                    };
+                    baseline_y -= shaped.y_advance;
                 }
-                cursor_x += adv;
+            } else {
+                // Graceful fallback if `harfrust::FontRef` rejects an exotic synthetic test font.
+                let mut cursor_x = 0.0;
+                for ch in line.chars() {
+                    if ch == '\r' {
+                        continue;
+                    }
+                    let gid = font.glyph_id(ch);
+                    let adv = f64::from(font.h_advance_unscaled(gid)) * scale;
+                    if ch.is_whitespace() {
+                        cursor_x += adv.max(font_size * 0.25);
+                        continue;
+                    }
+                    match outline_glyph(&font, ch, cursor_x, top_y, font_size) {
+                        Some(glyph_cmds) => {
+                            commands.extend(glyph_cmds);
+                        }
+                        None => {
+                            let cp = ch as u32;
+                            let item = format!("U+{cp:04X} ('{ch}')");
+                            if !missing_chars.contains(&item) {
+                                missing_chars.push(item);
+                            }
+                        }
+                    }
+                    cursor_x += adv;
+                }
             }
         }
         if !missing_chars.is_empty() {
@@ -638,27 +1042,91 @@ pub fn extract_text_field_outline_commands_with_diagnostics(
     if let Ok(font) = FontRef::try_from_slice(outline_slice) {
         let layout = positioned_text_runs(field, outline_slice)
             .map_err(|e| vec![format!("{location}: {e}")])?;
-        let units = font.units_per_em().unwrap_or(1000.0);
+        let units = f64::from(font.units_per_em().unwrap_or(1000.0)).max(1.0);
+        let ascent_unscaled = f64::from(font.ascent_unscaled());
+        let base_rtl =
+            (!field.direction.is_empty()).then(|| field.direction.eq_ignore_ascii_case("rtl"));
         let mut commands = Vec::new();
         for run in layout {
             let fmt = run.format.as_ref().unwrap_or(&field.format);
-            let mut x = run.x;
-            let mut prev = None;
-            for ch in run.text.chars() {
-                let gid = font.glyph_id(ch);
-                if let Some(prev) = prev {
-                    x += f64::from(font.kern_unscaled(prev, gid) / units) * fmt.size;
+            let scale = fmt.size.max(1.0) / units;
+            let kerning = fmt.kerning.unwrap_or(true);
+            if let Some(shaped_run) = shape_opentype_line_with_direction(
+                outline_slice,
+                0,
+                &run.text,
+                fmt.size.max(1.0),
+                kerning,
+                fmt.letter_spacing,
+                base_rtl,
+            ) {
+                let spans = cluster_char_spans(&run.text, &shaped_run);
+                let mut cursor_x = run.x;
+                let mut baseline_y = run.y + ascent_unscaled * scale;
+                for shaped in &shaped_run {
+                    let cluster_slice = spans
+                        .get(&shaped.cluster)
+                        .and_then(|&(s, e)| run.text.get(s..e))
+                        .unwrap_or("");
+                    let all_ignorable = !cluster_slice.is_empty()
+                        && cluster_slice.chars().all(is_ignorable_or_whitespace);
+                    if shaped.glyph_id == 0 {
+                        if !all_ignorable {
+                            let missing_cp = cluster_slice
+                                .chars()
+                                .find(|c| !is_ignorable_or_whitespace(*c))
+                                .map_or(0, |c| c as u32);
+                            return Err(vec![format!(
+                                "{location}: font '{}' is missing outline glyph coverage for U+{missing_cp:04X}",
+                                fmt.font
+                            )]);
+                        }
+                        cursor_x += shaped.x_advance;
+                        baseline_y -= shaped.y_advance;
+                        continue;
+                    }
+                    match outline_shaped_glyph(
+                        &font,
+                        ab_glyph::GlyphId(shaped.glyph_id),
+                        cursor_x + shaped.x_offset,
+                        baseline_y - shaped.y_offset,
+                        fmt.size,
+                    ) {
+                        Some(glyph) => commands.extend(glyph),
+                        None if all_ignorable => {}
+                        None => {
+                            let missing_cp = cluster_slice
+                                .chars()
+                                .find(|c| !is_ignorable_or_whitespace(*c))
+                                .map_or(0, |c| c as u32);
+                            return Err(vec![format!(
+                                "{location}: font '{}' is missing outline glyph coverage for U+{missing_cp:04X}",
+                                fmt.font
+                            )]);
+                        }
+                    }
+                    cursor_x += shaped.x_advance;
+                    baseline_y -= shaped.y_advance;
                 }
-                let glyph = outline_glyph(&font, ch, x, run.y, fmt.size).ok_or_else(|| {
-                    vec![format!(
-                        "{location}: font '{}' is missing outline glyph coverage for U+{:04X}",
-                        fmt.font, ch as u32
-                    )]
-                })?;
-                commands.extend(glyph);
-                x +=
-                    f64::from(font.h_advance_unscaled(gid) / units) * fmt.size + fmt.letter_spacing;
-                prev = Some(gid);
+            } else {
+                let mut x = run.x;
+                let mut prev = None;
+                for ch in run.text.chars() {
+                    let gid = font.glyph_id(ch);
+                    if kerning && let Some(prev) = prev {
+                        x += f64::from(font.kern_unscaled(prev, gid)) / units * fmt.size;
+                    }
+                    let glyph = outline_glyph(&font, ch, x, run.y, fmt.size).ok_or_else(|| {
+                        vec![format!(
+                            "{location}: font '{}' is missing outline glyph coverage for U+{:04X}",
+                            fmt.font, ch as u32
+                        )]
+                    })?;
+                    commands.extend(glyph);
+                    x += f64::from(font.h_advance_unscaled(gid)) / units * fmt.size
+                        + fmt.letter_spacing;
+                    prev = Some(gid);
+                }
             }
         }
         return Ok(commands);
@@ -1825,7 +2293,66 @@ enum SubsetOutcome {
     },
 }
 
-fn subset_sfnt_inner(sfnt_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Result<Vec<u8>, String> {
+fn expand_harfrust_shaping_closure(
+    sfnt_bytes: &[u8],
+    font: &FontRef<'_>,
+    codepoints: &BTreeSet<u32>,
+    shaped_texts: &[String],
+    num_glyphs: usize,
+    retained: &mut BTreeSet<u16>,
+    retained_cmap: &mut BTreeMap<u32, u16>,
+) {
+    let mut newly_discovered_gids = BTreeSet::<u16>::new();
+    let mut record_text = |sample: &str| {
+        for line in sample.split('\n') {
+            if line.is_empty() {
+                continue;
+            }
+            for kerning in [true, false] {
+                if let Some(shaped) = shape_opentype_line(sfnt_bytes, 0, line, 24.0, kerning, 0.0) {
+                    for g in shaped {
+                        if g.glyph_id != 0
+                            && (g.glyph_id as usize) < num_glyphs
+                            && retained.insert(g.glyph_id)
+                        {
+                            newly_discovered_gids.insert(g.glyph_id);
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    for text in shaped_texts {
+        record_text(text);
+    }
+    if codepoints.len() <= 512 {
+        let synthetic: String = codepoints
+            .iter()
+            .copied()
+            .filter_map(char::from_u32)
+            .collect();
+        record_text(&synthetic);
+    }
+
+    // If HarfBuzz's Unicode normalizer composed or decomposed input characters into a precomposed
+    // cmap glyph that was neither in `codepoints` nor reachable through `GSUB` (e.g., `'a' + '\u{0301}'`
+    // -> `'á'` U+00E1), retain its cmap mapping too so re-shaping the subsetted font behaves identically.
+    if !newly_discovered_gids.is_empty() {
+        for (_, ch) in font.codepoint_ids() {
+            let gid = font.glyph_id(ch).0;
+            if newly_discovered_gids.contains(&gid) {
+                retained_cmap.entry(ch as u32).or_insert(gid);
+            }
+        }
+    }
+}
+
+fn subset_sfnt_inner(
+    sfnt_bytes: &[u8],
+    codepoints: &BTreeSet<u32>,
+    shaped_texts: &[String],
+) -> Result<Vec<u8>, String> {
     if sfnt_bytes.len() < 12 {
         return Err("font header is smaller than a 12-byte SFNT directory".to_owned());
     }
@@ -1991,14 +2518,14 @@ fn subset_sfnt_inner(sfnt_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Result<Ve
     }
 
     if let Some(gsub) = tables.get(b"GSUB").copied() {
-        if let Some(script_label) = detect_complex_gsub_script(gsub, codepoints) {
-            return Err(format!(
-                "Complete font preserved: text uses complex-script {script_label} shaping via GSUB; retaining full glyph repertoire and OpenType shaping tables."
-            ));
-        }
         if let Err(reason) =
             expand_gsub_closure(gsub, glyf, &orig_offsets, num_glyphs, &mut retained)
         {
+            if let Some(script_label) = detect_complex_gsub_script(gsub, codepoints) {
+                return Err(format!(
+                    "Complete font preserved: text uses complex-script {script_label} shaping with unclosed GSUB ({reason}); retaining full glyph repertoire and OpenType shaping tables."
+                ));
+            }
             return Err(format!(
                 "Complete font preserved: could not prove full GSUB glyph closure ({reason}); retaining full glyph set to prevent shaping loss."
             ));
@@ -2006,6 +2533,17 @@ fn subset_sfnt_inner(sfnt_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Result<Ve
     } else {
         expand_composite_glyf_closure(glyf, &orig_offsets, num_glyphs, &mut retained)?;
     }
+
+    expand_harfrust_shaping_closure(
+        sfnt_bytes,
+        &font,
+        codepoints,
+        shaped_texts,
+        num_glyphs,
+        &mut retained,
+        &mut retained_cmap,
+    );
+    expand_composite_glyf_closure(glyf, &orig_offsets, num_glyphs, &mut retained)?;
 
     let mut new_glyf = Vec::<u8>::new();
     let mut new_offsets = Vec::<u32>::with_capacity(num_glyphs + 1);
@@ -2154,7 +2692,11 @@ fn subset_sfnt_inner(sfnt_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Result<Ve
     Ok(out)
 }
 
-fn subset_font_with_diagnostics(raw_bytes: &[u8], codepoints: &BTreeSet<u32>) -> SubsetOutcome {
+fn subset_font_with_diagnostics(
+    raw_bytes: &[u8],
+    codepoints: &BTreeSet<u32>,
+    shaped_texts: &[String],
+) -> SubsetOutcome {
     let is_woff1 = raw_bytes.starts_with(b"wOFF");
     let sfnt_cow = if is_woff1 {
         match neoflash_core::unpack_woff_to_sfnt(raw_bytes) {
@@ -2171,7 +2713,7 @@ fn subset_font_with_diagnostics(raw_bytes: &[u8], codepoints: &BTreeSet<u32>) ->
         std::borrow::Cow::Borrowed(raw_bytes)
     };
 
-    match subset_sfnt_inner(sfnt_cow.as_ref(), codepoints) {
+    match subset_sfnt_inner(sfnt_cow.as_ref(), codepoints, shaped_texts) {
         Ok(subset_sfnt) => {
             let final_bytes = if is_woff1 {
                 match neoflash_core::pack_sfnt_to_woff(&subset_sfnt) {
@@ -2216,7 +2758,17 @@ fn subset_font_with_diagnostics(raw_bytes: &[u8], codepoints: &BTreeSet<u32>) ->
 /// Returns `None` if `raw_bytes` cannot be safely subsetted (for example CFF `OTTO`, WOFF2,
 /// collections, opaque `COLR`/`CBDT`/`morx` tables, complex shaping scripts, or no size savings).
 pub fn subset_ttf_font_bytes(raw_bytes: &[u8], codepoints: &BTreeSet<u32>) -> Option<Vec<u8>> {
-    match subset_font_with_diagnostics(raw_bytes, codepoints) {
+    subset_ttf_font_bytes_with_texts(raw_bytes, codepoints, &[])
+}
+
+/// Deterministically subsets a TrueType SFNT or WOFF1 font while also recording all OpenType
+/// `GSUB`/`GPOS` glyphs produced by `harfrust` shaping of `shaped_texts`.
+pub fn subset_ttf_font_bytes_with_texts(
+    raw_bytes: &[u8],
+    codepoints: &BTreeSet<u32>,
+    shaped_texts: &[String],
+) -> Option<Vec<u8>> {
+    match subset_font_with_diagnostics(raw_bytes, codepoints, shaped_texts) {
         SubsetOutcome::Subsetted { bytes, .. } => Some(bytes),
         SubsetOutcome::PreservedComplete { .. } => None,
     }
@@ -2308,6 +2860,28 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
             if codepoints.is_empty() {
                 codepoints.extend(32u32..=126);
             }
+            let mut shaped_texts: Vec<String> = if face.is_some() {
+                usage.texts_by_face.get(&key).cloned().unwrap_or_default()
+            } else {
+                usage
+                    .texts_by_family
+                    .get(&family)
+                    .or_else(|| usage.texts_by_family.get(&res.id))
+                    .or_else(|| {
+                        usage.texts_by_family.iter().find_map(|(candidate, texts)| {
+                            (candidate.eq_ignore_ascii_case(&family)
+                                || candidate.eq_ignore_ascii_case(&res.id))
+                            .then_some(texts)
+                        })
+                    })
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            if let Some(meta) = face
+                && !meta.extra_chars.is_empty()
+            {
+                shaped_texts.push(meta.extra_chars.clone());
+            }
 
             if runtime_mutable && !explicit_character_set {
                 bundle.subset_stats.push(FontSubsetStats {
@@ -2323,7 +2897,7 @@ pub fn apply_font_policy(project: &mut Project, policy: FontExportPolicy) -> Fon
                 });
                 raw_bytes
             } else {
-                match subset_font_with_diagnostics(&raw_bytes, &codepoints) {
+                match subset_font_with_diagnostics(&raw_bytes, &codepoints, &shaped_texts) {
                     SubsetOutcome::Subsetted {
                         bytes: subset_bytes,
                         diagnostic,

@@ -45,6 +45,10 @@ pub(crate) fn vector_paint_visibility(item: &DrawItem) -> Option<VectorPaintVisi
             paint.stops.iter().any(|stop| stop.color[3] != 0)
         })
     };
+    let has_mesh = item
+        .mesh_fill
+        .as_ref()
+        .is_some_and(VectorMeshPaint::has_visible_alpha);
     match &item.kind {
         ElementKind::Rectangle {
             fill,
@@ -64,7 +68,7 @@ pub(crate) fn vector_paint_visibility(item: &DrawItem) -> Option<VectorPaintVisi
             stroke_width,
             ..
         } => Some(VectorPaintVisibility {
-            fill: item.bitmap_fill.is_some() || fill[3] != 0,
+            fill: item.bitmap_fill.is_some() || has_mesh || fill[3] != 0,
             stroke: stroke[3] != 0 && *stroke_width > 0.,
         }),
         ElementKind::PaintedPath {
@@ -75,7 +79,9 @@ pub(crate) fn vector_paint_visibility(item: &DrawItem) -> Option<VectorPaintVisi
             stroke_gradient,
             ..
         } => Some(VectorPaintVisibility {
-            fill: item.bitmap_fill.is_some() || visible_alpha(fill, fill_gradient.as_ref()),
+            fill: item.bitmap_fill.is_some()
+                || has_mesh
+                || visible_alpha(fill, fill_gradient.as_ref()),
             stroke: visible_alpha(stroke, stroke_gradient.as_ref()) && *stroke_width > 0.,
         }),
         _ => None,

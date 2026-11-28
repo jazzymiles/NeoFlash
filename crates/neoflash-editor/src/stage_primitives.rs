@@ -629,6 +629,7 @@ mod tests {
             alpha: 1.,
             color_transform: neoflash_core::ColorTransform::default(),
             bitmap_fill: None,
+            mesh_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: 80.,

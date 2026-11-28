@@ -8,13 +8,15 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::Read;
 
 use flate2::read::DeflateDecoder;
-use neoflash_core::{Color, FillRule, GradientKind, GradientStop, PathCommand, TextAlign};
+use neoflash_core::{Color, FillRule, GradientStop, PathCommand, TextAlign};
 
 use super::{
-    FigmaArcData, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaImportOptions,
-    FigmaInstanceTextLayout, FigmaNode, FigmaPageMapping, FigmaPageSummary, FigmaPaint,
-    FigmaSymbolOverride, FigmaTextData, FigmaTextStyleOverride, FigmaTextStyleRun,
-    MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES, MAX_KIWI_VALUES,
+    FigmaArcData, FigmaAutoLayout, FigmaConstraintH, FigmaConstraintV, FigmaCounterAlign,
+    FigmaCounterAlignContent, FigmaDoc, FigmaDocumentSummary, FigmaEffect, FigmaGradientKind,
+    FigmaImportOptions, FigmaInstanceTextLayout, FigmaLayoutMode, FigmaLayoutPositioning,
+    FigmaLayoutSizing, FigmaLayoutWrap, FigmaNode, FigmaPageMapping, FigmaPageSummary, FigmaPaint,
+    FigmaPrimaryAlign, FigmaSymbolOverride, FigmaTextData, FigmaTextStyleOverride,
+    FigmaTextStyleRun, MAX_FIGMA_DECODE_BYTES, MAX_FIGMA_NODES, MAX_KIWI_VALUES,
 };
 use crate::ImportError;
 
@@ -428,6 +430,37 @@ fn is_used_node_change_field(name: &str) -> bool {
             | "derivedSymbolData"
             | "parameterConsumptionMap"
             | "overriddenSymbolID"
+            | "stackMode"
+            | "stackSpacing"
+            | "stackHorizontalPadding"
+            | "stackVerticalPadding"
+            | "stackPaddingRight"
+            | "stackPaddingBottom"
+            | "stackLeftPadding"
+            | "stackRightPadding"
+            | "stackTopPadding"
+            | "stackBottomPadding"
+            | "stackPrimarySizing"
+            | "stackCounterSizing"
+            | "stackPrimaryAlignItems"
+            | "stackCounterAlignItems"
+            | "stackCounterAlignContent"
+            | "stackWrap"
+            | "stackCounterSpacing"
+            | "stackPositioning"
+            | "stackChildPrimaryGrow"
+            | "stackChildAlignSelf"
+            | "layoutSizingHorizontal"
+            | "layoutSizingVertical"
+            | "itemReverseZIndex"
+            | "strokesIncludedInLayout"
+            | "bordersTakeSpace"
+            | "minWidth"
+            | "maxWidth"
+            | "minHeight"
+            | "maxHeight"
+            | "horizontalConstraint"
+            | "verticalConstraint"
     )
 }
 
@@ -1378,27 +1411,21 @@ fn parse_kiwi_paint_list(
                     }
                 }
                 if stops.len() >= 2 {
-                    let radial = ptype != "GRADIENT_LINEAR";
                     let uv_transform = p
                         .get("transform")
                         .and_then(KiwiVal::as_obj)
                         .and_then(parse_kiwi_matrix6);
                     let _ = (w, h);
-                    let kind = if radial {
-                        GradientKind::Radial
-                    } else {
-                        GradientKind::Linear
-                    };
-                    let approximated_from = match ptype {
-                        "GRADIENT_ANGULAR" => Some("GRADIENT_ANGULAR"),
-                        "GRADIENT_DIAMOND" => Some("GRADIENT_DIAMOND"),
-                        _ => None,
+                    let kind = match ptype {
+                        "GRADIENT_RADIAL" => FigmaGradientKind::Radial,
+                        "GRADIENT_ANGULAR" => FigmaGradientKind::Angular,
+                        "GRADIENT_DIAMOND" => FigmaGradientKind::Diamond,
+                        _ => FigmaGradientKind::Linear,
                     };
                     out.push(FigmaPaint::Gradient {
                         kind,
                         stops,
                         uv_transform,
-                        approximated_from,
                     });
                 }
             }
@@ -2789,6 +2816,7 @@ fn decode_single_kiwi_node(
         .unwrap_or("PASS_THROUGH")
         .to_owned();
 
+    let has_explicit_size = obj.get("size").is_some();
     let (width, height) = if let Some(sz) = obj.get("size").and_then(KiwiVal::as_obj) {
         (
             sz.get("x")
@@ -3361,6 +3389,192 @@ fn decode_single_kiwi_node(
             .and_then(guid_string)
     };
 
+    let layout_mode = match obj.get("stackMode").and_then(KiwiVal::as_str) {
+        Some("HORIZONTAL") => FigmaLayoutMode::Horizontal,
+        Some("VERTICAL") => FigmaLayoutMode::Vertical,
+        _ => FigmaLayoutMode::None,
+    };
+    let layout_wrap = match obj.get("stackWrap").and_then(KiwiVal::as_str) {
+        Some("WRAP") => FigmaLayoutWrap::Wrap,
+        _ => FigmaLayoutWrap::NoWrap,
+    };
+    let parse_kiwi_sizing = |raw: Option<&str>| -> Option<FigmaLayoutSizing> {
+        match raw {
+            Some("RESIZE_TO_FIT" | "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE" | "AUTO" | "HUG") => {
+                Some(FigmaLayoutSizing::Hug)
+            }
+            Some("FILL_CONTAINER" | "FILL") => Some(FigmaLayoutSizing::Fill),
+            Some("FIXED") => Some(FigmaLayoutSizing::Fixed),
+            _ => None,
+        }
+    };
+    let prim_sz = parse_kiwi_sizing(obj.get("stackPrimarySizing").and_then(KiwiVal::as_str));
+    let cntr_sz = parse_kiwi_sizing(obj.get("stackCounterSizing").and_then(KiwiVal::as_str));
+    let (def_h_sz, def_v_sz) = match layout_mode {
+        FigmaLayoutMode::Horizontal => (
+            prim_sz.unwrap_or(FigmaLayoutSizing::Fixed),
+            cntr_sz.unwrap_or(FigmaLayoutSizing::Fixed),
+        ),
+        FigmaLayoutMode::Vertical => (
+            cntr_sz.unwrap_or(FigmaLayoutSizing::Fixed),
+            prim_sz.unwrap_or(FigmaLayoutSizing::Fixed),
+        ),
+        FigmaLayoutMode::None => (FigmaLayoutSizing::Fixed, FigmaLayoutSizing::Fixed),
+    };
+    let sizing_horizontal =
+        parse_kiwi_sizing(obj.get("layoutSizingHorizontal").and_then(KiwiVal::as_str))
+            .unwrap_or(def_h_sz);
+    let sizing_vertical =
+        parse_kiwi_sizing(obj.get("layoutSizingVertical").and_then(KiwiVal::as_str))
+            .unwrap_or(def_v_sz);
+
+    let layout_grow = obj
+        .get("stackChildPrimaryGrow")
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(0.0, |n| n.clamp(0.0, 1.0));
+    let layout_align = obj
+        .get("stackChildAlignSelf")
+        .and_then(KiwiVal::as_str)
+        .unwrap_or("INHERIT")
+        .to_ascii_uppercase();
+
+    let h_pad = obj
+        .get("stackHorizontalPadding")
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(0.0, |n| n.clamp(0.0, 1e6));
+    let v_pad = obj
+        .get("stackVerticalPadding")
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(0.0, |n| n.clamp(0.0, 1e6));
+    let padding_left = obj
+        .get("stackLeftPadding")
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(h_pad, |n| n.clamp(0.0, 1e6));
+    let padding_right = obj
+        .get("stackPaddingRight")
+        .or_else(|| obj.get("stackRightPadding"))
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(h_pad, |n| n.clamp(0.0, 1e6));
+    let padding_top = obj
+        .get("stackTopPadding")
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(v_pad, |n| n.clamp(0.0, 1e6));
+    let padding_bottom = obj
+        .get("stackPaddingBottom")
+        .or_else(|| obj.get("stackBottomPadding"))
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(v_pad, |n| n.clamp(0.0, 1e6));
+    let item_spacing = obj
+        .get("stackSpacing")
+        .and_then(KiwiVal::as_f64)
+        .filter(|n| n.is_finite())
+        .map_or(0.0, |n| n.clamp(-1e6, 1e6));
+    let counter_axis_spacing = obj
+        .get("stackCounterSpacing")
+        .and_then(KiwiVal::as_f64)
+        .map(|n| {
+            if n.is_finite() {
+                n.clamp(-1e6, 1e6)
+            } else {
+                0.0
+            }
+        });
+
+    let primary_axis_align_items = match obj.get("stackPrimaryAlignItems").and_then(KiwiVal::as_str)
+    {
+        Some("CENTER") => FigmaPrimaryAlign::Center,
+        Some("MAX") => FigmaPrimaryAlign::Max,
+        Some("SPACE_BETWEEN" | "SPACE_EVENLY") => FigmaPrimaryAlign::SpaceBetween,
+        _ => FigmaPrimaryAlign::Min,
+    };
+    let counter_axis_align_items = match obj.get("stackCounterAlignItems").and_then(KiwiVal::as_str)
+    {
+        Some("CENTER") => FigmaCounterAlign::Center,
+        Some("MAX") => FigmaCounterAlign::Max,
+        Some("BASELINE") => FigmaCounterAlign::Baseline,
+        _ => FigmaCounterAlign::Min,
+    };
+    let counter_axis_align_content = match obj
+        .get("stackCounterAlignContent")
+        .and_then(KiwiVal::as_str)
+    {
+        Some("SPACE_BETWEEN") => FigmaCounterAlignContent::SpaceBetween,
+        _ => FigmaCounterAlignContent::Auto,
+    };
+    let layout_positioning = match obj.get("stackPositioning").and_then(KiwiVal::as_str) {
+        Some("ABSOLUTE") => FigmaLayoutPositioning::Absolute,
+        _ => FigmaLayoutPositioning::Auto,
+    };
+    let constraint_h = match obj.get("horizontalConstraint").and_then(KiwiVal::as_str) {
+        Some("RIGHT" | "MAX") => FigmaConstraintH::Right,
+        Some("LEFT_AND_RIGHT" | "STRETCH") => FigmaConstraintH::LeftAndRight,
+        Some("CENTER") => FigmaConstraintH::Center,
+        Some("SCALE") => FigmaConstraintH::Scale,
+        _ => FigmaConstraintH::Left,
+    };
+    let constraint_v = match obj.get("verticalConstraint").and_then(KiwiVal::as_str) {
+        Some("BOTTOM" | "MAX") => FigmaConstraintV::Bottom,
+        Some("TOP_AND_BOTTOM" | "STRETCH") => FigmaConstraintV::TopAndBottom,
+        Some("CENTER") => FigmaConstraintV::Center,
+        Some("SCALE") => FigmaConstraintV::Scale,
+        _ => FigmaConstraintV::Top,
+    };
+    let opt_min_kiwi = |key: &str| -> Option<f64> {
+        obj.get(key)
+            .and_then(KiwiVal::as_f64)
+            .filter(|n| n.is_finite())
+            .map(|n| n.clamp(0.0, 1e6))
+    };
+    let opt_max_kiwi = |key: &str| -> Option<f64> {
+        obj.get(key)
+            .and_then(KiwiVal::as_f64)
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .map(|n| n.clamp(0.0, 1e6))
+    };
+    let auto_layout = FigmaAutoLayout {
+        layout_mode,
+        layout_wrap,
+        sizing_horizontal,
+        sizing_vertical,
+        layout_grow,
+        layout_align,
+        padding_left,
+        padding_right,
+        padding_top,
+        padding_bottom,
+        item_spacing,
+        counter_axis_spacing,
+        primary_axis_align_items,
+        counter_axis_align_items,
+        counter_axis_align_content,
+        layout_positioning,
+        constraint_h,
+        constraint_v,
+        min_width: opt_min_kiwi("minWidth"),
+        max_width: opt_max_kiwi("maxWidth"),
+        min_height: opt_min_kiwi("minHeight"),
+        max_height: opt_max_kiwi("maxHeight"),
+        item_reverse_z_index: obj
+            .get("itemReverseZIndex")
+            .and_then(KiwiVal::as_bool)
+            .unwrap_or(false),
+        strokes_included_in_layout: obj
+            .get("strokesIncludedInLayout")
+            .or_else(|| obj.get("bordersTakeSpace"))
+            .and_then(KiwiVal::as_bool)
+            .unwrap_or(false),
+        stroke_align: stroke_align.to_ascii_uppercase(),
+        has_explicit_position: relative_transform.is_some(),
+        has_explicit_size,
+    };
+
     Ok(FigmaNode {
         id: guid,
         name,
@@ -3397,6 +3611,7 @@ fn decode_single_kiwi_node(
         symbol_overrides,
         instance_text_layouts,
         background_color,
+        auto_layout,
         children: Vec::new(),
     })
 }

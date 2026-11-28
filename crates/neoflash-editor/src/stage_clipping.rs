@@ -257,6 +257,45 @@ impl ClipMeshes {
     }
 }
 
+/// Intersect a vertex-coloured mesh (`egui::Mesh` with `TextureId::default()`) against the exact
+/// filled vector silhouette of `commands` in screen space (`T-501`).
+pub(crate) fn clip_mesh_to_fill_commands(
+    mesh: &Mesh,
+    commands: &[PathCommand],
+    fingerprint: Option<neoflash_core::PathFingerprint>,
+    fill_rule: FillRule,
+    transform: [f64; 6],
+    origin: Pos2,
+    zoom: f32,
+) -> Result<Mesh, String> {
+    let scale = transform[0]
+        .hypot(transform[1])
+        .max(transform[2].hypot(transform[3])) as f32
+        * zoom;
+    let tolerance = (0.25 / scale.max(0.01)).clamp(0.001, 1.);
+    let geometry = crate::vector::tessellate_cached_with_fingerprint(
+        commands,
+        fingerprint,
+        fill_rule,
+        None,
+        tolerance,
+    )?;
+    let triangles: Vec<Triangle> = geometry
+        .indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|indices| {
+            indices.map(|i| {
+                let v = geometry.vertices[i as usize];
+                origin + crate::stage::affine(transform, Pos2::new(v.x, v.y)).to_vec2() * zoom
+            })
+        })
+        .collect();
+    let mask = MaskMesh::from_disjoint(triangles)?;
+    intersect_mesh(mesh, &mask)
+}
+
 fn prepare_mask(
     id: &str,
     clips: &HashMap<&str, &RuntimeClip>,
@@ -959,6 +998,7 @@ mod tests {
             alpha: 1.,
             color_transform: Default::default(),
             bitmap_fill: None,
+            mesh_fill: None,
             path_fingerprint: None,
             kind,
         }
@@ -1174,6 +1214,7 @@ mod tests {
             alpha: 1.,
             color_transform: Default::default(),
             bitmap_fill: None,
+            mesh_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: size.x as f64,
@@ -1281,6 +1322,7 @@ mod tests {
             alpha: 1.,
             color_transform: Default::default(),
             bitmap_fill: None,
+            mesh_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: 80.,
@@ -1449,6 +1491,7 @@ mod tests {
             alpha: 1.,
             color_transform: Default::default(),
             bitmap_fill: None,
+            mesh_fill: None,
             path_fingerprint: None,
             kind: ElementKind::Rectangle {
                 width: 200_000_000.,

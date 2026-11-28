@@ -2011,6 +2011,7 @@ fn draw_authored_item(
                 (*fill, None),
                 (*stroke, None, *stroke_width),
                 bitmap_paint.as_ref(),
+                item.mesh_fill.as_ref(),
                 ct,
                 xf,
                 mask,
@@ -2034,6 +2035,7 @@ fn draw_authored_item(
                 (*fill, None),
                 (*stroke, None, *stroke_width),
                 bitmap_paint.as_ref(),
+                item.mesh_fill.as_ref(),
                 ct,
                 xf,
                 mask,
@@ -2053,6 +2055,7 @@ fn draw_authored_item(
                 (*fill, None),
                 (*stroke, None, *stroke_width),
                 bitmap_paint.as_ref(),
+                item.mesh_fill.as_ref(),
                 ct,
                 xf,
                 mask,
@@ -2074,6 +2077,7 @@ fn draw_authored_item(
                 (*fill, fill_gradient.as_ref()),
                 (*stroke, stroke_gradient.as_ref(), *stroke_width),
                 bitmap_paint.as_ref(),
+                item.mesh_fill.as_ref(),
                 ct,
                 xf,
                 mask,
@@ -2136,6 +2140,151 @@ fn draw_authored_item(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn draw_vector_mesh_clipped(
+    pixmap: &mut Pixmap,
+    path: &tiny_skia::Path,
+    fill_rule: FillRule,
+    mesh_paint: &neoflash_core::VectorMeshPaint,
+    ct: ColorTransform,
+    xf: SkiaTransform,
+    mask: Option<&SkiaMask>,
+) {
+    let tess = mesh_paint.tessellate(Some(16), ct);
+    if tess.indices.len() < 3 || tess.vertices.is_empty() {
+        return;
+    }
+    let pw = pixmap.width() as i32;
+    let ph = pixmap.height() as i32;
+    if pw <= 0 || ph <= 0 {
+        return;
+    }
+    let mut screen_verts: Vec<([f32; 2], Color)> = Vec::with_capacity(tess.vertices.len());
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for &(pt, col) in &tess.vertices {
+        let mut p = tiny_skia::Point::from_xy(pt[0] as f32, pt[1] as f32);
+        xf.map_point(&mut p);
+        if p.x.is_finite() && p.y.is_finite() {
+            min_x = min_x.min(p.x);
+            min_y = min_y.min(p.y);
+            max_x = max_x.max(p.x);
+            max_y = max_y.max(p.y);
+        }
+        screen_verts.push(([p.x, p.y], col));
+    }
+    if !min_x.is_finite() || !min_y.is_finite() || max_x <= 0.0 || max_y <= 0.0 {
+        return;
+    }
+    let left = (min_x.floor() as i32 - 1).clamp(0, pw);
+    let top = (min_y.floor() as i32 - 1).clamp(0, ph);
+    let right = (max_x.ceil() as i32 + 1).clamp(0, pw);
+    let bottom = (max_y.ceil() as i32 + 1).clamp(0, ph);
+    if right <= left || bottom <= top {
+        return;
+    }
+    let sub_w = (right - left) as u32;
+    let sub_h = (bottom - top) as u32;
+    let Some(mut sub_mask) = SkiaMask::new(sub_w, sub_h) else {
+        return;
+    };
+    let shifted_xf = SkiaTransform::from_translate(-(left as f32), -(top as f32)).post_concat(xf);
+    // Note: `post_concat` vs `pre_concat`: we want `p_sub = xf(p_local) - (left, top)`.
+    // In tiny_skia, `a.post_concat(b)` applies `a` then `b`; `translate.pre_concat(xf)` applies `xf` then `translate`.
+    let local_to_sub = SkiaTransform::from_translate(-(left as f32), -(top as f32)).pre_concat(xf);
+    let _ = shifted_xf;
+    sub_mask.fill_path(path, to_skia_fill_rule(fill_rule), true, local_to_sub);
+    let mask_bytes = sub_mask.data();
+    if mask_bytes.iter().all(|&b| b == 0) {
+        return;
+    }
+    let Some(mut sub_pix) = Pixmap::new(sub_w, sub_h) else {
+        return;
+    };
+    let dst = sub_pix.data_mut();
+    let sw = sub_w as i32;
+    let sh = sub_h as i32;
+
+    for tri in tess.indices.as_chunks::<3>().0 {
+        let ([x0, y0], c0) = screen_verts[tri[0] as usize];
+        let ([x1, y1], c1) = screen_verts[tri[1] as usize];
+        let ([x2, y2], c2) = screen_verts[tri[2] as usize];
+        let ax = x0 - left as f32;
+        let ay = y0 - top as f32;
+        let bx = x1 - left as f32;
+        let by = y1 - top as f32;
+        let cx = x2 - left as f32;
+        let cy = y2 - top as f32;
+        let denom = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+        if !denom.is_finite() || denom.abs() < 1e-6 {
+            continue;
+        }
+        let inv_denom = 1.0 / denom;
+        let tx0 = (ax.min(bx).min(cx).floor() as i32).clamp(0, sw - 1);
+        let ty0 = (ay.min(by).min(cy).floor() as i32).clamp(0, sh - 1);
+        let tx1 = (ax.max(bx).max(cx).ceil() as i32).clamp(0, sw - 1);
+        let ty1 = (ay.max(by).max(cy).ceil() as i32).clamp(0, sh - 1);
+        for py in ty0..=ty1 {
+            let sy = py as f32 + 0.5;
+            let row_off = (py as usize) * (sub_w as usize);
+            for px in tx0..=tx1 {
+                let cov = mask_bytes[row_off + px as usize];
+                if cov == 0 {
+                    continue;
+                }
+                let sx = px as f32 + 0.5;
+                let w0 = ((by - cy) * (sx - cx) + (cx - bx) * (sy - cy)) * inv_denom;
+                let w1 = ((cy - ay) * (sx - cx) + (ax - cx) * (sy - cy)) * inv_denom;
+                let w2 = 1.0 - w0 - w1;
+                if w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4 {
+                    continue;
+                }
+                let cw0 = w0.clamp(0.0, 1.0);
+                let cw1 = w1.clamp(0.0, 1.0);
+                let cw2 = (1.0 - cw0 - cw1).clamp(0.0, 1.0);
+                let r = cw0 * f32::from(c0[0]) + cw1 * f32::from(c1[0]) + cw2 * f32::from(c2[0]);
+                let g = cw0 * f32::from(c0[1]) + cw1 * f32::from(c1[1]) + cw2 * f32::from(c2[1]);
+                let b = cw0 * f32::from(c0[2]) + cw1 * f32::from(c1[2]) + cw2 * f32::from(c2[2]);
+                let a = cw0 * f32::from(c0[3]) + cw1 * f32::from(c1[3]) + cw2 * f32::from(c2[3]);
+                let eff_a = (a * (f32::from(cov) / 255.0)).clamp(0.0, 255.0);
+                if eff_a <= 0.0 {
+                    continue;
+                }
+                let af = eff_a / 255.0;
+                let inv_sa = 1.0 - af;
+                let src_rp = r * af;
+                let src_gp = g * af;
+                let src_bp = b * af;
+                let pidx = (row_off + px as usize) * 4;
+                let out_a = (eff_a + f32::from(dst[pidx + 3]) * inv_sa)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+                let max_c = f32::from(out_a);
+                dst[pidx] = (src_rp + f32::from(dst[pidx]) * inv_sa)
+                    .round()
+                    .clamp(0.0, max_c) as u8;
+                dst[pidx + 1] = (src_gp + f32::from(dst[pidx + 1]) * inv_sa)
+                    .round()
+                    .clamp(0.0, max_c) as u8;
+                dst[pidx + 2] = (src_bp + f32::from(dst[pidx + 2]) * inv_sa)
+                    .round()
+                    .clamp(0.0, max_c) as u8;
+                dst[pidx + 3] = out_a;
+            }
+        }
+    }
+    pixmap.draw_pixmap(
+        left,
+        top,
+        sub_pix.as_ref(),
+        &PixmapPaint::default(),
+        SkiaTransform::identity(),
+        mask,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
 fn draw_vector_commands(
     pixmap: &mut Pixmap,
     commands: &[PathCommand],
@@ -2143,6 +2292,7 @@ fn draw_vector_commands(
     fill: (Color, Option<&GradientPaint>),
     stroke: (Color, Option<&GradientPaint>, f64),
     bitmap_paint: Option<&SkiaPaint<'_>>,
+    mesh_fill: Option<&neoflash_core::VectorMeshPaint>,
     ct: ColorTransform,
     xf: SkiaTransform,
     mask: Option<&SkiaMask>,
@@ -2150,11 +2300,14 @@ fn draw_vector_commands(
     let Some(path) = build_skia_path(commands) else {
         return;
     };
-    let fill_visible = fill.1.is_some() || ct.apply(fill.0)[3] > 0;
+    let active_mesh = mesh_fill.filter(|m| m.has_visible_alpha());
+    let fill_visible = active_mesh.is_some() || fill.1.is_some() || ct.apply(fill.0)[3] > 0;
     let (stroke_color, stroke_grad, stroke_width) = stroke;
     let stroke_uses_bitmap = !fill_visible && stroke_width > 0.0 && bitmap_paint.is_some();
     if let Some(paint) = bitmap_paint.filter(|_| !stroke_uses_bitmap) {
         pixmap.fill_path(&path, paint, to_skia_fill_rule(fill_rule), xf, mask);
+    } else if let Some(mesh_paint) = active_mesh {
+        draw_vector_mesh_clipped(pixmap, &path, fill_rule, mesh_paint, ct, xf, mask);
     } else if fill_visible {
         let paint = configure_paint_shader(fill.0, fill.1, ct);
         pixmap.fill_path(&path, &paint, to_skia_fill_rule(fill_rule), xf, mask);

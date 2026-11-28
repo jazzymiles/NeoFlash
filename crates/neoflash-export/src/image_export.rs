@@ -1151,20 +1151,127 @@ fn ps_shfill_clipped(
     out.push_str("grestore\n");
 }
 
+fn transform_path_command_by_matrix(cmd: PathCommand, m: [f64; 6]) -> PathCommand {
+    match cmd {
+        PathCommand::MoveTo { x, y } => PathCommand::MoveTo {
+            x: m[0] * x + m[2] * y + m[4],
+            y: m[1] * x + m[3] * y + m[5],
+        },
+        PathCommand::LineTo { x, y } => PathCommand::LineTo {
+            x: m[0] * x + m[2] * y + m[4],
+            y: m[1] * x + m[3] * y + m[5],
+        },
+        PathCommand::QuadraticTo { cx, cy, x, y } => PathCommand::QuadraticTo {
+            cx: m[0] * cx + m[2] * cy + m[4],
+            cy: m[1] * cx + m[3] * cy + m[5],
+            x: m[0] * x + m[2] * y + m[4],
+            y: m[1] * x + m[3] * y + m[5],
+        },
+        PathCommand::CubicTo {
+            cx1,
+            cy1,
+            cx2,
+            cy2,
+            x,
+            y,
+        } => PathCommand::CubicTo {
+            cx1: m[0] * cx1 + m[2] * cy1 + m[4],
+            cy1: m[1] * cx1 + m[3] * cy1 + m[5],
+            cx2: m[0] * cx2 + m[2] * cy2 + m[4],
+            cy2: m[1] * cx2 + m[3] * cy2 + m[5],
+            x: m[0] * x + m[2] * y + m[4],
+            y: m[1] * x + m[3] * y + m[5],
+        },
+        PathCommand::Close => PathCommand::Close,
+    }
+}
+
+fn emit_ps_clip_stack(
+    out: &mut String,
+    clip_ids: &[neoflash_core::Id],
+    clips_map: &HashMap<&str, &neoflash_core::RuntimeClip>,
+) -> usize {
+    let mut depth = 0usize;
+    for cid in clip_ids {
+        if let Some(clip) = clips_map.get(cid.as_str()) {
+            let mut buf = String::new();
+            let mut rule = FillRule::NonZero;
+            let mut any = false;
+            for comp in &clip.components {
+                rule = comp.fill_rule;
+                let transformed: Vec<PathCommand> = comp
+                    .commands
+                    .iter()
+                    .copied()
+                    .map(|cmd| transform_path_command_by_matrix(cmd, comp.matrix))
+                    .collect();
+                any |= ps_path(&mut buf, &transformed);
+            }
+            if any {
+                out.push_str("gsave\n");
+                out.push_str(&buf);
+                out.push_str(if rule == FillRule::EvenOdd {
+                    "eoclip\nnewpath\n"
+                } else {
+                    "clip\nnewpath\n"
+                });
+                depth += 1;
+            }
+        }
+    }
+    depth
+}
+
+fn emit_pdf_clip_stack(
+    out: &mut String,
+    clip_ids: &[neoflash_core::Id],
+    clips_map: &HashMap<&str, &neoflash_core::RuntimeClip>,
+) {
+    for cid in clip_ids {
+        if let Some(clip) = clips_map.get(cid.as_str()) {
+            let mut buf = String::new();
+            let mut rule = FillRule::NonZero;
+            let mut any = false;
+            for comp in &clip.components {
+                rule = comp.fill_rule;
+                let transformed: Vec<PathCommand> = comp
+                    .commands
+                    .iter()
+                    .copied()
+                    .map(|cmd| transform_path_command_by_matrix(cmd, comp.matrix))
+                    .collect();
+                any |= pdf_path(&mut buf, &transformed);
+            }
+            if any {
+                out.push_str(&buf);
+                out.push_str(if rule == FillRule::EvenOdd {
+                    "W* n\n"
+                } else {
+                    "W n\n"
+                });
+            }
+        }
+    }
+}
+
 fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool {
     let transform = draw.item.color_transform;
     let opaque = |color: Color| matches!(transform.apply(color)[3], 0 | 255);
-    if draw.item.bitmap_fill.is_some()
-        || !draw.clip_ids.is_empty()
-        || !draw.blend_mode.is_normal()
-        || (draw.item.alpha - 1.0).abs() > 1e-9
-    {
+    if draw.item.bitmap_fill.is_some() {
+        return false;
+    }
+    let has_mesh = draw
+        .item
+        .mesh_fill
+        .as_ref()
+        .is_some_and(neoflash_core::VectorMeshPaint::has_visible_alpha);
+    if !has_mesh && (!draw.blend_mode.is_normal() || (draw.item.alpha - 1.0).abs() > 1e-9) {
         return false;
     }
     match &draw.item.kind {
         ElementKind::Rectangle { fill, stroke, .. }
         | ElementKind::Ellipse { fill, stroke, .. }
-        | ElementKind::Path { fill, stroke, .. } => opaque(*fill) && opaque(*stroke),
+        | ElementKind::Path { fill, stroke, .. } => has_mesh || (opaque(*fill) && opaque(*stroke)),
         ElementKind::PaintedPath {
             fill,
             stroke,
@@ -1174,17 +1281,19 @@ fn ps_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool 
             ..
         } => {
             let has_stroke = *stroke_width > 0.0;
-            let fg_ok = fill_gradient
-                .as_ref()
-                .is_none_or(|g| ps_gradient_supported(g, transform));
+            let fg_ok = has_mesh
+                || fill_gradient
+                    .as_ref()
+                    .is_none_or(|g| ps_gradient_supported(g, transform));
             let sg_ok = !has_stroke
                 || stroke_gradient
                     .as_ref()
                     .is_none_or(|g| ps_gradient_supported(g, transform));
             fg_ok
                 && sg_ok
-                && (fill_gradient.is_some() || opaque(*fill))
-                && (!has_stroke || stroke_gradient.is_some() || opaque(*stroke))
+                && (has_mesh
+                    || ((fill_gradient.is_some() || opaque(*fill))
+                        && (!has_stroke || stroke_gradient.is_some() || opaque(*stroke))))
         }
         ElementKind::Text {
             text,
@@ -1263,16 +1372,84 @@ struct PsShapeStyle<'a> {
     stroke: Color,
     fill_gradient: Option<&'a GradientPaint>,
     stroke_gradient: Option<&'a GradientPaint>,
+    mesh_fill: Option<&'a neoflash_core::VectorMeshPaint>,
     stroke_width: f64,
     transform: ColorTransform,
     strokes_as_strokes: bool,
 }
 
+pub(crate) fn ps_mesh_shfill_clipped(
+    out: &mut String,
+    commands: &[PathCommand],
+    rule: FillRule,
+    mesh: &neoflash_core::VectorMeshPaint,
+    transform: ColorTransform,
+) {
+    if !mesh.has_visible_alpha() {
+        return;
+    }
+    out.push_str("gsave\n");
+    if ps_path(out, commands) {
+        out.push_str(if rule == FillRule::EvenOdd {
+            "eoclip\nnewpath\n"
+        } else {
+            "clip\nnewpath\n"
+        });
+        if !mesh.patches.is_empty() {
+            out.push_str("<< /ShadingType 7 /ColorSpace /DeviceRGB /DataSource [\n");
+            for patch in &mesh.patches {
+                let (pts, cols) = patch.to_pdf_tensor_16();
+                out.push_str("  0");
+                for [x, y] in pts {
+                    let _ = write!(out, " {} {}", ps_num(x), ps_num(y));
+                }
+                for col in cols {
+                    let c = transform.apply(col);
+                    let _ = write!(
+                        out,
+                        " {} {} {}",
+                        ps_num(f64::from(c[0]) / 255.0),
+                        ps_num(f64::from(c[1]) / 255.0),
+                        ps_num(f64::from(c[2]) / 255.0)
+                    );
+                }
+                out.push('\n');
+            }
+            out.push_str("] >> shfill\n");
+        }
+        if !mesh.triangles.is_empty() {
+            out.push_str("<< /ShadingType 4 /ColorSpace /DeviceRGB /DataSource [\n");
+            for tri in &mesh.triangles {
+                out.push(' ');
+                for i in 0..3 {
+                    let [x, y] = tri.points[i];
+                    let c = transform.apply(tri.colors[i]);
+                    let _ = write!(
+                        out,
+                        " 0 {} {} {} {} {}",
+                        ps_num(x),
+                        ps_num(y),
+                        ps_num(f64::from(c[0]) / 255.0),
+                        ps_num(f64::from(c[1]) / 255.0),
+                        ps_num(f64::from(c[2]) / 255.0)
+                    );
+                }
+                out.push('\n');
+            }
+            out.push_str("] >> shfill\n");
+        }
+    }
+    out.push_str("grestore\n");
+}
+
 fn ps_shape(out: &mut String, commands: &[PathCommand], style: PsShapeStyle<'_>) {
-    if let Some(fg) = style.fill_gradient {
+    let active_mesh = style.mesh_fill.filter(|m| m.has_visible_alpha());
+    if let Some(mesh) = active_mesh {
+        ps_mesh_shfill_clipped(out, commands, style.rule, mesh, style.transform);
+    } else if let Some(fg) = style.fill_gradient {
         ps_shfill_clipped(out, commands, style.rule, fg, style.transform);
     }
-    let solid_fill = if style.fill_gradient.is_some() {
+    let solid_fill = if active_mesh.is_some() || style.fill_gradient.is_some() {
         [0; 4]
     } else {
         style.fill
@@ -1574,6 +1751,7 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                     stroke: *stroke,
                     fill_gradient: None,
                     stroke_gradient: None,
+                    mesh_fill: item.mesh_fill.as_ref(),
                     stroke_width: *stroke_width,
                     transform: item.color_transform,
                     strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1596,6 +1774,7 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                     stroke: *stroke,
                     fill_gradient: None,
                     stroke_gradient: None,
+                    mesh_fill: item.mesh_fill.as_ref(),
                     stroke_width: *stroke_width,
                     transform: item.color_transform,
                     strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1618,6 +1797,7 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                     stroke: *stroke,
                     fill_gradient: None,
                     stroke_gradient: None,
+                    mesh_fill: item.mesh_fill.as_ref(),
                     stroke_width: *stroke_width,
                     transform: item.color_transform,
                     strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1642,6 +1822,7 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                     stroke: *stroke,
                     fill_gradient: fill_gradient.as_ref(),
                     stroke_gradient: stroke_gradient.as_ref(),
+                    mesh_fill: item.mesh_fill.as_ref(),
                     stroke_width: *stroke_width,
                     transform: item.color_transform,
                     strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1680,6 +1861,7 @@ fn ps_draw(out: &mut String, draw: &AuthoredDraw, options: &ImageExportOptions) 
                             },
                             fill_gradient: None,
                             stroke_gradient: None,
+                            mesh_fill: None,
                             stroke_width: run.bold_stroke,
                             transform: item.color_transform,
                             strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -1806,16 +1988,17 @@ fn build_ai_bytes_with_scene(
         .unwrap_or(1);
     let path_count = scene.draws.len();
     let has_gradients = scene.draws.iter().any(|d| {
-        matches!(
-            &d.item.kind,
-            ElementKind::PaintedPath {
-                fill_gradient: Some(_),
-                ..
-            } | ElementKind::PaintedPath {
-                stroke_gradient: Some(_),
-                ..
-            }
-        )
+        d.item.mesh_fill.is_some()
+            || matches!(
+                &d.item.kind,
+                ElementKind::PaintedPath {
+                    fill_gradient: Some(_),
+                    ..
+                } | ElementKind::PaintedPath {
+                    stroke_gradient: Some(_),
+                    ..
+                }
+            )
     });
     let lang_level = if has_gradients { 3 } else { 2 };
     let mut content = format!(
@@ -1878,6 +2061,8 @@ fn build_ai_bytes_with_scene(
         );
     }
 
+    let clips_map: HashMap<&str, &neoflash_core::RuntimeClip> =
+        scene.clips.iter().map(|c| (c.id.as_str(), c)).collect();
     let layer_names: HashMap<&str, &str> = eval_project
         .symbols
         .iter()
@@ -1896,7 +2081,11 @@ fn build_ai_bytes_with_scene(
             let _ = writeln!(content, "%AI5_Name: ({})", ps_string(name));
             current_layer = Some(layer_id);
         }
+        let clip_depth = emit_ps_clip_stack(&mut content, &draw.clip_ids, &clips_map);
         ps_draw(&mut content, draw, options);
+        for _ in 0..clip_depth {
+            content.push_str("grestore\n");
+        }
     }
     if options.ai_each_layer && current_layer.is_some() {
         content.push_str("%AI5_EndLayer--\n");
@@ -1969,16 +2158,169 @@ fn pdf_path(out: &mut String, commands: &[PathCommand]) -> bool {
     true
 }
 
+pub(crate) fn format_mesh_shading_objects(
+    mesh: &neoflash_core::VectorMeshPaint,
+    transform: ColorTransform,
+) -> Vec<Vec<u8>> {
+    use flate2::{Compression, write::ZlibEncoder};
+    use std::io::Write as _;
+
+    let compress = |raw: &[u8]| -> Vec<u8> {
+        let mut enc = ZlibEncoder::new(Vec::new(), Compression::default());
+        let _ = enc.write_all(raw);
+        enc.finish().unwrap_or_default()
+    };
+    let quant24 = |v: f64, lo: f64, hi: f64| -> [u8; 3] {
+        let span = (hi - lo).max(1e-6);
+        let t = ((v - lo) / span).clamp(0.0, 1.0);
+        let q = (t * 16_777_215.0).round() as u32;
+        [(q >> 16) as u8, (q >> 8) as u8, q as u8]
+    };
+
+    let mut out = Vec::new();
+    if !mesh.patches.is_empty() {
+        let mut x0 = f64::INFINITY;
+        let mut y0 = f64::INFINITY;
+        let mut x1 = f64::NEG_INFINITY;
+        let mut y1 = f64::NEG_INFINITY;
+        for pt in mesh.patches.iter().flat_map(|p| p.points.iter()) {
+            x0 = x0.min(pt[0]);
+            y0 = y0.min(pt[1]);
+            x1 = x1.max(pt[0]);
+            y1 = y1.max(pt[1]);
+        }
+        if !x0.is_finite() || !y0.is_finite() {
+            x0 = 0.0;
+            y0 = 0.0;
+            x1 = 1.0;
+            y1 = 1.0;
+        } else {
+            if x1 <= x0 + 1e-6 {
+                x1 = x0 + 1.0;
+            }
+            if y1 <= y0 + 1e-6 {
+                y1 = y0 + 1.0;
+            }
+        }
+        let mut raw = Vec::with_capacity(mesh.patches.len() * (1 + 16 * 6 + 12));
+        for patch in &mesh.patches {
+            let (pts, cols) = patch.to_pdf_tensor_16();
+            raw.push(0u8);
+            for [x, y] in pts {
+                raw.extend_from_slice(&quant24(x, x0, x1));
+                raw.extend_from_slice(&quant24(y, y0, y1));
+            }
+            for col in cols {
+                let c = transform.apply(col);
+                raw.extend_from_slice(&[c[0], c[1], c[2]]);
+            }
+        }
+        let zlib = compress(&raw);
+        let mut obj = format!(
+            "<< /ShadingType 7 /ColorSpace /DeviceRGB /BitsPerCoordinate 24 /BitsPerComponent 8 \
+             /BitsPerFlag 8 /Decode [{} {} {} {} 0 1 0 1 0 1] /Filter /FlateDecode /Length {} >>\nstream\n",
+            ps_num(x0),
+            ps_num(x1),
+            ps_num(y0),
+            ps_num(y1),
+            zlib.len(),
+        )
+        .into_bytes();
+        obj.extend_from_slice(&zlib);
+        obj.extend_from_slice(b"\nendstream");
+        out.push(obj);
+    }
+
+    if !mesh.triangles.is_empty() {
+        let mut x0 = f64::INFINITY;
+        let mut y0 = f64::INFINITY;
+        let mut x1 = f64::NEG_INFINITY;
+        let mut y1 = f64::NEG_INFINITY;
+        for pt in mesh.triangles.iter().flat_map(|t| t.points.iter()) {
+            x0 = x0.min(pt[0]);
+            y0 = y0.min(pt[1]);
+            x1 = x1.max(pt[0]);
+            y1 = y1.max(pt[1]);
+        }
+        if !x0.is_finite() || !y0.is_finite() {
+            x0 = 0.0;
+            y0 = 0.0;
+            x1 = 1.0;
+            y1 = 1.0;
+        } else {
+            if x1 <= x0 + 1e-6 {
+                x1 = x0 + 1.0;
+            }
+            if y1 <= y0 + 1e-6 {
+                y1 = y0 + 1.0;
+            }
+        }
+        let mut raw = Vec::with_capacity(mesh.triangles.len() * 3 * (1 + 6 + 3));
+        for tri in &mesh.triangles {
+            for i in 0..3 {
+                raw.push(0u8);
+                raw.extend_from_slice(&quant24(tri.points[i][0], x0, x1));
+                raw.extend_from_slice(&quant24(tri.points[i][1], y0, y1));
+                let c = transform.apply(tri.colors[i]);
+                raw.extend_from_slice(&[c[0], c[1], c[2]]);
+            }
+        }
+        let zlib = compress(&raw);
+        let mut obj = format!(
+            "<< /ShadingType 4 /ColorSpace /DeviceRGB /BitsPerCoordinate 24 /BitsPerComponent 8 \
+             /BitsPerFlag 8 /Decode [{} {} {} {} 0 1 0 1 0 1] /Filter /FlateDecode /Length {} >>\nstream\n",
+            ps_num(x0),
+            ps_num(x1),
+            ps_num(y0),
+            ps_num(y1),
+            zlib.len(),
+        )
+        .into_bytes();
+        obj.extend_from_slice(&zlib);
+        obj.extend_from_slice(b"\nendstream");
+        out.push(obj);
+    }
+    out
+}
+
+pub(crate) fn pdf_mesh_shading_clipped(
+    out: &mut String,
+    shadings: &mut Vec<Vec<u8>>,
+    commands: &[PathCommand],
+    rule: FillRule,
+    mesh: &neoflash_core::VectorMeshPaint,
+    transform: ColorTransform,
+) {
+    let sh_objs = format_mesh_shading_objects(mesh, transform);
+    if sh_objs.is_empty() {
+        return;
+    }
+    out.push_str("q\n");
+    if pdf_path(out, commands) {
+        out.push_str(if rule == FillRule::EvenOdd {
+            "W* n\n"
+        } else {
+            "W n\n"
+        });
+        for sh_obj in sh_objs {
+            let sh_idx = shadings.len();
+            shadings.push(sh_obj);
+            let _ = writeln!(out, "/Sh{sh_idx} sh");
+        }
+    }
+    out.push_str("Q\n");
+}
+
 fn pdf_shading_clipped(
     out: &mut String,
-    shadings: &mut Vec<String>,
+    shadings: &mut Vec<Vec<u8>>,
     commands: &[PathCommand],
     rule: FillRule,
     grad: &GradientPaint,
     transform: ColorTransform,
 ) {
     let sh_idx = shadings.len();
-    shadings.push(format_shading_dict(grad, transform));
+    shadings.push(format_shading_dict(grad, transform).into_bytes());
     out.push_str("q\n");
     if pdf_path(out, commands) {
         out.push_str(if rule == FillRule::EvenOdd {
@@ -2003,11 +2345,13 @@ fn pdf_shading_clipped(
 
 fn pdf_shape(
     out: &mut String,
-    shadings: &mut Vec<String>,
+    shadings: &mut Vec<Vec<u8>>,
     commands: &[PathCommand],
     style: PsShapeStyle<'_>,
 ) {
-    if let Some(fg) = style.fill_gradient {
+    if let Some(mesh) = style.mesh_fill.filter(|m| m.has_visible_alpha()) {
+        pdf_mesh_shading_clipped(out, shadings, commands, style.rule, mesh, style.transform);
+    } else if let Some(fg) = style.fill_gradient {
         pdf_shading_clipped(out, shadings, commands, style.rule, fg, style.transform);
     } else {
         let fill = style.transform.apply(style.fill);
@@ -2077,6 +2421,103 @@ fn pdf_shape(
     }
 }
 
+fn pdf_draw_supported(draw: &AuthoredDraw, options: &ImageExportOptions) -> bool {
+    if draw.item.bitmap_fill.is_some() {
+        return false;
+    }
+    let transform = draw.item.color_transform;
+    let has_mesh = draw
+        .item
+        .mesh_fill
+        .as_ref()
+        .is_some_and(neoflash_core::VectorMeshPaint::has_visible_alpha);
+    match &draw.item.kind {
+        ElementKind::Rectangle { .. }
+        | ElementKind::Ellipse { .. }
+        | ElementKind::Path { .. }
+        | ElementKind::Instance { .. } => true,
+        ElementKind::PaintedPath {
+            fill_gradient,
+            stroke_gradient,
+            stroke_width,
+            ..
+        } => {
+            let has_stroke = *stroke_width > 0.0;
+            let fg_ok = has_mesh
+                || fill_gradient
+                    .as_ref()
+                    .is_none_or(|g| ps_gradient_supported(g, transform));
+            let sg_ok = !has_stroke
+                || stroke_gradient
+                    .as_ref()
+                    .is_none_or(|g| ps_gradient_supported(g, transform));
+            fg_ok && sg_ok
+        }
+        ElementKind::Text {
+            text,
+            font_family,
+            font_size,
+            ..
+        } => {
+            text.trim().is_empty()
+                || !neoflash_core::TextFieldState::static_text_to_outline_commands(
+                    text,
+                    font_family,
+                    *font_size,
+                    None,
+                )
+                .is_empty()
+        }
+        ElementKind::TextBox { .. } => {
+            let _ = options;
+            let Some(field) = neoflash_core::TextFieldState::from_kind(&draw.item.kind) else {
+                return false;
+            };
+            field.text.trim().is_empty() || !textbox_outline_runs(&field).is_empty()
+        }
+        ElementKind::Bitmap { .. } | ElementKind::Video { .. } => false,
+    }
+}
+
+fn pdf_scene_supported(
+    project: &Project,
+    scene: &AuthoredScene,
+    options: &ImageExportOptions,
+) -> bool {
+    let filtered: HashSet<&str> = project
+        .symbols
+        .iter()
+        .flat_map(|symbol| &symbol.timeline.layers)
+        .flat_map(|layer| &layer.keyframes)
+        .flat_map(|keyframe| &keyframe.elements)
+        .filter(|element| !element.filters.is_empty())
+        .map(|element| element.id.as_str())
+        .collect();
+    scene.draws.iter().all(|draw| {
+        !draw
+            .item
+            .instance_path
+            .iter()
+            .any(|id| filtered.contains(id.as_str()))
+            && pdf_draw_supported(draw, options)
+    })
+}
+
+fn pdf_scene_blend_mode_name(bm: neoflash_core::BlendMode) -> &'static str {
+    use neoflash_core::BlendMode;
+    match bm {
+        BlendMode::Normal | BlendMode::Layer | BlendMode::Alpha | BlendMode::Erase => "Normal",
+        BlendMode::Multiply | BlendMode::Subtract => "Multiply",
+        BlendMode::Screen => "Screen",
+        BlendMode::Overlay => "Overlay",
+        BlendMode::Darken => "Darken",
+        BlendMode::Lighten => "Lighten",
+        BlendMode::Hardlight => "HardLight",
+        BlendMode::Difference | BlendMode::Invert => "Difference",
+        BlendMode::Add => "ColorDodge",
+    }
+}
+
 fn build_vector_pdf_bytes_with_scene(
     eval_project: &Project,
     scene: &AuthoredScene,
@@ -2085,7 +2526,25 @@ fn build_vector_pdf_bytes_with_scene(
     options: &ImageExportOptions,
 ) -> Vec<u8> {
     let mut stream_body = String::new();
-    let mut shadings: Vec<String> = Vec::new();
+    let mut shadings: Vec<Vec<u8>> = Vec::new();
+    let mut ext_gstates: Vec<(u16, u16, &'static str)> = Vec::new();
+    let mut intern_gs = |fill_a: f64, stroke_a: f64, bm: &'static str| -> usize {
+        let fa = (fill_a.clamp(0.0, 1.0) * 1000.0).round() as u16;
+        let sa = (stroke_a.clamp(0.0, 1.0) * 1000.0).round() as u16;
+        if let Some(pos) = ext_gstates
+            .iter()
+            .position(|&(f, s, b)| f == fa && s == sa && b == bm)
+        {
+            pos
+        } else {
+            let idx = ext_gstates.len();
+            ext_gstates.push((fa, sa, bm));
+            idx
+        }
+    };
+
+    let clips_map: HashMap<&str, &neoflash_core::RuntimeClip> =
+        scene.clips.iter().map(|c| (c.id.as_str(), c)).collect();
 
     stream_body.push_str("q\n");
     let scale_x = f64::from(width) / f64::from(eval_project.width.max(1));
@@ -2096,11 +2555,16 @@ fn build_vector_pdf_bytes_with_scene(
         ps_num(scale_x),
         ps_num(scale_y)
     );
-    if !options.transparent_background && eval_project.background[3] == 255 {
+    if !options.transparent_background && eval_project.background[3] > 0 {
         let bg = eval_project.background;
+        stream_body.push_str("q\n");
+        if bg[3] < 255 {
+            let gs_idx = intern_gs(f64::from(bg[3]) / 255.0, 1.0, "Normal");
+            let _ = writeln!(stream_body, "/Gs{gs_idx} gs");
+        }
         let _ = writeln!(
             stream_body,
-            "{} {} {} rg 0 0 {} {} re f",
+            "{} {} {} rg 0 0 {} {} re f\nQ",
             ps_num(f64::from(bg[0]) / 255.0),
             ps_num(f64::from(bg[1]) / 255.0),
             ps_num(f64::from(bg[2]) / 255.0),
@@ -2112,9 +2576,61 @@ fn build_vector_pdf_bytes_with_scene(
     for draw in &scene.draws {
         let item = &draw.item;
         let m = item.transform;
+        stream_body.push_str("q\n");
+        if !draw.clip_ids.is_empty() {
+            emit_pdf_clip_stack(&mut stream_body, &draw.clip_ids, &clips_map);
+        }
+        let base_alpha = item.alpha.clamp(0.0, 1.0);
+        let bm_name = pdf_scene_blend_mode_name(draw.blend_mode);
+        let (elem_fill_a, elem_stroke_a) = match &item.kind {
+            ElementKind::Rectangle { fill, stroke, .. }
+            | ElementKind::Ellipse { fill, stroke, .. }
+            | ElementKind::Path { fill, stroke, .. }
+            | ElementKind::PaintedPath { fill, stroke, .. } => {
+                let fa = if item
+                    .mesh_fill
+                    .as_ref()
+                    .is_some_and(neoflash_core::VectorMeshPaint::has_visible_alpha)
+                    || matches!(
+                        &item.kind,
+                        ElementKind::PaintedPath {
+                            fill_gradient: Some(_),
+                            ..
+                        }
+                    ) {
+                    1.0
+                } else {
+                    f64::from(item.color_transform.apply(*fill)[3]) / 255.0
+                };
+                let sa = if matches!(
+                    &item.kind,
+                    ElementKind::PaintedPath {
+                        stroke_gradient: Some(_),
+                        ..
+                    }
+                ) {
+                    1.0
+                } else {
+                    f64::from(item.color_transform.apply(*stroke)[3]) / 255.0
+                };
+                (base_alpha * fa, base_alpha * sa)
+            }
+            ElementKind::Text { color, .. } => {
+                let ca = f64::from(item.color_transform.apply(*color)[3]) / 255.0;
+                (base_alpha * ca, base_alpha * ca)
+            }
+            _ => (base_alpha, base_alpha),
+        };
+        if (elem_fill_a - 1.0).abs() > 1e-4
+            || (elem_stroke_a - 1.0).abs() > 1e-4
+            || bm_name != "Normal"
+        {
+            let gs_idx = intern_gs(elem_fill_a, elem_stroke_a, bm_name);
+            let _ = writeln!(stream_body, "/Gs{gs_idx} gs");
+        }
         let _ = writeln!(
             stream_body,
-            "q\n{} {} {} {} {} {} cm",
+            "{} {} {} {} {} {} cm",
             ps_num(m[0]),
             ps_num(m[1]),
             ps_num(m[2]),
@@ -2140,6 +2656,7 @@ fn build_vector_pdf_bytes_with_scene(
                         stroke: *stroke,
                         fill_gradient: None,
                         stroke_gradient: None,
+                        mesh_fill: item.mesh_fill.as_ref(),
                         stroke_width: *stroke_width,
                         transform: item.color_transform,
                         strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -2163,6 +2680,7 @@ fn build_vector_pdf_bytes_with_scene(
                         stroke: *stroke,
                         fill_gradient: None,
                         stroke_gradient: None,
+                        mesh_fill: item.mesh_fill.as_ref(),
                         stroke_width: *stroke_width,
                         transform: item.color_transform,
                         strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -2186,6 +2704,7 @@ fn build_vector_pdf_bytes_with_scene(
                         stroke: *stroke,
                         fill_gradient: None,
                         stroke_gradient: None,
+                        mesh_fill: item.mesh_fill.as_ref(),
                         stroke_width: *stroke_width,
                         transform: item.color_transform,
                         strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -2211,6 +2730,7 @@ fn build_vector_pdf_bytes_with_scene(
                         stroke: *stroke,
                         fill_gradient: fill_gradient.as_ref(),
                         stroke_gradient: stroke_gradient.as_ref(),
+                        mesh_fill: item.mesh_fill.as_ref(),
                         stroke_width: *stroke_width,
                         transform: item.color_transform,
                         strokes_as_strokes: options.ai_strokes_as_strokes,
@@ -2239,6 +2759,7 @@ fn build_vector_pdf_bytes_with_scene(
                         stroke: [0; 4],
                         fill_gradient: None,
                         stroke_gradient: None,
+                        mesh_fill: None,
                         stroke_width: 0.0,
                         transform: item.color_transform,
                         strokes_as_strokes: true,
@@ -2262,6 +2783,7 @@ fn build_vector_pdf_bytes_with_scene(
                                 },
                                 fill_gradient: None,
                                 stroke_gradient: None,
+                                mesh_fill: None,
                                 stroke_width: run.bold_stroke,
                                 transform: item.color_transform,
                                 strokes_as_strokes: true,
@@ -2281,7 +2803,8 @@ fn build_vector_pdf_bytes_with_scene(
     let mut pdf = Vec::new();
     pdf.extend_from_slice(b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n");
 
-    let total_objs = 5 + shadings.len();
+    let gs_base = 5 + shadings.len();
+    let total_objs = gs_base + ext_gstates.len();
     let mut offsets = vec![0usize; total_objs];
 
     offsets[1] = pdf.len();
@@ -2303,9 +2826,21 @@ fn build_vector_pdf_bytes_with_scene(
         }
         format!("/Shading << {entries} >> ")
     };
+    let gs_res = if ext_gstates.is_empty() {
+        String::new()
+    } else {
+        let mut entries = String::new();
+        for idx in 0..ext_gstates.len() {
+            if idx > 0 {
+                entries.push(' ');
+            }
+            let _ = write!(entries, "/Gs{idx} {} 0 R", gs_base + idx);
+        }
+        format!("/ExtGState << {entries} >> ")
+    };
     let page_obj = format!(
         "3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] \
-         /Resources << {shading_res}>> /Contents 4 0 R >>\nendobj\n"
+         /Resources << {shading_res}{gs_res}>> /Contents 4 0 R >>\nendobj\n"
     );
     pdf.extend_from_slice(page_obj.as_bytes());
 
@@ -2317,11 +2852,23 @@ fn build_vector_pdf_bytes_with_scene(
     );
     pdf.extend_from_slice(content_obj.as_bytes());
 
-    for (idx, sh_dict) in shadings.iter().enumerate() {
+    for (idx, sh_bytes) in shadings.iter().enumerate() {
         let obj_num = 5 + idx;
         offsets[obj_num] = pdf.len();
-        let sh_obj = format!("{obj_num} 0 obj\n{sh_dict}\nendobj\n");
-        pdf.extend_from_slice(sh_obj.as_bytes());
+        pdf.extend_from_slice(format!("{obj_num} 0 obj\n").as_bytes());
+        pdf.extend_from_slice(sh_bytes);
+        pdf.extend_from_slice(b"\nendobj\n");
+    }
+
+    for (idx, &(fa, sa, bm)) in ext_gstates.iter().enumerate() {
+        let obj_num = gs_base + idx;
+        offsets[obj_num] = pdf.len();
+        let gs_obj = format!(
+            "{obj_num} 0 obj\n<< /Type /ExtGState /ca {} /CA {} /BM /{bm} >>\nendobj\n",
+            ps_num(f64::from(fa) / 1000.0),
+            ps_num(f64::from(sa) / 1000.0),
+        );
+        pdf.extend_from_slice(gs_obj.as_bytes());
     }
 
     let xref_offset = pdf.len();
@@ -2664,7 +3211,7 @@ where
                 }
                 ImageExportFormat::Pdf => {
                     if !has_timeline_video
-                        && ps_scene_supported(&eval_proj, &stepped_scene, options)
+                        && pdf_scene_supported(&eval_proj, &stepped_scene, options)
                     {
                         path_count += stepped_scene.draws.len();
                         build_vector_pdf_bytes_with_scene(

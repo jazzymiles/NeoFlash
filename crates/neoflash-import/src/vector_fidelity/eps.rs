@@ -1,7 +1,7 @@
 //! Bounded pure-Rust PostScript Level 3 / Adobe Illustrator AICB EPS vector parser
 //! with fallback to embedded binary EPS TIFF previews ONLY when zero vector paths are decoded.
 
-use super::pdf_color_fn::cmyk_to_rgba;
+use super::pdf_color_fn::{PdfShadingPaint, cmyk_to_rgba};
 use super::*;
 use image::{ImageDecoder, ImageEncoder, RgbaImage};
 use neoflash_core::{AuthoredTextFieldOptions, TextFieldState, TextFormat, normalize_text};
@@ -488,12 +488,271 @@ impl PsVal {
     }
 }
 
-fn parse_ps_shading_dict(dict: &BTreeMap<String, PsVal>) -> Option<GradientPaint> {
+fn parse_ps_mesh_shading_dict(
+    sh_type: i64,
+    dict: &BTreeMap<String, PsVal>,
+    cs_name: &str,
+) -> Option<neoflash_core::VectorMeshPaint> {
+    use neoflash_core::{
+        MAX_VECTOR_MESH_PATCHES, MAX_VECTOR_MESH_TRIANGLES, VectorMeshPaint, VectorMeshPatch,
+        VectorMeshTriangle,
+    };
+
+    let fn_dict = dict.get("Function").and_then(PsVal::as_dict);
+    let n_comp = if fn_dict.is_some() {
+        1usize
+    } else {
+        match cs_name {
+            "DeviceGray" => 1,
+            "DeviceCMYK" => 4,
+            _ => 3,
+        }
+    };
+
+    let eval_col = |comps: &[f64]| -> Option<Color> {
+        if let Some(fd) = fn_dict {
+            let stops = parse_ps_function_stops(fd, cs_name)?;
+            let t = comps.first()?.clamp(0.0, 1.0);
+            let mut grad = GradientPaint {
+                kind: GradientKind::Linear,
+                stops,
+                ..Default::default()
+            };
+            if grad.stops.is_empty() {
+                grad.stops.push(GradientStop {
+                    ratio: 0,
+                    color: [0, 0, 0, 255],
+                });
+            }
+            Some(grad.sample_at_unit(t))
+        } else {
+            ps_comps_to_rgba(cs_name, comps)
+        }
+    };
+
+    // PostScript Level 3 allows `/DataSource` as a direct numeric array (`[flag x y c1..cn ...]`)!
+    if let Some(nums) = dict.get("DataSource").and_then(PsVal::as_nums) {
+        let mut paint = VectorMeshPaint::default();
+        let mut idx = 0usize;
+        match sh_type {
+            4 => {
+                type GouraudTriState = ([f64; 2], Color, [f64; 2], Color, [f64; 2], Color);
+                let stride = 3 + n_comp;
+                let mut prev: Option<GouraudTriState> = None;
+                while idx + stride <= nums.len()
+                    && paint.triangles.len() < MAX_VECTOR_MESH_TRIANGLES
+                {
+                    let flag = (nums[idx].round() as i64) & 3;
+                    let p_a = [nums[idx + 1], nums[idx + 2]];
+                    let c_a = eval_col(&nums[idx + 3..idx + 3 + n_comp])?;
+                    idx += stride;
+                    match flag {
+                        0 => {
+                            if idx + 2 * stride > nums.len() {
+                                break;
+                            }
+                            let p_b = [nums[idx + 1], nums[idx + 2]];
+                            let c_b = eval_col(&nums[idx + 3..idx + 3 + n_comp])?;
+                            idx += stride;
+                            let p_c = [nums[idx + 1], nums[idx + 2]];
+                            let c_c = eval_col(&nums[idx + 3..idx + 3 + n_comp])?;
+                            idx += stride;
+                            paint.triangles.push(VectorMeshTriangle {
+                                points: [p_a, p_b, p_c],
+                                colors: [c_a, c_b, c_c],
+                            });
+                            prev = Some((p_a, c_a, p_b, c_b, p_c, c_c));
+                        }
+                        1 => {
+                            let Some((_, _, p_b, c_b, p_c, c_c)) = prev else {
+                                break;
+                            };
+                            paint.triangles.push(VectorMeshTriangle {
+                                points: [p_b, p_c, p_a],
+                                colors: [c_b, c_c, c_a],
+                            });
+                            prev = Some((p_b, c_b, p_c, c_c, p_a, c_a));
+                        }
+                        2 => {
+                            let Some((p_0, c_0, _, _, p_c, c_c)) = prev else {
+                                break;
+                            };
+                            paint.triangles.push(VectorMeshTriangle {
+                                points: [p_0, p_c, p_a],
+                                colors: [c_0, c_c, c_a],
+                            });
+                            prev = Some((p_0, c_0, p_c, c_c, p_a, c_a));
+                        }
+                        _ => break,
+                    }
+                }
+            }
+            5 => {
+                let vpr = dict.get("VerticesPerRow")?.as_num()?.round() as usize;
+                if !(2..=4096).contains(&vpr) {
+                    return None;
+                }
+                let stride = 2 + n_comp;
+                let mut verts = Vec::new();
+                while idx + stride <= nums.len() && verts.len() < 65_536 {
+                    let pt = [nums[idx], nums[idx + 1]];
+                    let col = eval_col(&nums[idx + 2..idx + 2 + n_comp])?;
+                    verts.push((pt, col));
+                    idx += stride;
+                }
+                let rows = verts.len() / vpr;
+                for r in 0..rows.saturating_sub(1) {
+                    for c in 0..(vpr - 1) {
+                        if paint.triangles.len() + 2 > MAX_VECTOR_MESH_TRIANGLES {
+                            break;
+                        }
+                        let v00 = verts[r * vpr + c];
+                        let v01 = verts[r * vpr + c + 1];
+                        let v10 = verts[(r + 1) * vpr + c];
+                        let v11 = verts[(r + 1) * vpr + c + 1];
+                        paint.triangles.push(VectorMeshTriangle {
+                            points: [v00.0, v01.0, v11.0],
+                            colors: [v00.1, v01.1, v11.1],
+                        });
+                        paint.triangles.push(VectorMeshTriangle {
+                            points: [v00.0, v11.0, v10.0],
+                            colors: [v00.1, v11.1, v10.1],
+                        });
+                    }
+                }
+            }
+            6 => {
+                let mut prev: Option<([[f64; 2]; 12], [Color; 4])> = None;
+                while idx < nums.len() && paint.patches.len() < MAX_VECTOR_MESH_PATCHES {
+                    let flag = (nums[idx].round() as i64) & 3;
+                    idx += 1;
+                    let n_pts = if flag == 0 { 12usize } else { 8usize };
+                    let n_cols = if flag == 0 { 4usize } else { 2usize };
+                    if idx + n_pts * 2 + n_cols * n_comp > nums.len() {
+                        break;
+                    }
+                    let mut pts = [[0.0; 2]; 12];
+                    let mut cols = [[0u8; 4]; 4];
+                    if flag == 0 {
+                        for slot in &mut pts {
+                            *slot = [nums[idx], nums[idx + 1]];
+                            idx += 2;
+                        }
+                        for slot in &mut cols {
+                            *slot = eval_col(&nums[idx..idx + n_comp])?;
+                            idx += n_comp;
+                        }
+                    } else {
+                        let Some((pp, pc)) = prev else {
+                            break;
+                        };
+                        match flag {
+                            1 => {
+                                pts[0..4].copy_from_slice(&pp[3..7]);
+                                cols[0..2].copy_from_slice(&pc[1..3]);
+                            }
+                            2 => {
+                                pts[0..4].copy_from_slice(&pp[6..10]);
+                                cols[0..2].copy_from_slice(&pc[2..4]);
+                            }
+                            3 => {
+                                pts[0..3].copy_from_slice(&pp[9..12]);
+                                pts[3] = pp[0];
+                                cols[0] = pc[3];
+                                cols[1] = pc[0];
+                            }
+                            _ => break,
+                        }
+                        for slot in &mut pts[4..12] {
+                            *slot = [nums[idx], nums[idx + 1]];
+                            idx += 2;
+                        }
+                        for slot in &mut cols[2..4] {
+                            *slot = eval_col(&nums[idx..idx + n_comp])?;
+                            idx += n_comp;
+                        }
+                    }
+                    paint
+                        .patches
+                        .push(VectorMeshPatch::from_pdf_coons_12(pts, cols));
+                    prev = Some((pts, cols));
+                }
+            }
+            7 => {
+                let mut prev: Option<([[f64; 2]; 16], [Color; 4])> = None;
+                while idx < nums.len() && paint.patches.len() < MAX_VECTOR_MESH_PATCHES {
+                    let flag = (nums[idx].round() as i64) & 3;
+                    idx += 1;
+                    let n_pts = if flag == 0 { 16usize } else { 12usize };
+                    let n_cols = if flag == 0 { 4usize } else { 2usize };
+                    if idx + n_pts * 2 + n_cols * n_comp > nums.len() {
+                        break;
+                    }
+                    let mut pts = [[0.0; 2]; 16];
+                    let mut cols = [[0u8; 4]; 4];
+                    if flag == 0 {
+                        for slot in &mut pts {
+                            *slot = [nums[idx], nums[idx + 1]];
+                            idx += 2;
+                        }
+                        for slot in &mut cols {
+                            *slot = eval_col(&nums[idx..idx + n_comp])?;
+                            idx += n_comp;
+                        }
+                    } else {
+                        let Some((pp, pc)) = prev else {
+                            break;
+                        };
+                        match flag {
+                            1 => {
+                                pts[0..4].copy_from_slice(&pp[3..7]);
+                                cols[0..2].copy_from_slice(&pc[1..3]);
+                            }
+                            2 => {
+                                pts[0..4].copy_from_slice(&pp[6..10]);
+                                cols[0..2].copy_from_slice(&pc[2..4]);
+                            }
+                            3 => {
+                                pts[0..3].copy_from_slice(&pp[9..12]);
+                                pts[3] = pp[0];
+                                cols[0] = pc[3];
+                                cols[1] = pc[0];
+                            }
+                            _ => break,
+                        }
+                        for slot in &mut pts[4..16] {
+                            *slot = [nums[idx], nums[idx + 1]];
+                            idx += 2;
+                        }
+                        for slot in &mut cols[2..4] {
+                            *slot = eval_col(&nums[idx..idx + n_comp])?;
+                            idx += n_comp;
+                        }
+                    }
+                    paint
+                        .patches
+                        .push(VectorMeshPatch::from_pdf_tensor_16(pts, cols));
+                    prev = Some((pts, cols));
+                }
+            }
+            _ => return None,
+        }
+        paint.validate().ok()?;
+        return Some(paint);
+    }
+
+    None
+}
+
+fn parse_ps_shading_dict(dict: &BTreeMap<String, PsVal>) -> Option<PdfShadingPaint> {
     let sh_type = dict.get("ShadingType")?.as_num()?.round() as i64;
     let cs_name = dict
         .get("ColorSpace")
         .and_then(PsVal::as_name)
         .unwrap_or("DeviceRGB");
+    if matches!(sh_type, 4..=7) {
+        return parse_ps_mesh_shading_dict(sh_type, dict, cs_name).map(PdfShadingPaint::Mesh);
+    }
     let fn_dict = dict.get("Function")?.as_dict()?;
     let stops = parse_ps_function_stops(fn_dict, cs_name)?;
 
@@ -543,7 +802,7 @@ fn parse_ps_shading_dict(dict: &BTreeMap<String, PsVal>) -> Option<GradientPaint
         _ => return None,
     };
     paint.validate().ok()?;
-    Some(paint)
+    Some(PdfShadingPaint::Gradient(paint))
 }
 
 fn ps_comps_to_rgba(cs_name: &str, comps: &[f64]) -> Option<Color> {
@@ -736,6 +995,7 @@ pub(super) fn parse_eps_artwork(
     let mut current_bucket = VectorGroupBucket {
         name: format!("{source} Layer 1"),
         elements: Vec::new(),
+        vector_effects: Vec::new(),
         mask_elements: Vec::new(),
         mask_mode: MaskMode::Geometry,
     };
@@ -752,6 +1012,7 @@ pub(super) fn parse_eps_artwork(
                 let next = VectorGroupBucket {
                     name: current_bucket.name.clone(),
                     elements: Vec::new(),
+                    vector_effects: Vec::new(),
                     mask_elements: Vec::new(),
                     mask_mode: MaskMode::Geometry,
                 };
@@ -979,6 +1240,7 @@ pub(super) fn parse_eps_artwork(
                 current_bucket = VectorGroupBucket {
                     name: format!("{source} Layer {}", buckets.len() + 1),
                     elements: Vec::new(),
+                    vector_effects: Vec::new(),
                     mask_elements: Vec::new(),
                     mask_mode: MaskMode::Geometry,
                 };
@@ -996,6 +1258,7 @@ pub(super) fn parse_eps_artwork(
                     current_bucket = VectorGroupBucket {
                         name: format!("{source} Layer {}", buckets.len() + 1),
                         elements: Vec::new(),
+                        vector_effects: Vec::new(),
                         mask_elements: Vec::new(),
                         mask_mode: MaskMode::Geometry,
                     };
@@ -1708,43 +1971,106 @@ pub(super) fn parse_eps_artwork(
                     }
                     "shfill" => {
                         if let Some(PsVal::Dict(sh_dict)) = stack.last()
-                            && let Some(mut paint) = parse_ps_shading_dict(sh_dict)
+                            && let Some(parsed_sh) = parse_ps_shading_dict(sh_dict)
                         {
-                            paint.matrix = affine_multiply(gstate.ctm, paint.matrix);
-                            if paint.validate().is_ok() {
-                                let (commands, rule) = if let Some((cmds, r)) = &gstate.clip_geom {
-                                    (cmds.clone(), *r)
-                                } else {
-                                    (
-                                        vec![
-                                            PathCommand::MoveTo { x: 0.0, y: 0.0 },
-                                            PathCommand::LineTo { x: bw, y: 0.0 },
-                                            PathCommand::LineTo { x: bw, y: bh },
-                                            PathCommand::LineTo { x: 0.0, y: bh },
-                                            PathCommand::Close,
-                                        ],
-                                        FillRule::NonZero,
-                                    )
-                                };
-                                // Shading already embeds gstate.clip_geom as its PaintedPath geometry!
-                                sync_bucket_clip(&mut current_bucket, &mut buckets, None);
-                                current_bucket.elements.push(Element {
-                                    id: new_id("element"),
-                                    name: "EPS Shading".into(),
-                                    transform: Transform::default(),
-                                    kind: ElementKind::PaintedPath {
-                                        commands,
-                                        fill_rule: rule,
-                                        fill: [0; 4],
-                                        stroke: [0; 4],
-                                        fill_gradient: Some(paint),
-                                        stroke_gradient: None,
-                                        stroke_width: 0.0,
-                                    },
-                                    ..Element::default()
-                                });
-                                report.statistics.elements += 1;
-                                vector_elements += 1;
+                            match parsed_sh {
+                                PdfShadingPaint::Gradient(mut paint) => {
+                                    paint.matrix = affine_multiply(gstate.ctm, paint.matrix);
+                                    if paint.validate().is_ok() {
+                                        let (commands, rule) =
+                                            if let Some((cmds, r)) = &gstate.clip_geom {
+                                                (cmds.clone(), *r)
+                                            } else {
+                                                (
+                                                    vec![
+                                                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                                                        PathCommand::LineTo { x: bw, y: 0.0 },
+                                                        PathCommand::LineTo { x: bw, y: bh },
+                                                        PathCommand::LineTo { x: 0.0, y: bh },
+                                                        PathCommand::Close,
+                                                    ],
+                                                    FillRule::NonZero,
+                                                )
+                                            };
+                                        sync_bucket_clip(&mut current_bucket, &mut buckets, None);
+                                        current_bucket.elements.push(Element {
+                                            id: new_id("element"),
+                                            name: "EPS Shading".into(),
+                                            transform: Transform::default(),
+                                            kind: ElementKind::PaintedPath {
+                                                commands,
+                                                fill_rule: rule,
+                                                fill: [0; 4],
+                                                stroke: [0; 4],
+                                                fill_gradient: Some(paint),
+                                                stroke_gradient: None,
+                                                stroke_width: 0.0,
+                                            },
+                                            ..Element::default()
+                                        });
+                                        report.statistics.elements += 1;
+                                        vector_elements += 1;
+                                    }
+                                }
+                                PdfShadingPaint::Mesh(mut mesh) => {
+                                    mesh.transform_in_place(gstate.ctm);
+                                    if mesh.validate().is_ok() {
+                                        let (commands, rule) =
+                                            if let Some((cmds, r)) = &gstate.clip_geom {
+                                                (cmds.clone(), *r)
+                                            } else if let Some([x0, y0, x1, y1]) = mesh.bounds()
+                                                && (x1 - x0) > 1e-6
+                                                && (y1 - y0) > 1e-6
+                                            {
+                                                (
+                                                    vec![
+                                                        PathCommand::MoveTo { x: x0, y: y0 },
+                                                        PathCommand::LineTo { x: x1, y: y0 },
+                                                        PathCommand::LineTo { x: x1, y: y1 },
+                                                        PathCommand::LineTo { x: x0, y: y1 },
+                                                        PathCommand::Close,
+                                                    ],
+                                                    FillRule::NonZero,
+                                                )
+                                            } else {
+                                                (
+                                                    vec![
+                                                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                                                        PathCommand::LineTo { x: bw, y: 0.0 },
+                                                        PathCommand::LineTo { x: bw, y: bh },
+                                                        PathCommand::LineTo { x: 0.0, y: bh },
+                                                        PathCommand::Close,
+                                                    ],
+                                                    FillRule::NonZero,
+                                                )
+                                            };
+                                        sync_bucket_clip(&mut current_bucket, &mut buckets, None);
+                                        let el_id = new_id("element");
+                                        let rep = mesh.representative_color();
+                                        current_bucket.vector_effects.push(
+                                            neoflash_core::ElementVectorEffects {
+                                                element_id: el_id.clone(),
+                                                vector_mesh: Some(mesh),
+                                                ..Default::default()
+                                            },
+                                        );
+                                        current_bucket.elements.push(Element {
+                                            id: el_id,
+                                            name: "EPS Mesh Shading".into(),
+                                            transform: Transform::default(),
+                                            kind: ElementKind::Path {
+                                                commands,
+                                                fill_rule: rule,
+                                                fill: rep,
+                                                stroke: [0; 4],
+                                                stroke_width: 0.0,
+                                            },
+                                            ..Element::default()
+                                        });
+                                        report.statistics.elements += 1;
+                                        vector_elements += 1;
+                                    }
+                                }
                             }
                         }
                         stack.clear();
@@ -2181,6 +2507,7 @@ pub(super) fn parse_eps_artwork(
         buckets: vec![VectorGroupBucket {
             name: source.into(),
             elements: vec![element],
+            vector_effects: vec![],
             mask_elements: vec![],
             mask_mode: MaskMode::Geometry,
         }],

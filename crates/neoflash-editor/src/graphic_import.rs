@@ -149,6 +149,7 @@ pub(crate) struct PreparedGraphic {
     pub width: f64,
     pub height: f64,
     pub elements: Vec<Element>,
+    pub vector_effects: Vec<ElementVectorEffects>,
     pub resources: Vec<ResourceUnit>,
     pub notice: Option<String>,
 }
@@ -231,6 +232,7 @@ fn sole_untouched_blank_layer(timeline: &Timeline) -> Option<usize> {
                 && k.filters.is_empty()
                 && k.bitmap_fills.is_empty()
                 && k.appearances.is_empty()
+                && k.vector_effects.is_empty()
                 && k.tween.is_none()
                 && k.label.is_empty()
         });
@@ -2780,6 +2782,7 @@ impl Editor {
                     keyframes: vec![Keyframe {
                         frame: 0,
                         elements: std::mem::take(&mut graphic.elements),
+                        vector_effects: std::mem::take(&mut graphic.vector_effects),
                         tween: None,
                         label: String::new(),
                         ..Default::default()
@@ -3523,6 +3526,7 @@ impl Editor {
                     width: w,
                     height: h,
                     elements: Vec::new(),
+                    vector_effects: Vec::new(),
                     resources: shared_resources.clone(),
                     notice: if idx == 0 {
                         shared_notice.clone()
@@ -3771,6 +3775,7 @@ pub(crate) fn merge_graphic_resources(
         width: graphic.width,
         height: graphic.height,
         elements: std::mem::take(&mut graphic.elements),
+        vector_effects: std::mem::take(&mut graphic.vector_effects),
         resources: std::mem::take(&mut graphic.resources),
         notice: graphic.notice.take(),
     });
@@ -3907,6 +3912,7 @@ fn prepare_psd_graphic(
             width: (imported.width as f64).max(1.0),
             height: (imported.height as f64).max(1.0),
             elements: Vec::new(),
+            vector_effects: Vec::new(),
             resources: std::mem::take(&mut imported.resources),
             notice: format_import_diagnostics(&report),
         },
@@ -3962,6 +3968,7 @@ fn prepare_pdf_ai_graphic(
             width: (imported.width as f64).max(1.0),
             height: (imported.height as f64).max(1.0),
             elements: Vec::new(),
+            vector_effects: Vec::new(),
             resources: std::mem::take(&mut imported.resources),
             notice: format_import_diagnostics(&report),
         },
@@ -4008,6 +4015,7 @@ fn prepare_fxg_graphic(path: &std::path::Path) -> Result<PreparedImportGraphic, 
             width: (imported.width as f64).max(1.0),
             height: (imported.height as f64).max(1.0),
             elements: Vec::new(),
+            vector_effects: Vec::new(),
             resources: std::mem::take(&mut imported.resources),
             notice: format_import_diagnostics(&report),
         },
@@ -4068,6 +4076,7 @@ fn prepare_sequence_graphic(
             width: f64::from(w),
             height: f64::from(h),
             elements: Vec::new(),
+            vector_effects: Vec::new(),
             resources: std::mem::take(&mut project.resources),
             notice: format_import_diagnostics(&report),
         },
@@ -4131,6 +4140,7 @@ fn prepare_imported_figma_project(
             width: (imported.width as f64).max(1.0),
             height: (imported.height as f64).max(1.0),
             elements: Vec::new(),
+            vector_effects: Vec::new(),
             resources: std::mem::take(&mut imported.resources),
             notice: format_import_diagnostics(report),
         },
@@ -4194,6 +4204,7 @@ fn prepare_swf_graphic(
             width: (imported.width as f64).max(1.0),
             height: (imported.height as f64).max(1.0),
             elements: Vec::new(),
+            vector_effects: Vec::new(),
             resources: std::mem::take(&mut imported.resources),
             notice: format_import_diagnostics(&report),
         },
@@ -4227,6 +4238,7 @@ fn prepare_graphic(unit: ResourceUnit, name: String) -> Result<PreparedGraphic, 
                     accessibility: None,
                     ..Element::default()
                 }],
+                vector_effects: Vec::new(),
                 resources: vec![unit],
                 notice: None,
             }
@@ -4270,6 +4282,7 @@ pub(crate) fn import_svg_project_from_path(
         layer.name = "SVG".into();
         if let Some(kf) = layer.keyframes.first_mut() {
             kf.elements = graphic.elements;
+            kf.vector_effects = graphic.vector_effects;
         }
     }
     crate::timeline_commands::upgrade_all_format_versions(&mut project);

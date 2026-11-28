@@ -98,11 +98,59 @@ impl GapCloseMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ArtisticBrushPreset {
+    CalligraphicNib,
+    TaperedInk,
+    RibbonFlat,
+    BristleStipple,
+}
+
+impl ArtisticBrushPreset {
+    pub(crate) const ALL: [(
+        Self,
+        &'static str,
+        f32,
+        neoflash_ui::components::BrushShapeKind,
+        neoflash_ui::components::BrushStroke,
+    ); 4] = [
+        (
+            Self::CalligraphicNib,
+            "Calligraphic Nib",
+            14.,
+            neoflash_ui::components::BrushShapeKind::Slash,
+            neoflash_ui::components::BrushStroke::Chisel,
+        ),
+        (
+            Self::TaperedInk,
+            "Tapered Ink",
+            16.,
+            neoflash_ui::components::BrushShapeKind::Round,
+            neoflash_ui::components::BrushStroke::Ink,
+        ),
+        (
+            Self::RibbonFlat,
+            "Ribbon Flat",
+            18.,
+            neoflash_ui::components::BrushShapeKind::RectH,
+            neoflash_ui::components::BrushStroke::Flat,
+        ),
+        (
+            Self::BristleStipple,
+            "Bristle Stipple",
+            14.,
+            neoflash_ui::components::BrushShapeKind::OvalH,
+            neoflash_ui::components::BrushStroke::Charcoal,
+        ),
+    ];
+}
+
 pub(crate) struct AuthoringToolsState {
     gesture: Option<Gesture>,
     pressure_contact: Option<PressureContact>,
     pub brush_size: f32,
     pub brush_shape: neoflash_ui::components::BrushShapeKind,
+    pub artistic_brush: Option<ArtisticBrushPreset>,
     pub brush_smoothing: f64,
     pub brush_pressure: bool,
     pub brush_tilt: bool,
@@ -142,6 +190,7 @@ impl Default for AuthoringToolsState {
             pressure_contact: None,
             brush_size: 12.,
             brush_shape: Default::default(),
+            artistic_brush: None,
             brush_smoothing: 50.,
             brush_pressure: true,
             brush_tilt: false,
@@ -982,7 +1031,27 @@ impl Editor {
             .map(|t| t.element.clone())
             .collect();
         let inside_target_id: Option<Id> = (mode == EraserMode::Inside)
-            .then(|| gesture.targets.first().map(|t| t.element.clone()))
+            .then(|| {
+                let start_metric = gesture.mapping.edit_to_stage_pos(gesture.points[0]);
+                let start_radius = self.authoring_tools.eraser_size / 2. / gesture.zoom;
+                gesture
+                    .eraser_meshes
+                    .iter()
+                    .rev()
+                    .find(|(_, mesh)| swept_disk_hits_mesh(mesh, start_metric, start_metric, 0.5))
+                    .or_else(|| {
+                        gesture.eraser_meshes.iter().rev().find(|(_, mesh)| {
+                            swept_brush_hits_mesh(
+                                mesh,
+                                start_metric,
+                                start_metric,
+                                start_radius,
+                                square,
+                            )
+                        })
+                    })
+                    .map(|(t, _)| t.element.clone())
+            })
             .flatten();
         let local_points: Vec<_> = gesture
             .points
@@ -1028,7 +1097,14 @@ impl Editor {
             .find(|element| element.id == target.element) else {
                 continue;
             };
+            let layer = &self.symbol().timeline.layers[index];
+            let is_grouped = layer
+                .properties
+                .groups
+                .iter()
+                .any(|g| g.members.iter().any(|id| id == &element.id));
             if !element.merge
+                && is_grouped
                 && matches!(
                     mode,
                     EraserMode::Fills
@@ -1039,17 +1115,19 @@ impl Editor {
             {
                 if paint_parts(&element.kind).is_some() {
                     let mut retained = element.clone();
+                    let strip_side_fill = matches!(
+                        mode,
+                        EraserMode::Fills | EraserMode::SelectedFills | EraserMode::Inside
+                    );
                     apply_paint(
                         &mut retained.kind,
-                        matches!(
-                            mode,
-                            EraserMode::Fills | EraserMode::SelectedFills | EraserMode::Inside
-                        )
-                        .then_some([0; 4]),
+                        strip_side_fill.then_some([0; 4]),
                         (mode == EraserMode::Strokes).then_some(([0; 4], 0.)),
                     );
-                    if retained.kind != element.kind {
-                        changes.push((target.clone(), vec![retained]));
+                    let had_side_fill =
+                        draw.item.bitmap_fill.is_some() || draw.item.mesh_fill.is_some();
+                    if retained.kind != element.kind || (strip_side_fill && had_side_fill) {
+                        changes.push((target.clone(), vec![retained], Vec::new(), strip_side_fill));
                     }
                 }
                 continue;
@@ -1063,7 +1141,6 @@ impl Editor {
                 // fill subtraction and exact stroke fragments.
                 continue;
             }
-            let layer = &self.symbol().timeline.layers[index];
             if layer.properties.motion_guide.is_some()
                 && !layer.keyframes.iter().any(|key| key.frame == self.frame)
                 && (self.workspace.timeline_prefs.auto_keyframe
@@ -1079,29 +1156,6 @@ impl Editor {
             let Some((fill, stroke, width)) = paint_parts(&element.kind) else {
                 continue;
             };
-            let result = match neoflash_core::erase_path_stroke_with_shape(
-                &commands,
-                // Hit testing sees the presented pose, including motion guides
-                // and Orient to path. Cut in that same space without baking the
-                // presentation transform into the authored span key.
-                gesture.mapping.map_matrix(draw.item.transform),
-                &points,
-                f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
-                0.2 / f64::from(gesture.zoom),
-                square,
-            ) {
-                Ok(result) => result,
-                Err(error) => {
-                    self.notify(
-                        neoflash_ui::components::ToastType::Warning,
-                        error.to_string(),
-                    );
-                    return;
-                }
-            };
-            if !result.changed {
-                continue;
-            }
             let (fill_gradient, stroke_gradient) = match &element.kind {
                 ElementKind::PaintedPath {
                     fill_gradient,
@@ -1110,50 +1164,335 @@ impl Editor {
                 } => (fill_gradient.clone(), stroke_gradient.clone()),
                 _ => (None, None),
             };
-            let has_fill = fill[3] > 0 || fill_gradient.is_some();
-            if has_fill && (!element.filters.is_empty() || element.blend_mode != BlendMode::Normal)
-            {
+            let has_fill = fill[3] > 0
+                || fill_gradient.is_some()
+                || draw.item.bitmap_fill.is_some()
+                || draw.item.mesh_fill.is_some();
+            let has_stroke = width > 0. && (stroke[3] > 0 || stroke_gradient.is_some());
+            let has_effects = !element.filters.is_empty()
+                || element.blend_mode != BlendMode::Normal
+                || element.cache_as_bitmap;
+
+            if is_grouped {
+                let result = match neoflash_core::erase_path_stroke_with_shape(
+                    &commands,
+                    gesture.mapping.map_matrix(draw.item.transform),
+                    &points,
+                    f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom),
+                    0.2 / f64::from(gesture.zoom),
+                    square,
+                ) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        self.notify(
+                            neoflash_ui::components::ToastType::Warning,
+                            error.to_string(),
+                        );
+                        return;
+                    }
+                };
+                if !result.changed {
+                    continue;
+                }
+                if has_fill && has_effects {
+                    self.notify(neoflash_ui::components::ToastType::Warning, "Partial stroke erasing on a combined fill/stroke with filters or blend modes is not available yet; no artwork was changed.");
+                    return;
+                }
+                let mut replacements = Vec::new();
+                if has_fill {
+                    let mut retained = element.clone();
+                    apply_paint(&mut retained.kind, None, Some(([0; 4], 0.)));
+                    replacements.push(retained);
+                }
+                if !result.commands.is_empty() {
+                    let mut retained = element.clone();
+                    if has_fill {
+                        retained.id = new_id("object");
+                        retained.scripts.clear();
+                        retained.accessibility = None;
+                        retained.name.clear();
+                    }
+                    retained.transform.primitive = None;
+                    retained.kind = if stroke_gradient.is_some() {
+                        ElementKind::PaintedPath {
+                            commands: result.commands,
+                            fill_rule: rule,
+                            fill: [0; 4],
+                            stroke,
+                            stroke_width: width,
+                            fill_gradient: None,
+                            stroke_gradient,
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: result.commands,
+                            fill_rule: rule,
+                            fill: [0; 4],
+                            stroke,
+                            stroke_width: width,
+                        }
+                    };
+                    replacements.push(retained);
+                }
+                changes.push((target.clone(), replacements, Vec::new(), false));
+                continue;
+            }
+
+            // Standalone Object Drawing (`!element.merge && !is_grouped`): carve exact fill
+            // and/or stroke geometry in element-local coordinates while preserving `merge = false`.
+            let carve_fill = has_fill
+                && matches!(
+                    mode,
+                    EraserMode::StrokeSegments
+                        | EraserMode::Fills
+                        | EraserMode::SelectedFills
+                        | EraserMode::Inside
+                );
+            let carve_stroke =
+                has_stroke && matches!(mode, EraserMode::StrokeSegments | EraserMode::Strokes);
+            if !carve_fill && !carve_stroke {
+                continue;
+            }
+            if has_fill && has_stroke && has_effects {
                 self.notify(neoflash_ui::components::ToastType::Warning, "Partial stroke erasing on a combined fill/stroke with filters or blend modes is not available yet; no artwork was changed.");
                 return;
             }
-            let mut replacements = Vec::new();
-            if has_fill {
-                let mut retained = element.clone();
-                apply_paint(&mut retained.kind, None, Some(([0; 4], 0.)));
-                replacements.push(retained);
-            }
-            if !result.commands.is_empty() {
-                let mut retained = element.clone();
-                if has_fill {
-                    retained.id = new_id("object");
-                    // Keep object scripts/instance identity on the original fill.
-                    retained.scripts.clear();
-                    retained.accessibility = None;
-                    retained.name.clear();
-                }
-                retained.transform.primitive = None;
-                retained.kind = if stroke_gradient.is_some() {
-                    ElementKind::PaintedPath {
-                        commands: result.commands,
-                        fill_rule: rule,
-                        fill: [0; 4],
-                        stroke,
-                        stroke_width: width,
-                        fill_gradient: None,
-                        stroke_gradient,
-                    }
+
+            let elem_local_to_metric = gesture.mapping.map_matrix(draw.item.transform);
+            let Some(metric_to_elem_local) = invert_affine_matrix(elem_local_to_metric) else {
+                continue;
+            };
+            let elem_local_points: Vec<[f64; 2]> = points
+                .iter()
+                .map(|p| {
+                    [
+                        metric_to_elem_local[0] * p[0]
+                            + metric_to_elem_local[2] * p[1]
+                            + metric_to_elem_local[4],
+                        metric_to_elem_local[1] * p[0]
+                            + metric_to_elem_local[3] * p[1]
+                            + metric_to_elem_local[5],
+                    ]
+                })
+                .collect();
+            let radius = f64::from(self.authoring_tools.eraser_size / 2. / gesture.zoom);
+            let tol = 0.2 / f64::from(gesture.zoom);
+
+            let mut fill_changed = false;
+            let mut surviving_fills: Vec<Element> = Vec::new();
+            if carve_fill {
+                let synthetic_side_fill = fill[3] == 0 && fill_gradient.is_none();
+                let temp_fill = if synthetic_side_fill {
+                    [255, 255, 255, 255]
                 } else {
-                    ElementKind::Path {
-                        commands: result.commands,
-                        fill_rule: rule,
-                        fill: [0; 4],
-                        stroke,
-                        stroke_width: width,
+                    fill
+                };
+                let temp_fill_kind =
+                    if fill_gradient.is_some() || (!has_stroke && stroke_gradient.is_some()) {
+                        ElementKind::PaintedPath {
+                            commands: commands.clone(),
+                            fill_rule: rule,
+                            fill: temp_fill,
+                            stroke: if has_stroke { [0; 4] } else { stroke },
+                            stroke_width: 0.0,
+                            fill_gradient: fill_gradient.clone(),
+                            stroke_gradient: if has_stroke {
+                                None
+                            } else {
+                                stroke_gradient.clone()
+                            },
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: commands.clone(),
+                            fill_rule: rule,
+                            fill: temp_fill,
+                            stroke: if has_stroke { [0; 4] } else { stroke },
+                            stroke_width: 0.0,
+                        }
+                    };
+                let mut temp_vec = vec![Element {
+                    id: element.id.clone(),
+                    name: element.name.clone(),
+                    transform: Transform {
+                        alpha: element.transform.alpha,
+                        color_transform: element.transform.color_transform,
+                        ..Transform::default()
+                    },
+                    kind: temp_fill_kind,
+                    scripts: element.scripts.clone(),
+                    accessibility: element.accessibility.clone(),
+                    visible: element.visible,
+                    cache_as_bitmap: false,
+                    blend_mode: BlendMode::Normal,
+                    filters: Vec::new(),
+                    merge: true,
+                    instance_behavior: None,
+                }];
+                match erase_merge_geometry_with_shape(
+                    &mut temp_vec,
+                    &elem_local_points,
+                    elem_local_to_metric,
+                    radius,
+                    tol,
+                    square,
+                ) {
+                    Ok(changed) => {
+                        fill_changed = changed;
+                        if synthetic_side_fill {
+                            for f_el in &mut temp_vec {
+                                apply_paint(&mut f_el.kind, Some(fill), None);
+                            }
+                        }
+                        surviving_fills = temp_vec;
+                    }
+                    Err(error) => {
+                        self.notify(
+                            neoflash_ui::components::ToastType::Warning,
+                            error.to_string(),
+                        );
+                        return;
+                    }
+                }
+            } else if has_fill {
+                let mut retained_fill = element.clone();
+                apply_paint(&mut retained_fill.kind, None, Some(([0; 4], 0.)));
+                surviving_fills.push(retained_fill);
+            }
+
+            let mut stroke_changed = false;
+            let mut surviving_stroke: Option<Element> = None;
+            if carve_stroke {
+                let result = match neoflash_core::erase_path_stroke_with_shape(
+                    &commands,
+                    elem_local_to_metric,
+                    &points,
+                    radius,
+                    tol,
+                    square,
+                ) {
+                    Ok(result) => result,
+                    Err(error) => {
+                        self.notify(
+                            neoflash_ui::components::ToastType::Warning,
+                            error.to_string(),
+                        );
+                        return;
                     }
                 };
-                replacements.push(retained);
+                stroke_changed = result.changed;
+                if !result.commands.is_empty() {
+                    let mut st_el = element.clone();
+                    st_el.transform.primitive = None;
+                    st_el.kind = if stroke_gradient.is_some() {
+                        ElementKind::PaintedPath {
+                            commands: result.commands,
+                            fill_rule: rule,
+                            fill: [0; 4],
+                            stroke,
+                            stroke_width: width,
+                            fill_gradient: None,
+                            stroke_gradient: stroke_gradient.clone(),
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: result.commands,
+                            fill_rule: rule,
+                            fill: [0; 4],
+                            stroke,
+                            stroke_width: width,
+                        }
+                    };
+                    surviving_stroke = Some(st_el);
+                }
+            } else if has_stroke {
+                let mut st_el = element.clone();
+                if fill_changed {
+                    st_el.transform.primitive = None;
+                    st_el.kind = if stroke_gradient.is_some() {
+                        ElementKind::PaintedPath {
+                            commands: commands.clone(),
+                            fill_rule: rule,
+                            fill: [0; 4],
+                            stroke,
+                            stroke_width: width,
+                            fill_gradient: None,
+                            stroke_gradient: stroke_gradient.clone(),
+                        }
+                    } else {
+                        ElementKind::Path {
+                            commands: commands.clone(),
+                            fill_rule: rule,
+                            fill: [0; 4],
+                            stroke,
+                            stroke_width: width,
+                        }
+                    };
+                } else {
+                    apply_paint(&mut st_el.kind, Some([0; 4]), None);
+                }
+                surviving_stroke = Some(st_el);
             }
-            changes.push((target.clone(), replacements));
+
+            if !fill_changed && !stroke_changed {
+                continue;
+            }
+
+            let fill_count = surviving_fills.len();
+            let strip_primary_side_fill = carve_fill && fill_count == 0;
+            let total_surviving = fill_count + usize::from(surviving_stroke.is_some());
+            if has_effects && total_surviving > 1 {
+                self.notify(
+                    neoflash_ui::components::ToastType::Warning,
+                    "Partial erasing cannot split an element with filters, Cache as bitmap, or a non-Normal blend mode into multiple fragments; no artwork was changed.",
+                );
+                return;
+            }
+
+            let mut replacements = Vec::with_capacity(total_surviving);
+            for mut f_el in surviving_fills {
+                f_el.merge = false;
+                f_el.filters = element.filters.clone();
+                f_el.blend_mode = element.blend_mode;
+                f_el.cache_as_bitmap = element.cache_as_bitmap;
+                f_el.visible = element.visible;
+                replacements.push(f_el);
+            }
+            if let Some(mut s_el) = surviving_stroke {
+                s_el.merge = false;
+                s_el.filters = element.filters.clone();
+                s_el.blend_mode = element.blend_mode;
+                s_el.cache_as_bitmap = element.cache_as_bitmap;
+                s_el.visible = element.visible;
+                replacements.push(s_el);
+            }
+            for (idx, rep) in replacements.iter_mut().enumerate() {
+                if idx == 0 {
+                    rep.id = element.id.clone();
+                    rep.name = element.name.clone();
+                    rep.scripts = element.scripts.clone();
+                    rep.accessibility = element.accessibility.clone();
+                } else {
+                    if rep.id.is_empty() || rep.id == element.id {
+                        rep.id = new_id("object");
+                    }
+                    rep.name.clear();
+                    rep.scripts.clear();
+                    rep.accessibility = None;
+                }
+            }
+            let new_fill_frag_ids: Vec<Id> = replacements
+                .iter()
+                .take(fill_count)
+                .skip(1)
+                .map(|el| el.id.clone())
+                .collect();
+            changes.push((
+                target.clone(),
+                replacements,
+                new_fill_frag_ids,
+                strip_primary_side_fill,
+            ));
         }
         let mut candidate = self.project.clone();
         let mut merge_changed = false;
@@ -1241,7 +1580,7 @@ impl Editor {
         self.transact(|editor| {
             let before = editor.project.clone();
             editor.project = candidate;
-            for (target, mut replacements) in changes {
+            for (target, mut replacements, new_fill_frag_ids, strip_primary_side_fill) in changes {
                 if !editor.target_editable(&target) {
                     continue;
                 }
@@ -1251,28 +1590,83 @@ impl Editor {
                 };
                 let frame = editor.frame;
                 let layer = &mut editor.symbol_mut().timeline.layers[index];
-                let elements = &mut layer.key_at_mut(frame).unwrap().elements;
-                if let Some(position) = elements
-                    .iter()
-                    .position(|element| element.id == target.element)
-                {
-                    // With Auto keyframe off, the destination is the existing
-                    // span key, not the interpolated pose sampled for geometry.
-                    let transform = elements[position].transform;
-                    for replacement in &mut replacements {
-                        replacement.transform = transform;
-                        if matches!(
-                            replacement.kind,
-                            ElementKind::Path { .. } | ElementKind::PaintedPath { .. }
-                        ) {
-                            replacement.transform.primitive = None;
-                        }
-                    }
-                    let ids: Vec<_> = replacements
+                let spliced_ids = {
+                    let key = layer.key_at_mut(frame).unwrap();
+                    if let Some(position) = key
+                        .elements
                         .iter()
-                        .map(|element| element.id.clone())
-                        .collect();
-                    elements.splice(position..=position, replacements);
+                        .position(|element| element.id == target.element)
+                    {
+                        // With Auto keyframe off, the destination is the existing
+                        // span key, not the interpolated pose sampled for geometry.
+                        let transform = key.elements[position].transform;
+                        for replacement in &mut replacements {
+                            replacement.transform = transform;
+                            if matches!(
+                                replacement.kind,
+                                ElementKind::Path { .. } | ElementKind::PaintedPath { .. }
+                            ) {
+                                replacement.transform.primitive = None;
+                            }
+                        }
+                        let ids: Vec<_> = replacements
+                            .iter()
+                            .map(|element| element.id.clone())
+                            .collect();
+                        key.elements.splice(position..=position, replacements);
+                        if strip_primary_side_fill {
+                            key.bitmap_fills
+                                .retain(|bf| bf.element_id != target.element);
+                            key.vector_effects.retain_mut(|fx| {
+                                if fx.element_id == target.element {
+                                    fx.vector_mesh = None;
+                                }
+                                !fx.is_empty()
+                            });
+                        }
+                        if !new_fill_frag_ids.is_empty() {
+                            let cloned_bf: Vec<_> = key
+                                .bitmap_fills
+                                .iter()
+                                .filter(|bf| bf.element_id == target.element)
+                                .cloned()
+                                .collect();
+                            let cloned_fx: Vec<_> = key
+                                .vector_effects
+                                .iter()
+                                .filter(|fx| fx.element_id == target.element)
+                                .cloned()
+                                .collect();
+                            let cloned_ap: Vec<_> = key
+                                .appearances
+                                .iter()
+                                .filter(|ap| ap.element_id == target.element)
+                                .cloned()
+                                .collect();
+                            for frag_id in &new_fill_frag_ids {
+                                for mut bf in cloned_bf.clone() {
+                                    bf.element_id = frag_id.clone();
+                                    key.bitmap_fills.push(bf);
+                                }
+                                for mut fx in cloned_fx.clone() {
+                                    fx.element_id = frag_id.clone();
+                                    fx.vector_blend = None;
+                                    if !fx.is_empty() {
+                                        key.vector_effects.push(fx);
+                                    }
+                                }
+                                for mut ap in cloned_ap.clone() {
+                                    ap.element_id = frag_id.clone();
+                                    key.appearances.push(ap);
+                                }
+                            }
+                        }
+                        Some(ids)
+                    } else {
+                        None
+                    }
+                };
+                if let Some(ids) = spliced_ids {
                     for group in &mut layer.properties.groups {
                         if let Some(position) =
                             group.members.iter().position(|id| *id == target.element)
@@ -1443,7 +1837,11 @@ impl Editor {
                     EraserMode::Fills | EraserMode::SelectedFills | EraserMode::Inside => {
                         apply_paint(&mut item.kind, None, Some(([0; 4], 0.)))
                     }
-                    EraserMode::Strokes => apply_paint(&mut item.kind, Some([0; 4]), None),
+                    EraserMode::Strokes => {
+                        apply_paint(&mut item.kind, Some([0; 4]), None);
+                        item.bitmap_fill = None;
+                        item.mesh_fill = None;
+                    }
                     // The default partial mode cuts through both raw Merge fills and strokes.
                     // Keep the full visible mesh so a fill-only shape becomes a gesture target.
                     EraserMode::StrokeSegments => {}
@@ -4762,13 +5160,213 @@ impl Editor {
                 local_position_tolerance(gesture.mapping, gesture.zoom, 0.15 + smoothing * 0.65);
             (points, pressure) = simplify_round_spine(&points, &pressure, pos_tol, 0.025);
         }
+        let pos_tol = local_position_tolerance(gesture.mapping, gesture.zoom, 0.22);
+        if let Some(preset) = self.authoring_tools.artistic_brush {
+            return artistic_brush_outline(
+                &points,
+                &pressure,
+                self.authoring_tools.brush_size,
+                preset,
+                self.authoring_tools.brush_tilt,
+                pos_tol,
+            );
+        }
         shaped_brush_outline_with_position_tolerance(
             &points,
             &pressure,
             self.authoring_tools.brush_size,
             self.authoring_tools.brush_shape,
-            local_position_tolerance(gesture.mapping, gesture.zoom, 0.22),
+            pos_tol,
         )
+    }
+}
+
+pub(crate) fn artistic_brush_outline(
+    points: &[Pos2],
+    pressures: &[f32],
+    size: f32,
+    preset: ArtisticBrushPreset,
+    tilt_controls_angle: bool,
+    position_tolerance: f32,
+) -> Vec<PathCommand> {
+    if points.is_empty() || !size.is_finite() || size <= 0. {
+        return vec![];
+    }
+    let raw_forces: Vec<f32> = (0..points.len())
+        .map(|i| brush_force(pressures.get(i).copied()))
+        .collect();
+    let (base_pts, base_forces) =
+        simplify_round_spine(points, &raw_forces, position_tolerance, 0.02);
+    if base_pts.is_empty() {
+        return vec![];
+    }
+
+    // Subdivide long segments when tapering so straight mouse strokes still form a smooth belly.
+    let (pts, forces) = if matches!(
+        preset,
+        ArtisticBrushPreset::TaperedInk | ArtisticBrushPreset::CalligraphicNib
+    ) && base_pts.len() >= 2
+    {
+        let max_seg = (size * 0.45).max(3.0);
+        let mut dense_pts = Vec::with_capacity(base_pts.len() * 4);
+        let mut dense_forces = Vec::with_capacity(base_forces.len() * 4);
+        dense_pts.push(base_pts[0]);
+        dense_forces.push(base_forces[0]);
+        for i in 0..(base_pts.len() - 1) {
+            let d = base_pts[i + 1].distance(base_pts[i]);
+            let divs = ((d / max_seg).ceil() as usize).clamp(1, 64);
+            for k in 1..=divs {
+                let t = k as f32 / divs as f32;
+                dense_pts.push(base_pts[i].lerp(base_pts[i + 1], t));
+                dense_forces.push(base_forces[i] + (base_forces[i + 1] - base_forces[i]) * t);
+            }
+        }
+        (dense_pts, dense_forces)
+    } else {
+        (base_pts, base_forces)
+    };
+
+    // Cumulative arc-length parameterization for taper & bristle modulation.
+    let mut cum_len = vec![0.0_f32; pts.len()];
+    for i in 1..pts.len() {
+        cum_len[i] = cum_len[i - 1] + pts[i].distance(pts[i - 1]);
+    }
+    let total_len = (*cum_len.last().unwrap_or(&0.0)).max(1e-4);
+
+    match preset {
+        ArtisticBrushPreset::TaperedInk => {
+            let tapered_pressures: Vec<f32> = (0..pts.len())
+                .map(|i| {
+                    let u = if pts.len() == 1 {
+                        0.5
+                    } else {
+                        (cum_len[i] / total_len).clamp(0.0, 1.0)
+                    };
+                    let envelope =
+                        0.12 + 0.88 * (u * std::f32::consts::PI).sin().max(0.0).powf(0.65);
+                    (forces[i] * envelope).clamp(0.1, 1.0)
+                })
+                .collect();
+            round_brush_envelope_with_position_tolerance(
+                &pts,
+                &tapered_pressures,
+                size,
+                position_tolerance,
+            )
+        }
+        ArtisticBrushPreset::CalligraphicNib | ArtisticBrushPreset::RibbonFlat => {
+            let (base_angle, aspect, end_taper) = if preset == ArtisticBrushPreset::CalligraphicNib
+            {
+                (-35.0_f32.to_radians(), 0.13_f32, 0.72_f32)
+            } else {
+                (22.0_f32.to_radians(), 0.16_f32, 0.92_f32)
+            };
+            let tips: Vec<Vec<Pos2>> = pts
+                .iter()
+                .enumerate()
+                .map(|(i, &p)| {
+                    let u = if pts.len() == 1 {
+                        0.5
+                    } else {
+                        (cum_len[i] / total_len).clamp(0.0, 1.0)
+                    };
+                    let taper =
+                        end_taper + (1.0 - end_taper) * (u * std::f32::consts::PI).sin().max(0.0);
+                    let w = (size * forces[i] * taper).max(0.5);
+                    let half = Vec2::new(w * 0.5, (w * 0.5 * aspect).max(0.4));
+                    let tangent_mod = if tilt_controls_angle && pts.len() >= 2 {
+                        let d = if i + 1 < pts.len() {
+                            pts[i + 1] - pts[i]
+                        } else {
+                            pts[i] - pts[i - 1]
+                        };
+                        if d.length_sq() > 1e-6 {
+                            0.18 * d.angle()
+                        } else {
+                            0.0
+                        }
+                    } else {
+                        0.0
+                    };
+                    let rot = egui::emath::Rot2::from_angle(base_angle + tangent_mod);
+                    [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                        .into_iter()
+                        .map(|(sx, sy)| p + rot * Vec2::new(sx * half.x, sy * half.y))
+                        .collect()
+                })
+                .collect();
+            if tips.len() == 1 {
+                return polyline(&tips[0], true);
+            }
+            tips.windows(2)
+                .flat_map(|pair| {
+                    polyline(
+                        &convex_tip_hull(pair.iter().flatten().copied().collect()),
+                        true,
+                    )
+                })
+                .collect()
+        }
+        ArtisticBrushPreset::BristleStipple => {
+            let mut out = Vec::new();
+            let step = (size * 0.35).max(1.5);
+            if pts.len() == 1 || total_len <= 0.5 {
+                let r = (size * forces[0] * 0.45).max(0.5);
+                for b in 0..4u32 {
+                    let ang = b as f32 * 1.57 + 0.3;
+                    let off = Vec2::angled(ang) * (r * 0.35);
+                    let br = (r * (0.45 + 0.1 * (b % 2) as f32)).max(0.35);
+                    out.extend(polyline(
+                        &(0..10)
+                            .map(|n| {
+                                pts[0]
+                                    + off
+                                    + Vec2::angled(n as f32 * std::f32::consts::TAU / 10.0) * br
+                            })
+                            .collect::<Vec<_>>(),
+                        true,
+                    ));
+                }
+                return out;
+            }
+            let steps = ((total_len / step).ceil() as usize).clamp(2, 512);
+            let mut seg = 0usize;
+            for idx in 0..=steps {
+                let s = (idx as f32 / steps as f32) * total_len;
+                while seg + 2 < pts.len() && cum_len[seg + 1] < s {
+                    seg += 1;
+                }
+                let seg_len = (cum_len[seg + 1] - cum_len[seg]).max(1e-5);
+                let t = ((s - cum_len[seg]) / seg_len).clamp(0.0, 1.0);
+                let base = pts[seg].lerp(pts[seg + 1], t);
+                let force = forces[seg] + (forces[seg + 1] - forces[seg]) * t;
+                let dir = (pts[seg + 1] - pts[seg]).normalized();
+                let normal = Vec2::new(-dir.y, dir.x);
+                let hw = (size * force * 0.5).max(0.5);
+                for lane in [-0.62_f32, 0.0, 0.62] {
+                    let hash = (idx as u32)
+                        .wrapping_mul(2_654_435_761)
+                        .wrapping_add(((lane + 1.0) * 97.0) as u32);
+                    let jitter_n = (((hash & 0xFF) as f32 / 255.0) - 0.5) * 0.32;
+                    let jitter_t = ((((hash >> 8) & 0xFF) as f32 / 255.0) - 0.5) * step * 0.45;
+                    let r_scale = 0.28 + 0.18 * (((hash >> 16) & 0xFF) as f32 / 255.0);
+                    let center = base + normal * ((lane + jitter_n) * hw) + dir * jitter_t;
+                    let rx = (hw * r_scale * 1.35).max(0.35);
+                    let ry = (hw * r_scale * 0.85).max(0.3);
+                    let rot = egui::emath::Rot2::from_angle(dir.angle());
+                    out.extend(polyline(
+                        &(0..10)
+                            .map(|n| {
+                                let a = n as f32 * std::f32::consts::TAU / 10.0;
+                                center + rot * Vec2::new(rx * a.cos(), ry * a.sin())
+                            })
+                            .collect::<Vec<_>>(),
+                        true,
+                    ));
+                }
+            }
+            out
+        }
     }
 }
 
@@ -5524,5 +6122,380 @@ mod round_brush_overlap_tests {
         let updated = &editor.symbol().timeline.layers[0].keyframes[0].elements[0];
         assert!((updated.transform.x - 0.0).abs() < 1e-3);
         editor.project.validate().unwrap();
+    }
+
+    #[test]
+    fn object_drawing_partial_erase_carves_fills_and_strokes_for_round_and_square_brushes() {
+        use crate::tests::{pen_click, rectangle_stage};
+
+        let fill_contains = |el: &Element, pt: [f64; 2]| -> bool {
+            let Some((fill, _, _)) = paint_parts(&el.kind) else {
+                return false;
+            };
+            if fill[3] == 0 && paint_gradient(&el.kind).is_none() {
+                return false;
+            }
+            let Some((cmds, rule)) = neoflash_core::element_world_commands(el) else {
+                return false;
+            };
+            hit_test_path(&cmds, rule, pt, true, 0.0, FlattenOptions::default()).unwrap()
+        };
+        let stroke_contains = |el: &Element, pt: [f64; 2]| -> bool {
+            let Some((_, stroke, width)) = paint_parts(&el.kind) else {
+                return false;
+            };
+            if width <= 0.0 || stroke[3] == 0 {
+                return false;
+            }
+            let Some((cmds, rule)) = neoflash_core::element_world_commands(el) else {
+                return false;
+            };
+            hit_test_path(&cmds, rule, pt, false, width, FlattenOptions::default()).unwrap()
+        };
+
+        // 1. Erase fills: Square vs Round stamp at (100, 100) with size=20 (radius=10) on an
+        // Object Drawing shape (`merge == false`, `Transform { x: 50, y: 50 }`, 100x100).
+        // Corner (109, 109) is erased by Square and kept by Round; border stroke stays intact!
+        for (shape, corner_erased) in [(EraserShape::Square, true), (EraserShape::Round, false)] {
+            let (mut editor, ctx, page) = rectangle_stage();
+            editor.workspace.drawing.object_drawing = true;
+            editor.add_element(
+                ElementKind::Rectangle {
+                    width: 100.0,
+                    height: 100.0,
+                    fill: [60, 140, 220, 255],
+                    stroke: [20, 30, 40, 255],
+                    stroke_width: 4.0,
+                },
+                50.0,
+                50.0,
+            );
+            let orig_id = editor.selected_element().unwrap().id.clone();
+            editor.symbol_mut().timeline.layers[0].keyframes[0].elements[0].name =
+                "hero_box".into();
+            editor.history.clear();
+            let before = editor.project.clone();
+
+            editor.set_tool(Tool::Eraser);
+            editor.authoring_tools.eraser_mode = EraserMode::Fills;
+            editor.authoring_tools.eraser_shape = shape;
+            editor.authoring_tools.eraser_size = 20.0;
+
+            let stamp = page.min + Vec2::new(100.0, 100.0);
+            pen_click(&mut editor, &ctx, 0.2, stamp, stamp);
+
+            let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+            assert!(
+                els.iter().all(|e| !e.merge),
+                "Object Drawing partial erase must keep merge == false"
+            );
+            assert_eq!(els[0].id, orig_id);
+            assert_eq!(els[0].name, "hero_box");
+            assert!(
+                !els.iter().any(|e| fill_contains(e, [100.0, 100.0])),
+                "stamp center must be carved out of Object Drawing fill"
+            );
+            assert_eq!(
+                !els.iter().any(|e| fill_contains(e, [109.0, 109.0])),
+                corner_erased,
+                "{shape:?} corner check at (109, 109)"
+            );
+            assert!(
+                els.iter().any(|e| fill_contains(e, [65.0, 65.0])),
+                "untouched Object Drawing fill region must remain intact"
+            );
+            assert!(
+                els.iter().any(|e| stroke_contains(e, [50.0, 100.0]))
+                    && els.iter().any(|e| stroke_contains(e, [150.0, 100.0])),
+                "Erase fills must preserve the Object Drawing stroke"
+            );
+            assert_eq!(editor.history.undo_len(), 1);
+            editor.project.validate().unwrap();
+            editor.undo();
+            assert_eq!(editor.project, before);
+        }
+
+        // 2. Erase lines (`EraserMode::Strokes`): cuts a gap in the Object Drawing stroke while
+        // keeping the entire Object Drawing fill intact.
+        {
+            let (mut editor, ctx, page) = rectangle_stage();
+            editor.workspace.drawing.object_drawing = true;
+            editor.add_element(
+                ElementKind::Rectangle {
+                    width: 100.0,
+                    height: 100.0,
+                    fill: [60, 140, 220, 255],
+                    stroke: [20, 30, 40, 255],
+                    stroke_width: 4.0,
+                },
+                50.0,
+                50.0,
+            );
+            editor.history.clear();
+            let before = editor.project.clone();
+
+            editor.set_tool(Tool::Eraser);
+            editor.authoring_tools.eraser_mode = EraserMode::Strokes;
+            editor.authoring_tools.eraser_size = 20.0;
+            let top_mid = page.min + Vec2::new(100.0, 50.0);
+            pen_click(&mut editor, &ctx, 0.2, top_mid, top_mid);
+
+            let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+            assert!(els.iter().all(|e| !e.merge));
+            assert!(
+                !els.iter().any(|e| stroke_contains(e, [100.0, 50.0])),
+                "Erase lines must carve the stroke at (100, 50)"
+            );
+            assert!(
+                els.iter().any(|e| stroke_contains(e, [60.0, 50.0]))
+                    && els.iter().any(|e| stroke_contains(e, [140.0, 50.0])),
+                "Erase lines must keep untouched stroke segments"
+            );
+            assert!(
+                els.iter().any(|e| fill_contains(e, [100.0, 55.0])),
+                "Erase lines must leave Object Drawing fill untouched right under the brush"
+            );
+            assert_eq!(editor.history.undo_len(), 1);
+            editor.project.validate().unwrap();
+            editor.undo();
+            assert_eq!(editor.project, before);
+        }
+
+        // 3. Erase normal (`EraserMode::StrokeSegments`): bisects BOTH fill and stroke of an
+        // Object Drawing shape into `merge == false` fragments, preserving identity on primary!
+        {
+            let (mut editor, ctx, page) = rectangle_stage();
+            editor.workspace.drawing.object_drawing = true;
+            editor.add_element(
+                ElementKind::Rectangle {
+                    width: 120.0,
+                    height: 80.0,
+                    fill: [200, 80, 60, 255],
+                    stroke: [20, 20, 20, 255],
+                    stroke_width: 4.0,
+                },
+                100.0,
+                100.0,
+            );
+            let orig_id = editor.selected_element().unwrap().id.clone();
+            editor.symbol_mut().timeline.layers[0].keyframes[0].elements[0].name =
+                "split_me".into();
+            editor.history.clear();
+            let before = editor.project.clone();
+
+            editor.set_tool(Tool::Eraser);
+            editor.authoring_tools.eraser_mode = EraserMode::StrokeSegments;
+            editor.authoring_tools.eraser_size = 18.0;
+            pen_click(
+                &mut editor,
+                &ctx,
+                0.2,
+                page.min + Vec2::new(160.0, 80.0),
+                page.min + Vec2::new(160.0, 200.0),
+            );
+
+            let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+            assert!(els.iter().all(|e| !e.merge));
+            assert_eq!(els[0].id, orig_id);
+            assert_eq!(els[0].name, "split_me");
+            assert!(
+                els[1..]
+                    .iter()
+                    .all(|e| e.id != orig_id && e.name.is_empty())
+            );
+            assert!(!els.iter().any(|e| fill_contains(e, [160.0, 140.0])));
+            assert!(els.iter().any(|e| fill_contains(e, [120.0, 140.0])));
+            assert!(els.iter().any(|e| fill_contains(e, [200.0, 140.0])));
+            assert!(!els.iter().any(|e| stroke_contains(e, [160.0, 100.0])));
+            assert!(els.iter().any(|e| stroke_contains(e, [120.0, 100.0])));
+            assert_eq!(editor.history.undo_len(), 1);
+            editor.project.validate().unwrap();
+            editor.undo();
+            assert_eq!(editor.project, before);
+        }
+
+        // 4. Erase inside (`EraserMode::Inside`): carves ONLY the Object Drawing fill where the
+        // stroke began, leaving an adjacent Object Drawing fill untouched.
+        {
+            let (mut editor, ctx, page) = rectangle_stage();
+            editor.workspace.drawing.object_drawing = true;
+            editor.add_element(
+                ElementKind::Rectangle {
+                    width: 60.0,
+                    height: 60.0,
+                    fill: [80, 180, 90, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                80.0,
+                100.0,
+            );
+            editor.add_element(
+                ElementKind::Rectangle {
+                    width: 60.0,
+                    height: 60.0,
+                    fill: [180, 80, 190, 255],
+                    stroke: [0; 4],
+                    stroke_width: 0.0,
+                },
+                150.0,
+                100.0,
+            );
+            editor.history.clear();
+            let before = editor.project.clone();
+
+            editor.set_tool(Tool::Eraser);
+            editor.authoring_tools.eraser_mode = EraserMode::Inside;
+            editor.authoring_tools.eraser_size = 18.0;
+            pen_click(
+                &mut editor,
+                &ctx,
+                0.2,
+                page.min + Vec2::new(110.0, 130.0),
+                page.min + Vec2::new(180.0, 130.0),
+            );
+
+            let els = &editor.symbol().timeline.layers[0].keyframes[0].elements;
+            assert!(els.iter().all(|e| !e.merge));
+            assert!(
+                !els.iter().any(|e| fill_contains(e, [110.0, 130.0])),
+                "starting Object Drawing fill must be carved along the stroke"
+            );
+            assert!(
+                els.iter().any(|e| fill_contains(e, [95.0, 110.0])),
+                "untouched corner of starting Object Drawing fill remains"
+            );
+            assert!(
+                els.iter().any(|e| fill_contains(e, [180.0, 130.0])),
+                "second Object Drawing fill must remain completely untouched in Erase inside mode"
+            );
+            assert_eq!(editor.history.undo_len(), 1);
+            editor.project.validate().unwrap();
+            editor.undo();
+            assert_eq!(editor.project, before);
+        }
+    }
+
+    #[test]
+    fn artistic_brush_presets_generate_distinct_valid_calligraphic_and_tapered_contours() {
+        let spine: Vec<Pos2> = (0..=16)
+            .map(|i| Pos2::new(40.0 + i as f32 * 10.0, 100.0))
+            .collect();
+        let pressures = vec![1.0_f32; spine.len()];
+
+        for (preset, label, size, _, _) in ArtisticBrushPreset::ALL {
+            let cmds = artistic_brush_outline(&spine, &pressures, size, preset, true, 0.22);
+            assert!(
+                !cmds.is_empty(),
+                "{label} must emit non-empty vector fill commands"
+            );
+            validate_path_commands(&cmds).expect("valid PathCommand stream");
+        }
+
+        // Tapered Ink is measurably narrower near its tips than at its mid-stroke belly.
+        let tapered = artistic_brush_outline(
+            &spine,
+            &pressures,
+            24.0,
+            ArtisticBrushPreset::TaperedInk,
+            false,
+            0.22,
+        );
+        assert!(
+            hit_test_path(
+                &tapered,
+                FillRule::NonZero,
+                [120.0, 110.0],
+                true,
+                0.0,
+                FlattenOptions::default(),
+            )
+            .unwrap(),
+            "mid-stroke of 24px Tapered Ink reaches y=110 (radius ~12)"
+        );
+        assert!(
+            !hit_test_path(
+                &tapered,
+                FillRule::NonZero,
+                [42.0, 110.0],
+                true,
+                0.0,
+                FlattenOptions::default(),
+            )
+            .unwrap(),
+            "tapered tip at x=42 must be much thinner than y=110"
+        );
+
+        // Calligraphic Nib (-35 deg) produces a markedly thicker stroke perpendicular to the nib
+        // (+55 deg) than parallel to the nib (-35 deg).
+        let along_nib = [
+            Pos2::new(100.0, 100.0),
+            Pos2::new(
+                100.0 + 80.0 * (-35.0_f32).to_radians().cos(),
+                100.0 + 80.0 * (-35.0_f32).to_radians().sin(),
+            ),
+        ];
+        let across_nib = [
+            Pos2::new(100.0, 100.0),
+            Pos2::new(
+                100.0 + 80.0 * (55.0_f32).to_radians().cos(),
+                100.0 + 80.0 * (55.0_f32).to_radians().sin(),
+            ),
+        ];
+        let thin_cmds = artistic_brush_outline(
+            &along_nib,
+            &[1.0, 1.0],
+            20.0,
+            ArtisticBrushPreset::CalligraphicNib,
+            false,
+            0.22,
+        );
+        let thick_cmds = artistic_brush_outline(
+            &across_nib,
+            &[1.0, 1.0],
+            20.0,
+            ArtisticBrushPreset::CalligraphicNib,
+            false,
+            0.22,
+        );
+        let area_of = |cmds: &[PathCommand]| -> f64 {
+            flatten_path(cmds, FlattenOptions::default())
+                .unwrap()
+                .iter()
+                .map(|c| {
+                    let mut a = 0.0;
+                    for i in 0..c.points.len() {
+                        let p = c.points[i];
+                        let q = c.points[(i + 1) % c.points.len()];
+                        a += p[0] * q[1] - q[0] * p[1];
+                    }
+                    a.abs() * 0.5
+                })
+                .sum()
+        };
+        assert!(
+            area_of(&thick_cmds) > area_of(&thin_cmds) * 2.2,
+            "Calligraphic Nib cross-stroke area ({:.1}) must exceed along-nib area ({:.1}) by >2.2x",
+            area_of(&thick_cmds),
+            area_of(&thin_cmds)
+        );
+
+        // Bristle Stipple emits multiple textured bristle contours.
+        let bristle = artistic_brush_outline(
+            &spine,
+            &pressures,
+            16.0,
+            ArtisticBrushPreset::BristleStipple,
+            false,
+            0.22,
+        );
+        let move_count = bristle
+            .iter()
+            .filter(|c| matches!(c, PathCommand::MoveTo { .. }))
+            .count();
+        assert!(
+            move_count >= 12,
+            "expected textured multi-contour bristle dabs"
+        );
     }
 }

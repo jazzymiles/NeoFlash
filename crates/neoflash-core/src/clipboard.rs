@@ -42,6 +42,8 @@ pub struct ClipboardPayload {
     bitmap_fills: Vec<AuthoredBitmapFill>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     appearances: Vec<ElementAppearance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    vector_effects: Vec<ElementVectorEffects>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     video: Option<TimelineVideoSpan>,
     symbols: Vec<Symbol>,
@@ -130,6 +132,8 @@ impl ClipboardPayload {
         let mut seen_bf = HashSet::new();
         let mut appearances = Vec::new();
         let mut seen_app = HashSet::new();
+        let mut vector_effects = Vec::new();
+        let mut seen_vfx = HashSet::new();
         let has_video_element = elements
             .iter()
             .any(|el| matches!(el.kind, ElementKind::Video { .. }));
@@ -163,6 +167,23 @@ impl ClipboardPayload {
                             appearances.push(app.clone());
                         }
                     }
+                    for fx in &kf.vector_effects {
+                        if selected.contains(fx.element_id.as_str())
+                            && seen_vfx.insert(fx.element_id.clone())
+                        {
+                            let mut cloned = fx.clone();
+                            if cloned
+                                .vector_blend
+                                .as_ref()
+                                .is_some_and(|b| !selected.contains(b.target_element_id.as_str()))
+                            {
+                                cloned.vector_blend = None;
+                            }
+                            if !cloned.is_empty() {
+                                vector_effects.push(cloned);
+                            }
+                        }
+                    }
                 }
             }
         } else {
@@ -193,6 +214,21 @@ impl ClipboardPayload {
                                 appearances.push(app.clone());
                             }
                         }
+                        for fx in &kf.vector_effects {
+                            if selected.contains(fx.element_id.as_str())
+                                && seen_vfx.insert(fx.element_id.clone())
+                            {
+                                let mut cloned = fx.clone();
+                                if cloned.vector_blend.as_ref().is_some_and(|b| {
+                                    !selected.contains(b.target_element_id.as_str())
+                                }) {
+                                    cloned.vector_blend = None;
+                                }
+                                if !cloned.is_empty() {
+                                    vector_effects.push(cloned);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -209,6 +245,7 @@ impl ClipboardPayload {
             groups,
             bitmap_fills,
             appearances,
+            vector_effects,
             video,
             symbols: project
                 .symbols
@@ -324,6 +361,10 @@ impl ClipboardPayload {
 
     pub fn appearances(&self) -> &[ElementAppearance] {
         &self.appearances
+    }
+
+    pub fn vector_effects(&self) -> &[ElementVectorEffects] {
+        &self.vector_effects
     }
 
     pub fn video(&self) -> Option<&TimelineVideoSpan> {
@@ -607,6 +648,16 @@ impl ClipboardPayload {
                             &mut occupied,
                             &forbidden,
                         );
+                        for bone in &arm.bones {
+                            allocate_identity(
+                                &bone.id,
+                                "bone",
+                                same_session,
+                                &mut identities,
+                                &mut occupied,
+                                &forbidden,
+                            );
+                        }
                     }
                     for element in &key.elements {
                         allocate_identity(
@@ -798,6 +849,22 @@ impl ClipboardPayload {
                 dest_key.set_appearance(app);
             }
         }
+        for original_fx in &self.vector_effects {
+            if let Some(new_eid) = placement_ids.get(&original_fx.element_id) {
+                let mut fx = original_fx.clone();
+                fx.element_id = new_eid.clone();
+                if let Some(blend) = &mut fx.vector_blend {
+                    if let Some(new_tid) = placement_ids.get(&blend.target_element_id) {
+                        blend.target_element_id = new_tid.clone();
+                    } else {
+                        fx.vector_blend = None;
+                    }
+                }
+                if !fx.is_empty() {
+                    dest_key.set_vector_effects(fx);
+                }
+            }
+        }
         if let Some(original_video) = &self.video
             && dest_key.video.is_none()
             && dest_key.keyed_properties.is_none()
@@ -890,6 +957,7 @@ impl ClipboardPayload {
                         elements: self.elements.clone(),
                         bitmap_fills: self.bitmap_fills.clone(),
                         appearances: self.appearances.clone(),
+                        vector_effects: self.vector_effects.clone(),
                         video: self.video.clone(),
                         tween: None,
                         label: String::new(),
@@ -1312,6 +1380,11 @@ fn symbol_ids(symbol: &Symbol, ids: &mut HashSet<Id>) {
         ids.extend(layer.properties.groups.iter().map(|g| g.id.clone()));
         for key in &layer.keyframes {
             ids.extend(key.ik_armatures.iter().map(|a| a.id.clone()));
+            ids.extend(
+                key.ik_armatures
+                    .iter()
+                    .flat_map(|a| a.bones.iter().map(|b| b.id.clone())),
+            );
             ids.extend(key.elements.iter().map(|e| e.id.clone()));
         }
     }
@@ -1432,8 +1505,44 @@ fn remap_symbol_keyframe_references(key: &mut Keyframe, map: &HashMap<Id, Id>) {
             arm.id = aid.clone();
         }
         for bone in &mut arm.bones {
+            if let Some(bid) = map.get(&bone.id) {
+                bone.id = bid.clone();
+            }
+            if let Some(pid) = &mut bone.parent_bone_id
+                && let Some(npid) = map.get(pid)
+            {
+                *pid = npid.clone();
+            }
             if let Some(eid) = map.get(&bone.element_id) {
                 bone.element_id = eid.clone();
+            }
+        }
+        if let Some(ebid) = map.get(&arm.effector_bone_id) {
+            arm.effector_bone_id = ebid.clone();
+        }
+    }
+    for spec in &mut key.ik_joint_specs {
+        if let Some(bid) = map.get(&spec.bone_id) {
+            spec.bone_id = bid.clone();
+        }
+    }
+    for skin in &mut key.ik_skins {
+        if let Some(sid) = map.get(&skin.shape_element_id) {
+            skin.shape_element_id = sid.clone();
+        }
+        if let Some(aid) = map.get(&skin.armature_id) {
+            skin.armature_id = aid.clone();
+        }
+        for (bid, _, _) in &mut skin.rest_bones {
+            if let Some(nbid) = map.get(bid) {
+                *bid = nbid.clone();
+            }
+        }
+        for vb in &mut skin.bindings {
+            for bw in &mut vb.weights {
+                if let Some(nbid) = map.get(&bw.bone_id) {
+                    bw.bone_id = nbid.clone();
+                }
             }
         }
     }
@@ -1900,5 +2009,174 @@ mod tests {
             ClipboardPayload::from_text(&oversized_svg),
             Err(ClipboardError::TooLarge)
         ));
+    }
+
+    #[test]
+    fn symbol_paste_remaps_ik_skins_and_joint_specs_and_validates_bounds() {
+        use crate::ik_puppet_3d::{IkBoneWeight, IkJointSpec, IkShapeSkin, IkVertexBinding};
+        use crate::{
+            FillRule, IkArmature, IkBone, PathCommand, PatternBrushKind,
+            expand_pattern_brush_stroke,
+        };
+
+        let mut src = Project::blank();
+        let sym_id = "sym-ik-clip".to_owned();
+        let sym = Symbol {
+            id: sym_id.clone(),
+            name: "Rigged Arm".into(),
+            kind: SymbolKind::MovieClip,
+            folder: String::new(),
+            class_name: None,
+            linkage_id: None,
+            timeline: Timeline {
+                frame_count: 1,
+                layers: vec![Layer {
+                    id: "layer-ik".into(),
+                    name: "Arm".into(),
+                    visible: true,
+                    locked: false,
+                    properties: LayerProperties::default(),
+                    keyframes: vec![Keyframe {
+                        frame: 0,
+                        elements: vec![
+                            Element {
+                                id: "bone-el-1".into(),
+                                kind: ElementKind::Rectangle {
+                                    width: 40.0,
+                                    height: 10.0,
+                                    fill: [100, 120, 200, 255],
+                                    stroke: [0; 4],
+                                    stroke_width: 0.0,
+                                },
+                                ..Element::default()
+                            },
+                            Element {
+                                id: "skin-el-1".into(),
+                                kind: ElementKind::Path {
+                                    commands: vec![
+                                        PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                                        PathCommand::LineTo { x: 40.0, y: 0.0 },
+                                        PathCommand::LineTo { x: 40.0, y: 10.0 },
+                                        PathCommand::Close,
+                                    ],
+                                    fill_rule: FillRule::NonZero,
+                                    fill: [200, 80, 60, 255],
+                                    stroke: [0; 4],
+                                    stroke_width: 0.0,
+                                },
+                                ..Element::default()
+                            },
+                        ],
+                        ik_armatures: vec![IkArmature {
+                            id: "arm-1".into(),
+                            name: "Armature".into(),
+                            bones: vec![IkBone {
+                                id: "bone-1".into(),
+                                element_id: "bone-el-1".into(),
+                                parent_bone_id: None,
+                                length: 40.0,
+                                min_angle: Some(-30.0),
+                                max_angle: Some(45.0),
+                                stiffness: 0.5,
+                            }],
+                            effector_bone_id: "bone-1".into(),
+                            target_pos: [40.0, 0.0],
+                            pole_pos: None,
+                        }],
+                        ik_joint_specs: vec![IkJointSpec {
+                            bone_id: "bone-1".into(),
+                            constrain_rotation: true,
+                            min_angle_deg: -30.0,
+                            max_angle_deg: 45.0,
+                            spring_strength: 60.0,
+                            spring_damping: 25.0,
+                            ..IkJointSpec::default()
+                        }],
+                        ik_skins: vec![IkShapeSkin {
+                            shape_element_id: "skin-el-1".into(),
+                            armature_id: "arm-1".into(),
+                            rest_bones: vec![("bone-1".into(), [0.0, 0.0], 0.0)],
+                            rest_points: vec![[0.0, 0.0], [40.0, 0.0], [40.0, 10.0]],
+                            bindings: vec![IkVertexBinding {
+                                vertex_index: 1,
+                                weights: vec![IkBoneWeight {
+                                    bone_id: "bone-1".into(),
+                                    weight: 1.0,
+                                }],
+                            }],
+                        }],
+                        ..Keyframe::default()
+                    }],
+                }],
+                scripts: Vec::new(),
+                guides: Vec::new(),
+            },
+        };
+        src.symbols.push(sym);
+        let inst = Element {
+            id: "inst-ik".into(),
+            kind: ElementKind::Instance {
+                symbol_id: sym_id.clone(),
+                playback: crate::InstancePlayback::Independent,
+            },
+            ..Element::default()
+        };
+        src.symbols[0].timeline.layers[0].keyframes[0].elements = vec![inst.clone()];
+        src.upgrade_format_for_features();
+        src.validate().expect("source rigged project validates");
+
+        let payload = ClipboardPayload::capture(&src, vec![inst], "sess-src", [0.0, 0.0]).unwrap();
+
+        // Paste across sessions into a destination that ALREADY occupies `arm-1`, `bone-1`, `skin-el-1`!
+        let dst = src.clone();
+        let root_id = dst.root.clone();
+        let layer_id = dst.symbols[0].timeline.layers[0].id.clone();
+        let res = payload
+            .paste_into(&dst, "sess-dst", &root_id, &layer_id, 0, [20.0, 20.0])
+            .expect("cross-session paste remaps IK skin & joint IDs cleanly");
+        res.project.validate().expect("pasted project validates");
+        let imported_sym = res
+            .project
+            .symbols
+            .iter()
+            .find(|s| s.id != root_id && s.id != sym_id)
+            .expect("imported duplicate symbol");
+        let ik_kf = &imported_sym.timeline.layers[0].keyframes[0];
+        let new_arm_id = &ik_kf.ik_armatures[0].id;
+        let new_bone_id = &ik_kf.ik_armatures[0].bones[0].id;
+        assert_ne!(new_arm_id, "arm-1");
+        assert_ne!(new_bone_id, "bone-1");
+        assert_eq!(&ik_kf.ik_joint_specs[0].bone_id, new_bone_id);
+        assert_eq!(&ik_kf.ik_skins[0].armature_id, new_arm_id);
+        assert_ne!(ik_kf.ik_skins[0].shape_element_id, "skin-el-1");
+        assert_eq!(&ik_kf.ik_skins[0].rest_bones[0].0, new_bone_id);
+        assert_eq!(
+            &ik_kf.ik_skins[0].bindings[0].weights[0].bone_id,
+            new_bone_id
+        );
+
+        // Validation bounds checks (Audit #4)
+        let mut inverted = src.clone();
+        inverted.symbols[1].timeline.layers[0].keyframes[0].ik_joint_specs[0].min_angle_deg = 50.0;
+        inverted.symbols[1].timeline.layers[0].keyframes[0].ik_joint_specs[0].max_angle_deg = 10.0;
+        assert!(inverted.validate().is_err());
+
+        let mut bad_weight = src.clone();
+        bad_weight.symbols[1].timeline.layers[0].keyframes[0].ik_skins[0].bindings[0].weights[0]
+            .weight = f64::NAN;
+        assert!(bad_weight.validate().is_err());
+
+        let safe_hatched = expand_pattern_brush_stroke(
+            &[
+                PathCommand::MoveTo { x: 0.0, y: 0.0 },
+                PathCommand::LineTo { x: 30.0, y: 0.0 },
+            ],
+            4.0,
+            &PatternBrushKind::Hatched {
+                spacing: 8.0,
+                angle_deg: f64::NAN,
+            },
+        );
+        assert!(!safe_hatched.is_empty());
     }
 }

@@ -313,6 +313,7 @@ impl Serialize for RuntimeDrawItem {
         let field_count = 10
             + usize::from(!self.item.color_transform.is_identity())
             + usize::from(self.item.bitmap_fill.is_some())
+            + usize::from(self.item.mesh_fill.is_some())
             + usize::from(self.procedural_graphics);
         let mut s = serializer.serialize_struct("RuntimeDrawItem", field_count)?;
         s.serialize_field("element_id", &self.item.element_id)?;
@@ -326,6 +327,9 @@ impl Serialize for RuntimeDrawItem {
         }
         if self.item.bitmap_fill.is_some() {
             s.serialize_field("bitmap_fill", &self.item.bitmap_fill)?;
+        }
+        if self.item.mesh_fill.is_some() {
+            s.serialize_field("mesh_fill", &self.item.mesh_fill)?;
         }
         s.serialize_field("kind", &self.item.kind)?;
         s.serialize_field("owner_ref", &self.owner_ref)?;
@@ -1207,6 +1211,7 @@ mod tests {
                 alpha: 0.75,
                 color_transform: ColorTransform::default(),
                 bitmap_fill: None,
+                mesh_fill: None,
                 path_fingerprint: None,
                 kind: RuntimeDrawKind::Element(ElementKind::Rectangle {
                     width: 32.0,

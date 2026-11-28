@@ -158,7 +158,7 @@ struct PdfFormAsset {
 
 #[derive(Default)]
 struct PdfResourceCollector {
-    shadings: Vec<String>,
+    shadings: Vec<Vec<u8>>,
     ext_gstates: BTreeMap<ExtGStateKey, usize>,
     ext_gstate_list: Vec<ExtGStateKey>,
     fonts: BTreeMap<FontKey, usize>,
@@ -504,7 +504,8 @@ fn emit_pdf_draw(
                                  stroke_width: f64| {
         let eff_fill = item.color_transform.apply(fill);
         let eff_stroke = item.color_transform.apply(stroke);
-        let fill_a = if fill_gradient.is_some() {
+        let active_mesh = item.mesh_fill.as_ref().filter(|m| m.has_visible_alpha());
+        let fill_a = if active_mesh.is_some() || fill_gradient.is_some() {
             item_alpha
         } else {
             item_alpha * (f64::from(eff_fill[3]) / 255.0)
@@ -518,7 +519,16 @@ fn emit_pdf_draw(
             let _ = writeln!(out, "/GS{gs_idx} gs");
         }
 
-        if let Some(fg) = fill_gradient {
+        if let Some(mesh) = active_mesh {
+            pdf_mesh_shading_clipped(
+                out,
+                &mut collector.shadings,
+                commands,
+                rule,
+                mesh,
+                item.color_transform,
+            );
+        } else if let Some(fg) = fill_gradient {
             pdf_shading_clipped(
                 out,
                 &mut collector.shadings,
@@ -1122,10 +1132,12 @@ pub fn export_clipboard_pdf(
     res_str.push_str(">>\nendobj\n");
     pdf.extend_from_slice(res_str.as_bytes());
 
-    for (i, sh_dict) in collector.shadings.iter().enumerate() {
+    for (i, sh_bytes) in collector.shadings.iter().enumerate() {
         let oid = shading_obj_ids[i];
         offsets[oid] = pdf.len();
-        let _ = write!(pdf, "{oid} 0 obj\n{sh_dict}\nendobj\n");
+        let _ = writeln!(pdf, "{oid} 0 obj");
+        pdf.extend_from_slice(sh_bytes);
+        pdf.extend_from_slice(b"\nendobj\n");
     }
 
     for (i, gs) in collector.ext_gstate_list.iter().enumerate() {

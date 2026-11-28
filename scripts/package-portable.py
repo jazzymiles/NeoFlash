@@ -25,7 +25,8 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
+from urllib.parse import urlparse
 
 
 DETERMINISTIC_MTIME = 315_532_800  # 1980-01-01 UTC, valid for ZIP.
@@ -289,6 +290,507 @@ def audit_windows_pe_imports(path: Path, label: str = "NeoFlash executable") -> 
     return dlls
 
 
+DEFAULT_WINDOWS_TIMESTAMP_URL = "http://timestamp.digicert.com"
+FORBIDDEN_PROVENANCE_SECRET_KEYS = frozenset(
+    {
+        "password",
+        "pfx_password",
+        "pfx_path",
+        "private_key",
+        "secret",
+        "token",
+        "NEOFLASH_WINDOWS_PFX_PASSWORD",
+        "NEOFLASH_WINDOWS_PFX_PATH",
+    }
+)
+
+
+def has_pe64_authenticode_table(path: Path, label: str = "Windows PE binary") -> bool:
+    """Return True when a PE32+ image carries a non-empty Authenticode Security Directory."""
+    require_file(path, label)
+    data = path.read_bytes()
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        raise PortablePackageError(f"{label} lacks an IMAGE_DOS_HEADER: {path}")
+    (e_lfanew,) = struct.unpack_from("<I", data, 0x3C)
+    if e_lfanew < 0x40 or e_lfanew + 24 > len(data) or data[e_lfanew : e_lfanew + 4] != b"PE\x00\x00":
+        raise PortablePackageError(f"{label} lacks a valid PE signature: {path}")
+    (_machine, _num_sections, _ts, _sym_ptr, _num_syms, opt_size, _chars) = struct.unpack_from(
+        "<HHIIIHH", data, e_lfanew + 4
+    )
+    opt_offset = e_lfanew + 24
+    if opt_size < 112 + 5 * 8 or opt_offset + opt_size > len(data):
+        return False
+    (num_dirs,) = struct.unpack_from("<I", data, opt_offset + 108)
+    if num_dirs <= 4:
+        return False
+    sec_file_offset, sec_size = struct.unpack_from("<II", data, opt_offset + 112 + 4 * 8)
+    if sec_file_offset == 0 or sec_size < 8:
+        return False
+    if sec_file_offset + sec_size > len(data):
+        raise PortablePackageError(
+            f"{label} has a truncated Authenticode WIN_CERTIFICATE directory: {path}"
+        )
+    return True
+
+
+def resolve_windows_authenticode_config(
+    env: Mapping[str, str],
+    *,
+    sign_requested: bool = False,
+) -> dict[str, Any]:
+    """Validate Windows Authenticode signing configuration fail-closed without leaking secrets."""
+    env_sign_raw = env.get("NEOFLASH_WINDOWS_SIGN", "").strip().lower()
+    if env_sign_raw not in ("", "0", "1", "false", "true", "no", "yes"):
+        raise PortablePackageError(
+            f"invalid NEOFLASH_WINDOWS_SIGN value {env_sign_raw!r}; expected 0/1 or true/false"
+        )
+    require_signing = sign_requested or env_sign_raw in ("1", "true", "yes")
+
+    cert_sha1 = (
+        env.get("NEOFLASH_WINDOWS_CERT_SHA1", "").strip()
+        or env.get("NEOFLASH_WINDOWS_CERT_THUMBPRINT", "").strip()
+    )
+    pfx_raw = env.get("NEOFLASH_WINDOWS_PFX_PATH", "").strip()
+    has_pfx_password = bool(env.get("NEOFLASH_WINDOWS_PFX_PASSWORD", ""))
+    timestamp_url = (
+        env.get("NEOFLASH_WINDOWS_TIMESTAMP_URL", "").strip() or DEFAULT_WINDOWS_TIMESTAMP_URL
+    )
+
+    parsed_ts = urlparse(timestamp_url)
+    if (
+        parsed_ts.scheme not in ("http", "https")
+        or not parsed_ts.hostname
+        or parsed_ts.username is not None
+        or parsed_ts.password is not None
+        or any(ch.isspace() for ch in timestamp_url)
+    ):
+        raise PortablePackageError(
+            f"invalid Authenticode timestamp URL: {timestamp_url!r}"
+        )
+
+    if cert_sha1 and pfx_raw:
+        raise PortablePackageError(
+            "ambiguous Windows signing configuration: specify either NEOFLASH_WINDOWS_CERT_SHA1 "
+            "or NEOFLASH_WINDOWS_PFX_PATH, not both"
+        )
+    if has_pfx_password and not pfx_raw:
+        raise PortablePackageError(
+            "NEOFLASH_WINDOWS_PFX_PASSWORD is set without NEOFLASH_WINDOWS_PFX_PATH"
+        )
+
+    if not cert_sha1 and not pfx_raw:
+        if require_signing:
+            raise PortablePackageError(
+                "Windows Authenticode signing was requested (-Sign), but neither "
+                "NEOFLASH_WINDOWS_CERT_SHA1 nor NEOFLASH_WINDOWS_PFX_PATH is configured"
+            )
+        return {
+            "enabled": False,
+            "mode": "unsigned",
+            "cert_sha1": None,
+            "pfx_path": None,
+            "has_pfx_password": False,
+            "timestamp_url": timestamp_url,
+            "file_digest_algorithm": "SHA256",
+            "timestamp_digest_algorithm": "SHA256",
+        }
+
+    if cert_sha1:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", cert_sha1):
+            raise PortablePackageError(
+                "NEOFLASH_WINDOWS_CERT_SHA1 must be an exact 40-hex SHA-1 certificate thumbprint"
+            )
+        return {
+            "enabled": True,
+            "mode": "cert_store_sha1",
+            "cert_sha1": cert_sha1.upper(),
+            "pfx_path": None,
+            "has_pfx_password": False,
+            "timestamp_url": timestamp_url,
+            "file_digest_algorithm": "SHA256",
+            "timestamp_digest_algorithm": "SHA256",
+        }
+
+    pfx_path = Path(pfx_raw)
+    require_file(pfx_path, "Windows Authenticode PFX certificate")
+    return {
+        "enabled": True,
+        "mode": "pfx_file",
+        "cert_sha1": None,
+        "pfx_path": pfx_path,
+        "has_pfx_password": has_pfx_password,
+        "timestamp_url": timestamp_url,
+        "file_digest_algorithm": "SHA256",
+        "timestamp_digest_algorithm": "SHA256",
+    }
+
+
+def _assert_no_provenance_secrets(node: Any) -> None:
+    if isinstance(node, dict):
+        for key, val in node.items():
+            if str(key) in FORBIDDEN_PROVENANCE_SECRET_KEYS or "password" in str(key).lower():
+                raise PortablePackageError(
+                    f"refusing to write secret-bearing key {key!r} into BUNDLE-PROVENANCE.json"
+                )
+            _assert_no_provenance_secrets(val)
+    elif isinstance(node, list):
+        for item in node:
+            _assert_no_provenance_secrets(item)
+
+
+def render_windows_install_script(version: str, build_number: int) -> str:
+    safe_ver = version.replace("'", "''")
+    return f"""#!/usr/bin/env pwsh
+# Per-user NeoFlash {safe_ver} (build {build_number}) Windows installer — zero UAC elevation required.
+param(
+    [string]$InstallDir = "",
+    [switch]$NoShortcut,
+    [switch]$NoFileAssociation
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$SourceDir = $PSScriptRoot
+$SourceExe = Join-Path $SourceDir "neoflash-editor.exe"
+if (-not (Test-Path -LiteralPath $SourceExe -PathType Leaf)) {{
+    throw "Cannot install NeoFlash: neoflash-editor.exe was not found next to Install-NeoFlash.ps1 ($SourceDir)."
+}}
+
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {{
+    if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {{
+        throw "LOCALAPPDATA is not set; pass -InstallDir explicitly."
+    }}
+    $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\\NeoFlash"
+}} else {{
+    $TargetDir = [System.IO.Path]::GetFullPath($InstallDir)
+}}
+
+$RootCheck = [System.IO.Path]::GetPathRoot($TargetDir)
+if ([string]::IsNullOrWhiteSpace($TargetDir) -or ($TargetDir.TrimEnd('\\') -ieq $RootCheck.TrimEnd('\\'))) {{
+    throw "Refusing unsafe installation directory: $TargetDir"
+}}
+
+$NormalizedSource = [System.IO.Path]::GetFullPath($SourceDir).TrimEnd('\\')
+$NormalizedTarget = $TargetDir.TrimEnd('\\')
+if ($NormalizedSource -ine $NormalizedTarget) {{
+    $ParentDir = Split-Path -Parent $TargetDir
+    New-Item -ItemType Directory -Force -Path $ParentDir | Out-Null
+    $StagingDir = "$TargetDir.staging-$PID"
+    $RollbackDir = "$TargetDir.rollback-$PID"
+    Remove-Item -LiteralPath $StagingDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $RollbackDir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $StagingDir | Out-Null
+    Copy-Item -Path (Join-Path $SourceDir "*") -Destination $StagingDir -Recurse -Force
+    $HadExisting = Test-Path -LiteralPath $TargetDir
+    if ($HadExisting) {{
+        Move-Item -LiteralPath $TargetDir -Destination $RollbackDir -Force
+    }}
+    try {{
+        Move-Item -LiteralPath $StagingDir -Destination $TargetDir -Force
+    }} catch {{
+        Remove-Item -LiteralPath $TargetDir -Recurse -Force -ErrorAction SilentlyContinue
+        if ($HadExisting -and (Test-Path -LiteralPath $RollbackDir)) {{
+            Move-Item -LiteralPath $RollbackDir -Destination $TargetDir -Force
+        }}
+        throw
+    }}
+    Remove-Item -LiteralPath $RollbackDir -Recurse -Force -ErrorAction SilentlyContinue
+}}
+
+$InstalledExe = Join-Path $TargetDir "neoflash-editor.exe"
+$IconCandidate = Join-Path $TargetDir "NeoFlash.ico"
+$DisplayIcon = if (Test-Path -LiteralPath $IconCandidate -PathType Leaf) {{ $IconCandidate }} else {{ "$InstalledExe,0" }}
+
+if (-not $NoShortcut -and -not [string]::IsNullOrWhiteSpace($env:APPDATA)) {{
+    $StartMenuPrograms = Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs"
+    New-Item -ItemType Directory -Force -Path $StartMenuPrograms | Out-Null
+    $ShortcutPath = Join-Path $StartMenuPrograms "NeoFlash.lnk"
+    $Shell = New-Object -ComObject WScript.Shell
+    $Shortcut = $Shell.CreateShortcut($ShortcutPath)
+    $Shortcut.TargetPath = $InstalledExe
+    $Shortcut.WorkingDirectory = $TargetDir
+    $Shortcut.IconLocation = $DisplayIcon
+    $Shortcut.Description = "NeoFlash Authoring Environment"
+    $Shortcut.Save()
+}}
+
+if (-not $NoFileAssociation) {{
+    $ExtKey = "HKCU:\\Software\\Classes\\.nflash"
+    $ProgIdKey = "HKCU:\\Software\\Classes\\NeoFlash.Document"
+    New-Item -Path $ExtKey -Force | Out-Null
+    Set-ItemProperty -Path $ExtKey -Name "(Default)" -Value "NeoFlash.Document"
+    Set-ItemProperty -Path $ExtKey -Name "Content Type" -Value "application/vnd.neoflash.project+json"
+
+    New-Item -Path "$ProgIdKey\\DefaultIcon" -Force | Out-Null
+    Set-ItemProperty -Path $ProgIdKey -Name "(Default)" -Value "NeoFlash Document"
+    Set-ItemProperty -Path "$ProgIdKey\\DefaultIcon" -Name "(Default)" -Value "`"$DisplayIcon`""
+
+    New-Item -Path "$ProgIdKey\\shell\\open\\command" -Force | Out-Null
+    Set-ItemProperty -Path "$ProgIdKey\\shell\\open\\command" -Name "(Default)" -Value "`"$InstalledExe`" `"%1`""
+}}
+
+$UninstallScript = Join-Path $TargetDir "Uninstall-NeoFlash.ps1"
+$UninstallKey = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeoFlash"
+$TotalBytes = (Get-ChildItem -LiteralPath $TargetDir -Recurse -File | Measure-Object -Property Length -Sum).Sum
+$EstimatedKiB = [int][Math]::Ceiling([double]$TotalBytes / 1024.0)
+
+New-Item -Path $UninstallKey -Force | Out-Null
+Set-ItemProperty -Path $UninstallKey -Name "DisplayName" -Value "NeoFlash"
+Set-ItemProperty -Path $UninstallKey -Name "DisplayVersion" -Value '{safe_ver}'
+Set-ItemProperty -Path $UninstallKey -Name "Publisher" -Value "NeoFlash Contributors"
+Set-ItemProperty -Path $UninstallKey -Name "InstallLocation" -Value $TargetDir
+Set-ItemProperty -Path $UninstallKey -Name "DisplayIcon" -Value $DisplayIcon
+Set-ItemProperty -Path $UninstallKey -Name "UninstallString" -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$UninstallScript`""
+Set-ItemProperty -Path $UninstallKey -Name "QuietUninstallString" -Value "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$UninstallScript`" -Quiet"
+Set-ItemProperty -Path $UninstallKey -Name "NoModify" -Type DWord -Value 1
+Set-ItemProperty -Path $UninstallKey -Name "NoRepair" -Type DWord -Value 1
+Set-ItemProperty -Path $UninstallKey -Name "EstimatedSize" -Type DWord -Value $EstimatedKiB
+
+Write-Output "NeoFlash {safe_ver} installed per-user at $TargetDir"
+"""
+
+
+def render_windows_uninstall_script(version: str) -> str:
+    safe_ver = version.replace("'", "''")
+    return f"""#!/usr/bin/env pwsh
+# Per-user NeoFlash {safe_ver} Windows uninstaller — preserves user %APPDATA%\\NeoFlash data.
+param(
+    [string]$InstallDir = "",
+    [switch]$Quiet
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+$UninstallKey = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeoFlash"
+if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {{
+    $TargetDir = [System.IO.Path]::GetFullPath($InstallDir)
+}} elseif (Test-Path -LiteralPath $UninstallKey) {{
+    $RegLoc = (Get-ItemProperty -Path $UninstallKey -Name "InstallLocation" -ErrorAction SilentlyContinue).InstallLocation
+    if (-not [string]::IsNullOrWhiteSpace($RegLoc)) {{
+        $TargetDir = [System.IO.Path]::GetFullPath($RegLoc)
+    }} else {{
+        $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\\NeoFlash"
+    }}
+}} else {{
+    $TargetDir = Join-Path $env:LOCALAPPDATA "Programs\\NeoFlash"
+}}
+
+if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {{
+    $ShortcutPath = Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs\\NeoFlash.lnk"
+    Remove-Item -LiteralPath $ShortcutPath -Force -ErrorAction SilentlyContinue
+}}
+
+$ExtKey = "HKCU:\\Software\\Classes\\.nflash"
+if (Test-Path -LiteralPath $ExtKey) {{
+    $CurrentProgId = (Get-ItemProperty -Path $ExtKey -Name "(Default)" -ErrorAction SilentlyContinue)."(Default)"
+    if ($CurrentProgId -eq "NeoFlash.Document") {{
+        Remove-Item -LiteralPath $ExtKey -Recurse -Force -ErrorAction SilentlyContinue
+    }}
+}}
+$ProgIdKey = "HKCU:\\Software\\Classes\\NeoFlash.Document"
+if (Test-Path -LiteralPath $ProgIdKey) {{
+    Remove-Item -LiteralPath $ProgIdKey -Recurse -Force -ErrorAction SilentlyContinue
+}}
+if (Test-Path -LiteralPath $UninstallKey) {{
+    Remove-Item -LiteralPath $UninstallKey -Recurse -Force -ErrorAction SilentlyContinue
+}}
+
+if (-not [string]::IsNullOrWhiteSpace($TargetDir) -and (Test-Path -LiteralPath $TargetDir -PathType Container)) {{
+    $RootCheck = [System.IO.Path]::GetPathRoot($TargetDir)
+    if ($TargetDir.TrimEnd('\\') -ieq $RootCheck.TrimEnd('\\')) {{
+        throw "Refusing unsafe uninstall target directory: $TargetDir"
+    }}
+    $BuildMetaMarker = Join-Path $TargetDir 'BUILD_METADATA.json'
+    $SumsMarker = Join-Path $TargetDir 'PACKAGE-SHA256SUMS.txt'
+    if (-not ((Test-Path -LiteralPath $BuildMetaMarker) -and (Test-Path -LiteralPath $SumsMarker))) {{
+        throw "Refusing to delete directory without NeoFlash package markers (BUILD_METADATA.json and PACKAGE-SHA256SUMS.txt): $TargetDir"
+    }}
+    $ScriptParent = [System.IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\\')
+    $NormalizedTarget = $TargetDir.TrimEnd('\\')
+    if ($ScriptParent.StartsWith($NormalizedTarget, [System.StringComparison]::OrdinalIgnoreCase)) {{
+        $env:NEOFLASH_UNINSTALL_TARGET = $TargetDir
+        $DeferredCleanup = 'Start-Sleep -Milliseconds 1200; $t = $env:NEOFLASH_UNINSTALL_TARGET; if (-not [string]::IsNullOrWhiteSpace($t) -and (Test-Path -LiteralPath (Join-Path $t ''BUILD_METADATA.json'')) -and (Test-Path -LiteralPath (Join-Path $t ''PACKAGE-SHA256SUMS.txt''))) {{ Remove-Item -LiteralPath $t -Recurse -Force -ErrorAction SilentlyContinue }}'
+        Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", $DeferredCleanup) -WorkingDirectory ([System.IO.Path]::GetTempPath()) -WindowStyle Hidden | Out-Null
+    }} else {{
+        Remove-Item -LiteralPath $TargetDir -Recurse -Force
+    }}
+}}
+
+if (-not $Quiet) {{
+    Write-Output "NeoFlash uninstalled from $TargetDir (user settings in %APPDATA%\\NeoFlash were preserved)."
+}}
+"""
+
+
+def write_windows_user_installer_scripts(
+    stage_dir: Path, version: str, build_number: int
+) -> tuple[Path, Path]:
+    install_path = stage_dir / "Install-NeoFlash.ps1"
+    uninstall_path = stage_dir / "Uninstall-NeoFlash.ps1"
+    install_path.write_text(
+        render_windows_install_script(version, build_number),
+        encoding="utf-8",
+        newline="\n",
+    )
+    uninstall_path.write_text(
+        render_windows_uninstall_script(version),
+        encoding="utf-8",
+        newline="\n",
+    )
+    return install_path, uninstall_path
+
+
+def write_unsigned_windows_bundle_provenance(
+    stage_dir: Path,
+    *,
+    version: str,
+    commit: str,
+    build_number: int,
+    profile: str,
+) -> Path:
+    provenance = {
+        "authenticode": {
+            "credential_source": "none",
+            "file_digest_algorithm": None,
+            "signed": False,
+            "signed_binaries": [],
+            "timestamp_digest_algorithm": None,
+            "timestamp_url": None,
+            "verified": False,
+            "verify_policy": None,
+        },
+        "build_number": build_number,
+        "commit": commit,
+        "platform": "windows-x64",
+        "profile": profile,
+        "schema_version": 1,
+        "version": version,
+    }
+    _assert_no_provenance_secrets(provenance)
+    out = stage_dir / "BUNDLE-PROVENANCE.json"
+    out.write_text(canonical_json(provenance), encoding="utf-8", newline="\n")
+    return out
+
+
+def collect_windows_signable_binaries(stage_dir: Path) -> list[Path]:
+    """Return deterministic list of Windows PE binaries in ``stage_dir`` requiring Authenticode."""
+    editor_exe = stage_dir / "neoflash-editor.exe"
+    require_file(editor_exe, "staged NeoFlash Windows executable")
+    targets = [editor_exe]
+    media_dir = stage_dir / "media"
+    if media_dir.is_dir():
+        for sub in ("bin", "lib"):
+            cand_dir = media_dir / sub
+            if cand_dir.is_dir():
+                for item in sorted(cand_dir.rglob("*"), key=lambda p: p.as_posix()):
+                    if item.is_file() and item.suffix.lower() in (".exe", ".dll"):
+                        targets.append(item)
+    return targets
+
+
+def record_windows_authenticode_signing(
+    stage_dir: Path,
+    *,
+    credential_source: str,
+    timestamp_url: str,
+    pre_hashes: Mapping[str, str],
+    cert_sha1: str | None = None,
+    signtool_version: str | None = None,
+) -> dict[str, Any]:
+    """Refresh media hashes after Authenticode signing and emit secret-free BUNDLE-PROVENANCE.json."""
+    if credential_source not in ("cert_store_sha1", "pfx_file"):
+        raise PortablePackageError(f"invalid Authenticode credential_source: {credential_source!r}")
+    if cert_sha1 is not None and not re.fullmatch(r"[0-9a-fA-F]{40}", cert_sha1):
+        raise PortablePackageError("invalid cert_sha1 for BUNDLE-PROVENANCE.json")
+    parsed_ts = urlparse(timestamp_url)
+    if (
+        parsed_ts.scheme not in ("http", "https")
+        or not parsed_ts.hostname
+        or parsed_ts.username is not None
+        or parsed_ts.password is not None
+    ):
+        raise PortablePackageError(f"unsafe timestamp_url for provenance: {timestamp_url!r}")
+
+    build_meta = load_json(stage_dir / "BUILD_METADATA.json", "staged BUILD_METADATA.json")
+    targets = collect_windows_signable_binaries(stage_dir)
+    signed_records: list[dict[str, str]] = []
+    media_post_hashes: dict[str, str] = {}
+
+    for binary in targets:
+        rel = binary.relative_to(stage_dir).as_posix()
+        if rel not in pre_hashes or not re.fullmatch(r"[0-9a-f]{64}", pre_hashes[rel]):
+            raise PortablePackageError(f"missing pre-signing SHA-256 record for {rel}")
+        if not has_pe64_authenticode_table(binary, f"signed {rel}"):
+            raise PortablePackageError(
+                f"Authenticode certificate table missing after signing: {binary}"
+            )
+        post_sha = sha256_file(binary)
+        signed_records.append(
+            {
+                "path": rel,
+                "pre_sign_sha256": pre_hashes[rel],
+                "sha256": post_sha,
+            }
+        )
+        if rel.startswith("media/"):
+            media_post_hashes[rel.removeprefix("media/")] = post_sha
+
+    media_root = stage_dir / "media"
+    sbom_path = media_root / "provenance" / "media-sbom.json"
+    sums_path = media_root / "provenance" / "SHA256SUMS.txt"
+    sbom = load_json(sbom_path, "staged bundled media SBOM")
+    platform_pins = PINS["assets"]["windows-x64"]
+    expected_upstream = {
+        "bin/ffmpeg.exe": platform_pins["ffmpeg_sha256"],
+        "bin/ffprobe.exe": platform_pins["ffprobe_sha256"],
+    }
+    for record in sbom.get("executables", []):
+        rel_media = safe_relative_path(record.get("relative_path", "")).as_posix()
+        upstream = pre_hashes.get(f"media/{rel_media}")
+        if upstream != expected_upstream.get(rel_media):
+            raise PortablePackageError(
+                f"pre-signing hash for media/{rel_media} did not match pinned upstream BtbN bytes"
+            )
+        record["upstream_sha256"] = upstream
+        record["sha256"] = media_post_hashes[rel_media]
+    sbom["authenticode_signed"] = True
+    sbom_path.write_text(canonical_json(sbom), encoding="utf-8", newline="\n")
+
+    sums_lines = [
+        f"{digest}  {rel_media}"
+        for rel_media, digest in sorted(media_post_hashes.items())
+    ]
+    sums_path.write_text("\n".join(sums_lines) + "\n", encoding="utf-8", newline="\n")
+
+    provenance: dict[str, Any] = {
+        "authenticode": {
+            "certificate_sha1": cert_sha1.upper() if cert_sha1 else None,
+            "credential_source": credential_source,
+            "file_digest_algorithm": "SHA256",
+            "signed": True,
+            "signed_binaries": signed_records,
+            "signtool_version": signtool_version,
+            "timestamp_digest_algorithm": "SHA256",
+            "timestamp_url": timestamp_url,
+            "verified": True,
+            "verify_policy": "signtool verify /pa /v",
+        },
+        "build_number": build_meta["build_number"],
+        "commit": build_meta["commit"],
+        "platform": "windows-x64",
+        "profile": build_meta["profile"],
+        "schema_version": 1,
+        "version": build_meta["version"],
+    }
+    _assert_no_provenance_secrets(provenance)
+    (stage_dir / "BUNDLE-PROVENANCE.json").write_text(
+        canonical_json(provenance), encoding="utf-8", newline="\n"
+    )
+    return provenance
+
+
 def load_json(path: Path, label: str) -> dict[str, Any]:
     require_file(path, label)
     try:
@@ -434,7 +936,12 @@ def validate_component_licenses(root: Path) -> dict[str, Any]:
     }
 
 
-def validate_media_root(root: Path, platform: str) -> dict[str, Any]:
+def validate_media_root(
+    root: Path,
+    platform: str,
+    *,
+    authenticode_provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     ffmpeg_name, ffprobe_name = expected_media_names(platform)
     ffmpeg = root / "bin" / ffmpeg_name
     ffprobe = root / "bin" / ffprobe_name
@@ -548,7 +1055,31 @@ def validate_media_root(root: Path, platform: str) -> dict[str, Any]:
         f"bin/{ffmpeg_name}": platform_pins["ffmpeg_sha256"],
         f"bin/{ffprobe_name}": platform_pins["ffprobe_sha256"],
     }
-    if by_path != expected_helper_hashes:
+    is_signed_win_media = (
+        platform == "windows-x64"
+        and authenticode_provenance is not None
+        and authenticode_provenance.get("signed") is True
+        and sbom.get("authenticode_signed") is True
+    )
+    if is_signed_win_media:
+        provenance_by_media: dict[str, dict[str, Any]] = {}
+        for item in authenticode_provenance.get("signed_binaries", []):
+            if isinstance(item, dict) and str(item.get("path", "")).startswith("media/"):
+                provenance_by_media[str(item["path"]).removeprefix("media/")] = item
+        for record in sbom.get("executables", []):
+            rel = safe_relative_path(record.get("relative_path", "")).as_posix()
+            prov_item = provenance_by_media.get(rel)
+            if (
+                prov_item is None
+                or record.get("upstream_sha256") != expected_helper_hashes.get(rel)
+                or prov_item.get("pre_sign_sha256") != expected_helper_hashes.get(rel)
+                or prov_item.get("sha256") != by_path.get(rel)
+                or not has_pe64_authenticode_table(root / rel, f"signed media helper {rel}")
+            ):
+                raise PortablePackageError(
+                    f"signed bundled helper provenance mismatch for media/{rel}"
+                )
+    elif by_path != expected_helper_hashes:
         raise PortablePackageError("bundled helpers do not match the pinned BtbN release bytes")
     expected_version = PINS["ffmpeg"]["version"]
     for record in sbom.get("executables", []):
@@ -901,12 +1432,24 @@ Verify both artifacts with {args.checksum_file.name}.
         notice, encoding="utf-8", newline="\n"
     )
     if args.platform == "windows-x64":
+        write_windows_user_installer_scripts(args.stage_dir, args.version, args.build_number)
+        write_unsigned_windows_bundle_provenance(
+            args.stage_dir,
+            version=args.version,
+            commit=args.commit,
+            build_number=args.build_number,
+            profile=args.profile,
+        )
         run_guide = f"""NeoFlash {args.version} — Windows x64 Technical Preview
 ============================================================
 
-Run neoflash-editor.exe directly; no installer is required. This preview ZIP
-is unsigned unless its checksum set also lists a signed MSIX, so Windows
-SmartScreen may ask you to confirm that you trust the file.
+Run neoflash-editor.exe directly for portable use, or run Install-NeoFlash.ps1
+in PowerShell to install NeoFlash per-user under %LOCALAPPDATA%\\Programs\\NeoFlash
+(with Start Menu shortcut, .nflash file association, and Windows Installed apps
+entry — no Administrator / UAC elevation required). Run Uninstall-NeoFlash.ps1
+or uninstall from Windows Settings > Apps > Installed apps at any time.
+
+Provenance and Authenticode signing status are recorded in BUNDLE-PROVENANCE.json.
 
 Ordinary Test Movie and the private-pipe interactive script debugger (using an
 installed Chrome, Chromium, or Microsoft Edge browser without opening any TCP
@@ -956,11 +1499,31 @@ def iter_stage_files(stage_dir: Path) -> Iterable[Path]:
 def validate_staged_package(stage_dir: Path, platform: str) -> dict[str, Any]:
     executable_name = "neoflash-editor.exe" if platform == "windows-x64" else "neoflash-editor"
     check_binary_magic(stage_dir / executable_name, platform, "staged NeoFlash executable")
+    authenticode_info: dict[str, Any] | None = None
     if platform == "windows-x64":
         audit_windows_pe_imports(stage_dir / executable_name, "staged NeoFlash executable")
+        require_file(stage_dir / "Install-NeoFlash.ps1", "Windows per-user installer script")
+        require_file(stage_dir / "Uninstall-NeoFlash.ps1", "Windows per-user uninstaller script")
+        bundle_prov = load_json(stage_dir / "BUNDLE-PROVENANCE.json", "Windows BUNDLE-PROVENANCE.json")
+        _assert_no_provenance_secrets(bundle_prov)
+        auth = bundle_prov.get("authenticode")
+        if not isinstance(auth, dict) or not isinstance(auth.get("signed"), bool):
+            raise PortablePackageError("BUNDLE-PROVENANCE.json lacks valid authenticode metadata")
+        if auth["signed"]:
+            if auth.get("verified") is not True or not has_pe64_authenticode_table(
+                stage_dir / executable_name, "signed NeoFlash executable"
+            ):
+                raise PortablePackageError(
+                    "BUNDLE-PROVENANCE.json claims signed=true, but NeoFlash executable lacks verified Authenticode table"
+                )
+        authenticode_info = auth
     require_file(stage_dir / "runtime" / "neoflash_web.js", "staged runtime JavaScript")
     require_file(stage_dir / "runtime" / "neoflash_web_bg.wasm", "staged runtime WebAssembly")
-    media_info = validate_media_root(stage_dir / "media", platform)
+    media_info = validate_media_root(
+        stage_dir / "media",
+        platform,
+        authenticode_provenance=authenticode_info,
+    )
     validate_rust_licenses(stage_dir / "licenses" / "rust")
     require_file(stage_dir / "LICENSES-AND-SOURCE.txt", "license/source notice")
     require_file(stage_dir / "README.txt", "platform run guide")
@@ -1068,7 +1631,7 @@ def finalize_package(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("stage", "finalize", "all"))
+    parser.add_argument("action", choices=("stage", "record-signing", "finalize", "all"))
     parser.add_argument("--platform", required=True, choices=("windows-x64", "linux-x64"))
     parser.add_argument("--project-root", required=True, type=Path)
     parser.add_argument("--version", default="0.1.0-beta.1")
@@ -1085,6 +1648,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--source-output", required=True, type=Path)
     parser.add_argument("--checksum-file", required=True, type=Path)
+    parser.add_argument("--signing-credential-source", choices=("cert_store_sha1", "pfx_file"))
+    parser.add_argument("--signing-timestamp-url", default=DEFAULT_WINDOWS_TIMESTAMP_URL)
+    parser.add_argument("--signing-pre-hashes", type=Path)
+    parser.add_argument("--signing-cert-sha1")
+    parser.add_argument("--signtool-version")
     return parser
 
 
@@ -1103,6 +1671,8 @@ def main(argv: list[str] | None = None) -> int:
         "checksum_file",
     ):
         setattr(args, field, getattr(args, field).resolve())
+    if args.signing_pre_hashes is not None:
+        args.signing_pre_hashes = args.signing_pre_hashes.resolve()
     try:
         safe_archive_root(args.package_name)
         require_output_child(args.stage_dir, args.project_root / "target", "staging directory")
@@ -1111,12 +1681,28 @@ def main(argv: list[str] | None = None) -> int:
         require_output_child(args.checksum_file, args.project_root / "dist", "checksum file")
         if args.action in ("stage", "all"):
             stage_package(args)
+        if args.action == "record-signing":
+            if args.platform != "windows-x64":
+                raise PortablePackageError("record-signing is only supported for windows-x64")
+            if not args.signing_credential_source or args.signing_pre_hashes is None:
+                raise PortablePackageError(
+                    "record-signing requires --signing-credential-source and --signing-pre-hashes"
+                )
+            pre_hashes = load_json(args.signing_pre_hashes, "pre-signing SHA-256 manifest")
+            record_windows_authenticode_signing(
+                args.stage_dir,
+                credential_source=args.signing_credential_source,
+                timestamp_url=args.signing_timestamp_url,
+                pre_hashes=pre_hashes,
+                cert_sha1=args.signing_cert_sha1,
+                signtool_version=args.signtool_version,
+            )
         if args.action in ("finalize", "all"):
             finalize_package(args)
     except (OSError, PortablePackageError, json.JSONDecodeError) as error:
         print(f"Portable package refused: {error}", file=os.sys.stderr)
         return 1
-    print(args.archive if args.action != "stage" else args.stage_dir)
+    print(args.archive if args.action not in ("stage", "record-signing") else args.stage_dir)
     return 0
 
 

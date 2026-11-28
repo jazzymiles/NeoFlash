@@ -360,6 +360,7 @@ impl Editor {
         let p = neoflash_ui::palette(ctx);
         let mut close_cancel = false;
         let mut close_save = false;
+        let mut trigger_self_update_quit = false;
         let modal_id = egui::Id::new("preferences");
         // v3: one size for every category; pages scroll inside it and the footer never moves.
         let size = fixed_dialog_size(ctx, metrics::dialog_l(), metrics::dialog_l_height());
@@ -398,7 +399,14 @@ impl Editor {
                             &mut self.ai_manager,
                             &mut self.ai_connection_modal,
                         ),
-                        _ => prefs_updates(ui, &mut draft, &mut self.updater, installed_ext_count),
+                        _ => {
+                            trigger_self_update_quit |= prefs_updates(
+                                ui,
+                                &mut draft,
+                                &mut self.updater,
+                                installed_ext_count,
+                            );
+                        }
                     }
                 });
                 shell.footer(
@@ -423,7 +431,12 @@ impl Editor {
                     },
                 );
             });
-        if !close_cancel && !close_save && !was_recording && self.ai_connection_modal.is_none() {
+        if !close_cancel
+            && !close_save
+            && !trigger_self_update_quit
+            && !was_recording
+            && self.ai_connection_modal.is_none()
+        {
             match kb.resolve(ctx, &modal, true) {
                 super::dialog_helpers::DialogKeyboardOutcome::Cancel => close_cancel = true,
                 super::dialog_helpers::DialogKeyboardOutcome::Confirm => close_save = true,
@@ -432,7 +445,17 @@ impl Editor {
         }
         // Live theme & density preview: the stage and panels behind the dialog follow the draft.
         let shown = ThemeMode::current(ctx);
-        if close_cancel {
+        if trigger_self_update_quit {
+            clear_shortcuts_ui_state(ctx);
+            self.preferences = None;
+            if draft.original_theme != shown {
+                draft.original_theme.apply(ctx);
+                ctx.request_discard("theme changed");
+            }
+            self.apply_density(ctx);
+            self.apply_tooltip_shortcuts(ctx);
+            self.begin_staged_self_update_quit(ctx);
+        } else if close_cancel {
             clear_shortcuts_ui_state(ctx);
             self.preferences = None;
             if draft.original_theme != shown {
@@ -2283,6 +2306,7 @@ enum UpdateUiAction {
     Download(AvailableUpdate),
     CancelDownload,
     RevealFile(std::path::PathBuf),
+    InstallAndRelaunch(std::path::PathBuf),
 }
 
 fn reveal_button_label() -> &'static str {
@@ -2305,13 +2329,14 @@ fn prefs_updates(
     draft: &mut PreferencesDraft,
     updater: &mut UpdaterController,
     installed_ext_count: usize,
-) {
+) -> bool {
     updater.sync_selected_channel(draft.updates.channel);
     let id = BuildIdentity::current();
     let now_unix = crate::recovery::unix_now_secs();
     let checking = updater.is_checking();
     let downloading = updater.is_downloading();
     let mut action: Option<UpdateUiAction> = None;
+    let mut install_staged = false;
 
     section(ui, "Version");
     row(ui, "Version", |ui| {
@@ -2369,10 +2394,10 @@ fn prefs_updates(
                 match &update.download {
                     Ok(_) => {
                         ui.horizontal(|ui| {
-                            if ui.add(c::Button::primary("Download")).clicked() {
+                            if ui.add(c::Button::new("Download")).clicked() {
                                 action = Some(UpdateUiAction::Download(update.clone()));
                             }
-                            caption(ui, "Verified via SHA256SUMS before saving; manual install.");
+                            caption(ui, "Verified via SHA256SUMS before saving and installing.");
                         });
                     }
                     Err(reason) => {
@@ -2408,11 +2433,34 @@ fn prefs_updates(
                 reveal_note,
                 ..
             } => {
-                ui.add(c::InlineMessage::info(&format!(
-                    "Verified {version} (SHA-256) at {}. Quit NeoFlash and replace the application manually; Beta 1 does not auto-install.",
-                    path.display()
-                )));
+                let can_self_install = updater.can_self_install(path);
+                let is_deb = path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|name| name.to_ascii_lowercase().ends_with(".deb"));
+                let message = if can_self_install {
+                    format!(
+                        "Verified {version} (SHA-256) at {}. Click Install and Relaunch to replace NeoFlash automatically.",
+                        path.display()
+                    )
+                } else if is_deb {
+                    format!(
+                        "Verified {version} (SHA-256) at {}. Debian packages require root dpkg access; install with `sudo apt install \"{}\"` after quitting NeoFlash.",
+                        path.display(),
+                        path.display()
+                    )
+                } else {
+                    format!(
+                        "Verified {version} (SHA-256) at {}. Quit NeoFlash and install the package manually.",
+                        path.display()
+                    )
+                };
+                ui.add(c::InlineMessage::info(&message));
                 ui.horizontal(|ui| {
+                    if can_self_install && ui.add(c::Button::new("Install and Relaunch")).clicked()
+                    {
+                        action = Some(UpdateUiAction::InstallAndRelaunch(path.clone()));
+                    }
                     if ui.add(c::Button::new(reveal_button_label())).clicked() {
                         action = Some(UpdateUiAction::RevealFile(path.clone()));
                     }
@@ -2529,8 +2577,12 @@ fn prefs_updates(
         Some(UpdateUiAction::RevealFile(path)) => {
             let _ = updater.reveal_downloaded_file(&path);
         }
+        Some(UpdateUiAction::InstallAndRelaunch(path)) => {
+            install_staged = updater.stage_self_update(&path).is_ok();
+        }
         None => {}
     }
+    install_staged
 }
 
 fn prefs_ai(

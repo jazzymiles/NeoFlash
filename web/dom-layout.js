@@ -1675,6 +1675,7 @@
         if (rootReason) return rootReason;
       }
       const kind = item.kind;
+      if (item.mesh_fill) return 'mesh_fill';
       if (kind?.fill_bitmap || kind?.stroke_bitmap) return 'bitmap_fill';
       if (item.clip_ids?.length) {
         const isSvgKind = ['rectangle', 'ellipse', 'path', 'gradient_path'].includes(kind?.type);

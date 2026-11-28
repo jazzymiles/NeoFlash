@@ -20,12 +20,13 @@ use crate::{Diagnostic, ImportError, ImportFormat, ImportReport, Severity, Stati
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use neoflash_core::{
-    AuthoredBitmapFill, AuthoredTextFieldOptions, BlendMode, Color, Element, ElementKind, FillRule,
-    FilterSpec, GradientKind, GradientPaint, GradientStop, InstancePlayback, Keyframe, Layer,
-    LayerProperties, LayerRole, MaskMode, OvalOptions, PathCommand, PrimitiveOptions, Project,
-    RectangleOptions, ResourceUnit, Symbol, SymbolKind, TextAlign, TextFormat, TextFormatRun,
-    Timeline, Transform, new_id, oval_path_commands, polystar_path_commands,
-    rectangle_path_commands, validate_path_commands,
+    AuthoredBitmapFill, AuthoredTextFieldOptions, BlendMode, Color, Element, ElementKind,
+    ElementVectorEffects, FillRule, FilterSpec, GradientKind, GradientPaint, GradientStop,
+    InstancePlayback, Keyframe, Layer, LayerProperties, LayerRole, MaskMode, OvalOptions,
+    PathCommand, PrimitiveOptions, Project, RectangleOptions, ResourceUnit, StrokeWidthProfile,
+    Symbol, SymbolKind, TextAlign, TextFormat, TextFormatRun, Timeline, Transform, VectorMeshPaint,
+    VectorMeshTriangle, expand_variable_width_stroke, new_id, oval_path_commands, path_bounds,
+    polystar_path_commands, rectangle_path_commands, validate_path_commands,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -276,6 +277,7 @@ pub(super) struct FigmaNode {
     pub(super) symbol_overrides: Vec<FigmaSymbolOverride>,
     pub(super) instance_text_layouts: Vec<FigmaInstanceTextLayout>,
     pub(super) background_color: Option<Color>,
+    pub(super) auto_layout: FigmaAutoLayout,
     pub(super) children: Vec<FigmaNode>,
 }
 
@@ -317,7 +319,148 @@ impl Default for FigmaNode {
             symbol_overrides: Vec::new(),
             instance_text_layouts: Vec::new(),
             background_color: None,
+            auto_layout: FigmaAutoLayout::default(),
             children: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaLayoutMode {
+    #[default]
+    None,
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaLayoutWrap {
+    #[default]
+    NoWrap,
+    Wrap,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaLayoutSizing {
+    #[default]
+    Fixed,
+    Hug,
+    Fill,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaPrimaryAlign {
+    #[default]
+    Min,
+    Center,
+    Max,
+    SpaceBetween,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaCounterAlign {
+    #[default]
+    Min,
+    Center,
+    Max,
+    Baseline,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaCounterAlignContent {
+    #[default]
+    Auto,
+    SpaceBetween,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaLayoutPositioning {
+    #[default]
+    Auto,
+    Absolute,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaConstraintH {
+    #[default]
+    Left,
+    Right,
+    LeftAndRight,
+    Center,
+    Scale,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(super) enum FigmaConstraintV {
+    #[default]
+    Top,
+    Bottom,
+    TopAndBottom,
+    Center,
+    Scale,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct FigmaAutoLayout {
+    pub(super) layout_mode: FigmaLayoutMode,
+    pub(super) layout_wrap: FigmaLayoutWrap,
+    pub(super) sizing_horizontal: FigmaLayoutSizing,
+    pub(super) sizing_vertical: FigmaLayoutSizing,
+    pub(super) layout_grow: f64,
+    pub(super) layout_align: String,
+    pub(super) padding_left: f64,
+    pub(super) padding_right: f64,
+    pub(super) padding_top: f64,
+    pub(super) padding_bottom: f64,
+    pub(super) item_spacing: f64,
+    pub(super) counter_axis_spacing: Option<f64>,
+    pub(super) primary_axis_align_items: FigmaPrimaryAlign,
+    pub(super) counter_axis_align_items: FigmaCounterAlign,
+    pub(super) counter_axis_align_content: FigmaCounterAlignContent,
+    pub(super) layout_positioning: FigmaLayoutPositioning,
+    pub(super) constraint_h: FigmaConstraintH,
+    pub(super) constraint_v: FigmaConstraintV,
+    pub(super) min_width: Option<f64>,
+    pub(super) max_width: Option<f64>,
+    pub(super) min_height: Option<f64>,
+    pub(super) max_height: Option<f64>,
+    pub(super) item_reverse_z_index: bool,
+    pub(super) strokes_included_in_layout: bool,
+    pub(super) stroke_align: String,
+    pub(super) has_explicit_position: bool,
+    pub(super) has_explicit_size: bool,
+}
+
+impl Default for FigmaAutoLayout {
+    fn default() -> Self {
+        Self {
+            layout_mode: FigmaLayoutMode::None,
+            layout_wrap: FigmaLayoutWrap::NoWrap,
+            sizing_horizontal: FigmaLayoutSizing::Fixed,
+            sizing_vertical: FigmaLayoutSizing::Fixed,
+            layout_grow: 0.0,
+            layout_align: String::from("INHERIT"),
+            padding_left: 0.0,
+            padding_right: 0.0,
+            padding_top: 0.0,
+            padding_bottom: 0.0,
+            item_spacing: 0.0,
+            counter_axis_spacing: None,
+            primary_axis_align_items: FigmaPrimaryAlign::Min,
+            counter_axis_align_items: FigmaCounterAlign::Min,
+            counter_axis_align_content: FigmaCounterAlignContent::Auto,
+            layout_positioning: FigmaLayoutPositioning::Auto,
+            constraint_h: FigmaConstraintH::Left,
+            constraint_v: FigmaConstraintV::Top,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            item_reverse_z_index: false,
+            strokes_included_in_layout: false,
+            stroke_align: String::from("INSIDE"),
+            has_explicit_position: false,
+            has_explicit_size: false,
         }
     }
 }
@@ -329,16 +472,23 @@ pub(super) struct FigmaArcData {
     pub(super) inner_radius_ratio: f64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(super) enum FigmaGradientKind {
+    Linear,
+    Radial,
+    Angular,
+    Diamond,
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum FigmaPaint {
     Solid {
         color: Color,
     },
     Gradient {
-        kind: GradientKind,
+        kind: FigmaGradientKind,
         stops: Vec<GradientStop>,
         uv_transform: Option<[f64; 6]>,
-        approximated_from: Option<&'static str>,
     },
     Image {
         image_ref: String,

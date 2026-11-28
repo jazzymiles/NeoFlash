@@ -7,7 +7,11 @@
 //! - Recursion depth for nested `Objc` / `VlLs` values is capped at [`MAX_DESC_DEPTH`].
 //! - Malformed UTF-16BE (including lone surrogates) decodes lossily without panicking.
 
-use neoflash_core::{ColorTransform, FilterSpec, MAX_OBJECT_FILTERS};
+use neoflash_core::{
+    Color, ColorTransform, FillRule, FilterSpec, GradientKind, GradientPaint, GradientSpread,
+    GradientStop, MAX_OBJECT_FILTERS, MAX_PATH_COMMANDS, PathCommand, RectangleOptions,
+    VectorMeshPaint, VectorMeshTriangle, rectangle_path_commands, validate_path_commands,
+};
 
 const MAX_DESC_DEPTH: usize = 16;
 const MAX_DESC_ITEMS: usize = 4_096;
@@ -1438,4 +1442,722 @@ pub fn parse_legacy_lrfx_block(
         ));
     }
     Some(out)
+}
+
+/// Photoshop `GdFl` (*Gradient Fill*) layer gradient style (`T-501`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PsdGradientFillKind {
+    #[default]
+    Linear,
+    Radial,
+    Reflected,
+    Angular,
+    Diamond,
+}
+
+/// Axis offset value inside a Photoshop `GdFl` `Ofst` (`Pnt `) descriptor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PsdGradientOffsetAxis {
+    Percent(f64),
+    Pixels(f64),
+}
+
+impl Default for PsdGradientOffsetAxis {
+    fn default() -> Self {
+        Self::Percent(0.0)
+    }
+}
+
+impl PsdGradientOffsetAxis {
+    pub fn to_pixels(self, span: f64) -> f64 {
+        match self {
+            Self::Percent(p) => (p / 100.0) * span,
+            Self::Pixels(px) => px,
+        }
+    }
+}
+
+/// Parsed Photoshop `GdFl` (*Gradient Fill*) layer descriptor (`T-501`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PsdGradientFillData {
+    pub kind: PsdGradientFillKind,
+    pub angle_deg: f64,
+    pub scale_pct: f64,
+    pub offset_x: PsdGradientOffsetAxis,
+    pub offset_y: PsdGradientOffsetAxis,
+    pub reverse: bool,
+    pub align_with_layer: bool,
+    /// Sorted `(t_0_to_1, rgba_color)` stops (already reversed when `reverse == true`).
+    pub stops: Vec<(f64, Color)>,
+}
+
+fn parse_offset_axis(desc: &PsdDescriptor, key: &str) -> PsdGradientOffsetAxis {
+    match desc.get(key) {
+        Some(PsdDescriptorValue::UnitFloat {
+            unit: [b'#', b'P', b'x', b'l'],
+            value,
+        }) if value.is_finite() => PsdGradientOffsetAxis::Pixels(value.clamp(-1e6, 1e6)),
+        _ => PsdGradientOffsetAxis::Percent(desc.number(key).unwrap_or(0.0).clamp(-1000.0, 1000.0)),
+    }
+}
+
+fn lctn_to_unit_f64(desc: &PsdDescriptor) -> f64 {
+    match desc.get("Lctn") {
+        Some(PsdDescriptorValue::UnitFloat {
+            unit: [b'#', b'P', b'r', b'c'],
+            value,
+        }) if value.is_finite() => (value / 100.0).clamp(0.0, 1.0),
+        _ => (desc.number("Lctn").unwrap_or(0.0) / 4096.0).clamp(0.0, 1.0),
+    }
+}
+
+fn sample_color_stops_f64(stops: &[(f64, u32)], t: f64) -> u32 {
+    if stops.is_empty() {
+        return 0xff_ffff;
+    }
+    let idx = stops.partition_point(|(pos, _)| *pos <= t);
+    if idx == 0 {
+        return stops[0].1;
+    }
+    if idx >= stops.len() {
+        return stops[stops.len() - 1].1;
+    }
+    let (t0, c0) = stops[idx - 1];
+    let (t1, c1) = stops[idx];
+    let span = t1 - t0;
+    if span <= 1e-9 {
+        return c1;
+    }
+    lerp_rgb24(c0, c1, ((t - t0) / span).clamp(0.0, 1.0))
+}
+
+fn sample_alpha_stops_f64(stops: &[(f64, f64)], t: f64) -> f64 {
+    if stops.is_empty() {
+        return 1.0;
+    }
+    let idx = stops.partition_point(|(pos, _)| *pos <= t);
+    if idx == 0 {
+        return stops[0].1;
+    }
+    if idx >= stops.len() {
+        return stops[stops.len() - 1].1;
+    }
+    let (t0, a0) = stops[idx - 1];
+    let (t1, a1) = stops[idx];
+    let span = t1 - t0;
+    if span <= 1e-9 {
+        return a1;
+    }
+    (a0 + (a1 - a0) * ((t - t0) / span)).clamp(0.0, 1.0)
+}
+
+/// Parse a Photoshop `GdFl` (*Gradient Fill* layer) tagged block (`u32 == 16` + descriptor).
+pub fn parse_gdfl_block(block: &[u8]) -> Option<PsdGradientFillData> {
+    let mut pos = 0usize;
+    let desc_ver = read_u32_be(block, &mut pos)?;
+    if desc_ver != 16 {
+        return None;
+    }
+    let desc = parse_descriptor_body(block, &mut pos, 0)?;
+    let kind = match desc.enum_value("Type") {
+        None | Some("Lnr " | "Lnr" | "linear") => PsdGradientFillKind::Linear,
+        Some("Rdl " | "Rdl" | "radial") => PsdGradientFillKind::Radial,
+        Some("Rflc" | "reflected") => PsdGradientFillKind::Reflected,
+        Some("Angl" | "angle" | "angular") => PsdGradientFillKind::Angular,
+        Some("Dmnd" | "diamond") => PsdGradientFillKind::Diamond,
+        Some(_) => return None,
+    };
+    let angle_deg = desc.number("Angl").unwrap_or(90.0).clamp(-3600.0, 3600.0);
+    let scale_pct = desc.number("Scl ").unwrap_or(100.0).clamp(1.0, 1000.0);
+    let reverse = desc.bool_or("Rvrs", false);
+    let align_with_layer = desc.bool_or("Algn", true);
+    let (offset_x, offset_y) = if let Some(ofst) = desc.object("Ofst") {
+        (
+            parse_offset_axis(ofst, "Hrzn"),
+            parse_offset_axis(ofst, "Vrtc"),
+        )
+    } else {
+        (
+            PsdGradientOffsetAxis::default(),
+            PsdGradientOffsetAxis::default(),
+        )
+    };
+
+    let grad = desc.object("Grad")?;
+    let mut color_stops = Vec::<(f64, u32)>::new();
+    if let Some(PsdDescriptorValue::List(clrs)) = grad.get("Clrs") {
+        for item in clrs {
+            if let PsdDescriptorValue::Object(stop_obj) = item {
+                let c = stop_obj
+                    .object("Clr ")
+                    .map(|co| descriptor_color_to_rgb24(co, 0xff_ffff))
+                    .unwrap_or(0xff_ffff);
+                let mut t = lctn_to_unit_f64(stop_obj);
+                if reverse {
+                    t = 1.0 - t;
+                }
+                color_stops.push((t, c));
+            }
+        }
+    }
+    if color_stops.is_empty() {
+        return None;
+    }
+    color_stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    let mut alpha_stops = Vec::<(f64, f64)>::new();
+    if let Some(PsdDescriptorValue::List(trns)) = grad.get("Trns") {
+        for item in trns {
+            if let PsdDescriptorValue::Object(stop_obj) = item {
+                let opct = (stop_obj.number("Opct").unwrap_or(100.0) / 100.0).clamp(0.0, 1.0);
+                let mut t = lctn_to_unit_f64(stop_obj);
+                if reverse {
+                    t = 1.0 - t;
+                }
+                alpha_stops.push((t, opct));
+            }
+        }
+    }
+    alpha_stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    let mut positions: Vec<f64> = color_stops
+        .iter()
+        .map(|s| s.0)
+        .chain(alpha_stops.iter().map(|s| s.0))
+        .collect();
+    positions.sort_by(|a, b| a.total_cmp(b));
+    positions.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+    if positions.is_empty() {
+        positions.extend_from_slice(&[0.0, 1.0]);
+    } else if positions.len() == 1 {
+        let only = positions[0];
+        if only < 0.5 {
+            positions.push(1.0);
+        } else {
+            positions.insert(0, 0.0);
+        }
+    }
+    if positions.len() > 32 {
+        let last = positions.len() - 1;
+        positions = (0..32).map(|i| positions[(i * last) / 31]).collect();
+    }
+
+    let mut stops = Vec::with_capacity(positions.len());
+    for t in positions {
+        let rgb = sample_color_stops_f64(&color_stops, t);
+        let alpha = (sample_alpha_stops_f64(&alpha_stops, t) * 255.0)
+            .round()
+            .clamp(0.0, 255.0) as u8;
+        stops.push((
+            t,
+            [
+                ((rgb >> 16) & 0xff) as u8,
+                ((rgb >> 8) & 0xff) as u8,
+                (rgb & 0xff) as u8,
+                alpha,
+            ],
+        ));
+    }
+
+    Some(PsdGradientFillData {
+        kind,
+        angle_deg,
+        scale_pct,
+        offset_x,
+        offset_y,
+        reverse,
+        align_with_layer,
+        stops,
+    })
+}
+
+impl PsdGradientFillData {
+    pub fn sample_stop_ramp(&self, t: f64) -> Color {
+        if self.stops.is_empty() {
+            return [0, 0, 0, 255];
+        }
+        let t = t.clamp(0.0, 1.0);
+        if t <= self.stops[0].0 {
+            return self.stops[0].1;
+        }
+        if let Some(&(last_t, last_c)) = self.stops.last()
+            && t >= last_t
+        {
+            return last_c;
+        }
+        for pair in self.stops.windows(2) {
+            let (t0, c0) = pair[0];
+            let (t1, c1) = pair[1];
+            if t >= t0 && t <= t1 {
+                let span = t1 - t0;
+                if span <= 1e-9 {
+                    return c1;
+                }
+                let u = ((t - t0) / span).clamp(0.0, 1.0);
+                return std::array::from_fn(|ch| {
+                    (f64::from(c0[ch]) + (f64::from(c1[ch]) - f64::from(c0[ch])) * u)
+                        .round()
+                        .clamp(0.0, 255.0) as u8
+                });
+            }
+        }
+        self.stops.last().map_or([0, 0, 0, 255], |s| s.1)
+    }
+
+    pub fn transform_colors(&mut self, mut f: impl FnMut(Color) -> Color) {
+        for (_, c) in &mut self.stops {
+            *c = f(*c);
+        }
+    }
+
+    /// Build `(fallback_color, fill_gradient, vector_mesh)` in local element coordinates over
+    /// `local_bounds = [min_x, min_y, width, height]`.
+    pub fn build_paint_and_mesh(
+        &self,
+        local_bounds: [f64; 4],
+    ) -> (Color, Option<GradientPaint>, Option<VectorMeshPaint>) {
+        let [x0, y0, raw_w, raw_h] = local_bounds;
+        let w = raw_w.max(1.0);
+        let h = raw_h.max(1.0);
+        let cx = x0 + w * 0.5 + self.offset_x.to_pixels(w);
+        let cy = y0 + h * 0.5 + self.offset_y.to_pixels(h);
+        let rad = -self.angle_deg.to_radians();
+        let (dy, dx) = rad.sin_cos();
+        let scale = (self.scale_pct / 100.0).clamp(0.01, 10.0);
+
+        match self.kind {
+            PsdGradientFillKind::Linear => {
+                let half_proj = 0.5 * (w * dx.abs() + h * dy.abs());
+                let half_span = (half_proj * scale).max(0.5);
+                let s = (half_span / 819.2).clamp(1e-4, 9_999.0);
+                let matrix = [dx * s, dy * s, -dy * s, dx * s, cx, cy];
+                let stops = self.to_gradient_stops_15();
+                let fallback = stops.first().map_or([0, 0, 0, 255], |st| st.color);
+                let gp = GradientPaint {
+                    kind: GradientKind::Linear,
+                    matrix,
+                    stops,
+                    focal_point_ratio: 0.0,
+                    spread: GradientSpread::Extend,
+                    linear_rgb: false,
+                };
+                (fallback, gp.validate().is_ok().then_some(gp), None)
+            }
+            PsdGradientFillKind::Reflected => {
+                let half_proj = 0.5 * (w * dx.abs() + h * dy.abs());
+                let half_span = (half_proj * scale).max(0.5);
+                let s = (half_span / 819.2).clamp(1e-4, 9_999.0);
+                let matrix = [dx * s, dy * s, -dy * s, dx * s, cx, cy];
+                let stops = self.to_reflected_stops_15();
+                let fallback = self.sample_stop_ramp(0.0);
+                let gp = GradientPaint {
+                    kind: GradientKind::Linear,
+                    matrix,
+                    stops,
+                    focal_point_ratio: 0.0,
+                    spread: GradientSpread::Extend,
+                    linear_rgb: false,
+                };
+                (fallback, gp.validate().is_ok().then_some(gp), None)
+            }
+            PsdGradientFillKind::Radial => {
+                let radius = (0.5 * w.hypot(h) * scale).max(0.5);
+                let s = (radius / 819.2).clamp(1e-4, 9_999.0);
+                let matrix = [s, 0.0, 0.0, s, cx, cy];
+                let stops = self.to_gradient_stops_15();
+                let fallback = stops.first().map_or([0, 0, 0, 255], |st| st.color);
+                let gp = GradientPaint {
+                    kind: GradientKind::Radial,
+                    matrix,
+                    stops,
+                    focal_point_ratio: 0.0,
+                    spread: GradientSpread::Extend,
+                    linear_rgb: false,
+                };
+                (fallback, gp.validate().is_ok().then_some(gp), None)
+            }
+            PsdGradientFillKind::Diamond => {
+                let rad_len = (0.5 * w.max(h) * scale).max(0.5);
+                let corners = [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]];
+                let mut max_manhattan = 1.05_f64;
+                for [px, py] in corners {
+                    let rx = px - cx;
+                    let ry = py - cy;
+                    let du = (rx * dx + ry * dy) / rad_len;
+                    let dv = (-rx * dy + ry * dx) / rad_len;
+                    max_manhattan = max_manhattan.max(du.abs() + dv.abs());
+                }
+                let outer_t = (max_manhattan + 0.1).min(64.0);
+                let mut rings: Vec<f64> = self
+                    .stops
+                    .iter()
+                    .map(|(t, _)| t.clamp(0.0, 1.0))
+                    .filter(|&t| t > 1e-4)
+                    .collect();
+                if rings.last().is_none_or(|&t| (t - 1.0).abs() > 1e-4) {
+                    rings.push(1.0);
+                }
+                rings.push(outer_t);
+                rings.sort_by(|a, b| a.total_cmp(b));
+                rings.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+
+                let to_local = |du: f64, dv: f64| -> [f64; 2] {
+                    [
+                        cx + (du * dx - dv * dy) * rad_len,
+                        cy + (du * dy + dv * dx) * rad_len,
+                    ]
+                };
+                let dirs: [[f64; 2]; 4] = [[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]];
+                let center_pt = [cx, cy];
+                let center_col = self.sample_stop_ramp(0.0);
+                let mut triangles = Vec::with_capacity(4 + rings.len() * 8);
+                let mut prev_r = 0.0_f64;
+                let mut prev_col = center_col;
+
+                for &r in &rings {
+                    let ring_col = self.sample_stop_ramp(r.min(1.0));
+                    if prev_r <= 1e-6 {
+                        for q in 0..4 {
+                            let d0 = dirs[q];
+                            let d1 = dirs[(q + 1) % 4];
+                            triangles.push(VectorMeshTriangle {
+                                points: [
+                                    center_pt,
+                                    to_local(d0[0] * r, d0[1] * r),
+                                    to_local(d1[0] * r, d1[1] * r),
+                                ],
+                                colors: [prev_col, ring_col, ring_col],
+                            });
+                        }
+                    } else {
+                        for q in 0..4 {
+                            let d0 = dirs[q];
+                            let d1 = dirs[(q + 1) % 4];
+                            let p0_in = to_local(d0[0] * prev_r, d0[1] * prev_r);
+                            let p1_in = to_local(d1[0] * prev_r, d1[1] * prev_r);
+                            let p0_out = to_local(d0[0] * r, d0[1] * r);
+                            let p1_out = to_local(d1[0] * r, d1[1] * r);
+                            triangles.push(VectorMeshTriangle {
+                                points: [p0_in, p0_out, p1_out],
+                                colors: [prev_col, ring_col, ring_col],
+                            });
+                            triangles.push(VectorMeshTriangle {
+                                points: [p0_in, p1_out, p1_in],
+                                colors: [prev_col, ring_col, prev_col],
+                            });
+                        }
+                    }
+                    prev_r = r;
+                    prev_col = ring_col;
+                }
+
+                let mesh = VectorMeshPaint {
+                    patches: Vec::new(),
+                    triangles,
+                    linear_rgb: false,
+                };
+                let fallback = mesh.representative_color();
+                (fallback, None, Some(mesh))
+            }
+            PsdGradientFillKind::Angular => {
+                let corners = [[x0, y0], [x0 + w, y0], [x0 + w, y0 + h], [x0, y0 + h]];
+                let mut max_dist = 1.0_f64;
+                for [px, py] in corners {
+                    max_dist = max_dist.max((px - cx).hypot(py - cy));
+                }
+                let outer_r = (max_dist * 1.15).max(2.0);
+                let core_r = (outer_r * 1e-3).max(1e-2);
+
+                const MIN_SECTORS: usize = 24;
+                let mut angles: Vec<f64> = (0..=MIN_SECTORS)
+                    .map(|i| (i as f64) / (MIN_SECTORS as f64))
+                    .collect();
+                for &(t, _) in &self.stops {
+                    angles.push(t.clamp(0.0, 1.0));
+                }
+                angles.sort_by(|a, b| a.total_cmp(b));
+                angles.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+
+                let to_local_polar = |r: f64, u_turn: f64| -> [f64; 2] {
+                    // Photoshop Angular sweeps CCW in screen space starting from `angle_deg`.
+                    let theta = -u_turn * std::f64::consts::TAU;
+                    let (ts, tc) = theta.sin_cos();
+                    let ux = tc * dx - ts * dy;
+                    let uy = tc * dy + ts * dx;
+                    [cx + ux * r, cy + uy * r]
+                };
+
+                let mut avg = [0u64; 4];
+                for k in 0..MIN_SECTORS {
+                    let c = self.sample_stop_ramp((k as f64 + 0.5) / (MIN_SECTORS as f64));
+                    for ch in 0..4 {
+                        avg[ch] += u64::from(c[ch]);
+                    }
+                }
+                let center_col = std::array::from_fn(|ch| (avg[ch] / (MIN_SECTORS as u64)) as u8);
+                let center_pt = [cx, cy];
+
+                let mut triangles = Vec::with_capacity(angles.len() * 3);
+                for pair in angles.windows(2) {
+                    let u0 = pair[0];
+                    let u1 = pair[1];
+                    if u1 - u0 <= 1e-6 {
+                        continue;
+                    }
+                    let c0 = self.sample_stop_ramp(u0);
+                    let c1 = if (u1 - 1.0).abs() < 1e-6 {
+                        self.stops.last().map_or(c0, |s| s.1)
+                    } else {
+                        self.sample_stop_ramp(u1)
+                    };
+                    let p0_core = to_local_polar(core_r, u0);
+                    let p1_core = to_local_polar(core_r, u1);
+                    let p0_out = to_local_polar(outer_r, u0);
+                    let p1_out = to_local_polar(outer_r, u1);
+                    triangles.push(VectorMeshTriangle {
+                        points: [center_pt, p0_core, p1_core],
+                        colors: [center_col, c0, c1],
+                    });
+                    triangles.push(VectorMeshTriangle {
+                        points: [p0_core, p0_out, p1_out],
+                        colors: [c0, c0, c1],
+                    });
+                    triangles.push(VectorMeshTriangle {
+                        points: [p0_core, p1_out, p1_core],
+                        colors: [c0, c1, c1],
+                    });
+                }
+
+                let mesh = VectorMeshPaint {
+                    patches: Vec::new(),
+                    triangles,
+                    linear_rgb: false,
+                };
+                let fallback = mesh.representative_color();
+                (fallback, None, Some(mesh))
+            }
+        }
+    }
+
+    fn to_gradient_stops_15(&self) -> Vec<GradientStop> {
+        let src: Vec<(f64, Color)> = if self.stops.len() > 15 {
+            let last = self.stops.len() - 1;
+            (0..15).map(|i| self.stops[(i * last) / 14]).collect()
+        } else {
+            self.stops.clone()
+        };
+        let mut out = Vec::with_capacity(src.len().max(2));
+        let mut prev_ratio = 0u8;
+        for (idx, (t, color)) in src.into_iter().enumerate() {
+            let raw = (t.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let ratio = if idx == 0 { raw } else { raw.max(prev_ratio) };
+            prev_ratio = ratio;
+            out.push(GradientStop { ratio, color });
+        }
+        if out.is_empty() {
+            out.push(GradientStop {
+                ratio: 0,
+                color: [0, 0, 0, 255],
+            });
+            out.push(GradientStop {
+                ratio: 255,
+                color: [255, 255, 255, 255],
+            });
+        }
+        out
+    }
+
+    fn to_reflected_stops_15(&self) -> Vec<GradientStop> {
+        // Mirror `1.0 -> 0.0 -> 1.0` across canonical `0..=255` (`128` = center).
+        let mut mirrored = Vec::<(f64, Color)>::new();
+        for &(t, col) in self.stops.iter().rev() {
+            mirrored.push(((1.0 - t.clamp(0.0, 1.0)) * 0.5, col));
+        }
+        for &(t, col) in &self.stops {
+            let u = 0.5 + t.clamp(0.0, 1.0) * 0.5;
+            if mirrored
+                .last()
+                .is_none_or(|(prev_u, _)| (u - *prev_u).abs() > 1e-4)
+            {
+                mirrored.push((u, col));
+            }
+        }
+        let capped: Vec<(f64, Color)> = if mirrored.len() > 15 {
+            (0..15)
+                .map(|i| {
+                    let u = (i as f64) / 14.0;
+                    let t = (u - 0.5).abs() * 2.0;
+                    (u, self.sample_stop_ramp(t))
+                })
+                .collect()
+        } else {
+            mirrored
+        };
+        let mut out = Vec::with_capacity(capped.len());
+        let mut prev_ratio = 0u8;
+        for (idx, (u, color)) in capped.into_iter().enumerate() {
+            let raw = (u.clamp(0.0, 1.0) * 255.0).round() as u8;
+            let ratio = if idx == 0 { raw } else { raw.max(prev_ratio) };
+            prev_ratio = ratio;
+            out.push(GradientStop { ratio, color });
+        }
+        out
+    }
+}
+
+#[derive(Clone, Copy)]
+struct VmskKnot {
+    preceding: [f64; 2],
+    anchor: [f64; 2],
+    leaving: [f64; 2],
+}
+
+fn read_fixed_8_24(bytes: &[u8]) -> f64 {
+    let raw = i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    f64::from(raw) / 16_777_216.0
+}
+
+fn append_vmsk_subpath(knots: &[VmskKnot], closed: bool, out: &mut Vec<PathCommand>) {
+    if knots.len() < 2 {
+        return;
+    }
+    out.push(PathCommand::MoveTo {
+        x: knots[0].anchor[0],
+        y: knots[0].anchor[1],
+    });
+    let seg_count = if closed { knots.len() } else { knots.len() - 1 };
+    for i in 0..seg_count {
+        let a = &knots[i];
+        let b = &knots[(i + 1) % knots.len()];
+        let straight = (a.leaving[0] - a.anchor[0]).hypot(a.leaving[1] - a.anchor[1]) < 1e-3
+            && (b.preceding[0] - b.anchor[0]).hypot(b.preceding[1] - b.anchor[1]) < 1e-3;
+        if straight {
+            out.push(PathCommand::LineTo {
+                x: b.anchor[0],
+                y: b.anchor[1],
+            });
+        } else {
+            out.push(PathCommand::CubicTo {
+                cx1: a.leaving[0],
+                cy1: a.leaving[1],
+                cx2: b.preceding[0],
+                cy2: b.preceding[1],
+                x: b.anchor[0],
+                y: b.anchor[1],
+            });
+        }
+    }
+    if closed {
+        out.push(PathCommand::Close);
+    }
+}
+
+/// Parse a Photoshop `vmsk` or `vsms` vector mask block (`version == 3`, 26-byte path knot records)
+/// into stage-space [`PathCommand`]s and [`FillRule`] (`T-501`).
+pub fn parse_vmsk_block(
+    block: &[u8],
+    canvas_width: u32,
+    canvas_height: u32,
+) -> Option<(Vec<PathCommand>, FillRule)> {
+    if block.len() < 34 || canvas_width == 0 || canvas_height == 0 {
+        return None;
+    }
+    let version = u32::from_be_bytes([block[0], block[1], block[2], block[3]]);
+    let flags = u32::from_be_bytes([block[4], block[5], block[6], block[7]]);
+    // Only version-3 active (`disable` bit 0x04 unset) non-inverted vector masks map directly
+    // to shape contours; inverted (`flags & 0x01 != 0`) wraps the canvas exterior first.
+    if version != 3 || (flags & 0x04) != 0 {
+        return None;
+    }
+    let inverted = (flags & 0x01) != 0;
+    let cw = f64::from(canvas_width);
+    let ch = f64::from(canvas_height);
+    let records = &block[8..];
+    if records.len() < 26 {
+        return None;
+    }
+
+    let mut commands = Vec::new();
+    let mut fill_rule = if inverted {
+        FillRule::EvenOdd
+    } else {
+        FillRule::NonZero
+    };
+    if inverted {
+        commands.extend(rectangle_path_commands(cw, ch, RectangleOptions::default()));
+    }
+
+    let mut current_knots: Vec<VmskKnot> = Vec::new();
+    let mut current_closed = true;
+    let mut expected_knots = 0usize;
+
+    for rec in records.as_chunks::<26>().0 {
+        if current_knots.len() >= 16_384 || commands.len() >= MAX_PATH_COMMANDS {
+            return None;
+        }
+        let selector = u16::from_be_bytes([rec[0], rec[1]]);
+        match selector {
+            0 | 3 => {
+                if !current_knots.is_empty() {
+                    if commands
+                        .len()
+                        .saturating_add(current_knots.len())
+                        .saturating_add(2)
+                        > MAX_PATH_COMMANDS
+                    {
+                        return None;
+                    }
+                    append_vmsk_subpath(&current_knots, current_closed, &mut commands);
+                    current_knots.clear();
+                }
+                expected_knots = usize::from(u16::from_be_bytes([rec[2], rec[3]])).min(16_384);
+                current_closed = selector == 0;
+            }
+            1 | 2 | 4 | 5 => {
+                let py = (read_fixed_8_24(&rec[2..6]) * ch).clamp(-1e6, 1e6);
+                let px = (read_fixed_8_24(&rec[6..10]) * cw).clamp(-1e6, 1e6);
+                let ay = (read_fixed_8_24(&rec[10..14]) * ch).clamp(-1e6, 1e6);
+                let ax = (read_fixed_8_24(&rec[14..18]) * cw).clamp(-1e6, 1e6);
+                let ly = (read_fixed_8_24(&rec[18..22]) * ch).clamp(-1e6, 1e6);
+                let lx = (read_fixed_8_24(&rec[22..26]) * cw).clamp(-1e6, 1e6);
+                current_knots.push(VmskKnot {
+                    preceding: [px, py],
+                    anchor: [ax, ay],
+                    leaving: [lx, ly],
+                });
+                if expected_knots > 0 && current_knots.len() == expected_knots {
+                    if commands
+                        .len()
+                        .saturating_add(current_knots.len())
+                        .saturating_add(2)
+                        > MAX_PATH_COMMANDS
+                    {
+                        return None;
+                    }
+                    append_vmsk_subpath(&current_knots, current_closed, &mut commands);
+                    current_knots.clear();
+                    expected_knots = 0;
+                }
+            }
+            6 if !inverted && u16::from_be_bytes([rec[2], rec[3]]) == 1 => {
+                fill_rule = FillRule::EvenOdd;
+            }
+            _ => {}
+        }
+    }
+    if !current_knots.is_empty() {
+        if commands
+            .len()
+            .saturating_add(current_knots.len())
+            .saturating_add(2)
+            > MAX_PATH_COMMANDS
+        {
+            return None;
+        }
+        append_vmsk_subpath(&current_knots, current_closed, &mut commands);
+    }
+    if commands.is_empty() || validate_path_commands(&commands).is_err() {
+        return None;
+    }
+    Some((commands, fill_rule))
 }

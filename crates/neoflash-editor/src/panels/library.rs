@@ -1166,6 +1166,23 @@ impl Editor {
                 );
             }
 
+            let mut symbol_armature_remap = HashMap::<String, String>::new();
+            for layer in &symbol.timeline.layers {
+                for key in &layer.keyframes {
+                    for armature in &key.ik_armatures {
+                        if symbol_armature_remap.contains_key(&armature.id) {
+                            continue;
+                        }
+                        let imported_id = if occupied_ids.insert(armature.id.clone()) {
+                            armature.id.clone()
+                        } else {
+                            fresh_import_id("ik", &armature.id, &mut occupied_ids)
+                        };
+                        symbol_armature_remap.insert(armature.id.clone(), imported_id);
+                    }
+                }
+            }
+
             for layer in &mut symbol.timeline.layers {
                 layer.id = symbol_layer_remap[&layer.id].clone();
                 remap_optional_id(&mut layer.properties.parent, &symbol_layer_remap);
@@ -1222,10 +1239,21 @@ impl Editor {
                         }
                     }
                     for armature in &mut key.ik_armatures {
+                        if let Some(imported_arm) = symbol_armature_remap.get(&armature.id) {
+                            armature.id = imported_arm.clone();
+                        }
                         for bone in &mut armature.bones {
                             if let Some(imported) = symbol_element_remap.get(&bone.element_id) {
                                 bone.element_id = imported.clone();
                             }
+                        }
+                    }
+                    for skin in &mut key.ik_skins {
+                        if let Some(imported) = symbol_element_remap.get(&skin.shape_element_id) {
+                            skin.shape_element_id = imported.clone();
+                        }
+                        if let Some(imported_arm) = symbol_armature_remap.get(&skin.armature_id) {
+                            skin.armature_id = imported_arm.clone();
                         }
                     }
                     for appearance in &mut key.appearances {

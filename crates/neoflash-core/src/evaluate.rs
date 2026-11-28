@@ -20,6 +20,9 @@ pub struct DrawItem<K = ElementKind> {
     /// Image paint on this shape's active keyframe, in its local coordinates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bitmap_fill: Option<AuthoredBitmapFill>,
+    /// True-vector mesh paint (bicubic Tensor/Coons patches or Gouraud triangles) in local coordinates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mesh_fill: Option<VectorMeshPaint>,
     /// Derived local-path cache hint. It is intentionally absent from serialized snapshots and
     /// equality so renderer preparation never changes the public evaluation contract.
     #[serde(skip)]
@@ -40,6 +43,7 @@ where
             && self.alpha == other.alpha
             && self.color_transform == other.color_transform
             && self.bitmap_fill == other.bitmap_fill
+            && self.mesh_fill == other.mesh_fill
             && self.kind == other.kind
     }
 }
@@ -54,6 +58,7 @@ impl<K> DrawItem<K> {
             alpha: self.alpha,
             color_transform: self.color_transform,
             bitmap_fill: self.bitmap_fill,
+            mesh_fill: self.mesh_fill,
             path_fingerprint: None,
             kind: map(self.kind),
         }
@@ -1341,7 +1346,28 @@ fn apply_keyframe_rigs_and_appearances(
                 lerp(armature.target_pos[1], next_arm.target_pos[1], t),
             ];
         }
-        crate::geometry::solve_ik_armature(&mut elements, &arm);
+        if !key.ik_joint_specs.is_empty() || !key.ik_skins.is_empty() {
+            crate::ik_puppet_3d::solve_ik_armature_fabrik_ccd(
+                &mut elements,
+                &arm,
+                &key.ik_joint_specs,
+            );
+            for skin in &key.ik_skins {
+                if skin.armature_id == arm.id
+                    && let Some(pos) = elements.iter().position(|e| e.id == skin.shape_element_id)
+                {
+                    let deformed = crate::ik_puppet_3d::deform_shape_with_ik_skin(
+                        &elements[pos],
+                        skin,
+                        &arm,
+                        &elements,
+                    );
+                    elements[pos] = deformed;
+                }
+            }
+        } else {
+            crate::geometry::solve_ik_armature(&mut elements, &arm);
+        }
     }
 
     // 2. Apply element parenting hierarchy (`element_parents`) so children inherit parent transforms.
@@ -3385,7 +3411,12 @@ impl Walker<'_> {
                         depth + 1,
                     );
                 } else {
-                    let kind = e.parametric_path_kind().unwrap_or(e.kind);
+                    let kind = e.parametric_path_kind().unwrap_or(e.kind.clone());
+                    let mesh_fill = active_key.and_then(|k| {
+                        let fx = k.vector_effects(&e.id)?;
+                        let base_el = k.elements.iter().find(|orig| orig.id == e.id).unwrap_or(&e);
+                        fx.resolved_vector_mesh(base_el)
+                    });
                     node.kind = Some(kind.clone());
                     self.result.nodes.push(node);
                     if effective_visible {
@@ -3394,6 +3425,7 @@ impl Walker<'_> {
                                 .as_ref()
                                 .and_then(|fills| fills.get(e.id.as_str()).copied())
                                 .cloned(),
+                            mesh_fill,
                             element_id: e.id,
                             name: e.name,
                             instance_path: path,
