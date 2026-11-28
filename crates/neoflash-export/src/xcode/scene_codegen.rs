@@ -74,11 +74,19 @@ pub(super) fn generate_scenes_and_contract(
     // Assign collision-free Swift class names to every exported symbol.
     let mut used_class_names: BTreeSet<String> = BTreeSet::from([
         "NFValue".into(),
+        "NFRuntime".into(),
         "NFScriptError".into(),
         "NFError".into(),
         "NFPoint".into(),
         "NFRectangle".into(),
         "NFMatrix".into(),
+        "NFAffineMatrix".into(),
+        "NFEvent".into(),
+        "NFMouseEvent".into(),
+        "NFKeyboardEvent".into(),
+        "NFTouchEvent".into(),
+        "NFEventDispatcher".into(),
+        "NFIEventDispatcher".into(),
         "NFDisplayObject".into(),
         "NFSprite".into(),
         "NFMovieClip".into(),
@@ -90,29 +98,118 @@ pub(super) fn generate_scenes_and_contract(
         "NFGraphics".into(),
         "NFStage".into(),
         "NFStageInputState".into(),
-        "NFTouchEvent".into(),
         "NFRenderer".into(),
+        "NFResourceCache".into(),
         "NFAudioManager".into(),
         "NFSound".into(),
         "NFSoundChannel".into(),
         "NFSoundTransform".into(),
         "NFSoundMixer".into(),
+        "NFBitmapData".into(),
+        "NFBitmapDataBox".into(),
+        "NFByteArray".into(),
+        "NFEndian".into(),
+        "NFCompressionAlgorithm".into(),
+        "NFObjectEncoding".into(),
+        "NFSharedObject".into(),
+        "NFSharedObjectFlushStatus".into(),
+        "NFXMLNode".into(),
+        "NFXMLDocument".into(),
+        "NFXML".into(),
+        "NFXMLList".into(),
+        "NFNamespace".into(),
+        "NFQName".into(),
+        "NFPixelSnapping".into(),
+        "NFGradientType".into(),
+        "NFSpreadMethod".into(),
+        "NFInterpolationMethod".into(),
+        "NFGraphicsPathWinding".into(),
+        "NFGraphicsPathCommand".into(),
+        "NFTextFormatAlign".into(),
+        "NFBitmapFilterType".into(),
+        "NFPNGEncoderOptions".into(),
+        "NFJPEGEncoderOptions".into(),
+        "NFErrorEvent".into(),
+        "NFAsyncErrorEvent".into(),
+        "NFTextFormat".into(),
+        "NFStyleSheet".into(),
+        "NFTextLineMetrics".into(),
+        "NFTextFieldAutoSize".into(),
+        "NFAntiAliasType".into(),
+        "NFGridFitType".into(),
+        "NFTransform".into(),
+        "NFAS2Color".into(),
+        "NFVector3D".into(),
+        "NFMatrix3D".into(),
+        "NFPerspectiveProjection".into(),
+        "NFTimer".into(),
+        "NFTimerEvent".into(),
+        "NFDate".into(),
+        "NFJSON".into(),
+        "NFRegExp".into(),
+        "NFNumberFormatter".into(),
+        "NFLocale".into(),
+        "NFIOErrorEvent".into(),
+        "NFSecurityErrorEvent".into(),
+        "NFProgressEvent".into(),
+        "NFHTTPStatusEvent".into(),
+        "NFTextEvent".into(),
+        "NFFocusEvent".into(),
+        "NFNetStatusEvent".into(),
+        "NFURLRequest".into(),
+        "NFURLVariables".into(),
+        "NFURLLoader".into(),
+        "NFURLLoaderDataFormat".into(),
+        "NFLoadVars".into(),
+        "NFLoader".into(),
+        "NFLoaderInfo".into(),
+        "NFMovieClipLoader".into(),
+        "NFNetConnection".into(),
+        "NFNetStream".into(),
+        "NFSystem".into(),
+        "NFCapabilities".into(),
+        "NFMouse".into(),
+        "NFSelection".into(),
+        "NFFrameLabel".into(),
+        "NFDepthManager".into(),
+        "NFCamera".into(),
+        "NFMicrophone".into(),
+        "NFLocalConnection".into(),
+        "NFFileReference".into(),
+        "NFFileFilter".into(),
+        "NFContextMenu".into(),
+        "NFContextMenuItem".into(),
+        "NFPrintJob".into(),
         "NeoFlashStageView".into(),
         "SwiftHostProtocol".into(),
         "AppSwiftHost".into(),
         "ContentView".into(),
         "NFGeneratedSymbolRegistry".into(),
     ]);
+    let linked_source_class_names: BTreeSet<String> = scripts
+        .map(|b| {
+            b.symbols
+                .iter()
+                .filter(|s| s.is_linked_source_class && !s.swift_class_name.trim().is_empty())
+                .map(|s| s.swift_class_name.trim().to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
     if let Some(bundle) = scripts {
         for line in bundle.source_classes_swift.lines() {
             let trimmed = line.trim_start();
-            for prefix in ["public class ", "public final class ", "public protocol "] {
+            for prefix in [
+                "open class ",
+                "public class ",
+                "public final class ",
+                "public protocol ",
+            ] {
                 if let Some(rest) = trimmed.strip_prefix(prefix) {
                     let ident: String = rest
                         .chars()
                         .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
                         .collect();
-                    if !ident.is_empty() {
+                    if !ident.is_empty() && !linked_source_class_names.contains(&ident) {
                         used_class_names.insert(ident);
                     }
                 }
@@ -125,8 +222,21 @@ pub(super) fn generate_scenes_and_contract(
 
     for sym in &ordered_symbols {
         let is_root = sym.id == flattened.root;
-        let requested = script_by_symbol
-            .get(sym.id.as_str())
+        let sym_bundle = script_by_symbol.get(sym.id.as_str()).copied();
+        if let Some(bundle) = sym_bundle
+            && bundle.is_linked_source_class
+            && !bundle.swift_class_name.trim().is_empty()
+        {
+            let exact = bundle.swift_class_name.trim().to_owned();
+            used_class_names.insert(exact.clone());
+            if is_root && exact != "MainScene" {
+                needs_main_scene_typealias = Some(exact.clone());
+            }
+            class_name_by_symbol_id.insert(sym.id.clone(), exact);
+            continue;
+        }
+
+        let requested = sym_bundle
             .map(|b| b.swift_class_name.trim())
             .filter(|s| !s.is_empty());
 
@@ -174,27 +284,81 @@ pub(super) fn generate_scenes_and_contract(
         let _ = writeln!(out, "\n");
     }
 
-    // Emit centralized symbol factory registry
+    let (sound_links, bitmap_links, path_links) =
+        collect_resource_linkage_maps(flattened, resource_filenames);
+
+    // Emit centralized symbol & resource factory registry
     let _ = writeln!(out, "@MainActor");
     let _ = writeln!(out, "public enum NFGeneratedSymbolRegistry {{");
+    let _ = writeln!(out, "    private static var _didRegisterResources = false");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "    public static func registerResourcesIfNeeded() {{");
+    let _ = writeln!(
+        out,
+        "        guard !_didRegisterResources else {{ return }}"
+    );
+    let _ = writeln!(out, "        _didRegisterResources = true");
+    for (k, v) in &sound_links {
+        let _ = writeln!(
+            out,
+            "        if NFAudioManager.shared.soundLinkageMap[{}] == nil {{ NFAudioManager.shared.soundLinkageMap[{}] = {} }}",
+            swift_str(k),
+            swift_str(k),
+            swift_str(v)
+        );
+    }
+    for (k, v) in &bitmap_links {
+        let _ = writeln!(
+            out,
+            "        if NFResourceCache.shared.bitmapLinkageMap[{}] == nil {{ NFResourceCache.shared.bitmapLinkageMap[{}] = {} }}",
+            swift_str(k),
+            swift_str(k),
+            swift_str(v)
+        );
+    }
+    for (k, v) in &path_links {
+        let _ = writeln!(
+            out,
+            "        if NFResourceCache.shared.resourcePathMap[{}] == nil {{ NFResourceCache.shared.resourcePathMap[{}] = {} }}",
+            swift_str(k),
+            swift_str(k),
+            swift_str(v)
+        );
+    }
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out);
     let _ = writeln!(
         out,
         "    public static func instantiate(_ symbolId: String) -> NFDisplayObject? {{"
     );
+    let _ = writeln!(out, "        registerResourcesIfNeeded()");
     let _ = writeln!(out, "        switch symbolId {{");
+    let mut emitted_case_keys: BTreeSet<String> = BTreeSet::new();
     for sym in &ordered_symbols {
         if sym.id == flattened.root {
             continue;
         }
         if let Some(cls) = class_name_by_symbol_id.get(&sym.id) {
-            let mut keys = vec![swift_str(&sym.id)];
-            if let Some(link) = &sym.linkage_id
-                && !link.trim().is_empty()
-                && link != &sym.id
+            let mut keys = Vec::new();
+            for cand in [
+                Some(sym.id.as_str()),
+                sym.linkage_id.as_deref(),
+                sym.class_name.as_deref(),
+                sym.class_name
+                    .as_deref()
+                    .and_then(|cn| cn.rsplit('.').next()),
+            ]
+            .into_iter()
+            .flatten()
             {
-                keys.push(swift_str(link));
+                let trimmed = cand.trim();
+                if !trimmed.is_empty() && emitted_case_keys.insert(trimmed.to_owned()) {
+                    keys.push(swift_str(trimmed));
+                }
             }
-            let _ = writeln!(out, "        case {}: return {cls}()", keys.join(", "));
+            if !keys.is_empty() {
+                let _ = writeln!(out, "        case {}: return {cls}()", keys.join(", "));
+            }
         }
     }
     let _ = writeln!(out, "        default: return nil");
@@ -272,6 +436,7 @@ struct EncodedText {
     max_chars: u32,
     restrict: Option<String>,
     html: bool,
+    variable: Option<String>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -320,6 +485,7 @@ struct EncodedPlacement {
     visible: bool,
     blend_mode: BlendMode,
     filters: Vec<FilterSpec>,
+    scale9_grid: Option<[f64; 4]>,
     payload: EncodedPayload,
 }
 
@@ -566,6 +732,95 @@ fn emit_symbol_class(
             .unwrap_or(""),
     );
 
+    let is_linked_source_class = script_bundle.is_some_and(|b| b.is_linked_source_class);
+    let sym_kind_swift = if is_root {
+        ".movieClip"
+    } else {
+        match symbol.kind {
+            SymbolKind::MovieClip => ".movieClip",
+            SymbolKind::Graphic => ".graphic",
+            SymbolKind::Button => ".button",
+        }
+    };
+
+    if is_linked_source_class {
+        let _ = writeln!(out, "@MainActor");
+        let _ = writeln!(out, "extension {class_name} {{");
+        emit_timeline_spec_constant(
+            out,
+            class_name,
+            total_frames,
+            &symbol.timeline,
+            scene_ranges,
+            &sounds_by_frame,
+            resource_filenames,
+            &shape_catalog,
+            &text_catalog,
+            &bitmap_catalog,
+            &video_catalog,
+            &encoded_layers,
+        );
+        let _ = writeln!(out, "    fileprivate func _nfConfigureLinkedSymbol() {{");
+        let _ = writeln!(
+            out,
+            "        NFGeneratedSymbolRegistry.registerResourcesIfNeeded()"
+        );
+        let _ = writeln!(out, "        self.symbolKind = {sym_kind_swift}");
+        if is_root {
+            let [r, g, b, a] = project.background;
+            let _ = writeln!(
+                out,
+                "        self.stageMetadata = NFStageMetadata(width: {}, height: {}, fps: {}, backgroundColor: NFColor(r: {r}, g: {g}, b: {b}, a: {a}))",
+                fmt_f64(f64::from(project.width)),
+                fmt_f64(f64::from(project.height)),
+                fmt_f64(fps)
+            );
+        }
+        if let Some([gx, gy, gw, gh]) = symbol.scale9_grid() {
+            let _ = writeln!(
+                out,
+                "        self.scale9Grid = NFRectangle(x: {}, y: {}, width: {}, height: {})",
+                fmt_f64(gx),
+                fmt_f64(gy),
+                fmt_f64(gw),
+                fmt_f64(gh)
+            );
+        }
+        let _ = writeln!(
+            out,
+            "        self.configureTimeline({class_name}._nfTimelineSpec)"
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    fileprivate func _nfBindLinkedChild(_ name: String) -> NFDisplayObject? {{"
+        );
+        if named_bindings.is_empty() {
+            let _ = writeln!(out, "        _ = name");
+            let _ = writeln!(out, "        return nil");
+        } else {
+            let _ = writeln!(out, "        switch name {{");
+            for binding in &named_bindings {
+                let _ = writeln!(
+                    out,
+                    "        case {}: return self.{}",
+                    swift_str(&binding.raw_name),
+                    binding.swift_prop_name
+                );
+            }
+            let _ = writeln!(out, "        default: return nil");
+            let _ = writeln!(out, "        }}");
+        }
+        let _ = writeln!(out, "    }}");
+
+        if let Some(bundle) = script_bundle {
+            emit_symbol_script_methods(out, bundle, true);
+        }
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
     let superclass = if !is_root && symbol.kind == SymbolKind::Button {
         "NFButton"
     } else {
@@ -598,15 +853,54 @@ fn emit_symbol_class(
     if let Some(bundle) = script_bundle
         && !bundle.properties_swift.trim().is_empty()
     {
+        let mut extra_prop_names: BTreeSet<String> = BTreeSet::new();
         for line in bundle.properties_swift.lines() {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed
+                .strip_prefix("public var ")
+                .or_else(|| trimmed.strip_prefix("var "))
+            {
+                let ident: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '`')
+                    .collect();
+                let unquoted = ident.trim_matches('`');
+                if !unquoted.is_empty() && !unquoted.starts_with('_') {
+                    extra_prop_names.insert(unquoted.to_owned());
+                }
+            }
             let _ = writeln!(out, "    {}", line);
         }
         let _ = writeln!(out);
+        if !extra_prop_names.is_empty() {
+            let _ = writeln!(
+                out,
+                "    public override func nfGetProperty(_ key: String) -> NFValue {{"
+            );
+            let _ = writeln!(out, "        switch key {{");
+            for pn in &extra_prop_names {
+                let id = if pn.contains(|c: char| !c.is_ascii_alphanumeric() && c != '_') {
+                    continue;
+                } else {
+                    pn.clone()
+                };
+                let _ = writeln!(
+                    out,
+                    "        case {}: return NFValue.wrap(self.`{id}`)",
+                    swift_str(pn)
+                );
+            }
+            let _ = writeln!(out, "        default: return super.nfGetProperty(key)");
+            let _ = writeln!(out, "        }}");
+            let _ = writeln!(out, "    }}");
+            let _ = writeln!(out);
+        }
     }
 
     // Static timeline spec builder so init() stays fast and clean
     emit_timeline_spec_constant(
         out,
+        class_name,
         total_frames,
         &symbol.timeline,
         scene_ranges,
@@ -625,15 +919,10 @@ fn emit_symbol_class(
         swift_str(&symbol.name)
     );
     let _ = writeln!(out, "        super.init(name: name)");
-    let sym_kind_swift = if is_root {
-        ".movieClip"
-    } else {
-        match symbol.kind {
-            SymbolKind::MovieClip => ".movieClip",
-            SymbolKind::Graphic => ".graphic",
-            SymbolKind::Button => ".button",
-        }
-    };
+    let _ = writeln!(
+        out,
+        "        NFGeneratedSymbolRegistry.registerResourcesIfNeeded()"
+    );
     let _ = writeln!(out, "        self.symbolKind = {sym_kind_swift}");
     if is_root {
         let [r, g, b, a] = project.background;
@@ -645,7 +934,20 @@ fn emit_symbol_class(
             fmt_f64(fps)
         );
     }
-    let _ = writeln!(out, "        self.configureTimeline(Self._nfTimelineSpec)");
+    if let Some([gx, gy, gw, gh]) = symbol.scale9_grid() {
+        let _ = writeln!(
+            out,
+            "        self.scale9Grid = NFRectangle(x: {}, y: {}, width: {}, height: {})",
+            fmt_f64(gx),
+            fmt_f64(gy),
+            fmt_f64(gw),
+            fmt_f64(gh)
+        );
+    }
+    let _ = writeln!(
+        out,
+        "        self.configureTimeline({class_name}._nfTimelineSpec)"
+    );
     let _ = writeln!(out, "    }}");
 
     let _ = writeln!(out);
@@ -681,7 +983,7 @@ fn emit_symbol_class(
 
     // Emit script methods & handlers if present
     if let Some(bundle) = script_bundle {
-        emit_symbol_script_methods(out, bundle);
+        emit_symbol_script_methods(out, bundle, false);
     }
 
     let _ = writeln!(out, "}}");
@@ -774,7 +1076,7 @@ where
             None => continue,
         };
 
-        let mut combined_filters = el.filters;
+        let mut combined_filters = el.filters.clone();
         if let Some(k) = active_key
             && !k.filters.is_empty()
         {
@@ -783,6 +1085,7 @@ where
         if !layer.properties.filters.is_empty() {
             combined_filters.extend(layer.properties.filters.iter().cloned());
         }
+        let scale9_grid = el.scale9_grid();
 
         out.push(EncodedPlacement {
             element_id: el.id,
@@ -799,6 +1102,7 @@ where
             visible: el.visible,
             blend_mode: el.blend_mode,
             filters: combined_filters,
+            scale9_grid,
             payload,
         });
     }
@@ -1003,6 +1307,7 @@ where
                     max_chars: 0,
                     restrict: None,
                     html: false,
+                    variable: None,
                 },
             );
             Some(EncodedPayload::Text(idx))
@@ -1039,6 +1344,7 @@ where
             let max_chars = field_opts.as_ref().map_or(0, |o| o.max_chars);
             let restrict = field_opts.as_ref().and_then(|o| o.restrict.clone());
             let html = field_opts.as_ref().is_some_and(|o| o.html);
+            let variable = field_opts.as_ref().and_then(|o| o.variable.clone());
             let idx = intern_text(
                 text_catalog,
                 EncodedText {
@@ -1065,6 +1371,7 @@ where
                     max_chars,
                     restrict,
                     html,
+                    variable,
                 },
             );
             Some(EncodedPayload::Text(idx))
@@ -1190,6 +1497,21 @@ fn collect_named_instance_bindings(
         "host",
         "timelineSpec",
         "currentLabel",
+        "currentFrameLabel",
+        "currentLabels",
+        "framesLoaded",
+        "trackAsMenu",
+        "scrollRect",
+        "scale9Grid",
+        "opaqueBackground",
+        "transform",
+        "cacheAsBitmap",
+        "useHandCursor",
+        "tabEnabled",
+        "tabChildren",
+        "tabIndex",
+        "doubleClickEnabled",
+        "loaderInfo",
         "enabled",
         "buttonState",
         "inputState",
@@ -1283,9 +1605,98 @@ fn collect_named_instance_bindings(
     result
 }
 
+type ResourceLinkageMaps = (
+    BTreeMap<String, String>,
+    BTreeMap<String, String>,
+    BTreeMap<String, String>,
+);
+
+fn collect_resource_linkage_maps(
+    project: &Project,
+    resource_filenames: &BTreeMap<String, String>,
+) -> ResourceLinkageMaps {
+    let mut sound_links = BTreeMap::new();
+    let mut bitmap_links = BTreeMap::new();
+    let mut path_links = BTreeMap::new();
+
+    for res in &project.resources {
+        let Some(exported) = resource_filenames.get(&res.id) else {
+            continue;
+        };
+        let norm_path = res.path.replace('\\', "/");
+        let basename = norm_path.rsplit('/').next().unwrap_or(norm_path.as_str());
+        let stem = basename.rsplit_once('.').map_or(basename, |(s, _)| s);
+        for key in [res.id.as_str(), norm_path.as_str(), basename, stem] {
+            let trimmed = key.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            path_links
+                .entry(trimmed.to_owned())
+                .or_insert_with(|| exported.clone());
+            if res.media_type.starts_with("audio/") {
+                sound_links
+                    .entry(trimmed.to_owned())
+                    .or_insert_with(|| exported.clone());
+            } else if res.media_type.starts_with("image/") {
+                bitmap_links
+                    .entry(trimmed.to_owned())
+                    .or_insert_with(|| exported.clone());
+            }
+        }
+    }
+
+    // Also map Library Symbols that wrap an `ElementKind::Bitmap` on frame 0 so `BitmapData.loadBitmap(id)` works.
+    for sym in &project.symbols {
+        let mut first_bmp_res: Option<&String> = None;
+        for layer in &sym.timeline.layers {
+            for key in &layer.keyframes {
+                for el in &key.elements {
+                    if let ElementKind::Bitmap { resource_id, .. } = &el.kind
+                        && let Some(exported) = resource_filenames.get(resource_id)
+                    {
+                        first_bmp_res = Some(exported);
+                        break;
+                    }
+                }
+                if first_bmp_res.is_some() {
+                    break;
+                }
+            }
+            if first_bmp_res.is_some() {
+                break;
+            }
+        }
+        if let Some(exported) = first_bmp_res {
+            for cand in [
+                Some(sym.id.as_str()),
+                Some(sym.name.as_str()),
+                sym.linkage_id.as_deref(),
+                sym.class_name.as_deref(),
+                sym.class_name
+                    .as_deref()
+                    .and_then(|cn| cn.rsplit('.').next()),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let trimmed = cand.trim();
+                if !trimmed.is_empty() {
+                    bitmap_links
+                        .entry(trimmed.to_owned())
+                        .or_insert_with(|| exported.clone());
+                }
+            }
+        }
+    }
+
+    (sound_links, bitmap_links, path_links)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emit_timeline_spec_constant(
     out: &mut String,
+    class_name: &str,
     total_frames: u32,
     timeline: &Timeline,
     scene_ranges: &[SceneRange],
@@ -1297,73 +1708,241 @@ fn emit_timeline_spec_constant(
     video_catalog: &[EncodedVideo],
     encoded_layers: &[EncodedLayer],
 ) {
-    let _ = writeln!(
-        out,
-        "    private static let _nfTimelineSpec = NFTimelineSpec("
-    );
-    let _ = writeln!(out, "        totalFrames: {total_frames},");
-
-    // Shapes
-    if shape_catalog.is_empty() {
-        let _ = writeln!(out, "        shapes: [],");
-    } else {
-        let _ = writeln!(out, "        shapes: [");
-        for shape in shape_catalog {
-            emit_vector_shape_literal(out, shape);
+    // Emit chunked helper builders for large PathCommand contours so Swift 6 typechecks in O(N) time.
+    for (s_idx, shape) in shape_catalog.iter().enumerate() {
+        if shape.commands.len() > 24 {
+            emit_chunked_path_helper(out, &format!("_nfShapeCmds_{s_idx}"), &shape.commands);
         }
-        let _ = writeln!(out, "        ],");
+        if shape.expanded_stroke.len() > 24 {
+            emit_chunked_path_helper(
+                out,
+                &format!("_nfShapeStrokeCmds_{s_idx}"),
+                &shape.expanded_stroke,
+            );
+        }
     }
 
-    // Texts
-    if text_catalog.is_empty() {
-        let _ = writeln!(out, "        texts: [],");
-    } else {
-        let _ = writeln!(out, "        texts: [");
-        for txt in text_catalog {
-            emit_text_spec_literal(out, txt);
+    if !shape_catalog.is_empty() {
+        for (chunk_idx, chunk) in shape_catalog.chunks(12).enumerate() {
+            let base = chunk_idx * 12;
+            let _ = writeln!(
+                out,
+                "    fileprivate static func _nfAppendShapes_{chunk_idx}(_ shapes: inout [NFVectorShape]) {{"
+            );
+            for (offset, shape) in chunk.iter().enumerate() {
+                let s_idx = base + offset;
+                let lit = format_vector_shape_expr(class_name, shape, s_idx);
+                let _ = writeln!(out, "        shapes.append({lit})");
+            }
+            let _ = writeln!(out, "    }}");
         }
-        let _ = writeln!(out, "        ],");
+        let _ = writeln!(
+            out,
+            "    fileprivate static func _nfBuildShapes() -> [NFVectorShape] {{"
+        );
+        let _ = writeln!(out, "        var shapes: [NFVectorShape] = []");
+        let _ = writeln!(
+            out,
+            "        shapes.reserveCapacity({})",
+            shape_catalog.len()
+        );
+        let num_chunks = shape_catalog.len().div_ceil(12);
+        for chunk_idx in 0..num_chunks {
+            let _ = writeln!(
+                out,
+                "        {class_name}._nfAppendShapes_{chunk_idx}(&shapes)"
+            );
+        }
+        let _ = writeln!(out, "        return shapes");
+        let _ = writeln!(out, "    }}");
+    }
+
+    if !text_catalog.is_empty() {
+        for (chunk_idx, chunk) in text_catalog.chunks(16).enumerate() {
+            let _ = writeln!(
+                out,
+                "    fileprivate static func _nfAppendTexts_{chunk_idx}(_ texts: inout [NFTextSpec]) {{"
+            );
+            for txt in chunk {
+                let lit = format_text_spec_expr(txt);
+                let _ = writeln!(out, "        texts.append({lit})");
+            }
+            let _ = writeln!(out, "    }}");
+        }
+        let _ = writeln!(
+            out,
+            "    fileprivate static func _nfBuildTexts() -> [NFTextSpec] {{"
+        );
+        let _ = writeln!(out, "        var texts: [NFTextSpec] = []");
+        let _ = writeln!(out, "        texts.reserveCapacity({})", text_catalog.len());
+        let num_chunks = text_catalog.len().div_ceil(16);
+        for chunk_idx in 0..num_chunks {
+            let _ = writeln!(
+                out,
+                "        {class_name}._nfAppendTexts_{chunk_idx}(&texts)"
+            );
+        }
+        let _ = writeln!(out, "        return texts");
+        let _ = writeln!(out, "    }}");
+    }
+
+    if !encoded_layers.is_empty() {
+        for (l_pos, layer) in encoded_layers.iter().enumerate() {
+            for (chunk_idx, span_chunk) in layer.spans.chunks(12).enumerate() {
+                let _ = writeln!(
+                    out,
+                    "    fileprivate static func _nfAppendSpans_{l_pos}_{chunk_idx}(_ spans: inout [NFFrameSpan]) {{"
+                );
+                for span in span_chunk {
+                    if span.placements.len() <= 12 {
+                        let _ = writeln!(
+                            out,
+                            "        spans.append(NFFrameSpan(startFrame: {}, endFrame: {}, placements: [",
+                            span.start_frame, span.end_frame
+                        );
+                        for p in &span.placements {
+                            emit_placement_literal(out, p);
+                        }
+                        let _ = writeln!(out, "        ]))");
+                    } else {
+                        let _ = writeln!(out, "        do {{");
+                        let _ = writeln!(out, "            var pl: [NFPlacementSpec] = []");
+                        let _ = writeln!(
+                            out,
+                            "            pl.reserveCapacity({})",
+                            span.placements.len()
+                        );
+                        for p_chunk in span.placements.chunks(12) {
+                            let _ = writeln!(out, "            pl.append(contentsOf: [");
+                            for p in p_chunk {
+                                emit_placement_literal(out, p);
+                            }
+                            let _ = writeln!(out, "            ] as [NFPlacementSpec])");
+                        }
+                        let _ = writeln!(
+                            out,
+                            "            spans.append(NFFrameSpan(startFrame: {}, endFrame: {}, placements: pl))",
+                            span.start_frame, span.end_frame
+                        );
+                        let _ = writeln!(out, "        }}");
+                    }
+                }
+                let _ = writeln!(out, "    }}");
+            }
+
+            let masked_lit = layer
+                .masked_by_layer_index
+                .map_or_else(|| "nil".to_owned(), |i| i.to_string());
+            let _ = writeln!(
+                out,
+                "    fileprivate static func _nfBuildLayer_{l_pos}() -> NFLayerSpec {{"
+            );
+            if layer.spans.is_empty() {
+                let _ = writeln!(out, "        let spans: [NFFrameSpan] = []");
+            } else {
+                let _ = writeln!(out, "        var spans: [NFFrameSpan] = []");
+                let _ = writeln!(out, "        spans.reserveCapacity({})", layer.spans.len());
+                let num_chunks = layer.spans.len().div_ceil(12);
+                for chunk_idx in 0..num_chunks {
+                    let _ = writeln!(
+                        out,
+                        "        {class_name}._nfAppendSpans_{l_pos}_{chunk_idx}(&spans)"
+                    );
+                }
+            }
+            let _ = writeln!(
+                out,
+                "        return NFLayerSpec(layerIndex: {}, name: {}, isMask: {}, maskedByLayerIndex: {masked_lit}, blendMode: {}, spans: spans)",
+                layer.layer_index,
+                swift_str(&layer.name),
+                layer.is_mask,
+                swift_blend_mode(layer.blend_mode)
+            );
+            let _ = writeln!(out, "    }}");
+        }
+
+        let _ = writeln!(
+            out,
+            "    fileprivate static func _nfBuildLayers() -> [NFLayerSpec] {{"
+        );
+        let _ = writeln!(out, "        var layers: [NFLayerSpec] = []");
+        let _ = writeln!(
+            out,
+            "        layers.reserveCapacity({})",
+            encoded_layers.len()
+        );
+        for l_pos in 0..encoded_layers.len() {
+            let _ = writeln!(
+                out,
+                "        layers.append({class_name}._nfBuildLayer_{l_pos}())"
+            );
+        }
+        let _ = writeln!(out, "        return layers");
+        let _ = writeln!(out, "    }}");
+    }
+
+    let _ = writeln!(
+        out,
+        "    fileprivate static let _nfTimelineSpec: NFTimelineSpec = {class_name}._nfBuildTimelineSpec()"
+    );
+    let _ = writeln!(
+        out,
+        "    fileprivate static func _nfBuildTimelineSpec() -> NFTimelineSpec {{"
+    );
+    let _ = writeln!(out, "        return NFTimelineSpec(");
+    let _ = writeln!(out, "            totalFrames: {total_frames},");
+
+    if shape_catalog.is_empty() {
+        let _ = writeln!(out, "            shapes: [],");
+    } else {
+        let _ = writeln!(out, "            shapes: {class_name}._nfBuildShapes(),");
+    }
+
+    if text_catalog.is_empty() {
+        let _ = writeln!(out, "            texts: [],");
+    } else {
+        let _ = writeln!(out, "            texts: {class_name}._nfBuildTexts(),");
     }
 
     // Bitmaps
     if bitmap_catalog.is_empty() {
-        let _ = writeln!(out, "        bitmaps: [],");
+        let _ = writeln!(out, "            bitmaps: [],");
     } else {
-        let _ = writeln!(out, "        bitmaps: [");
+        let _ = writeln!(out, "            bitmaps: [");
         for bmp in bitmap_catalog {
             let _ = writeln!(
                 out,
-                "            NFBitmapSpec(resourceName: {}, width: {}, height: {}, smoothing: {}),",
+                "                NFBitmapSpec(resourceName: {}, width: {}, height: {}, smoothing: {}),",
                 swift_str(&bmp.resource_name),
                 fmt_f64(bmp.width),
                 fmt_f64(bmp.height),
                 bmp.smoothing
             );
         }
-        let _ = writeln!(out, "        ],");
+        let _ = writeln!(out, "            ],");
     }
 
     // Videos
     if video_catalog.is_empty() {
-        let _ = writeln!(out, "        videos: [],");
+        let _ = writeln!(out, "            videos: [],");
     } else {
-        let _ = writeln!(out, "        videos: [");
+        let _ = writeln!(out, "            videos: [");
         for vid in video_catalog {
             let _ = writeln!(
                 out,
-                "            NFVideoSpec(source: {}, width: {}, height: {}),",
+                "                NFVideoSpec(source: {}, width: {}, height: {}),",
                 swift_str(&vid.source),
                 fmt_f64(vid.width),
                 fmt_f64(vid.height)
             );
         }
-        let _ = writeln!(out, "        ],");
+        let _ = writeln!(out, "            ],");
     }
 
     // Navigable frame labels (1-based frame index)
     let labels = timeline.navigable_labels();
     if labels.is_empty() {
-        let _ = writeln!(out, "        labels: [:],");
+        let _ = writeln!(out, "            labels: [:],");
     } else {
         let mut unique_labels: BTreeMap<&str, u32> = BTreeMap::new();
         for (lbl, frame0) in labels {
@@ -1373,31 +1952,31 @@ fn emit_timeline_spec_constant(
             .into_iter()
             .map(|(k, v)| format!("{}: {v}", swift_str(k)))
             .collect();
-        let _ = writeln!(out, "        labels: [{}],", entries.join(", "));
+        let _ = writeln!(out, "            labels: [{}],", entries.join(", "));
     }
 
     // Scene ranges
     if scene_ranges.is_empty() {
-        let _ = writeln!(out, "        scenes: [],");
+        let _ = writeln!(out, "            scenes: [],");
     } else {
-        let _ = writeln!(out, "        scenes: [");
+        let _ = writeln!(out, "            scenes: [");
         for sr in scene_ranges {
             let _ = writeln!(
                 out,
-                "            NFSceneRange(name: {}, startFrame: {}, frameCount: {}),",
+                "                NFSceneRange(name: {}, startFrame: {}, frameCount: {}),",
                 swift_str(&sr.name),
                 sr.start,
                 sr.frames
             );
         }
-        let _ = writeln!(out, "        ],");
+        let _ = writeln!(out, "            ],");
     }
 
     // Frame sounds
     if sounds_by_frame.is_empty() {
-        let _ = writeln!(out, "        soundsByFrame: [:],");
+        let _ = writeln!(out, "            soundsByFrame: [:],");
     } else {
-        let _ = writeln!(out, "        soundsByFrame: [");
+        let _ = writeln!(out, "            soundsByFrame: [");
         for (&frame0, snds) in sounds_by_frame {
             let mut cmd_literals = Vec::new();
             for snd in snds {
@@ -1425,49 +2004,50 @@ fn emit_timeline_spec_constant(
                     fmt_f64(pan)
                 ));
             }
-            let _ = writeln!(out, "            {frame0}: [{}],", cmd_literals.join(", "));
+            let _ = writeln!(
+                out,
+                "                {frame0}: [{}],",
+                cmd_literals.join(", ")
+            );
         }
-        let _ = writeln!(out, "        ],");
+        let _ = writeln!(out, "            ],");
     }
 
     // Layers
     if encoded_layers.is_empty() {
-        let _ = writeln!(out, "        layers: []");
+        let _ = writeln!(out, "            layers: []");
     } else {
-        let _ = writeln!(out, "        layers: [");
-        for layer in encoded_layers {
-            let masked_lit = layer
-                .masked_by_layer_index
-                .map_or_else(|| "nil".to_owned(), |i| i.to_string());
-            let _ = writeln!(
-                out,
-                "            NFLayerSpec(layerIndex: {}, name: {}, isMask: {}, maskedByLayerIndex: {masked_lit}, blendMode: {}, spans: [",
-                layer.layer_index,
-                swift_str(&layer.name),
-                layer.is_mask,
-                swift_blend_mode(layer.blend_mode)
-            );
-            for span in &layer.spans {
-                let _ = writeln!(
-                    out,
-                    "                NFFrameSpan(startFrame: {}, endFrame: {}, placements: [",
-                    span.start_frame, span.end_frame
-                );
-                for p in &span.placements {
-                    emit_placement_literal(out, p);
-                }
-                let _ = writeln!(out, "                ]),");
-            }
-            let _ = writeln!(out, "            ]),");
-        }
-        let _ = writeln!(out, "        ]");
+        let _ = writeln!(out, "            layers: {class_name}._nfBuildLayers()");
     }
-    let _ = writeln!(out, "    )");
+    let _ = writeln!(out, "        )");
+    let _ = writeln!(out, "    }}");
     let _ = writeln!(out);
 }
 
-fn emit_vector_shape_literal(out: &mut String, shape: &EncodedShape) {
-    let cmds = format_path_commands(&shape.commands);
+fn emit_chunked_path_helper(out: &mut String, fn_name: &str, commands: &[PathCommand]) {
+    let _ = writeln!(
+        out,
+        "    fileprivate static func {fn_name}() -> [NFPathCommand] {{"
+    );
+    let _ = writeln!(out, "        var cmds: [NFPathCommand] = []");
+    let _ = writeln!(out, "        cmds.reserveCapacity({})", commands.len());
+    for chunk in commands.chunks(24) {
+        let chunk_lit = format_path_commands(chunk);
+        let _ = writeln!(
+            out,
+            "        cmds.append(contentsOf: {chunk_lit} as [NFPathCommand])"
+        );
+    }
+    let _ = writeln!(out, "        return cmds");
+    let _ = writeln!(out, "    }}");
+}
+
+fn format_vector_shape_expr(class_name: &str, shape: &EncodedShape, shape_idx: usize) -> String {
+    let cmds = if shape.commands.len() > 24 {
+        format!("{class_name}._nfShapeCmds_{shape_idx}()")
+    } else {
+        format_path_commands(&shape.commands)
+    };
     let fill_rule = match shape.fill_rule {
         FillRule::NonZero => ".nonZero",
         FillRule::EvenOdd => ".evenOdd",
@@ -1492,19 +2072,20 @@ fn emit_vector_shape_literal(out: &mut String, shape: &EncodedShape) {
         .map_or_else(|| "nil".to_owned(), format_gradient_paint);
     let expanded = if shape.expanded_stroke.is_empty() {
         "[]".to_owned()
+    } else if shape.expanded_stroke.len() > 24 {
+        format!("{class_name}._nfShapeStrokeCmds_{shape_idx}()")
     } else {
         format_path_commands(&shape.expanded_stroke)
     };
-    let _ = writeln!(
-        out,
-        "            NFVectorShape(commands: {cmds}, fillRule: {fill_rule}, fillColor: {}, fillGradient: {fill_grad}, bitmapFill: {bmp_fill}, strokeColor: {}, strokeGradient: {stroke_grad}, strokeWidth: {}, expandedStrokeCommands: {expanded}),",
+    format!(
+        "NFVectorShape(commands: {cmds}, fillRule: {fill_rule}, fillColor: {}, fillGradient: {fill_grad}, bitmapFill: {bmp_fill}, strokeColor: {}, strokeGradient: {stroke_grad}, strokeWidth: {}, expandedStrokeCommands: {expanded})",
         format_color(shape.fill),
         format_color(shape.stroke),
         fmt_f64(shape.stroke_width)
-    );
+    )
 }
 
-fn emit_text_spec_literal(out: &mut String, txt: &EncodedText) {
+fn format_text_spec_expr(txt: &EncodedText) -> String {
     let align_lit = match txt.align {
         TextAlign::Left => ".left",
         TextAlign::Center => ".center",
@@ -1518,9 +2099,12 @@ fn emit_text_spec_literal(out: &mut String, txt: &EncodedText) {
         .restrict
         .as_deref()
         .map_or_else(|| "nil".to_owned(), swift_str);
-    let _ = writeln!(
-        out,
-        "            NFTextSpec(text: {}, fontFamily: {}, fontSize: {}, color: {}, bold: {}, italic: {}, underline: {}, align: {align_lit}, leading: {}, letterSpacing: {}, boxWidth: {bw}, boxHeight: {bh}, wordWrap: {}, multiline: {}, border: {}, borderColor: {}, background: {}, backgroundColor: {}, kind: {}, selectable: {}, displayAsPassword: {}, maxChars: {}, restrict: {restrict_lit}, html: {}),",
+    let variable_lit = txt
+        .variable
+        .as_deref()
+        .map_or_else(|| "nil".to_owned(), swift_str);
+    format!(
+        "NFTextSpec(text: {}, fontFamily: {}, fontSize: {}, color: {}, bold: {}, italic: {}, underline: {}, align: {align_lit}, leading: {}, letterSpacing: {}, boxWidth: {bw}, boxHeight: {bh}, wordWrap: {}, multiline: {}, border: {}, borderColor: {}, background: {}, backgroundColor: {}, kind: {}, selectable: {}, displayAsPassword: {}, maxChars: {}, restrict: {restrict_lit}, html: {}, variable: {variable_lit})",
         swift_str(&txt.text),
         swift_str(&txt.font_family),
         fmt_f64(txt.font_size),
@@ -1541,7 +2125,7 @@ fn emit_text_spec_literal(out: &mut String, txt: &EncodedText) {
         txt.display_as_password,
         txt.max_chars,
         txt.html
-    );
+    )
 }
 
 fn emit_placement_literal(out: &mut String, p: &EncodedPlacement) {
@@ -1596,9 +2180,21 @@ fn emit_placement_literal(out: &mut String, p: &EncodedPlacement) {
     };
 
     let filters_lit = format_filters(&p.filters);
+    let s9_lit = p.scale9_grid.map_or_else(
+        || "nil".to_owned(),
+        |[gx, gy, gw, gh]| {
+            format!(
+                "NFRectangle(x: {}, y: {}, width: {}, height: {})",
+                fmt_f64(gx),
+                fmt_f64(gy),
+                fmt_f64(gw),
+                fmt_f64(gh)
+            )
+        },
+    );
     let _ = writeln!(
         out,
-        "                    NFPlacementSpec(elementId: {}, name: {}, x: {}, y: {}, scaleX: {}, scaleY: {}, rotation: {}, skew: {}, matrix: {}, alpha: {}, colorTransform: {ct_lit}, visible: {}, blendMode: {}, filters: {filters_lit}, payload: {payload_lit}),",
+        "            NFPlacementSpec(elementId: {}, name: {}, x: {}, y: {}, scaleX: {}, scaleY: {}, rotation: {}, skew: {}, matrix: {}, alpha: {}, colorTransform: {ct_lit}, visible: {}, blendMode: {}, filters: {filters_lit}, scale9Grid: {s9_lit}, payload: {payload_lit}),",
         swift_str(&p.element_id),
         swift_str(&p.name),
         fmt_f64(p.x),
@@ -1614,165 +2210,199 @@ fn emit_placement_literal(out: &mut String, p: &EncodedPlacement) {
     );
 }
 
-fn emit_symbol_script_methods(out: &mut String, bundle: &XcodeSymbolScriptBundle) {
-    if !bundle.helper_methods_swift.trim().is_empty() {
+fn emit_symbol_script_methods(
+    out: &mut String,
+    bundle: &XcodeSymbolScriptBundle,
+    as_linked_extension: bool,
+) {
+    if !as_linked_extension && !bundle.helper_methods_swift.trim().is_empty() {
         let _ = writeln!(out);
         for line in bundle.helper_methods_swift.lines() {
             let _ = writeln!(out, "    {line}");
         }
     }
 
-    if !bundle.frame_methods_swift.is_empty() {
-        let mut frame_dispatch: Vec<(u32, String)> = Vec::new();
-        for (&frame0, code) in &bundle.frame_methods_swift {
-            if code.trim().is_empty() {
-                continue;
-            }
-            let _ = writeln!(out);
-            if let Some(declared_fn) = extract_declared_func_name(code) {
-                for line in code.lines() {
-                    let _ = writeln!(out, "    {line}");
-                }
-                frame_dispatch.push((frame0, declared_fn));
-            } else {
-                let fn_name = format!("_nfFrameScript_{frame0}");
-                let _ = writeln!(out, "    private func {fn_name}() {{");
-                for line in code.lines() {
-                    let _ = writeln!(out, "        {line}");
-                }
-                let _ = writeln!(out, "    }}");
-                frame_dispatch.push((frame0, fn_name));
-            }
+    let mut frame_dispatch: Vec<(u32, String)> = Vec::new();
+    for (&frame0, code) in &bundle.frame_methods_swift {
+        if code.trim().is_empty() {
+            continue;
         }
+        let _ = writeln!(out);
+        if let Some(declared_fn) = extract_declared_func_name(code) {
+            for line in code.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+            frame_dispatch.push((frame0, declared_fn));
+        } else {
+            let fn_name = format!("_nfFrameScript_{frame0}");
+            let _ = writeln!(out, "    fileprivate func {fn_name}() {{");
+            for line in code.lines() {
+                let _ = writeln!(out, "        {line}");
+            }
+            let _ = writeln!(out, "    }}");
+            frame_dispatch.push((frame0, fn_name));
+        }
+    }
 
-        if !frame_dispatch.is_empty() {
-            let _ = writeln!(out);
-            let _ = writeln!(
-                out,
-                "    public override func runFrameScript(frameIndex: Int) {{"
-            );
+    if as_linked_extension {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    fileprivate func _nfRunLinkedFrameScript(frameIndex: Int) {{"
+        );
+        if frame_dispatch.is_empty() {
+            let _ = writeln!(out, "        _ = frameIndex");
+        } else {
             let _ = writeln!(out, "        switch frameIndex {{");
             for (f0, fn_name) in frame_dispatch {
                 let _ = writeln!(out, "        case {f0}: self.{fn_name}()");
             }
             let _ = writeln!(out, "        default: break");
             let _ = writeln!(out, "        }}");
-            let _ = writeln!(out, "    }}");
         }
+        let _ = writeln!(out, "    }}");
+    } else if !frame_dispatch.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    public override func runFrameScript(frameIndex: Int) {{"
+        );
+        let _ = writeln!(out, "        switch frameIndex {{");
+        for (f0, fn_name) in frame_dispatch {
+            let _ = writeln!(out, "        case {f0}: self.{fn_name}()");
+        }
+        let _ = writeln!(out, "        default: break");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
     }
 
-    if !bundle.instance_handlers_swift.is_empty() {
-        let mut handler_entries: Vec<(String, ObjectEvent, Option<String>, String)> = Vec::new();
-        for (idx, (target_key, event, raw_code)) in
-            bundle.instance_handlers_swift.iter().enumerate()
-        {
-            let (trigger_tag, code) = if let Some(rest) = raw_code.strip_prefix("// @nf-trigger:") {
-                if let Some((tag_line, body_rest)) = rest.split_once('\n') {
-                    (Some(tag_line.trim().to_owned()), body_rest)
-                } else {
-                    (Some(rest.trim().to_owned()), "")
-                }
+    let mut handler_entries: Vec<(String, ObjectEvent, Option<String>, String)> = Vec::new();
+    for (idx, (target_key, event, raw_code)) in bundle.instance_handlers_swift.iter().enumerate() {
+        let (trigger_tag, code) = if let Some(rest) = raw_code.strip_prefix("// @nf-trigger:") {
+            if let Some((tag_line, body_rest)) = rest.split_once('\n') {
+                (Some(tag_line.trim().to_owned()), body_rest)
             } else {
-                (None, raw_code.as_str())
-            };
-            if code.trim().is_empty() && trigger_tag.is_none() {
-                continue;
+                (Some(rest.trim().to_owned()), "")
             }
-            let _ = writeln!(out);
-            let fn_name = if let Some(declared) = extract_declared_func_name(code) {
-                for line in code.lines() {
-                    let _ = writeln!(out, "    {line}");
-                }
-                declared
-            } else {
-                let gen_name = format!("_nfInstanceHandler_{idx}");
-                let _ = writeln!(out, "    private func {gen_name}() {{");
-                for line in code.lines() {
-                    let _ = writeln!(out, "        {line}");
-                }
-                let _ = writeln!(out, "    }}");
-                gen_name
-            };
-            handler_entries.push((target_key.clone(), *event, trigger_tag, fn_name));
+        } else {
+            (None, raw_code.as_str())
+        };
+        if code.trim().is_empty() && trigger_tag.is_none() {
+            continue;
         }
-
-        if !handler_entries.is_empty() {
-            let _ = writeln!(out);
-            let _ = writeln!(
-                out,
-                "    public override func attachInstanceHandlers(elementId: String, name: String, target: NFDisplayObject) {{"
-            );
-            for (target_key, event, trigger_tag, fn_name) in handler_entries {
-                let key_lit = swift_str(&target_key);
-                let _ = writeln!(
-                    out,
-                    "        if elementId == {key_lit} || name == {key_lit} {{"
-                );
-                match trigger_tag.as_deref() {
-                    Some("press") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.pressCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
-                        );
-                    }
-                    Some("release") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.clickCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
-                        );
-                    }
-                    Some("releaseOutside") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.releaseOutsideCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
-                        );
-                    }
-                    Some("rollOver") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.rollOverCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
-                        );
-                    }
-                    Some("rollOut") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.rollOutCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
-                        );
-                    }
-                    Some("clipMouseDown") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.addEventListener(NFMouseEvent.mouseDown) {{ [weak self] _ in self?.{fn_name}() }}"
-                        );
-                    }
-                    Some("clipMouseUp") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.addEventListener(NFMouseEvent.mouseUp) {{ [weak self] _ in self?.{fn_name}() }}"
-                        );
-                    }
-                    Some("clipMouseMove") => {
-                        let _ = writeln!(
-                            out,
-                            "            target.addEventListener(NFMouseEvent.mouseMove) {{ [weak self] _ in self?.{fn_name}() }}"
-                        );
-                    }
-                    _ => {
-                        let arr_prop = match event {
-                            ObjectEvent::Load => "loadCallbacks",
-                            ObjectEvent::Click => "clickCallbacks",
-                            ObjectEvent::EnterFrame => "enterFrameCallbacks",
-                        };
-                        let _ = writeln!(
-                            out,
-                            "            target.{arr_prop}.append({{ [weak self] in self?.{fn_name}() }})"
-                        );
-                    }
-                }
-                let _ = writeln!(out, "        }}");
+        let _ = writeln!(out);
+        let fn_name = if let Some(declared) = extract_declared_func_name(code) {
+            for line in code.lines() {
+                let _ = writeln!(out, "    {line}");
+            }
+            declared
+        } else {
+            let gen_name = format!("_nfInstanceHandler_{idx}");
+            let _ = writeln!(out, "    fileprivate func {gen_name}() {{");
+            for line in code.lines() {
+                let _ = writeln!(out, "        {line}");
             }
             let _ = writeln!(out, "    }}");
+            gen_name
+        };
+        handler_entries.push((target_key.clone(), *event, trigger_tag, fn_name));
+    }
+
+    if as_linked_extension {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    fileprivate func _nfAttachLinkedInstanceHandlers(elementId: String, name: String, target: NFDisplayObject) {{"
+        );
+        if handler_entries.is_empty() {
+            let _ = writeln!(out, "        _ = elementId; _ = name; _ = target");
+        } else {
+            emit_handler_attachment_body(out, &handler_entries);
         }
+        let _ = writeln!(out, "    }}");
+    } else if !handler_entries.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    public override func attachInstanceHandlers(elementId: String, name: String, target: NFDisplayObject) {{"
+        );
+        emit_handler_attachment_body(out, &handler_entries);
+        let _ = writeln!(out, "    }}");
+    }
+}
+
+fn emit_handler_attachment_body(
+    out: &mut String,
+    handler_entries: &[(String, ObjectEvent, Option<String>, String)],
+) {
+    for (target_key, event, trigger_tag, fn_name) in handler_entries {
+        let key_lit = swift_str(target_key);
+        let _ = writeln!(
+            out,
+            "        if elementId == {key_lit} || name == {key_lit} {{"
+        );
+        match trigger_tag.as_deref() {
+            Some("press") => {
+                let _ = writeln!(
+                    out,
+                    "            target.pressCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                );
+            }
+            Some("release") => {
+                let _ = writeln!(
+                    out,
+                    "            target.clickCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                );
+            }
+            Some("releaseOutside") => {
+                let _ = writeln!(
+                    out,
+                    "            target.releaseOutsideCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                );
+            }
+            Some("rollOver") => {
+                let _ = writeln!(
+                    out,
+                    "            target.rollOverCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                );
+            }
+            Some("rollOut") => {
+                let _ = writeln!(
+                    out,
+                    "            target.rollOutCallbacks.append({{ [weak self] in self?.{fn_name}() }})"
+                );
+            }
+            Some("clipMouseDown") => {
+                let _ = writeln!(
+                    out,
+                    "            target.addEventListener(NFMouseEvent.mouseDown) {{ [weak self] _ in self?.{fn_name}() }}"
+                );
+            }
+            Some("clipMouseUp") => {
+                let _ = writeln!(
+                    out,
+                    "            target.addEventListener(NFMouseEvent.mouseUp) {{ [weak self] _ in self?.{fn_name}() }}"
+                );
+            }
+            Some("clipMouseMove") => {
+                let _ = writeln!(
+                    out,
+                    "            target.addEventListener(NFMouseEvent.mouseMove) {{ [weak self] _ in self?.{fn_name}() }}"
+                );
+            }
+            _ => {
+                let arr_prop = match event {
+                    ObjectEvent::Load => "loadCallbacks",
+                    ObjectEvent::Click => "clickCallbacks",
+                    ObjectEvent::EnterFrame => "enterFrameCallbacks",
+                };
+                let _ = writeln!(
+                    out,
+                    "            target.{arr_prop}.append({{ [weak self] in self?.{fn_name}() }})"
+                );
+            }
+        }
+        let _ = writeln!(out, "        }}");
     }
 }
 
@@ -2036,7 +2666,11 @@ fn fmt_f64(v: f64) -> String {
     if !v.is_finite() {
         return "0.0".to_owned();
     }
-    let rounded = (v * 1_000_000.0).round() / 1_000_000.0;
+    let rounded = if v.abs() < 1e12 {
+        (v * 1_000_000.0).round() / 1_000_000.0
+    } else {
+        v
+    };
     let clean = if rounded == -0.0 { 0.0 } else { rounded };
     let mut s = format!("{clean}");
     if !s.contains('.') && !s.contains('e') && !s.contains('E') {

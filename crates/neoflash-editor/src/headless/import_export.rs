@@ -23,8 +23,8 @@ use neoflash_export::{
     HtmlPublishConfig, HtmlScaleMode, HtmlStageAlign, ImageExportFormat, ImageExportOptions,
     ImageExportRange, LottieFormat, LottieImageFormat, LottieImageMode, LottieOptions,
     LottieTextMode, PublishProfile, SizeLevel, SvgOptions, SwfPublishOptions, SwfPublishProfile,
-    VideoFormat, VideoOptions, export_project_aep, export_project_with_profile,
-    load_profiles_from_project,
+    VideoFormat, VideoOptions, XcodeExportOptions, export_project_aep, export_project_with_profile,
+    export_xcode_project, load_profiles_from_project,
 };
 use neoflash_import::{
     Diagnostic as ImportDiagnostic, FigmaImportOptions, ImageSequenceImportOptions,
@@ -62,6 +62,7 @@ pub(crate) enum ExportTarget {
     Audio,
     Banner,
     Desktop,
+    Xcode,
 }
 
 impl ExportTarget {
@@ -82,10 +83,11 @@ impl ExportTarget {
             "audio" => Ok(Self::Audio),
             "banner" => Ok(Self::Banner),
             "desktop" | "app" => Ok(Self::Desktop),
+            "xcode" | "swift" | "xcode-swift" | "xcode_swift" => Ok(Self::Xcode),
             other => Err(CliError::usage(
                 "unsupported_export_target",
                 format!(
-                    "Unsupported export target '{other}'. Expected one of: html5, swf, image, png-sequence, sequence, aep, fla, xfl, svg, lottie, dotlottie, atlas, video, audio, banner, desktop"
+                    "Unsupported export target '{other}'. Expected one of: html5, swf, image, png-sequence, sequence, aep, fla, xfl, svg, lottie, dotlottie, atlas, video, audio, banner, desktop, xcode"
                 ),
             )),
         }
@@ -107,6 +109,7 @@ impl ExportTarget {
             Self::Audio => "audio",
             Self::Banner => "banner",
             Self::Desktop => "desktop",
+            Self::Xcode => "xcode",
         }
     }
 }
@@ -205,6 +208,10 @@ pub(crate) struct ExportSpec {
     pub(crate) translate_scripts: Option<bool>,
     #[serde(default)]
     pub(crate) shape_morph_step: Option<u32>,
+    #[serde(default)]
+    pub(crate) bundle_id_prefix: Option<String>,
+    #[serde(default)]
+    pub(crate) overwrite_app_shell: bool,
     #[serde(skip)]
     pub(crate) project_base_dir: Option<PathBuf>,
     #[serde(skip)]
@@ -281,6 +288,11 @@ pub(crate) fn plan_export_effects(
             }
         }
         ExportTarget::Desktop => plan_desktop_effects(project, &spec.out, effects)?,
+        ExportTarget::Xcode => {
+            neoflash_export::preflight_xcode_output_dir(&spec.out)
+                .map_err(|error| CliError::runtime("export_failed", error.to_string()))?;
+            effects.plan_tree(&spec.out)?;
+        }
         ExportTarget::Banner => plan_banner_effects(&spec.out, effects)?,
         ExportTarget::Fla | ExportTarget::Xfl => effects.plan_path(&spec.out)?,
         ExportTarget::Swf | ExportTarget::Audio => effects.plan_path(&spec.out)?,
@@ -2854,6 +2866,12 @@ fn run_cmd_export<W1: Write>(
                 }
                 spec.shape_morph_step = Some(step);
             }
+            "--bundle-id-prefix" => {
+                spec.bundle_id_prefix = Some(take_flag_value(args, &mut i, "--bundle-id-prefix")?);
+            }
+            "--overwrite-app-shell" => {
+                spec.overwrite_app_shell = true;
+            }
             other => {
                 return Err(CliError::usage(
                     "unknown_flag",
@@ -2870,7 +2888,7 @@ fn run_cmd_export<W1: Write>(
     if !has_target && spec.export_profile.is_none() {
         return Err(CliError::usage(
             "missing_flag",
-            "'export' requires --target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop> (or --export-profile <file.json>)",
+            "'export' requires --target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop|xcode> (or --export-profile <file.json>)",
         ));
     }
     if has_target && (!has_out || spec.out.as_os_str().is_empty()) {
@@ -4311,6 +4329,51 @@ fn export_target_with_spec_inner(
                 "sample_rate": report.sample_rate,
                 "channels": report.channels,
                 "format": report.format.label(),
+            }))
+        }
+        ExportTarget::Xcode => {
+            let isolated_symbol_project = symbol_id
+                .as_deref()
+                .map(|sym_id| isolate_symbol_for_html5_export(project, sym_id));
+            let effective_project = isolated_symbol_project.as_ref().unwrap_or(project);
+            let mut opts = XcodeExportOptions {
+                overwrite_app_shell: spec.overwrite_app_shell,
+                base_dir: spec.project_base_dir.clone(),
+                ..XcodeExportOptions::default()
+            };
+            if let Some(q) = spec.jpeg_quality {
+                opts.jpeg_quality = q;
+            }
+            if let Some(ref prefix) = spec.bundle_id_prefix {
+                let trimmed = prefix.trim();
+                if !trimmed.is_empty() {
+                    opts.bundle_identifier_prefix = trimmed.to_owned();
+                }
+            }
+            let report = export_xcode_project(effective_project, &spec.out, &opts, None)
+                .map_err(|e| CliError::runtime("export_failed", e.to_string()))?;
+            let appended_count = report.appended_host_methods.len();
+            Ok(json!({
+                "target": target.as_str(),
+                "experimental": true,
+                "output_path": report.xcodeproj_path.display().to_string(),
+                "output_dir": report.project_dir.display().to_string(),
+                "xcodeproj_path": report.xcodeproj_path.display().to_string(),
+                "pbxproj_path": report.pbxproj_path.display().to_string(),
+                "scheme_name": report.scheme_name,
+                "target_name": report.scheme_name,
+                "bundle_id_prefix": opts.bundle_identifier_prefix,
+                "bundle_identifier": report.bundle_identifier,
+                "generated_swift_files": report.generated_swift_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "app_swift_files": report.app_swift_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "preserved_app_files": report.preserved_app_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "copied_resources": report.resource_files.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+                "appended_host_methods": report.appended_host_methods,
+                "appended_host_method_count": appended_count,
+                "host_method_count": report.host_method_count,
+                "symbol_count": report.symbol_count,
+                "preflight_count": report.preflight_items.len(),
+                "preflight_items": report.preflight_items,
             }))
         }
     }

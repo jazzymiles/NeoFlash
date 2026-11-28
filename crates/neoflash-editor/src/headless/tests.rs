@@ -4132,3 +4132,147 @@ fn t496c_headless_frames_convert_image_counts_export_profile_protection_and_sequ
         .collect();
     assert_eq!(kf_frames, vec![0, 1, 9]);
 }
+
+#[test]
+fn headless_export_xcode_preserves_app_shell_by_default_and_rolls_back_in_batch() {
+    let run_json = |args: &[&str]| -> (i32, Value, String) {
+        let (code, stdout, stderr) = run_args(args, "");
+        let parsed = serde_json::from_str(&stdout).unwrap_or(Value::Null);
+        (code, parsed, stderr)
+    };
+    let (cap_code, cap_val, cap_err) = run_json(&["--headless", "capabilities"]);
+    assert_eq!(
+        cap_code, 0,
+        "capabilities failed: {cap_val} stderr={cap_err}"
+    );
+    let export_targets = cap_val["export_targets"]
+        .as_array()
+        .expect("export_targets array");
+    assert!(
+        export_targets.iter().any(|v| v.as_str() == Some("xcode")),
+        "expected 'xcode' in capabilities export_targets: {export_targets:?}"
+    );
+    let batch_export_fields = cap_val["batch_schema"]["operations"]["export"]
+        .as_array()
+        .expect("batch_schema.operations.export array");
+    assert!(
+        batch_export_fields
+            .iter()
+            .any(|v| v.as_str() == Some("bundle_id_prefix?")),
+        "expected bundle_id_prefix? in batch_operations.export: {batch_export_fields:?}"
+    );
+
+    let tmp = TempDirGuard::new("headless-xcode-export");
+    let project_path = tmp.path.join("demo.nflash");
+    fs::write(&project_path, Project::demo().to_json().unwrap()).unwrap();
+    let xcode_out = tmp.path.join("DemoXcode");
+
+    let (code, val, err) = run_json(&[
+        "--headless",
+        "export",
+        "--project",
+        project_path.to_str().unwrap(),
+        "--target",
+        "xcode",
+        "--out",
+        xcode_out.to_str().unwrap(),
+        "--bundle-id-prefix",
+        "cc.redinger.t499",
+    ]);
+    assert_eq!(code, 0, "xcode export failed: {val} stderr={err}");
+    assert_eq!(val["target"], "xcode");
+    assert_eq!(val["experimental"], true);
+    assert_eq!(val["bundle_id_prefix"], "cc.redinger.t499");
+    assert!(
+        xcode_out
+            .join("Generated/NeoFlashKit/NFData.swift")
+            .is_file()
+    );
+    assert!(
+        xcode_out
+            .join("Generated/Scenes/GeneratedScenes.swift")
+            .is_file()
+    );
+    let scheme = val["scheme_name"].as_str().expect("scheme_name");
+    let app_swift = xcode_out.join(format!("App/{scheme}App.swift"));
+    assert!(app_swift.is_file());
+
+    // User customization in App/ must be preserved unless --overwrite-app-shell is set
+    let custom_shell = "// custom user shell marker\n";
+    let mut customized = fs::read_to_string(&app_swift).unwrap();
+    customized.push_str(custom_shell);
+    fs::write(&app_swift, &customized).unwrap();
+
+    let (code2, val2, err2) = run_json(&[
+        "--headless",
+        "export",
+        "--project",
+        project_path.to_str().unwrap(),
+        "--target",
+        "xcode",
+        "--out",
+        xcode_out.to_str().unwrap(),
+    ]);
+    assert_eq!(code2, 0, "re-export failed: {val2} stderr={err2}");
+    assert!(
+        fs::read_to_string(&app_swift)
+            .unwrap()
+            .contains(custom_shell),
+        "default xcode re-export must preserve App/ shell customizations"
+    );
+
+    let (code3, val3, err3) = run_json(&[
+        "--headless",
+        "export",
+        "--project",
+        project_path.to_str().unwrap(),
+        "--target",
+        "xcode",
+        "--out",
+        xcode_out.to_str().unwrap(),
+        "--overwrite-app-shell",
+    ]);
+    assert_eq!(code3, 0, "overwrite export failed: {val3} stderr={err3}");
+    assert!(
+        !fs::read_to_string(&app_swift)
+            .unwrap()
+            .contains(custom_shell),
+        "--overwrite-app-shell must regenerate App/NeoFlashApp.swift"
+    );
+
+    // Batch rollback must restore absent directory when a subsequent step fails
+    let batch_xcode_out = tmp.path.join("RolledBackXcode");
+    let ops = json!([
+        {
+            "op": "export",
+            "target": "xcode",
+            "out": batch_xcode_out,
+            "bundle_id_prefix": "cc.redinger.rollback"
+        },
+        {
+            "op": "set_script",
+            "frame": 0,
+            "language": "js",
+            "source": "let = ;"
+        },
+        { "op": "compile" }
+    ]);
+    let (bcode, bstdout, bstderr) = run_args(
+        &[
+            "--headless",
+            "batch",
+            "--stdin",
+            "--project",
+            project_path.to_str().unwrap(),
+        ],
+        &ops.to_string(),
+    );
+    assert_eq!(
+        bcode, 1,
+        "expected batch failure: stdout={bstdout} stderr={bstderr}"
+    );
+    assert!(
+        !batch_xcode_out.exists(),
+        "batch rollback must remove newly exported xcode project directory"
+    );
+}

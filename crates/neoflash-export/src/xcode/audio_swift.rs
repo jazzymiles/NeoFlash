@@ -173,15 +173,20 @@ public final class NFSoundChannel {
 }
 
 @MainActor
-open class NFSound {
+open class NFSound: NFEventDispatcher {
     public var resourceName: String
     public weak var audioManager: NFAudioManager?
     private var as2Transform: NFSoundTransform = .identity
     private weak var lastChannel: NFSoundChannel?
+    public var id3: NFValue = .object(NFObjectBox())
+    public var onLoad: NFValue = .undefinedVal
+    public var onSoundComplete: NFValue = .undefinedVal
 
     public init(_ targetOrResource: Any? = nil, resourceName: String = "") {
         if !resourceName.isEmpty {
             self.resourceName = resourceName
+        } else if let req = targetOrResource as? NFURLRequest {
+            self.resourceName = req.url
         } else if let s = targetOrResource as? String {
             self.resourceName = s
         } else if let v = targetOrResource as? NFValue, case .string(let s) = v {
@@ -192,6 +197,7 @@ open class NFSound {
         if let dobj = targetOrResource as? NFDisplayObject {
             self.audioManager = dobj.stage?.audioManager
         }
+        super.init()
     }
 
     private var resolvedManager: NFAudioManager {
@@ -202,8 +208,47 @@ open class NFSound {
         resolvedManager.durationMilliseconds(for: resourceName)
     }
 
+    public var bytesLoaded: UInt {
+        length > 0 ? 1024 : 0
+    }
+
+    public var bytesTotal: UInt {
+        bytesLoaded
+    }
+
+    public var position: Double {
+        lastChannel?.position ?? 0.0
+    }
+
+    public var duration: Double {
+        length
+    }
+
     public func attachSound(_ linkageOrResource: String) {
         self.resourceName = linkageOrResource
+    }
+
+    public func load(_ stream: NFURLRequest, _ context: Any? = nil) {
+        _ = context
+        self.resourceName = stream.url
+        if length > 0 {
+            dispatchEvent(NFEvent(NFEvent.complete))
+        } else {
+            dispatchEvent(NFIOErrorEvent(NFIOErrorEvent.IO_ERROR, false, false, "Sound not found: \(stream.url)"))
+        }
+    }
+
+    public func loadSound(_ url: String, _ isStreaming: Bool = false) {
+        self.resourceName = url
+        let ok = length > 0
+        _ = onLoad.dynamicallyCall(withArguments: [.bool(ok)])
+        if ok && isStreaming {
+            start(0.0, 1)
+        }
+    }
+
+    public func close() {
+        stop()
     }
 
     @discardableResult
@@ -219,6 +264,13 @@ open class NFSound {
             soundTransform: sndTransform ?? as2Transform
         )
         lastChannel = ch
+        if let ch {
+            _ = ch.addEventListener("soundComplete") { [weak self] evt in
+                guard let self else { return }
+                _ = self.onSoundComplete.dynamicallyCall(withArguments: [])
+                self.dispatchEvent(evt)
+            }
+        }
         return ch
     }
 
@@ -262,6 +314,30 @@ open class NFSound {
     public func getPan() -> Double {
         as2Transform.pan * 100.0
     }
+
+    public func setTransform(_ transformObject: NFValue) {
+        let ll = transformObject["ll"].asDouble
+        let rr = transformObject["rr"].asDouble
+        if ll.isFinite && rr.isFinite {
+            as2Transform.leftToLeft = ll / 100.0
+            as2Transform.rightToRight = rr / 100.0
+            as2Transform.volume = max(0.0, (ll + rr) / 200.0)
+            as2Transform.pan = max(-1.0, min(1.0, (rr - ll) / 100.0))
+            lastChannel?.soundTransform = as2Transform
+        }
+    }
+
+    public func getTransform() -> NFValue {
+        .fromObject([
+            ("ll", .number(as2Transform.leftToLeft * 100.0)),
+            ("lr", .number(as2Transform.leftToRight * 100.0)),
+            ("rl", .number(as2Transform.rightToLeft * 100.0)),
+            ("rr", .number(as2Transform.rightToRight * 100.0))
+        ])
+    }
+
+    public func getBytesLoaded() -> Int { Int(bytesLoaded) }
+    public func getBytesTotal() -> Int { Int(bytesTotal) }
 }
 
 @MainActor
@@ -545,6 +621,9 @@ public final class NFAudioManager {
         if let mapped = soundLinkageMap[raw] {
             return mapped
         }
+        if self !== NFAudioManager.shared, let sharedMapped = NFAudioManager.shared.soundLinkageMap[raw] {
+            return sharedMapped
+        }
         return raw
     }
 
@@ -618,10 +697,18 @@ public final class NFAudioManager {
         let totalFrames = Int(source.frameLength)
         guard totalFrames > 0 else { return nil }
 
-        let startFrame = max(0, min(totalFrames - 1, Int(((inPoint ?? 0.0) * sr).rounded(.towardZero))))
+        let rawStart = (inPoint ?? 0.0) * sr
+        let startFrame = max(
+            0,
+            min(
+                totalFrames - 1,
+                rawStart == .infinity ? (totalFrames - 1) : NFRuntime.clampToInt(rawStart, default: 0)
+            )
+        )
         let endFrame: Int
-        if let outPt = outPoint, outPt > 0.0 {
-            endFrame = max(startFrame + 1, min(totalFrames, Int((outPt * sr).rounded(.up))))
+        if let outPt = outPoint, outPt.isFinite, outPt > 0.0 {
+            let rawEnd = (outPt * sr).rounded(.up)
+            endFrame = max(startFrame + 1, min(totalFrames, NFRuntime.clampToInt(rawEnd, default: totalFrames)))
         } else {
             endFrame = totalFrames
         }

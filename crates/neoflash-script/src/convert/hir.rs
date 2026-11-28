@@ -137,13 +137,89 @@ impl HirType {
             Self::Void => "Void".into(),
             Self::Object | Self::Unknown | Self::Function => "NFValue".into(),
             Self::Class(name) => match short_type_name(name) {
-                "Event" | "MouseEvent" | "KeyboardEvent" | "TimerEvent" => "NFEvent".into(),
+                "Event" | "MouseEvent" | "KeyboardEvent" | "TimerEvent" | "TouchEvent"
+                | "FocusEvent" | "TextEvent" | "ProgressEvent" | "IOErrorEvent"
+                | "SecurityErrorEvent" | "HTTPStatusEvent" | "NetStatusEvent" => "NFEvent".into(),
+                "EventDispatcher" => "NFEventDispatcher".into(),
+                "IEventDispatcher" => "NFIEventDispatcher".into(),
                 "Point" => "NFPoint".into(),
                 "Rectangle" => "NFRectangle".into(),
                 "Matrix" => "NFMatrix".into(),
                 "ColorTransform" => "NFColorTransform".into(),
+                "Transform" => "NFTransform".into(),
+                "Vector3D" => "NFVector3D".into(),
+                "Matrix3D" => "NFMatrix3D".into(),
+                "PerspectiveProjection" => "NFPerspectiveProjection".into(),
+                "Color" => "NFAS2Color".into(),
                 "Sound" => "NFSound".into(),
+                "SoundChannel" => "NFSoundChannel".into(),
+                "SoundTransform" => "NFSoundTransform".into(),
+                "SoundMixer" => "NFSoundMixer".into(),
                 "Stage" => "NFStage".into(),
+                "Shape" => "NFShape".into(),
+                "Bitmap" => "NFBitmap".into(),
+                "BitmapData" => "NFBitmapData".into(),
+                "Video" => "NFVideo".into(),
+                "Graphics" => "NFGraphics".into(),
+                "TextFormat" => "NFTextFormat".into(),
+                "StyleSheet" => "NFStyleSheet".into(),
+                "TextLineMetrics" => "NFTextLineMetrics".into(),
+                "TextFieldAutoSize" => "NFTextFieldAutoSize".into(),
+                "AntiAliasType" => "NFAntiAliasType".into(),
+                "GridFitType" => "NFGridFitType".into(),
+                "ByteArray" => "NFByteArray".into(),
+                "Endian" => "NFEndian".into(),
+                "CompressionAlgorithm" => "NFCompressionAlgorithm".into(),
+                "ObjectEncoding" => "NFObjectEncoding".into(),
+                "SharedObject" => "NFSharedObject".into(),
+                "SharedObjectFlushStatus" => "NFSharedObjectFlushStatus".into(),
+                "XML" => "NFXML".into(),
+                "XMLList" => "NFXMLList".into(),
+                "XMLNode" => "NFXMLNode".into(),
+                "XMLDocument" => "NFXMLDocument".into(),
+                "Timer" => "NFTimer".into(),
+                "Date" => "NFDate".into(),
+                "RegExp" => "NFRegExp".into(),
+                "JSON" => "NFJSON".into(),
+                "NumberFormatter" => "NFNumberFormatter".into(),
+                "LocaleID" | "Locale" => "NFLocale".into(),
+                "URLRequest" => "NFURLRequest".into(),
+                "URLVariables" => "NFURLVariables".into(),
+                "URLLoader" => "NFURLLoader".into(),
+                "URLLoaderDataFormat" => "NFURLLoaderDataFormat".into(),
+                "LoadVars" => "NFLoadVars".into(),
+                "Loader" => "NFLoader".into(),
+                "LoaderInfo" => "NFLoaderInfo".into(),
+                "MovieClipLoader" => "NFMovieClipLoader".into(),
+                "NetConnection" => "NFNetConnection".into(),
+                "NetStream" => "NFNetStream".into(),
+                "System" => "NFSystem".into(),
+                "Capabilities" => "NFCapabilities".into(),
+                "Mouse" => "NFMouse".into(),
+                "Selection" => "NFSelection".into(),
+                "FrameLabel" => "NFFrameLabel".into(),
+                "DepthManager" => "NFDepthManager".into(),
+                "Camera" => "NFCamera".into(),
+                "Microphone" => "NFMicrophone".into(),
+                "LocalConnection" => "NFLocalConnection".into(),
+                "FileReference" => "NFFileReference".into(),
+                "FileFilter" => "NFFileFilter".into(),
+                "ContextMenu" => "NFContextMenu".into(),
+                "ContextMenuItem" => "NFContextMenuItem".into(),
+                "PrintJob" => "NFPrintJob".into(),
+                "Error" | "TypeError" | "RangeError" | "ArgumentError" | "ReferenceError"
+                | "SyntaxError" | "VerifyError" | "SecurityError" | "EOFError" | "IOError"
+                | "MemoryError" | "EvalError" | "URIError" => "NFScriptError".into(),
+                "DropShadowFilter"
+                | "GlowFilter"
+                | "BlurFilter"
+                | "BevelFilter"
+                | "GradientGlowFilter"
+                | "GradientBevelFilter"
+                | "ColorMatrixFilter"
+                | "ConvolutionFilter"
+                | "BitmapFilter" => "NFFilterSpec".into(),
+                "QName" | "Namespace" | "Class" => "NFValue".into(),
                 "DisplayObject" | "DisplayObjectContainer" | "InteractiveObject" => {
                     "NFDisplayObject".into()
                 }
@@ -246,6 +322,7 @@ pub(crate) struct LinkageSymbolInfo {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ProjectStageIndex {
     /// Per-symbol ID -> (instance name -> child info).
+    pub(crate) pub_symbol_text_vars: BTreeMap<String, BTreeSet<String>>,
     pub(crate) symbol_children: BTreeMap<String, BTreeMap<String, StageChildInfo>>,
     /// Linkage ID -> symbol linkage info.
     pub(crate) linkages: BTreeMap<String, LinkageSymbolInfo>,
@@ -283,9 +360,19 @@ impl ProjectStageIndex {
             }
 
             let mut children = BTreeMap::new();
+            let mut text_vars = BTreeSet::new();
             for layer in &sym.timeline.layers {
                 for kf in &layer.keyframes {
                     for el in &kf.elements {
+                        if let ElementKind::TextBox { format, .. } = &el.kind
+                            && let Some(opts) = format.field_options()
+                            && let Some(var_name) = opts.variable
+                        {
+                            let trimmed = var_name.trim();
+                            if !trimmed.is_empty() {
+                                text_vars.insert(trimmed.to_owned());
+                            }
+                        }
                         if el.name.is_empty() {
                             continue;
                         }
@@ -324,6 +411,9 @@ impl ProjectStageIndex {
                 }
             }
             index.symbol_children.insert(sym.id.clone(), children);
+            if !text_vars.is_empty() {
+                index.pub_symbol_text_vars.insert(sym.id.clone(), text_vars);
+            }
         }
 
         let includes = AuthoredPlayback::build_project_include_map(project);

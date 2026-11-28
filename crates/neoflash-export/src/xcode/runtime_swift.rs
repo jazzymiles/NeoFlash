@@ -38,6 +38,30 @@ public struct NFPoint: Sendable, Equatable {
         let dy = pt1.y - pt2.y
         return (dx * dx + dy * dy).squareRoot()
     }
+
+    public static func interpolate(_ pt1: NFPoint, _ pt2: NFPoint, _ f: Double) -> NFPoint {
+        NFPoint(pt2.x + f * (pt1.x - pt2.x), pt2.y + f * (pt1.y - pt2.y))
+    }
+
+    public static func polar(_ len: Double, _ angle: Double) -> NFPoint {
+        NFPoint(len * cos(angle), len * sin(angle))
+    }
+
+    public func clone() -> NFPoint { self }
+    public func equals(_ toCompare: NFPoint) -> Bool { x == toCompare.x && y == toCompare.y }
+    public func add(_ v: NFPoint) -> NFPoint { NFPoint(x + v.x, y + v.y) }
+    public func subtract(_ v: NFPoint) -> NFPoint { NFPoint(x - v.x, y - v.y) }
+    public mutating func offset(_ dx: Double, _ dy: Double) { x += dx; y += dy }
+    public mutating func setTo(_ xa: Double, _ ya: Double) { x = xa; y = ya }
+    public mutating func copyFrom(_ sourcePoint: NFPoint) { x = sourcePoint.x; y = sourcePoint.y }
+    public mutating func normalize(_ thickness: Double) {
+        let len = length
+        guard len > 1e-12 else { return }
+        let s = thickness / len
+        x *= s
+        y *= s
+    }
+    public func toString() -> String { "(x=\(x), y=\(y))" }
 }
 
 public struct NFRectangle: Sendable, Equatable {
@@ -67,18 +91,116 @@ public struct NFRectangle: Sendable, Equatable {
         self.height = Double(rect.size.height)
     }
 
-    public var left: Double { x }
-    public var top: Double { y }
-    public var right: Double { x + width }
-    public var bottom: Double { y + height }
+    public init(_ val: NFValue) {
+        self.x = val["x"].asDouble
+        self.y = val["y"].asDouble
+        self.width = val["width"].asDouble
+        self.height = val["height"].asDouble
+    }
+
+    public var left: Double {
+        get { x }
+        set { width += x - newValue; x = newValue }
+    }
+    public var top: Double {
+        get { y }
+        set { height += y - newValue; y = newValue }
+    }
+    public var right: Double {
+        get { x + width }
+        set { width = newValue - x }
+    }
+    public var bottom: Double {
+        get { y + height }
+        set { height = newValue - y }
+    }
+    public var topLeft: NFPoint {
+        get { NFPoint(x, y) }
+        set { left = newValue.x; top = newValue.y }
+    }
+    public var bottomRight: NFPoint {
+        get { NFPoint(right, bottom) }
+        set { right = newValue.x; bottom = newValue.y }
+    }
+    public var size: NFPoint {
+        get { NFPoint(width, height) }
+        set { width = newValue.x; height = newValue.y }
+    }
+
+    public func isEmpty() -> Bool { width <= 0.0 || height <= 0.0 }
+    public func clone() -> NFRectangle { self }
+    public func equals(_ toCompare: NFRectangle) -> Bool { self == toCompare }
 
     public func contains(_ px: Double, _ py: Double) -> Bool {
-        px >= x && px <= x + width && py >= y && py <= y + height
+        guard width > 0.0 && height > 0.0 else { return false }
+        return px >= x && px < x + width && py >= y && py < y + height
+    }
+
+    public func containsPoint(_ point: NFPoint) -> Bool {
+        contains(point.x, point.y)
+    }
+
+    public func containsRect(_ rect: NFRectangle) -> Bool {
+        guard !rect.isEmpty() && !isEmpty() else { return false }
+        return rect.x >= x && rect.y >= y && rect.right <= right && rect.bottom <= bottom
     }
 
     public func intersects(_ other: NFRectangle) -> Bool {
-        CGRect(x: x, y: y, width: width, height: height)
+        guard !isEmpty() && !other.isEmpty() else { return false }
+        return CGRect(x: x, y: y, width: width, height: height)
             .intersects(CGRect(x: other.x, y: other.y, width: other.width, height: other.height))
+    }
+
+    public func intersection(_ toIntersect: NFRectangle) -> NFRectangle {
+        guard intersects(toIntersect) else { return NFRectangle() }
+        let ix = Swift.max(x, toIntersect.x)
+        let iy = Swift.max(y, toIntersect.y)
+        let ir = Swift.min(right, toIntersect.right)
+        let ib = Swift.min(bottom, toIntersect.bottom)
+        return NFRectangle(ix, iy, Swift.max(0.0, ir - ix), Swift.max(0.0, ib - iy))
+    }
+
+    public func union(_ toUnion: NFRectangle) -> NFRectangle {
+        if isEmpty() { return toUnion }
+        if toUnion.isEmpty() { return self }
+        let ux = Swift.min(x, toUnion.x)
+        let uy = Swift.min(y, toUnion.y)
+        let ur = Swift.max(right, toUnion.right)
+        let ub = Swift.max(bottom, toUnion.bottom)
+        return NFRectangle(ux, uy, ur - ux, ub - uy)
+    }
+
+    public mutating func inflate(_ dx: Double, _ dy: Double) {
+        x -= dx; width += 2.0 * dx
+        y -= dy; height += 2.0 * dy
+    }
+
+    public mutating func inflatePoint(_ point: NFPoint) {
+        inflate(point.x, point.y)
+    }
+
+    public mutating func offset(_ dx: Double, _ dy: Double) {
+        x += dx; y += dy
+    }
+
+    public mutating func offsetPoint(_ point: NFPoint) {
+        offset(point.x, point.y)
+    }
+
+    public mutating func setEmpty() {
+        x = 0.0; y = 0.0; width = 0.0; height = 0.0
+    }
+
+    public mutating func setTo(_ xa: Double, _ ya: Double, _ widtha: Double, _ heighta: Double) {
+        x = xa; y = ya; width = widtha; height = heighta
+    }
+
+    public mutating func copyFrom(_ sourceRect: NFRectangle) {
+        self = sourceRect
+    }
+
+    public func toString() -> String {
+        "(x=\(x), y=\(y), w=\(width), h=\(height))"
     }
 }
 
@@ -274,6 +396,111 @@ public struct NFAffineMatrix: Sendable, Equatable {
             ty: y
         )
     }
+
+    public func clone() -> NFAffineMatrix { self }
+
+    public mutating func identity() {
+        self = .identity
+    }
+
+    public mutating func setTo(_ aa: Double, _ ba: Double, _ ca: Double, _ da: Double, _ txa: Double, _ tya: Double) {
+        a = aa; b = ba; c = ca; d = da; tx = txa; ty = tya
+    }
+
+    public mutating func copyFrom(_ sourceMatrix: NFAffineMatrix) {
+        self = sourceMatrix
+    }
+
+    public mutating func translate(_ dx: Double, _ dy: Double) {
+        tx += dx
+        ty += dy
+    }
+
+    public mutating func scale(_ sx: Double, _ sy: Double) {
+        a *= sx; c *= sx; tx *= sx
+        b *= sy; d *= sy; ty *= sy
+    }
+
+    public mutating func rotate(_ angleRadians: Double) {
+        let cosA = cos(angleRadians)
+        let sinA = sin(angleRadians)
+        let na = a * cosA - b * sinA
+        let nb = a * sinA + b * cosA
+        let nc = c * cosA - d * sinA
+        let nd = c * sinA + d * cosA
+        let ntx = tx * cosA - ty * sinA
+        let nty = tx * sinA + ty * cosA
+        a = na; b = nb; c = nc; d = nd; tx = ntx; ty = nty
+    }
+
+    public mutating func concat(_ m: NFAffineMatrix) {
+        let na = a * m.a + b * m.c
+        let nb = a * m.b + b * m.d
+        let nc = c * m.a + d * m.c
+        let nd = c * m.b + d * m.d
+        let ntx = tx * m.a + ty * m.c + m.tx
+        let nty = tx * m.b + ty * m.d + m.ty
+        a = na; b = nb; c = nc; d = nd; tx = ntx; ty = nty
+    }
+
+    @discardableResult
+    public mutating func invert() -> Bool {
+        let det = a * d - b * c
+        guard abs(det) > 1e-12 else {
+            self = .identity
+            return false
+        }
+        let invDet = 1.0 / det
+        let na = d * invDet
+        let nb = -b * invDet
+        let nc = -c * invDet
+        let nd = a * invDet
+        let ntx = (c * ty - d * tx) * invDet
+        let nty = (b * tx - a * ty) * invDet
+        a = na; b = nb; c = nc; d = nd; tx = ntx; ty = nty
+        return true
+    }
+
+    public func transformPoint(_ point: NFPoint) -> NFPoint {
+        NFPoint(a * point.x + c * point.y + tx, b * point.x + d * point.y + ty)
+    }
+
+    public func deltaTransformPoint(_ point: NFPoint) -> NFPoint {
+        NFPoint(a * point.x + c * point.y, b * point.x + d * point.y)
+    }
+
+    public mutating func createBox(
+        _ scaleX: Double,
+        _ scaleY: Double,
+        _ rotationRadians: Double = 0.0,
+        _ txVal: Double = 0.0,
+        _ tyVal: Double = 0.0
+    ) {
+        self = .identity
+        rotate(rotationRadians)
+        scale(scaleX, scaleY)
+        translate(txVal, tyVal)
+    }
+
+    public mutating func createGradientBox(
+        _ width: Double,
+        _ height: Double,
+        _ rotationRadians: Double = 0.0,
+        _ txVal: Double = 0.0,
+        _ tyVal: Double = 0.0
+    ) {
+        createBox(
+            width / 1638.4,
+            height / 1638.4,
+            rotationRadians,
+            txVal + width * 0.5,
+            tyVal + height * 0.5
+        )
+    }
+
+    public func toString() -> String {
+        "(a=\(a), b=\(b), c=\(c), d=\(d), tx=\(tx), ty=\(ty))"
+    }
 }
 
 public typealias NFMatrix = NFAffineMatrix
@@ -394,17 +621,20 @@ public struct NFGradientPaint: Sendable, Equatable {
 
 public struct NFBitmapFillPaint: Sendable, Equatable {
     public let resourceName: String
+    public let bitmapDataBox: NFBitmapDataBox?
     public let matrix: NFAffineMatrix
     public let repeatPattern: Bool
     public let smoothing: Bool
 
     public init(
         resourceName: String,
+        bitmapDataBox: NFBitmapDataBox? = nil,
         matrix: NFAffineMatrix,
         repeatPattern: Bool = true,
         smoothing: Bool = false
     ) {
         self.resourceName = resourceName
+        self.bitmapDataBox = bitmapDataBox
         self.matrix = matrix
         self.repeatPattern = repeatPattern
         self.smoothing = smoothing
@@ -596,6 +826,7 @@ public struct NFTextSpec: Sendable, Equatable {
     public var maxChars: Int
     public var restrict: String?
     public var html: Bool
+    public var variable: String?
 
     public init(
         text: String,
@@ -621,7 +852,8 @@ public struct NFTextSpec: Sendable, Equatable {
         displayAsPassword: Bool = false,
         maxChars: Int = 0,
         restrict: String? = nil,
-        html: Bool = false
+        html: Bool = false,
+        variable: String? = nil
     ) {
         self.text = text
         self.fontFamily = fontFamily
@@ -647,6 +879,7 @@ public struct NFTextSpec: Sendable, Equatable {
         self.maxChars = max(0, maxChars)
         self.restrict = restrict
         self.html = html
+        self.variable = variable
     }
 }
 
@@ -710,6 +943,49 @@ public enum NFFilterSpec: Sendable, Equatable {
     public static func makeBlur(_ blurX: Double = 4.0, _ blurY: Double = 4.0) -> NFFilterSpec {
         .blur(blurX: blurX, blurY: blurY)
     }
+
+    public init(_ rest: Any?...) {
+        _ = rest
+        self = .blur(blurX: 0.0, blurY: 0.0)
+    }
+
+    public var blurX: Double {
+        get {
+            switch self {
+            case .dropShadow(_, _, _, let bx, _), .glow(_, let bx, _), .blur(let bx, _): return bx
+            }
+        }
+        set {
+            switch self {
+            case .dropShadow(let d, let a, let c, _, let by):
+                self = .dropShadow(distance: d, angleDegrees: a, color: c, blurX: newValue, blurY: by)
+            case .glow(let c, _, let by):
+                self = .glow(color: c, blurX: newValue, blurY: by)
+            case .blur(_, let by):
+                self = .blur(blurX: newValue, blurY: by)
+            }
+        }
+    }
+
+    public var blurY: Double {
+        get {
+            switch self {
+            case .dropShadow(_, _, _, _, let by), .glow(_, _, let by), .blur(_, let by): return by
+            }
+        }
+        set {
+            switch self {
+            case .dropShadow(let d, let a, let c, let bx, _):
+                self = .dropShadow(distance: d, angleDegrees: a, color: c, blurX: bx, blurY: newValue)
+            case .glow(let c, let bx, _):
+                self = .glow(color: c, blurX: bx, blurY: newValue)
+            case .blur(let bx, _):
+                self = .blur(blurX: bx, blurY: newValue)
+            }
+        }
+    }
+
+    public func clone() -> NFFilterSpec { self }
 }
 
 public enum NFSymbolKind: Sendable, Equatable {
@@ -812,6 +1088,7 @@ public struct NFPlacementSpec: Sendable, Equatable {
     public let visible: Bool
     public let blendMode: NFBlendMode
     public let filters: [NFFilterSpec]
+    public let scale9Grid: NFRectangle?
     public let payload: NFPlacementPayload
 
     public init(
@@ -829,6 +1106,7 @@ public struct NFPlacementSpec: Sendable, Equatable {
         visible: Bool = true,
         blendMode: NFBlendMode = .normal,
         filters: [NFFilterSpec] = [],
+        scale9Grid: NFRectangle? = nil,
         payload: NFPlacementPayload
     ) {
         self.elementId = elementId
@@ -845,6 +1123,7 @@ public struct NFPlacementSpec: Sendable, Equatable {
         self.visible = visible
         self.blendMode = blendMode
         self.filters = filters
+        self.scale9Grid = scale9Grid
         self.payload = payload
     }
 }
@@ -931,24 +1210,68 @@ public struct NFTimelineSpec: Sendable, Equatable {
     }
 }
 
-// MARK: - Events, Pointer, Multi-Touch & Keyboard
+// MARK: - Events, EventDispatcher, Pointer, Multi-Touch & Keyboard
 
 @MainActor
+public protocol NFIEventDispatcher: AnyObject {
+    @discardableResult
+    func addEventListener(_ type: String, _ listener: @escaping (NFEvent) -> Void) -> UUID
+    func hasEventListener(_ type: String) -> Bool
+    @discardableResult
+    func dispatchEvent(_ event: NFEvent) -> Bool
+}
+
+@MainActor
+@dynamicMemberLookup
 open class NFEvent {
     public static let enterFrame = "enterFrame"
     public static let resize = "resize"
+    public static let added = "added"
+    public static let removed = "removed"
     public static let addedToStage = "addedToStage"
     public static let removedFromStage = "removedFromStage"
     public static let change = "change"
     public static let focusIn = "focusIn"
     public static let focusOut = "focusOut"
     public static let soundComplete = "soundComplete"
+    public static let complete = "complete"
+    public static let initEvent = "init"
+    public static let open = "open"
+    public static let close = "close"
+    public static let activate = "activate"
+    public static let deactivate = "deactivate"
+    public static let render = "render"
+    public static let scroll = "scroll"
+    public static let select = "select"
+    public static let ENTER_FRAME = "enterFrame"
+    public static let RESIZE = "resize"
+    public static let ADDED = "added"
+    public static let REMOVED = "removed"
+    public static let ADDED_TO_STAGE = "addedToStage"
+    public static let REMOVED_FROM_STAGE = "removedFromStage"
+    public static let CHANGE = "change"
+    public static let SOUND_COMPLETE = "soundComplete"
+    public static let COMPLETE = "complete"
+    public static let INIT = "init"
+    public static let OPEN = "open"
+    public static let CLOSE = "close"
+    public static let ACTIVATE = "activate"
+    public static let DEACTIVATE = "deactivate"
+    public static let RENDER = "render"
+    public static let SCROLL = "scroll"
+    public static let SELECT = "select"
+    public static let CANCEL = "cancel"
 
     public let type: String
     public let bubbles: Bool
+    public let cancelable: Bool
+    public var eventPhase: Int = 2
     public weak var target: NFDisplayObject?
     public weak var currentTarget: NFDisplayObject?
     public var keyCode: UInt
+    private var defaultPreventedFlag: Bool = false
+    internal var propagationStopped: Bool = false
+    internal var immediatePropagationStopped: Bool = false
 
     open var stageX: Double { 0.0 }
     open var stageY: Double { 0.0 }
@@ -958,25 +1281,96 @@ open class NFEvent {
     open var touchPointID: Int { 0 }
     open var isPrimaryTouchPoint: Bool { true }
     open var pressure: Double { 0.0 }
+    open var key: String { "" }
+    open var info: NFValue {
+        get { .null }
+        set { _ = newValue }
+    }
+    open var data: NFValue { .null }
+    open var text: String { "" }
+
+    public subscript(dynamicMember member: String) -> NFValue {
+        if let dyn = self as? NFDynamicObjectProtocol {
+            return dyn.nfGetProperty(member)
+        }
+        return .undefinedVal
+    }
+
+    public init() {
+        self.type = ""
+        self.bubbles = false
+        self.cancelable = false
+        self.target = nil
+        self.currentTarget = nil
+        self.keyCode = 0
+    }
 
     public init(
         type: String,
         bubbles: Bool = false,
+        cancelable: Bool = false,
         target: NFDisplayObject? = nil,
         currentTarget: NFDisplayObject? = nil,
         keyCode: UInt = 0
     ) {
         self.type = type
         self.bubbles = bubbles
+        self.cancelable = cancelable
         self.target = target
         self.currentTarget = currentTarget
         self.keyCode = keyCode
+    }
+
+    public init(_ type: String, _ bubbles: Bool = false, _ cancelable: Bool = false) {
+        self.type = type
+        self.bubbles = bubbles
+        self.cancelable = cancelable
+        self.target = nil
+        self.currentTarget = nil
+        self.keyCode = 0
+    }
+
+    open func clone() -> NFEvent {
+        NFEvent(type: type, bubbles: bubbles, cancelable: cancelable, target: target, currentTarget: currentTarget, keyCode: keyCode)
+    }
+
+    public func preventDefault() {
+        if cancelable {
+            defaultPreventedFlag = true
+        }
+    }
+
+    public func isDefaultPrevented() -> Bool {
+        defaultPreventedFlag
+    }
+
+    public func stopPropagation() {
+        propagationStopped = true
+    }
+
+    public func stopImmediatePropagation() {
+        propagationStopped = true
+        immediatePropagationStopped = true
+    }
+
+    open func formatToString(_ className: String, _ args: Any?...) -> String {
+        _ = args
+        return "[\(className) type=\"\(type)\" bubbles=\(bubbles) cancelable=\(cancelable)]"
+    }
+
+    open func toString() -> String {
+        formatToString("Event")
     }
 }
 
 @MainActor
 public final class NFMouseEvent: NFEvent {
     public static let click = "click"
+    public static let doubleClick = "doubleClick"
+    public static let rightClick = "rightClick"
+    public static let rightMouseDown = "rightMouseDown"
+    public static let rightMouseUp = "rightMouseUp"
+    public static let mouseWheel = "mouseWheel"
     public static let mouseDown = "mouseDown"
     public static let mouseUp = "mouseUp"
     public static let mouseMove = "mouseMove"
@@ -985,12 +1379,30 @@ public final class NFMouseEvent: NFEvent {
     public static let rollOver = "rollOver"
     public static let rollOut = "rollOut"
     public static let releaseOutside = "releaseOutside"
+    public static let CLICK = "click"
+    public static let DOUBLE_CLICK = "doubleClick"
+    public static let RIGHT_CLICK = "rightClick"
+    public static let RIGHT_MOUSE_DOWN = "rightMouseDown"
+    public static let RIGHT_MOUSE_UP = "rightMouseUp"
+    public static let MOUSE_WHEEL = "mouseWheel"
+    public static let MOUSE_DOWN = "mouseDown"
+    public static let MOUSE_UP = "mouseUp"
+    public static let MOUSE_MOVE = "mouseMove"
+    public static let MOUSE_OVER = "mouseOver"
+    public static let MOUSE_OUT = "mouseOut"
+    public static let ROLL_OVER = "rollOver"
+    public static let ROLL_OUT = "rollOut"
+    public static let RELEASE_OUTSIDE = "releaseOutside"
 
     private let _stageX: Double
     private let _stageY: Double
     private var _localX: Double
     private var _localY: Double
     private let _buttonDown: Bool
+    public var delta: Int = 0
+    public var shiftKey: Bool = false
+    public var ctrlKey: Bool = false
+    public var altKey: Bool = false
 
     public override var stageX: Double { _stageX }
     public override var stageY: Double { _stageY }
@@ -1003,9 +1415,12 @@ public final class NFMouseEvent: NFEvent {
         _localY = y
     }
 
+    public func updateAfterEvent() {}
+
     public init(
         type: String,
         bubbles: Bool? = nil,
+        cancelable: Bool = false,
         target: NFDisplayObject? = nil,
         currentTarget: NFDisplayObject? = nil,
         stageX: Double = 0.0,
@@ -1020,7 +1435,17 @@ public final class NFMouseEvent: NFEvent {
         self._localX = localX
         self._localY = localY
         self._buttonDown = buttonDown
-        super.init(type: type, bubbles: shouldBubble, target: target, currentTarget: currentTarget)
+        super.init(type: type, bubbles: shouldBubble, cancelable: cancelable, target: target, currentTarget: currentTarget)
+    }
+
+    public convenience init(
+        _ type: String,
+        _ bubbles: Bool = true,
+        _ cancelable: Bool = false,
+        _ localX: Double = 0.0,
+        _ localY: Double = 0.0
+    ) {
+        self.init(type: type, bubbles: bubbles, cancelable: cancelable, stageX: localX, stageY: localY, localX: localX, localY: localY)
     }
 }
 
@@ -1080,9 +1505,12 @@ public final class NFTouchEvent: NFEvent {
 public final class NFKeyboardEvent: NFEvent {
     public static let keyDown = "keyDown"
     public static let keyUp = "keyUp"
+    public static let KEY_DOWN = "keyDown"
+    public static let KEY_UP = "keyUp"
 
     public let charCode: UInt32
-    public let key: String
+    private let _key: String
+    public override var key: String { _key }
     public let shiftKey: Bool
     public let ctrlKey: Bool
     public let altKey: Bool
@@ -1101,7 +1529,7 @@ public final class NFKeyboardEvent: NFEvent {
         commandKey: Bool = false
     ) {
         self.charCode = charCode
-        self.key = key
+        self._key = key
         self.shiftKey = shiftKey
         self.ctrlKey = ctrlKey
         self.altKey = altKey
@@ -1179,14 +1607,16 @@ public enum NFKeyboard {
 // MARK: - Dynamic Runtime Vector Drawing (NFGraphics)
 
 @MainActor
-public final class NFGraphics {
+public final class NFGraphics: NFDynamicObjectProtocol {
     public private(set) var shapes: [NFVectorShape] = []
 
     private var activeCommands: [NFPathCommand] = []
     private var activeFillColor: NFColor?
     private var activeFillGradient: NFGradientPaint?
+    private var activeBitmapFill: NFBitmapFillPaint?
     private var activeStrokeWidth: Double = 0.0
     private var activeStrokeColor: NFColor = .clear
+    private var activeStrokeGradient: NFGradientPaint?
     private var activeLineCaps: NFLineCaps = .round
     private var activeLineJoints: NFLineJoints = .round
     private var activeMiterLimit: Double = 3.0
@@ -1198,8 +1628,10 @@ public final class NFGraphics {
         activeCommands.removeAll()
         activeFillColor = nil
         activeFillGradient = nil
+        activeBitmapFill = nil
         activeStrokeWidth = 0.0
         activeStrokeColor = .clear
+        activeStrokeGradient = nil
         activeLineCaps = .round
         activeLineJoints = .round
         activeMiterLimit = 3.0
@@ -1214,14 +1646,15 @@ public final class NFGraphics {
         flushActiveShape()
         activeFillColor = NFColor(rgb: rgb, alpha: alpha)
         activeFillGradient = nil
+        activeBitmapFill = nil
     }
 
     public func beginFill(_ rgb: UInt32, _ alpha: Double) {
         beginFill(rgb, alpha: alpha)
     }
 
-    public func beginFill(_ rgb: UInt, _ alpha: Double = 1.0) {
-        beginFill(UInt32(truncatingIfNeeded: rgb), alpha: alpha)
+    public func beginFill(_ rgb: UInt?, _ alpha: Double = 1.0) {
+        beginFill(UInt32(truncatingIfNeeded: rgb ?? 0), alpha: alpha)
     }
 
     public func beginFill(_ rgb: Int, _ alpha: Double = 1.0) {
@@ -1229,14 +1662,128 @@ public final class NFGraphics {
     }
 
     public func beginFill(_ rgb: Double, _ alpha: Double = 1.0) {
-        let clamped = rgb.isFinite ? UInt32(truncatingIfNeeded: Int64(rgb.rounded(.towardZero))) : 0
-        beginFill(clamped, alpha: alpha)
+        beginFill(NFRuntime.toUInt32(rgb), alpha: alpha)
+    }
+
+    public func beginFill(_ rgb: NFValue, _ alpha: Double = 1.0) {
+        beginFill(rgb.asDouble, alpha)
     }
 
     public func beginGradientFill(_ gradient: NFGradientPaint) {
         flushActiveShape()
         activeFillGradient = gradient
         activeFillColor = nil
+        activeBitmapFill = nil
+    }
+
+    public func beginGradientFill(
+        _ type: String,
+        _ colors: NFValue,
+        _ alphas: NFValue,
+        _ ratios: NFValue,
+        _ matrix: NFAffineMatrix? = nil,
+        _ spreadMethod: String = "pad",
+        _ interpolationMethod: String = "rgb",
+        _ focalPointRatio: Double = 0.0
+    ) {
+        flushActiveShape()
+        let kind: NFGradientKind = type.lowercased().contains("radial") ? .radial : .linear
+        let spread: NFGradientSpread = switch spreadMethod.lowercased() {
+        case "reflect": .reflect
+        case "repeat": .repeatSpread
+        default: .extend
+        }
+        let cVals = NFRuntime.values(colors)
+        let aVals = NFRuntime.values(alphas)
+        let rVals = NFRuntime.values(ratios)
+        let count = Swift.min(cVals.count, Swift.min(aVals.count, rVals.count))
+        var stops: [NFGradientStop] = []
+        for idx in 0..<count {
+            let rgb = UInt32(truncatingIfNeeded: cVals[idx].asInt)
+            let rawA = aVals[idx].asDouble
+            let normA = rawA > 1.001 ? (rawA / 100.0) : rawA
+            let ratio = UInt8(Swift.max(0, Swift.min(255, rVals[idx].asInt)))
+            stops.append(NFGradientStop(ratio: ratio, color: NFColor(rgb: rgb, alpha: normA)))
+        }
+        activeFillGradient = NFGradientPaint(
+            kind: kind,
+            matrix: matrix ?? .identity,
+            stops: stops,
+            focalPointRatio: focalPointRatio,
+            spread: spread,
+            linearRGB: interpolationMethod.lowercased().contains("linear")
+        )
+        activeFillColor = nil
+        activeBitmapFill = nil
+    }
+
+    public func beginBitmapFill(
+        _ bitmap: NFBitmapData?,
+        _ matrix: NFAffineMatrix? = nil,
+        _ repeatPattern: Bool = true,
+        _ smooth: Bool = false
+    ) {
+        flushActiveShape()
+        activeFillColor = nil
+        activeFillGradient = nil
+        if let bitmap {
+            activeBitmapFill = NFBitmapFillPaint(
+                resourceName: "",
+                bitmapDataBox: NFBitmapDataBox(bitmap),
+                matrix: matrix ?? .identity,
+                repeatPattern: repeatPattern,
+                smoothing: smooth
+            )
+        } else {
+            activeBitmapFill = nil
+        }
+    }
+
+    public func beginBitmapFill(
+        _ bitmap: NFValue,
+        _ matrix: NFAffineMatrix? = nil,
+        _ repeatPattern: Bool = true,
+        _ smooth: Bool = false
+    ) {
+        beginBitmapFill(bitmap.asObject(as: NFBitmapData.self), matrix, repeatPattern, smooth)
+    }
+
+    public func lineGradientStyle(
+        _ type: String,
+        _ colors: NFValue,
+        _ alphas: NFValue,
+        _ ratios: NFValue,
+        _ matrix: NFAffineMatrix? = nil,
+        _ spreadMethod: String = "pad",
+        _ interpolationMethod: String = "rgb",
+        _ focalPointRatio: Double = 0.0
+    ) {
+        let kind: NFGradientKind = type.lowercased().contains("radial") ? .radial : .linear
+        let spread: NFGradientSpread = switch spreadMethod.lowercased() {
+        case "reflect": .reflect
+        case "repeat": .repeatSpread
+        default: .extend
+        }
+        let cVals = NFRuntime.values(colors)
+        let aVals = NFRuntime.values(alphas)
+        let rVals = NFRuntime.values(ratios)
+        let count = Swift.min(cVals.count, Swift.min(aVals.count, rVals.count))
+        var stops: [NFGradientStop] = []
+        for idx in 0..<count {
+            let rgb = UInt32(truncatingIfNeeded: cVals[idx].asInt)
+            let rawA = aVals[idx].asDouble
+            let normA = rawA > 1.001 ? (rawA / 100.0) : rawA
+            let ratio = UInt8(Swift.max(0, Swift.min(255, rVals[idx].asInt)))
+            stops.append(NFGradientStop(ratio: ratio, color: NFColor(rgb: rgb, alpha: normA)))
+        }
+        activeStrokeGradient = NFGradientPaint(
+            kind: kind,
+            matrix: matrix ?? .identity,
+            stops: stops,
+            focalPointRatio: focalPointRatio,
+            spread: spread,
+            linearRGB: interpolationMethod.lowercased().contains("linear")
+        )
     }
 
     public func lineStyle(
@@ -1260,21 +1807,63 @@ public final class NFGraphics {
         }
     }
 
-    public func lineStyle(_ thickness: Double, _ color: UInt32, _ alpha: Double = 1.0) {
+    public func lineStyle(_ thickness: Double?, _ color: UInt32, _ alpha: Double = 1.0) {
         lineStyle(thickness, color: color, alpha: alpha)
     }
 
-    public func lineStyle(_ thickness: Double, _ color: UInt, _ alpha: Double = 1.0) {
+    public func lineStyle(_ thickness: Double?, _ color: UInt?, _ alpha: Double = 1.0) {
+        lineStyle(thickness, color: UInt32(truncatingIfNeeded: color ?? 0), alpha: alpha)
+    }
+
+    public func lineStyle(_ thickness: Double?, _ color: Int, _ alpha: Double = 1.0) {
         lineStyle(thickness, color: UInt32(truncatingIfNeeded: color), alpha: alpha)
     }
 
-    public func lineStyle(_ thickness: Double, _ color: Int, _ alpha: Double = 1.0) {
-        lineStyle(thickness, color: UInt32(truncatingIfNeeded: color), alpha: alpha)
+    public func lineStyle(_ thickness: Double?, _ color: Double, _ alpha: Double = 1.0) {
+        lineStyle(thickness, color: NFRuntime.toUInt32(color), alpha: alpha)
     }
 
-    public func lineStyle(_ thickness: Double, _ color: Double, _ alpha: Double = 1.0) {
-        let c = color.isFinite ? UInt32(truncatingIfNeeded: Int64(color.rounded(.towardZero))) : 0
-        lineStyle(thickness, color: c, alpha: alpha)
+    public func copyFrom(_ sourceGraphics: NFGraphics) {
+        sourceGraphics.flushActiveShape()
+        clear()
+        shapes = sourceGraphics.shapes
+    }
+
+    public func drawPath(_ commands: NFValue, _ data: NFValue, _ winding: String = "evenOdd") {
+        let cmds: [Int] = if case .array(let box) = commands {
+            box.elements.map(\.asInt)
+        } else {
+            []
+        }
+        let coords: [Double] = if case .array(let box) = data {
+            box.elements.map(\.asDouble)
+        } else {
+            []
+        }
+        drawPath(cmds, coords, winding)
+    }
+
+    public func drawPath(_ commands: [Int], _ data: [Double], _ winding: String = "evenOdd") {
+        _ = winding
+        var di = 0
+        for cmd in commands {
+            switch cmd {
+            case 1 where di + 1 < data.count:
+                moveTo(data[di], data[di + 1]); di += 2
+            case 2 where di + 1 < data.count:
+                lineTo(data[di], data[di + 1]); di += 2
+            case 3 where di + 3 < data.count:
+                curveTo(data[di], data[di + 1], data[di + 2], data[di + 3]); di += 4
+            case 6 where di + 5 < data.count:
+                cubicCurveTo(
+                    controlX1: data[di], controlY1: data[di + 1],
+                    controlX2: data[di + 2], controlY2: data[di + 3],
+                    anchorX: data[di + 4], anchorY: data[di + 5]
+                ); di += 6
+            default:
+                break
+            }
+        }
     }
 
     public func moveTo(_ x: Double, _ y: Double) {
@@ -1300,6 +1889,17 @@ public final class NFGraphics {
         controlY2: Double,
         anchorX: Double,
         anchorY: Double
+    ) {
+        activeCommands.append(.cubicTo(controlX1, controlY1, controlX2, controlY2, anchorX, anchorY))
+    }
+
+    public func cubicCurveTo(
+        _ controlX1: Double,
+        _ controlY1: Double,
+        _ controlX2: Double,
+        _ controlY2: Double,
+        _ anchorX: Double,
+        _ anchorY: Double
     ) {
         activeCommands.append(.cubicTo(controlX1, controlY1, controlX2, controlY2, anchorX, anchorY))
     }
@@ -1332,10 +1932,51 @@ public final class NFGraphics {
         activeCommands.append(.close)
     }
 
+    public func drawRoundRect(
+        _ x: Double,
+        _ y: Double,
+        _ width: Double,
+        _ height: Double,
+        _ ellipseWidth: Double,
+        _ ellipseHeight: Double? = nil
+    ) {
+        let rx = Swift.max(0.0, Swift.min(width * 0.5, ellipseWidth * 0.5))
+        let ry = Swift.max(0.0, Swift.min(height * 0.5, (ellipseHeight ?? ellipseWidth) * 0.5))
+        if rx <= 1e-6 || ry <= 1e-6 {
+            drawRect(x, y, width, height)
+            return
+        }
+        activeCommands.append(.moveTo(x + rx, y))
+        activeCommands.append(.lineTo(x + width - rx, y))
+        activeCommands.append(.quadTo(x + width, y, x + width, y + ry))
+        activeCommands.append(.lineTo(x + width, y + height - ry))
+        activeCommands.append(.quadTo(x + width, y + height, x + width - rx, y + height))
+        activeCommands.append(.lineTo(x + rx, y + height))
+        activeCommands.append(.quadTo(x, y + height, x, y + height - ry))
+        activeCommands.append(.lineTo(x, y + ry))
+        activeCommands.append(.quadTo(x, y, x + rx, y))
+        activeCommands.append(.close)
+    }
+
+    public func drawRoundRectComplex(
+        _ x: Double,
+        _ y: Double,
+        _ width: Double,
+        _ height: Double,
+        _ topLeftRadius: Double,
+        _ topRightRadius: Double,
+        _ bottomLeftRadius: Double,
+        _ bottomRightRadius: Double
+    ) {
+        let r = (topLeftRadius + topRightRadius + bottomLeftRadius + bottomRightRadius) * 0.5
+        drawRoundRect(x, y, width, height, r, r)
+    }
+
     public func endFill() {
         flushActiveShape()
         activeFillColor = nil
         activeFillGradient = nil
+        activeBitmapFill = nil
     }
 
     internal func flushPendingForRender() {
@@ -1349,7 +1990,9 @@ public final class NFGraphics {
             fillRule: .nonZero,
             fillColor: activeFillColor ?? .clear,
             fillGradient: activeFillGradient,
+            bitmapFill: activeBitmapFill,
             strokeColor: activeStrokeColor,
+            strokeGradient: activeStrokeGradient,
             strokeWidth: activeStrokeWidth,
             lineCaps: activeLineCaps,
             lineJoints: activeLineJoints,
@@ -1404,6 +2047,111 @@ public final class NFGraphics {
         }
         return false
     }
+
+    public func nfGetProperty(_ key: String) -> NFValue {
+        switch key {
+        case "clear", "beginFill", "beginGradientFill", "beginBitmapFill", "lineStyle",
+             "moveTo", "lineTo", "curveTo", "cubicCurveTo", "drawRect", "drawRoundRect",
+             "drawRoundRectComplex", "drawCircle", "drawEllipse", "endFill":
+            return .function(NFFunctionBox { [weak self] args in
+                self?.nfInvokeMethod(key, args) ?? .undefinedVal
+            })
+        default:
+            return .undefinedVal
+        }
+    }
+
+    public func nfSetProperty(_ key: String, _ value: NFValue) {
+        _ = key; _ = value
+    }
+
+    public func nfInvokeMethod(_ name: String, _ args: [NFValue]) -> NFValue {
+        func extractMatrix(_ val: NFValue) -> NFAffineMatrix? {
+            if case .instance(let ibox) = val, let m = ibox.rawObject as? NFAffineMatrix {
+                return m
+            }
+            if case .object(let obox) = val {
+                return NFAffineMatrix(
+                    a: obox.properties["a"]?.asDouble ?? 1.0,
+                    b: obox.properties["b"]?.asDouble ?? 0.0,
+                    c: obox.properties["c"]?.asDouble ?? 0.0,
+                    d: obox.properties["d"]?.asDouble ?? 1.0,
+                    tx: obox.properties["tx"]?.asDouble ?? 0.0,
+                    ty: obox.properties["ty"]?.asDouble ?? 0.0
+                )
+            }
+            return nil
+        }
+        switch name {
+        case "clear":
+            clear()
+        case "beginFill":
+            let rgb = args.first?.asDouble ?? 0.0
+            let alpha = args.count > 1 ? args[1].asDouble : 1.0
+            beginFill(rgb, alpha.isFinite ? alpha : 1.0)
+        case "beginGradientFill":
+            if args.count >= 4 {
+                let m = args.count > 4 ? extractMatrix(args[4]) : nil
+                beginGradientFill(args[0].asString, args[1], args[2], args[3], m)
+            }
+        case "beginBitmapFill":
+            let bmp = args.first?.asObject(as: NFBitmapData.self)
+            let m = args.count > 1 ? extractMatrix(args[1]) : nil
+            let rep = args.count > 2 ? args[2].isTruthy : true
+            let sm = args.count > 3 ? args[3].isTruthy : false
+            beginBitmapFill(bmp, m, rep, sm)
+        case "lineStyle":
+            if let first = args.first {
+                let w = first.asDouble
+                if w.isFinite && w > 0.0 {
+                    let col = args.count > 1 ? args[1].asDouble : 0.0
+                    let alp = args.count > 2 ? args[2].asDouble : 1.0
+                    lineStyle(w, col, alp.isFinite ? alp : 1.0)
+                } else {
+                    lineStyle(nil)
+                }
+            } else {
+                lineStyle(nil)
+            }
+        case "moveTo":
+            if args.count >= 2 { moveTo(args[0].asDouble, args[1].asDouble) }
+        case "lineTo":
+            if args.count >= 2 { lineTo(args[0].asDouble, args[1].asDouble) }
+        case "curveTo":
+            if args.count >= 4 { curveTo(args[0].asDouble, args[1].asDouble, args[2].asDouble, args[3].asDouble) }
+        case "cubicCurveTo":
+            if args.count >= 6 {
+                cubicCurveTo(
+                    controlX1: args[0].asDouble, controlY1: args[1].asDouble,
+                    controlX2: args[2].asDouble, controlY2: args[3].asDouble,
+                    anchorX: args[4].asDouble, anchorY: args[5].asDouble
+                )
+            }
+        case "drawRect":
+            if args.count >= 4 { drawRect(args[0].asDouble, args[1].asDouble, args[2].asDouble, args[3].asDouble) }
+        case "drawRoundRect":
+            if args.count >= 5 {
+                let eh = args.count > 5 ? args[5].asDouble : nil
+                drawRoundRect(args[0].asDouble, args[1].asDouble, args[2].asDouble, args[3].asDouble, args[4].asDouble, eh)
+            }
+        case "drawRoundRectComplex":
+            if args.count >= 8 {
+                drawRoundRectComplex(
+                    args[0].asDouble, args[1].asDouble, args[2].asDouble, args[3].asDouble,
+                    args[4].asDouble, args[5].asDouble, args[6].asDouble, args[7].asDouble
+                )
+            }
+        case "drawCircle":
+            if args.count >= 3 { drawCircle(args[0].asDouble, args[1].asDouble, args[2].asDouble) }
+        case "drawEllipse":
+            if args.count >= 4 { drawEllipse(args[0].asDouble, args[1].asDouble, args[2].asDouble, args[3].asDouble) }
+        case "endFill":
+            endFill()
+        default:
+            break
+        }
+        return .undefinedVal
+    }
 }
 
 // MARK: - Display Object Hierarchy (@MainActor)
@@ -1412,11 +2160,144 @@ public final class NFGraphics {
 public struct NFEventListenerEntry {
     public let id: UUID
     public let type: String
+    public let useCapture: Bool
+    public let priority: Int
     public let handler: (NFEvent) -> Void
 }
 
 @MainActor
-open class NFDisplayObject {
+open class NFEventDispatcher: NFIEventDispatcher, NFDynamicObjectProtocol {
+    internal var listeners: [String: [NFEventListenerEntry]] = [:]
+
+    public init() {}
+
+    open func nfGetProperty(_ key: String) -> NFValue {
+        switch key {
+        case "addEventListener", "removeEventListener", "hasEventListener", "willTrigger", "dispatchEvent":
+            return .function(NFFunctionBox { [weak self] args in
+                self?.nfInvokeMethod(key, args) ?? .undefinedVal
+            })
+        default:
+            return .undefinedVal
+        }
+    }
+
+    open func nfSetProperty(_ key: String, _ value: NFValue) {
+        _ = key
+        _ = value
+    }
+
+    open func nfInvokeMethod(_ name: String, _ args: [NFValue]) -> NFValue {
+        switch name {
+        case "hasEventListener":
+            return .bool(hasEventListener(args.first?.asString ?? ""))
+        case "willTrigger":
+            return .bool(willTrigger(args.first?.asString ?? ""))
+        case "addEventListener":
+            if args.count >= 2 {
+                let fnVal = args[1]
+                _ = addEventListener(args[0].asString) { ev in
+                    _ = fnVal.dynamicallyCall(withArguments: [.instance(NFInstanceBox(ev))])
+                }
+            }
+            return .undefinedVal
+        case "removeEventListener":
+            if let t = args.first?.asString {
+                removeEventListener(t, nil)
+            }
+            return .undefinedVal
+        default:
+            return .undefinedVal
+        }
+    }
+
+    @discardableResult
+    public func addEventListener(_ type: String, _ listener: @escaping (NFEvent) -> Void) -> UUID {
+        addEventListener(type, listener, false, 0, false)
+    }
+
+    @discardableResult
+    public func addEventListener(
+        _ type: String,
+        _ listener: @escaping (NFEvent) -> Void,
+        _ useCapture: Bool,
+        _ priority: Int = 0,
+        _ useWeakReference: Bool = false
+    ) -> UUID {
+        _ = useWeakReference
+        let id = UUID()
+        var bucket = listeners[type, default: []]
+        bucket.append(NFEventListenerEntry(id: id, type: type, useCapture: useCapture, priority: priority, handler: listener))
+        if bucket.count > 1 && priority != 0 {
+            bucket.sort { $0.priority > $1.priority }
+        }
+        listeners[type] = bucket
+        return id
+    }
+
+    public func removeEventListener(_ type: String, id: UUID) {
+        listeners[type]?.removeAll(where: { $0.id == id })
+    }
+
+    public func removeEventListener(_ type: String, _ listenerOrId: Any?, _ useCapture: Bool = false) {
+        if let uuid = listenerOrId as? UUID {
+            removeEventListener(type, id: uuid)
+        } else {
+            listeners[type]?.removeAll(where: { $0.useCapture == useCapture })
+        }
+    }
+
+    public func removeAllEventListeners(_ type: String? = nil) {
+        if let type {
+            listeners.removeValue(forKey: type)
+        } else {
+            listeners.removeAll()
+        }
+    }
+
+    public func hasEventListener(_ type: String) -> Bool {
+        if let entries = listeners[type], !entries.isEmpty {
+            return true
+        }
+        return false
+    }
+
+    public func willTrigger(_ type: String) -> Bool {
+        hasEventListener(type)
+    }
+
+    @discardableResult
+    open func dispatchEvent(_ event: NFEvent) -> Bool {
+        invokeListenersOnDispatcher(event: event, capturePhase: false)
+        return !event.isDefaultPrevented()
+    }
+
+    @discardableResult
+    public func dispatchEvent(_ eventVal: NFValue) -> Bool {
+        if let ev = eventVal.asObject(as: NFEvent.self) {
+            return dispatchEvent(ev)
+        }
+        return false
+    }
+
+    internal func invokeListenersOnDispatcher(event: NFEvent, capturePhase: Bool) {
+        if let dobj = self as? NFDisplayObject {
+            event.currentTarget = dobj
+        }
+        if let entries = listeners[event.type] {
+            for entry in entries where entry.useCapture == capturePhase {
+                entry.handler(event)
+                if event.immediatePropagationStopped {
+                    break
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+@dynamicMemberLookup
+open class NFDisplayObject: NFEventDispatcher {
     public var name: String = ""
     public weak var parent: NFSprite?
     public weak var mask: NFDisplayObject?
@@ -1439,11 +2320,83 @@ open class NFDisplayObject {
     public var colorTransform: NFColorTransform = .identity
     public var blendMode: NFBlendMode = .normal
     public var filters: [NFFilterSpec] = []
+    public var scrollRect: NFRectangle?
+    public var scale9Grid: NFRectangle?
+    public var cacheAsBitmap: Bool = false
+    public var opaqueBackground: UInt32?
+    public var tabEnabled: Bool = false
+    public var tabIndex: Int = -1
+    public var doubleClickEnabled: Bool = false
+    public var useHandCursor: Bool = true
+    public var focusRect: NFValue = .null
+    public var dynamicProps: [String: NFValue] = [:]
+    public lazy var loaderInfo: NFLoaderInfo = NFLoaderInfo()
+    open var currentFrame: Int { 1 }
+    open var totalFrames: Int { 1 }
+
+    public subscript(dynamicMember member: String) -> NFValue {
+        get { nfGetProperty(member) }
+        set { nfSetProperty(member, newValue) }
+    }
+
+    public subscript(key: String) -> NFValue {
+        get { nfGetProperty(key) }
+        set { nfSetProperty(key, newValue) }
+    }
+
+    open override func nfGetProperty(_ key: String) -> NFValue {
+        switch key {
+        case "name", "_name": return .string(name)
+        case "x", "_x": return .number(x)
+        case "y", "_y": return .number(y)
+        case "scaleX": return .number(scaleX)
+        case "scaleY": return .number(scaleY)
+        case "_xscale": return .number(_xscale)
+        case "_yscale": return .number(_yscale)
+        case "rotation", "_rotation": return .number(rotation)
+        case "alpha": return .number(alpha)
+        case "_alpha": return .number(_alpha)
+        case "visible", "_visible": return .bool(visible)
+        case "width", "_width": return .number(width)
+        case "height", "_height": return .number(height)
+        default:
+            if let dyn = dynamicProps[key] { return dyn }
+            return super.nfGetProperty(key)
+        }
+    }
+
+    open override func nfSetProperty(_ key: String, _ value: NFValue) {
+        switch key {
+        case "name", "_name": name = value.asString
+        case "x", "_x": x = value.asDouble
+        case "y", "_y": y = value.asDouble
+        case "scaleX": scaleX = value.asDouble
+        case "scaleY": scaleY = value.asDouble
+        case "_xscale": _xscale = value.asDouble
+        case "_yscale": _yscale = value.asDouble
+        case "rotation", "_rotation": rotation = value.asDouble
+        case "alpha": alpha = value.asDouble
+        case "_alpha": _alpha = value.asDouble
+        case "visible", "_visible": visible = value.isTruthy
+        case "width", "_width": width = value.asDouble
+        case "height", "_height": height = value.asDouble
+        default:
+            dynamicProps[key] = value
+        }
+    }
+
+    public var transform: NFTransform {
+        get { NFTransform(self) }
+        set {
+            matrixOverride = newValue.matrix
+            colorTransform = newValue.colorTransform
+            isScriptControlled = true
+        }
+    }
 
     internal var timelineElementId: String?
     internal var timelineLayerIndex: Int?
     internal var timelineMaskLayerIndex: Int?
-    internal var listeners: [String: [NFEventListenerEntry]] = [:]
     internal var enterFrameCallbacks: [() -> Void] = []
     internal var pressCallbacks: [() -> Void] = []
     internal var clickCallbacks: [() -> Void] = []
@@ -1456,6 +2409,28 @@ open class NFDisplayObject {
 
     public init(name: String = "") {
         self.name = name
+        super.init()
+    }
+
+    internal func currentMatrix() -> NFAffineMatrix {
+        if let m = matrixOverride {
+            return m
+        }
+        return NFAffineMatrix.fromTransform(
+            x: rawX,
+            y: rawY,
+            scaleX: rawScaleX,
+            scaleY: rawScaleY,
+            rotationDegrees: rawRotation,
+            skewDegrees: rawSkew
+        )
+    }
+
+    internal func setMatrix(_ m: NFAffineMatrix) {
+        rawX = m.tx
+        rawY = m.ty
+        matrixOverride = m
+        isScriptControlled = true
     }
 
     public var x: Double {
@@ -1528,7 +2503,7 @@ open class NFDisplayObject {
         }
     }
 
-    public var width: Double {
+    open var width: Double {
         get {
             let b = localContentBounds()
             guard !b.isNull else { return 0.0 }
@@ -1544,7 +2519,7 @@ open class NFDisplayObject {
         }
     }
 
-    public var height: Double {
+    open var height: Double {
         get {
             let b = localContentBounds()
             guard !b.isNull else { return 0.0 }
@@ -1599,15 +2574,15 @@ open class NFDisplayObject {
         return parent?.stage
     }
 
-    public var root: NFDisplayObject? {
+    public var root: NFMovieClip? {
         var cur: NFDisplayObject = self
         while let p = cur.parent {
             if p is NFStage {
-                return cur
+                return cur as? NFMovieClip
             }
             cur = p
         }
-        return cur
+        return cur as? NFMovieClip
     }
 
     public func isDescendant(of container: NFDisplayObject) -> Bool {
@@ -1697,8 +2672,18 @@ open class NFDisplayObject {
         return stagePoint.applying(m.inverted())
     }
 
+    public func globalToLocal(_ stagePoint: NFPoint) -> NFPoint {
+        let pt = globalToLocal(CGPoint(x: stagePoint.x, y: stagePoint.y))
+        return NFPoint(Double(pt.x), Double(pt.y))
+    }
+
     public func localToGlobal(_ localPoint: CGPoint) -> CGPoint {
         localPoint.applying(stageCGAffineTransform())
+    }
+
+    public func localToGlobal(_ localPoint: NFPoint) -> NFPoint {
+        let pt = localToGlobal(CGPoint(x: localPoint.x, y: localPoint.y))
+        return NFPoint(Double(pt.x), Double(pt.y))
     }
 
     open func localContentBounds() -> CGRect {
@@ -1717,6 +2702,38 @@ open class NFDisplayObject {
         let det = targetToStage.a * targetToStage.d - targetToStage.b * targetToStage.c
         guard abs(det) > 1e-12 else { return stageRect }
         return stageRect.applying(targetToStage.inverted())
+    }
+
+    public func getBounds(_ targetCoordinateSpace: NFDisplayObject?) -> NFRectangle {
+        NFRectangle(getBounds(targetCoordinateSpace: targetCoordinateSpace))
+    }
+
+    public func getRect(_ targetCoordinateSpace: NFDisplayObject? = nil) -> NFRectangle {
+        NFRectangle(getBounds(targetCoordinateSpace: targetCoordinateSpace))
+    }
+
+    public func removeMovieClip() {
+        _ = parent?.removeChild(self)
+    }
+
+    public func getDepth() -> Int {
+        guard let p = parent, let idx = p.children.firstIndex(where: { $0 === self }) else {
+            return -16384
+        }
+        return idx
+    }
+
+    public func swapDepths(_ target: Any?) {
+        guard let p = parent, let myIdx = p.children.firstIndex(where: { $0 === self }) else { return }
+        if let other = target as? NFDisplayObject,
+           let otherIdx = p.children.firstIndex(where: { $0 === other })
+        {
+            p.swapChildrenAt(myIdx, otherIdx)
+        } else {
+            let depth = NFValue.wrap(target).asInt
+            let clamped = Swift.max(0, Swift.min(Swift.max(0, p.children.count - 1), depth))
+            p.setChildIndex(self, clamped)
+        }
     }
 
     open func hitTestStagePoint(_ stagePoint: CGPoint, shapeFlag: Bool = true) -> NFDisplayObject? {
@@ -1785,40 +2802,36 @@ open class NFDisplayObject {
     }
 
     @discardableResult
-    public func addEventListener(_ type: String, _ listener: @escaping (NFEvent) -> Void) -> UUID {
-        let id = UUID()
-        listeners[type, default: []].append(NFEventListenerEntry(id: id, type: type, handler: listener))
-        return id
-    }
-
-    public func removeEventListener(_ type: String, id: UUID) {
-        listeners[type]?.removeAll(where: { $0.id == id })
-    }
-
-    public func removeAllEventListeners(_ type: String? = nil) {
-        if let type {
-            listeners.removeValue(forKey: type)
-        } else {
-            listeners.removeAll()
-        }
-    }
-
-    public func hasEventListener(_ type: String) -> Bool {
-        if let entries = listeners[type], !entries.isEmpty {
-            return true
-        }
-        return false
-    }
-
-    public func dispatchEvent(_ event: NFEvent) {
+    open override func dispatchEvent(_ event: NFEvent) -> Bool {
         if event.target == nil {
             event.target = self
         }
-        invokeListeners(on: self, event: event)
+        // 1. Capture phase down from root/stage
+        var ancestors: [NFDisplayObject] = []
+        var curAnc = self.parent
+        while let anc = curAnc {
+            ancestors.append(anc)
+            curAnc = anc.parent
+        }
+        event.eventPhase = 1
+        for anc in ancestors.reversed() {
+            anc.invokeListenersOnDispatcher(event: event, capturePhase: true)
+            if event.propagationStopped {
+                return !event.isDefaultPrevented()
+            }
+        }
 
+        // 2. Target phase
+        event.eventPhase = 2
+        invokeListenersOnDispatcher(event: event, capturePhase: false)
+        if event.propagationStopped {
+            return !event.isDefaultPrevented()
+        }
+
+        // 3. Bubbling phase
         if event.bubbles {
-            var ancestor = self.parent
-            while let anc = ancestor {
+            event.eventPhase = 3
+            for anc in ancestors {
                 if let mouseEvt = event as? NFMouseEvent {
                     let ancLocal = (anc is NFStage)
                         ? CGPoint(x: mouseEvt.stageX, y: mouseEvt.stageY)
@@ -1830,19 +2843,13 @@ open class NFDisplayObject {
                         : anc.globalToLocal(CGPoint(x: touchEvt.stageX, y: touchEvt.stageY))
                     touchEvt.setLocalPoint(x: Double(ancLocal.x), y: Double(ancLocal.y))
                 }
-                invokeListeners(on: anc, event: event)
-                ancestor = anc.parent
+                anc.invokeListenersOnDispatcher(event: event, capturePhase: false)
+                if event.propagationStopped {
+                    break
+                }
             }
         }
-    }
-
-    private func invokeListeners(on receiver: NFDisplayObject, event: NFEvent) {
-        event.currentTarget = receiver
-        if let entries = receiver.listeners[event.type] {
-            for entry in entries {
-                entry.handler(event)
-            }
-        }
+        return !event.isDefaultPrevented()
     }
 }
 
@@ -1872,7 +2879,36 @@ public final class NFTextField: NFDisplayObject {
     public var selectable: Bool
     public var isInput: Bool
     public var isTextScriptModified: Bool = false
-    private var rawHtmlSource: String?
+    internal var rawHtmlSource: String?
+    public var mouseEnabled: Bool = true
+    public var autoSize: String = NFTextFieldAutoSize.NONE
+    public var embedFonts: Bool = false
+    public var antiAliasType: String = NFAntiAliasType.NORMAL
+    public var gridFitType: String = NFGridFitType.PIXEL
+    public var sharpness: Double = 0.0
+    public var thickness: Double = 0.0
+    public var condenseWhite: Bool = false
+    public var alwaysShowSelection: Bool = false
+    public var mouseWheelEnabled: Bool = true
+    public var styleSheet: NFStyleSheet?
+    public var variable: String?
+    public var scrollV: Int = 1
+    public var scrollH: Int = 0
+    public private(set) var selectionBeginIndex: Int = 0
+    public private(set) var selectionEndIndex: Int = 0
+    public var onChanged: NFValue = .undefinedVal
+    public var onSetFocus: NFValue = .undefinedVal
+    public var onKillFocus: NFValue = .undefinedVal
+
+    public var html: Bool {
+        get { spec.html }
+        set { spec.html = newValue }
+    }
+
+    public var defaultTextFormat: NFTextFormat {
+        get { currentTextFormatSnapshot() }
+        set { applyTextFormat(newValue) }
+    }
 
     public init(name: String = "", spec: NFTextSpec? = nil) {
         let resolved = spec ?? NFTextSpec(
@@ -1884,6 +2920,7 @@ public final class NFTextField: NFDisplayObject {
         self.spec = resolved
         self.selectable = resolved.selectable
         self.isInput = (resolved.kind == .input)
+        self.variable = resolved.variable
         super.init(name: name)
         if resolved.html {
             self.rawHtmlSource = resolved.text
@@ -1896,6 +2933,9 @@ public final class NFTextField: NFDisplayObject {
         self.spec = authored
         self.selectable = authored.selectable
         self.isInput = (authored.kind == .input)
+        if self.variable == nil {
+            self.variable = authored.variable
+        }
         if authored.html {
             self.rawHtmlSource = authored.text
             self.spec.text = Self.stripHTMLToPlainText(authored.text)
@@ -1908,6 +2948,9 @@ public final class NFTextField: NFDisplayObject {
             spec.text = newValue
             rawHtmlSource = nil
             isTextScriptModified = true
+            if let v = variable, !v.isEmpty {
+                parent?.dynamicProps[v] = .string(newValue)
+            }
             if let st = stage, st.inputState.activeField === self, st.inputState.text != newValue {
                 st.inputState.text = newValue
             }
@@ -1937,6 +2980,32 @@ public final class NFTextField: NFDisplayObject {
 
     public var length: Int {
         spec.text.utf16.count
+    }
+
+    public override var width: Double {
+        get {
+            if let bw = spec.boxWidth {
+                return bw * abs(scaleX)
+            }
+            return super.width
+        }
+        set {
+            spec.boxWidth = Swift.max(1.0, newValue.isFinite ? newValue : 100.0)
+            isScriptControlled = true
+        }
+    }
+
+    public override var height: Double {
+        get {
+            if let bh = spec.boxHeight {
+                return bh * abs(scaleY)
+            }
+            return super.height
+        }
+        set {
+            spec.boxHeight = Swift.max(1.0, newValue.isFinite ? newValue : 20.0)
+            isScriptControlled = true
+        }
     }
 
     public var maxChars: Int {
@@ -2005,6 +3074,154 @@ public final class NFTextField: NFDisplayObject {
         self.text = spec.text + suffix
     }
 
+    public func setTextFormat(_ format: NFTextFormat?, _ beginIndex: Int = -1, _ endIndex: Int = -1) {
+        _ = beginIndex
+        _ = endIndex
+        guard let format else { return }
+        applyTextFormat(format)
+    }
+
+    public func getTextFormat(_ beginIndex: Int = -1, _ endIndex: Int = -1) -> NFTextFormat {
+        _ = beginIndex
+        _ = endIndex
+        return currentTextFormatSnapshot()
+    }
+
+    public func setNewTextFormat(_ format: NFTextFormat?) {
+        guard let format else { return }
+        applyTextFormat(format)
+    }
+
+    public func getNewTextFormat() -> NFTextFormat {
+        currentTextFormatSnapshot()
+    }
+
+    private func currentTextFormatSnapshot() -> NFTextFormat {
+        let alignStr: String = switch spec.align {
+        case .left: "left"
+        case .center: "center"
+        case .right: "right"
+        }
+        let fmt = NFTextFormat(
+            spec.fontFamily,
+            spec.fontSize,
+            textColor,
+            spec.bold,
+            spec.italic,
+            spec.underline,
+            nil,
+            nil,
+            alignStr,
+            nil,
+            nil,
+            nil,
+            spec.leading
+        )
+        fmt.letterSpacing = spec.letterSpacing
+        return fmt
+    }
+
+    private func applyTextFormat(_ format: NFTextFormat) {
+        if let f = format.font, !f.isEmpty { spec.fontFamily = f }
+        if let sz = format.size, sz > 0 { spec.fontSize = sz }
+        if let col = format.color { textColor = UInt32(truncatingIfNeeded: col) }
+        if let b = format.bold { spec.bold = b }
+        if let i = format.italic { spec.italic = i }
+        if let u = format.underline { spec.underline = u }
+        if let ld = format.leading { spec.leading = ld }
+        if let ls = format.letterSpacing { spec.letterSpacing = ls }
+        if let al = format.align?.lowercased() {
+            switch al {
+            case "center": spec.align = .center
+            case "right": spec.align = .right
+            default: spec.align = .left
+            }
+        }
+        isTextScriptModified = true
+    }
+
+    public var textWidth: Double {
+        let lines = spec.text.split(separator: "\n", omittingEmptySubsequences: false)
+        let maxLen = lines.map(\.count).max() ?? 0
+        return Double(maxLen) * spec.fontSize * 0.58
+    }
+
+    public var textHeight: Double {
+        let lineCount = Swift.max(1, spec.text.split(separator: "\n", omittingEmptySubsequences: false).count)
+        return Double(lineCount) * (spec.fontSize * 1.2 + spec.leading)
+    }
+
+    public var numLines: Int {
+        Swift.max(1, spec.text.split(separator: "\n", omittingEmptySubsequences: false).count)
+    }
+
+    public var maxScrollV: Int { Swift.max(1, numLines) }
+    public var maxScrollH: Int { 0 }
+    public var bottomScrollV: Int { numLines }
+    public var scroll: Int { get { scrollV } set { scrollV = Swift.max(1, newValue) } }
+    public var maxscroll: Int { maxScrollV }
+    public var hscroll: Int { get { scrollH } set { scrollH = Swift.max(0, newValue) } }
+    public var maxhscroll: Int { maxScrollH }
+    public var caretIndex: Int { selectionEndIndex }
+
+    public func setSelection(_ beginIndex: Int, _ endIndex: Int) {
+        let len = length
+        selectionBeginIndex = Swift.max(0, Swift.min(len, beginIndex))
+        selectionEndIndex = Swift.max(selectionBeginIndex, Swift.min(len, endIndex))
+    }
+
+    public func setSelection(_ beginIndex: Double, _ endIndex: Double) {
+        let b = NFRuntime.clampToInt(beginIndex, default: 0)
+        let e = NFRuntime.clampToInt(endIndex, default: 0)
+        setSelection(b, e)
+    }
+
+    public func replaceText(_ beginIndex: Int, _ endIndex: Int, _ newText: String) {
+        let units = Array(spec.text.utf16)
+        let lo = Swift.max(0, Swift.min(units.count, beginIndex))
+        let hi = Swift.max(lo, Swift.min(units.count, endIndex))
+        let prefix = String(utf16CodeUnits: Array(units[0..<lo]), count: lo)
+        let suffix = String(utf16CodeUnits: Array(units[hi..<units.count]), count: units.count - hi)
+        self.text = prefix + newText + suffix
+    }
+
+    public func replaceSelectedText(_ value: String) {
+        replaceText(selectionBeginIndex, selectionEndIndex, value)
+    }
+
+    public func getLineText(_ lineIndex: Int) -> String {
+        let lines = spec.text.components(separatedBy: "\n")
+        guard lineIndex >= 0 && lineIndex < lines.count else { return "" }
+        return lines[lineIndex]
+    }
+
+    public func getLineLength(_ lineIndex: Int) -> Int {
+        getLineText(lineIndex).utf16.count
+    }
+
+    public func getLineOffset(_ lineIndex: Int) -> Int {
+        let lines = spec.text.components(separatedBy: "\n")
+        guard lineIndex >= 0 && lineIndex < lines.count else { return -1 }
+        var off = 0
+        for i in 0..<lineIndex {
+            off += lines[i].utf16.count + 1
+        }
+        return off
+    }
+
+    public func getLineMetrics(_ lineIndex: Int) -> NFTextLineMetrics {
+        let txt = getLineText(lineIndex)
+        let lineH = spec.fontSize * 1.2 + spec.leading
+        return NFTextLineMetrics(
+            x: 2.0,
+            width: Double(txt.count) * spec.fontSize * 0.58,
+            height: lineH,
+            ascent: spec.fontSize * 0.8,
+            descent: spec.fontSize * 0.2,
+            leading: spec.leading
+        )
+    }
+
     /// Applies interactive user typing from the SwiftUI `TextField` input overlay or test harness.
     public func applyUserInput(_ rawInput: String) {
         var filtered = rawInput
@@ -2026,6 +3243,7 @@ public final class NFTextField: NFDisplayObject {
         for cb in changeCallbacks {
             cb()
         }
+        _ = onChanged.dynamicallyCall(withArguments: [NFValue(self)])
         dispatchEvent(NFEvent(type: NFEvent.change, bubbles: true, target: self))
     }
 
@@ -2163,29 +3381,111 @@ public final class NFTextField: NFDisplayObject {
 }
 
 @MainActor
-public final class NFBitmap: NFDisplayObject {
+open class NFBitmap: NFDisplayObject {
     public var spec: NFBitmapSpec
+    public var bitmapData: NFBitmapData?
+    public var pixelSnapping: String = "auto"
+    public var smoothing: Bool
 
     public init(name: String = "", spec: NFBitmapSpec) {
         self.spec = spec
+        self.smoothing = spec.smoothing
         super.init(name: name)
     }
 
-    public override func localContentBounds() -> CGRect {
-        CGRect(x: 0, y: 0, width: spec.width, height: spec.height)
+    public convenience init(
+        _ bitmapData: NFBitmapData? = nil,
+        _ pixelSnapping: String = "auto",
+        _ smoothing: Bool = false
+    ) {
+        let w = Double(bitmapData?.width ?? 0)
+        let h = Double(bitmapData?.height ?? 0)
+        self.init(name: "", spec: NFBitmapSpec(resourceName: "", width: w, height: h, smoothing: smoothing))
+        self.bitmapData = bitmapData
+        self.pixelSnapping = pixelSnapping
+        self.smoothing = smoothing
+    }
+
+    open override func localContentBounds() -> CGRect {
+        if let bmd = bitmapData, !bmd.disposed {
+            return CGRect(x: 0, y: 0, width: bmd.width, height: bmd.height)
+        }
+        return CGRect(x: 0, y: 0, width: spec.width, height: spec.height)
     }
 }
 
 @MainActor
-public final class NFVideo: NFDisplayObject {
+open class NFVideo: NFDisplayObject {
     public var spec: NFVideoSpec
+    public var smoothing: Bool = false
+    public var deblocking: Int = 0
+    public private(set) var videoWidth: Int = 0
+    public private(set) var videoHeight: Int = 0
+    internal weak var attachedStream: NFNetStream?
+    internal var decodedFrame: CGImage?
+    internal var retainedFrame: CGImage?
 
     public init(name: String = "", spec: NFVideoSpec) {
         self.spec = spec
         super.init(name: name)
     }
 
-    public override func localContentBounds() -> CGRect {
+    public convenience init(_ width: Double = 320.0, _ height: Double = 240.0) {
+        self.init(name: "", spec: NFVideoSpec(source: "", width: width, height: height))
+    }
+
+    public func attachNetStream(_ netStream: NFNetStream?) {
+        attachedStream?.attachedVideo = nil
+        attachedStream = netStream
+        netStream?.attachedVideo = self
+        if let latest = netStream?.latestFrameImage {
+            decodedFrame = latest
+            videoWidth = netStream?.videoWidth ?? latest.width
+            videoHeight = netStream?.videoHeight ?? latest.height
+        }
+    }
+
+    public func attachVideo(_ source: Any?) {
+        if let ns = source as? NFNetStream {
+            attachNetStream(ns)
+        } else if source == nil {
+            attachNetStream(nil)
+        }
+    }
+
+    public func clear() {
+        decodedFrame = nil
+        retainedFrame = nil
+    }
+
+    internal func setDecodedFrame(_ img: CGImage, width: Int, height: Int) {
+        decodedFrame = img
+        retainedFrame = img
+        if width > 0 { videoWidth = width }
+        if height > 0 { videoHeight = height }
+    }
+
+    internal func currentCGImage() -> CGImage? {
+        if let s = attachedStream, let live = s.latestFrameImage {
+            return live
+        }
+        if let df = decodedFrame {
+            return df
+        }
+        if let rf = retainedFrame {
+            return rf
+        }
+        if !spec.source.isEmpty, let url = NFResourceCache.shared.resolveResourceURL(spec.source) {
+            let (vw, vh, img) = NFNetStream.decodeVideoFrame(url: url, atSeconds: 0.0)
+            if let img {
+                setDecodedFrame(img, width: vw, height: vh)
+                return img
+            }
+        }
+        return nil
+    }
+
+    open override func localContentBounds() -> CGRect {
         CGRect(x: 0, y: 0, width: spec.width, height: spec.height)
     }
 }
@@ -2197,7 +3497,6 @@ open class NFSprite: NFDisplayObject {
     public var buttonMode: Bool = false
     public var mouseEnabled: Bool = true
     public var mouseChildren: Bool = true
-    public var dynamicProps: [String: NFValue] = [:]
 
     public override init(name: String = "") {
         super.init(name: name)
@@ -2210,6 +3509,7 @@ open class NFSprite: NFDisplayObject {
         addChildAt(child, children.count)
     }
 
+    @_disfavoredOverload
     @discardableResult
     public func addChild(_ child: NFDisplayObject?) -> NFDisplayObject? {
         guard let child else { return nil }
@@ -2271,15 +3571,449 @@ open class NFSprite: NFDisplayObject {
         children.first(where: { $0.name == name })
     }
 
+    public func contains(_ child: NFDisplayObject?) -> Bool {
+        guard let child else { return false }
+        return child.isDescendant(of: self)
+    }
+
+    public func getChildIndex(_ child: NFDisplayObject) -> Int {
+        children.firstIndex(where: { $0 === child }) ?? -1
+    }
+
+    public func setChildIndex(_ child: NFDisplayObject, _ index: Int) {
+        guard let oldIdx = children.firstIndex(where: { $0 === child }) else { return }
+        let clamped = Swift.max(0, Swift.min(children.count - 1, index))
+        guard oldIdx != clamped else { return }
+        children.remove(at: oldIdx)
+        children.insert(child, at: clamped)
+    }
+
+    public func swapChildren(_ child1: NFDisplayObject, _ child2: NFDisplayObject) {
+        guard let i1 = children.firstIndex(where: { $0 === child1 }),
+              let i2 = children.firstIndex(where: { $0 === child2 })
+        else { return }
+        swapChildrenAt(i1, i2)
+    }
+
+    public func swapChildrenAt(_ index1: Int, _ index2: Int) {
+        guard index1 >= 0, index1 < children.count,
+              index2 >= 0, index2 < children.count,
+              index1 != index2
+        else { return }
+        children.swapAt(index1, index2)
+    }
+
+    public func getNextHighestDepth() -> Int {
+        children.count
+    }
+
+    public func getInstanceAtDepth(_ depth: Int) -> NFDisplayObject? {
+        getChildAt(depth)
+    }
+
     @discardableResult
     public func createEmptyMovieClip(_ name: String, depth: Int? = nil) -> NFMovieClip {
         let clip = NFMovieClip(name: name)
+        if let existing = getChildByName(name) {
+            _ = removeChild(existing)
+        }
         if let depth, depth >= 0 && depth <= children.count {
             _ = addChildAt(clip, depth)
         } else {
             _ = addChild(clip)
         }
+        dynamicProps[name] = NFValue(clip)
         return clip
+    }
+
+    @discardableResult
+    public func createEmptyMovieClip(_ name: String, _ depth: Int) -> NFMovieClip {
+        createEmptyMovieClip(name, depth: depth)
+    }
+
+    @discardableResult
+    public func createEmptyMovieClip(_ name: String, _ depth: Double) -> NFMovieClip {
+        let d = NFRuntime.clampToInt(depth, default: 0)
+        return createEmptyMovieClip(name, depth: d)
+    }
+
+    @discardableResult
+    public func createEmptyMovieClip(_ name: NFValue, _ depth: NFValue = .int(0)) -> NFMovieClip {
+        createEmptyMovieClip(name.asString, depth: depth.asInt)
+    }
+
+    @discardableResult
+    public func createTextField(
+        _ instanceName: String,
+        _ depth: Double,
+        _ x: Double,
+        _ y: Double,
+        _ width: Double,
+        _ height: Double
+    ) -> NFTextField {
+        let d = NFRuntime.clampToInt(depth, default: 0)
+        return createTextField(instanceName, d, x, y, width, height)
+    }
+
+    @discardableResult
+    public func createTextField(
+        _ instanceName: String,
+        _ depth: Int,
+        _ x: Double,
+        _ y: Double,
+        _ width: Double,
+        _ height: Double
+    ) -> NFTextField {
+        let spec = NFTextSpec(
+            text: "",
+            fontFamily: "Helvetica",
+            fontSize: 12.0,
+            color: .black,
+            boxWidth: Swift.max(1.0, width),
+            boxHeight: Swift.max(1.0, height),
+            kind: .dynamic,
+            selectable: true
+        )
+        let tf = NFTextField(name: instanceName, spec: spec)
+        tf.x = x
+        tf.y = y
+        if depth >= 0 && depth <= children.count {
+            _ = addChildAt(tf, depth)
+        } else {
+            _ = addChild(tf)
+        }
+        dynamicProps[instanceName] = NFValue(tf)
+        return tf
+    }
+
+    public func attachBitmap(
+        _ bmp: NFBitmapData?,
+        _ depth: Int,
+        _ pixelSnapping: String = "auto",
+        _ smoothing: Bool = false
+    ) {
+        guard let bmp else { return }
+        if let existing = children.first(where: { ($0 as? NFBitmap)?.name == "_nfAttachedBmp_\(depth)" }) {
+            _ = removeChild(existing)
+        }
+        let bitmapChild = NFBitmap(bmp, pixelSnapping, smoothing)
+        bitmapChild.name = "_nfAttachedBmp_\(depth)"
+        if depth >= 0 && depth <= children.count {
+            _ = addChildAt(bitmapChild, depth)
+        } else {
+            _ = addChild(bitmapChild)
+        }
+    }
+
+    public func attachBitmap(
+        _ bmp: NFBitmapData?,
+        _ depth: Int?,
+        _ pixelSnapping: String = "auto",
+        _ smoothing: Bool = false
+    ) {
+        attachBitmap(bmp, depth ?? getNextHighestDepth(), pixelSnapping, smoothing)
+    }
+
+    @discardableResult
+    public func createTextField(
+        _ instanceName: String,
+        _ depth: Double,
+        _ x: Any?,
+        _ y: Any?,
+        _ width: Any?,
+        _ height: Any?
+    ) -> NFTextField {
+        createTextField(
+            instanceName,
+            NFRuntime.clampToInt(depth, default: 0),
+            NFValue.wrap(x).asDouble,
+            NFValue.wrap(y).asDouble,
+            NFValue.wrap(width).asDouble,
+            NFValue.wrap(height).asDouble
+        )
+    }
+
+    public func beginBitmapFill(
+        _ bitmap: NFValue,
+        _ matrix: NFAffineMatrix? = nil,
+        _ repeatPattern: Bool = true,
+        _ smooth: Bool = false
+    ) {
+        graphics.beginBitmapFill(bitmap, matrix, repeatPattern, smooth)
+    }
+
+    public func beginBitmapFill(
+        _ bitmap: NFBitmapData?,
+        _ matrix: NFAffineMatrix? = nil,
+        _ repeatPattern: Bool = true,
+        _ smooth: Bool = false
+    ) {
+        graphics.beginBitmapFill(bitmap, matrix, repeatPattern, smooth)
+    }
+
+    public func beginGradientFill(
+        _ type: String,
+        _ colors: NFValue,
+        _ alphas: NFValue,
+        _ ratios: NFValue,
+        _ matrix: NFAffineMatrix? = nil,
+        _ spreadMethod: String = "pad",
+        _ interpolationMethod: String = "rgb",
+        _ focalPointRatio: Double = 0.0
+    ) {
+        graphics.beginGradientFill(type, colors, alphas, ratios, matrix, spreadMethod, interpolationMethod, focalPointRatio)
+    }
+
+    public func lineGradientStyle(
+        _ type: String,
+        _ colors: NFValue,
+        _ alphas: NFValue,
+        _ ratios: NFValue,
+        _ matrix: NFAffineMatrix? = nil,
+        _ spreadMethod: String = "pad",
+        _ interpolationMethod: String = "rgb",
+        _ focalPointRatio: Double = 0.0
+    ) {
+        graphics.lineGradientStyle(type, colors, alphas, ratios, matrix, spreadMethod, interpolationMethod, focalPointRatio)
+    }
+
+    open func instantiateSymbolByLinkage(_ idName: String) -> NFDisplayObject? {
+        var cur: NFDisplayObject? = self
+        while let node = cur {
+            if let mc = node as? NFMovieClip, let created = mc.instantiateSymbol(idName) {
+                return created
+            }
+            cur = node.parent
+        }
+        return nil
+    }
+
+    @discardableResult
+    public func attachMovie(
+        _ idName: String,
+        _ newName: String,
+        _ depth: Int,
+        _ initObject: NFValue = .null
+    ) -> NFMovieClip? {
+        let created = (instantiateSymbolByLinkage(idName) as? NFMovieClip) ?? NFMovieClip(name: newName)
+        created.name = newName
+        if case .object(let box) = initObject {
+            for (k, v) in box.properties {
+                created[k] = v
+            }
+        }
+        if depth >= 0 && depth <= children.count {
+            _ = addChildAt(created, depth)
+        } else {
+            _ = addChild(created)
+        }
+        dynamicProps[newName] = NFValue(created)
+        return created
+    }
+
+    @discardableResult
+    public func duplicateMovieClip(
+        _ newName: String,
+        _ depth: Int,
+        _ initObject: NFValue = .null
+    ) -> NFMovieClip {
+        let dup = NFMovieClip(name: newName)
+        dup.x = self.x
+        dup.y = self.y
+        dup.scaleX = self.scaleX
+        dup.scaleY = self.scaleY
+        dup.rotation = self.rotation
+        dup.alpha = self.alpha
+        dup.visible = self.visible
+        if !self.graphics.shapes.isEmpty {
+            dup.graphics.setAuthoredShapes(self.graphics.shapes)
+        }
+        if case .object(let box) = initObject {
+            for (k, v) in box.properties {
+                dup[k] = v
+            }
+        }
+        if let p = parent {
+            if depth >= 0 && depth <= p.children.count {
+                _ = p.addChildAt(dup, depth)
+            } else {
+                _ = p.addChild(dup)
+            }
+            p.dynamicProps[newName] = NFValue(dup)
+        }
+        return dup
+    }
+
+    public func startDrag(_ lockCenter: Bool = false, _ bounds: NFRectangle? = nil) {
+        guard let st = stage else { return }
+        let parentPt = parent.map { $0.globalToLocal(CGPoint(x: st.stageMouseX, y: st.stageMouseY)) }
+            ?? CGPoint(x: st.stageMouseX, y: st.stageMouseY)
+        let offset = lockCenter ? CGPoint.zero : CGPoint(x: x - Double(parentPt.x), y: y - Double(parentPt.y))
+        if lockCenter {
+            x = Double(parentPt.x)
+            y = Double(parentPt.y)
+        }
+        st.beginSpriteDrag(self, offset: offset, bounds: bounds)
+    }
+
+    public func startDrag(_ lockCenter: Bool, _ left: Double, _ top: Double, _ right: Double, _ bottom: Double) {
+        startDrag(lockCenter, NFRectangle(left, top, right - left, bottom - top))
+    }
+
+    public func stopDrag() {
+        stage?.endSpriteDrag(self)
+    }
+
+    open override func nfGetProperty(_ key: String) -> NFValue {
+        if key == "graphics" {
+            return .instance(NFInstanceBox(graphics))
+        }
+        if let child = getChildByName(key) {
+            return NFValue(child)
+        }
+        if let mc = self as? NFMovieClip, let bound = mc.bindPreallocatedNamedChild(key) {
+            return NFValue(bound)
+        }
+        if let dynVal = dynamicProps[key] {
+            return dynVal
+        }
+        switch key {
+        case "stop", "play", "nextFrame", "prevFrame", "gotoAndStop", "gotoAndPlay",
+             "addChild", "removeChild", "getChildByName", "createEmptyMovieClip":
+            return .function(NFFunctionBox { [weak self] args in
+                self?.nfInvokeMethod(key, args) ?? .undefinedVal
+            })
+        default:
+            return super.nfGetProperty(key)
+        }
+    }
+
+    open override func nfSetProperty(_ key: String, _ value: NFValue) {
+        switch key {
+        case "x", "_x", "y", "_y", "scaleX", "_xscale", "scaleY", "_yscale",
+             "rotation", "_rotation", "alpha", "_alpha", "visible", "_visible",
+             "width", "_width", "height", "_height", "name", "_name":
+            super.nfSetProperty(key, value)
+        default:
+            dynamicProps[key] = value
+            for child in children {
+                if let tf = child as? NFTextField, tf.variable == key {
+                    tf.text = value.asString
+                }
+            }
+        }
+    }
+
+    open override func nfInvokeMethod(_ name: String, _ args: [NFValue]) -> NFValue {
+        if let dynFn = dynamicProps[name], case .function = dynFn {
+            return dynFn.dynamicallyCall(withArguments: args)
+        }
+        switch name {
+        case "stop":
+            (self as? NFMovieClip)?.stop()
+            return .undefinedVal
+        case "play":
+            (self as? NFMovieClip)?.play()
+            return .undefinedVal
+        case "nextFrame":
+            (self as? NFMovieClip)?.nextFrame()
+            return .undefinedVal
+        case "prevFrame":
+            (self as? NFMovieClip)?.prevFrame()
+            return .undefinedVal
+        case "gotoAndStop":
+            if let f = args.first {
+                (self as? NFMovieClip)?.gotoAndStop(f, scene: args.count > 1 ? args[1].asString : nil)
+            }
+            return .undefinedVal
+        case "gotoAndPlay":
+            if let f = args.first {
+                (self as? NFMovieClip)?.gotoAndPlay(f, scene: args.count > 1 ? args[1].asString : nil)
+            }
+            return .undefinedVal
+        case "addChild":
+            if let dobj = args.first?.asDisplayObject {
+                return NFValue(addChild(dobj))
+            }
+            return .null
+        case "addChildAt":
+            if let dobj = args.first?.asDisplayObject {
+                let idx = args.count > 1 ? args[1].asInt : children.count
+                return NFValue(addChildAt(dobj, idx))
+            }
+            return .null
+        case "removeChild":
+            if let dobj = args.first?.asDisplayObject {
+                return NFValue(removeChild(dobj))
+            }
+            return .null
+        case "removeChildAt":
+            let idx = args.first?.asInt ?? 0
+            if idx >= 0 && idx < children.count {
+                return NFValue(removeChildAt(idx))
+            }
+            return .null
+        case "removeChildren":
+            let begin = args.first?.asInt ?? 0
+            let end = args.count > 1 ? args[1].asInt : Int.max
+            removeChildren(beginIndex: begin, endIndex: end)
+            return .undefinedVal
+        case "getChildByName":
+            return NFValue(getChildByName(args.first?.asString ?? ""))
+        case "getChildAt":
+            return NFValue(getChildAt(args.first?.asInt ?? 0))
+        case "getChildIndex":
+            if let dobj = args.first?.asDisplayObject {
+                return .int(getChildIndex(dobj))
+            }
+            return .int(-1)
+        case "contains":
+            if let dobj = args.first?.asDisplayObject {
+                return .bool(contains(dobj))
+            }
+            return .bool(false)
+        case "createEmptyMovieClip":
+            let nm = args.first?.asString ?? ""
+            let d = args.count > 1 ? args[1].asInt : nil
+            return NFValue(createEmptyMovieClip(nm, depth: d))
+        case "createTextField":
+            if args.count >= 6 {
+                return NFValue(
+                    createTextField(
+                        args[0].asString,
+                        args[1].asInt,
+                        args[2].asDouble,
+                        args[3].asDouble,
+                        args[4].asDouble,
+                        args[5].asDouble
+                    )
+                )
+            }
+            return .null
+        case "startDrag":
+            startDrag(args.first?.isTruthy ?? false)
+            return .undefinedVal
+        case "stopDrag":
+            stopDrag()
+            return .undefinedVal
+        default:
+            return super.nfInvokeMethod(name, args)
+        }
+    }
+
+    public subscript(key: NFValue) -> NFValue {
+        get { self[key.asString] }
+        set { self[key.asString] = newValue }
+    }
+
+    public subscript(index: Int) -> NFValue {
+        get { self[String(index)] }
+        set { self[String(index)] = newValue }
+    }
+
+    public subscript(index: Double) -> NFValue {
+        get { self[NFRuntime.formatFlashNumber(index)] }
+        set { self[NFRuntime.formatFlashNumber(index)] = newValue }
     }
 
     internal func replaceTimelineChildren(_ nextTimelineChildren: [NFDisplayObject]) {
@@ -2399,9 +4133,12 @@ internal struct NFTimelineSlotKey: Hashable {
 @MainActor
 open class NFMovieClip: NFSprite {
     /// One-based Flash frame number (`1 ... totalFrames`).
-    public private(set) var currentFrame: Int = 1
-    public private(set) var totalFrames: Int = 1
+    private var _currentFrame: Int = 1
+    private var _totalFrames: Int = 1
+    open override var currentFrame: Int { _currentFrame }
+    open override var totalFrames: Int { _totalFrames }
     public private(set) var isPlaying: Bool = true
+    open var enabled: Bool = true
     public var symbolKind: NFSymbolKind = .movieClip
     public var graphicPlayback: NFGraphicPlayback = .independent
     public var isPlaybackScriptControlled: Bool = false
@@ -2435,16 +4172,16 @@ open class NFMovieClip: NFSprite {
 
     public func configureTimeline(_ spec: NFTimelineSpec) {
         self.timelineSpec = spec
-        self.totalFrames = max(1, spec.totalFrames)
+        self._totalFrames = max(1, spec.totalFrames)
         self.frameLabels = spec.labels
         self.scenes = spec.scenes
-        self.currentFrame = 1
+        self._currentFrame = 1
         self.lastExecutedScriptFrame = nil
         evaluateTimelineFrame(0, triggerScriptsAndSounds: false)
     }
 
     internal func resetTimelineForRemount() {
-        self.currentFrame = 1
+        self._currentFrame = 1
         self.isPlaying = true
         self.isPlaybackScriptControlled = false
         self.lastExecutedScriptFrame = nil
@@ -2476,6 +4213,24 @@ open class NFMovieClip: NFSprite {
 
     public var currentLabel: String? {
         frameLabels.first(where: { $0.value == currentFrame })?.key
+    }
+
+    public var currentFrameLabel: String? {
+        currentLabel
+    }
+
+    public var currentLabels: [NFFrameLabel] {
+        frameLabels.keys.sorted { (frameLabels[$0] ?? 0) < (frameLabels[$1] ?? 0) }.compactMap { name in
+            guard let frame = frameLabels[name] else { return nil }
+            return NFFrameLabel(name, frame)
+        }
+    }
+
+    public var framesLoaded: Int { totalFrames }
+    public var trackAsMenu: Bool = false
+
+    public func addFrameScript(_ args: Any?...) {
+        _ = args
     }
 
     public func stopAllSounds() {
@@ -2524,7 +4279,8 @@ open class NFMovieClip: NFSprite {
         case .int(let f):
             gotoAndPlay(f, scene: scene)
         case .number(let d):
-            gotoAndPlay(Int(d.rounded(.towardZero)), scene: scene)
+            guard d.isFinite else { return }
+            gotoAndPlay(NFRuntime.clampToInt(d, default: 1), scene: scene)
         case .string(let s):
             if let num = Int(s.trimmingCharacters(in: .whitespaces)) {
                 gotoAndPlay(num, scene: scene)
@@ -2554,7 +4310,8 @@ open class NFMovieClip: NFSprite {
         case .int(let f):
             gotoAndStop(f, scene: scene)
         case .number(let d):
-            gotoAndStop(Int(d.rounded(.towardZero)), scene: scene)
+            guard d.isFinite else { return }
+            gotoAndStop(NFRuntime.clampToInt(d, default: 1), scene: scene)
         case .string(let s):
             if let num = Int(s.trimmingCharacters(in: .whitespaces)) {
                 gotoAndStop(num, scene: scene)
@@ -2577,6 +4334,11 @@ open class NFMovieClip: NFSprite {
     }
 
     open func attachInstanceHandlers(elementId: String, name: String, target: NFDisplayObject) {}
+
+    public func getBytesLoaded() -> Int { 1024 }
+    public func getBytesTotal() -> Int { 1024 }
+    public func getVolume() -> Double { 100.0 }
+    public func getPan() -> Double { 0.0 }
 
     private func resolveSceneOffset(oneBasedFrame: Int, sceneName: String?) -> Int {
         guard let sceneName, !sceneName.isEmpty,
@@ -2606,7 +4368,7 @@ open class NFMovieClip: NFSprite {
     private func seekToOneBasedFrame(_ targetOneBased: Int, playing: Bool) {
         let clamped = max(1, min(totalFrames, targetOneBased))
         let changed = clamped != currentFrame
-        currentFrame = clamped
+        _currentFrame = clamped
         isPlaying = playing
         evaluateTimelineFrame(
             clamped - 1,
@@ -2626,7 +4388,7 @@ open class NFMovieClip: NFSprite {
             }
             if isPlaying && totalFrames > 1 {
                 let nextOneBased = (currentFrame % totalFrames) + 1
-                currentFrame = nextOneBased
+                _currentFrame = nextOneBased
                 evaluateTimelineFrame(
                     nextOneBased - 1,
                     triggerScriptsAndSounds: true,
@@ -2665,7 +4427,7 @@ open class NFMovieClip: NFSprite {
         audioManager: NFAudioManager? = nil
     ) {
         let clampedFrame = max(0, min(totalFrames - 1, frameIndex))
-        currentFrame = clampedFrame + 1
+        _currentFrame = clampedFrame + 1
 
         var nextActiveSlots: [NFTimelineSlotKey: NFDisplayObject] = [:]
         var nextMaskLayers: [Int: [NFDisplayObject]] = [:]
@@ -2720,6 +4482,9 @@ open class NFMovieClip: NFSprite {
                 }
 
                 let effBlend = placement.blendMode == .normal ? layer.blendMode : placement.blendMode
+                if let s9 = placement.scale9Grid, !displayObj.isScriptControlled {
+                    displayObj.scale9Grid = s9
+                }
                 displayObj.applyTimelinePose(
                     x: placement.x,
                     y: placement.y,
@@ -2887,7 +4652,11 @@ open class NFButton: NFMovieClip {
         case hit = 3
     }
 
-    public var enabled: Bool = true
+    public override var enabled: Bool {
+        get { superEnabled }
+        set { superEnabled = newValue }
+    }
+    private var superEnabled: Bool = true
     public private(set) var buttonState: State = .up
 
     public override init(name: String = "") {
@@ -3115,6 +4884,28 @@ public final class NFStage: NFSprite {
     public let authoredStageHeight: Double
     public var fps: Double
     public var backgroundColor: NFColor
+    public var quality: String = "HIGH"
+    public var displayState: String = "normal"
+    public var stageFocusRect: Bool = true
+    public var showDefaultContextMenu: Bool = true
+
+    public var frameRate: Double {
+        get { fps }
+        set { fps = Swift.max(1.0, newValue) }
+    }
+
+    public var color: UInt32 {
+        get {
+            (UInt32(backgroundColor.r) << 16) | (UInt32(backgroundColor.g) << 8) | UInt32(backgroundColor.b)
+        }
+        set {
+            backgroundColor = NFColor(rgb: newValue, alpha: 1.0)
+        }
+    }
+
+    public func invalidate() {
+        onRedrawRequested?()
+    }
 
     public var scaleMode: NFScaleMode = .showAll {
         didSet {
@@ -3179,6 +4970,22 @@ public final class NFStage: NFSprite {
     private weak var pressedTarget: NFDisplayObject?
     private var didSeePointerDown: Bool = false
     internal var lastNativePointerUptime: TimeInterval = -1.0
+    private weak var draggedSprite: NFSprite?
+    private var dragOffset: CGPoint = .zero
+    private var dragBounds: NFRectangle?
+
+    internal func beginSpriteDrag(_ sprite: NFSprite, offset: CGPoint, bounds: NFRectangle?) {
+        draggedSprite = sprite
+        dragOffset = offset
+        dragBounds = bounds
+    }
+
+    internal func endSpriteDrag(_ sprite: NFSprite? = nil) {
+        if sprite == nil || draggedSprite === sprite {
+            draggedSprite = nil
+            dragBounds = nil
+        }
+    }
 
     private struct ActiveTouchState {
         weak var initialTarget: NFDisplayObject?
@@ -3443,6 +5250,9 @@ public final class NFStage: NFSprite {
     }
 
     public func stepSingleFrame() {
+        let dt = 1.0 / Swift.max(1.0, fps)
+        NFTimer.stepAll(deltaSeconds: dt)
+        NFNetStream.stepAll(deltaSeconds: dt)
         let snapshot = children
         for child in snapshot where child.parent === self {
             if let mc = child as? NFMovieClip {
@@ -3545,6 +5355,18 @@ public final class NFStage: NFSprite {
         let stagePt = viewportTransform.viewToStage(viewPoint)
         stageMouseX = Double(stagePt.x)
         stageMouseY = Double(stagePt.y)
+
+        if let dragged = draggedSprite {
+            let parentPt = dragged.parent.map { $0.globalToLocal(stagePt) } ?? stagePt
+            var nx = Double(parentPt.x) + Double(dragOffset.x)
+            var ny = Double(parentPt.y) + Double(dragOffset.y)
+            if let b = dragBounds {
+                nx = Swift.max(b.left, Swift.min(b.right, nx))
+                ny = Swift.max(b.top, Swift.min(b.bottom, ny))
+            }
+            dragged.x = nx
+            dragged.y = ny
+        }
 
         let hit = resolveInteractiveTarget(hitTestStageElements(stagePt))
         if hit !== hoveredObject {
@@ -3895,6 +5717,20 @@ public final class NFStage: NFSprite {
             focused.dispatchEvent(evt)
         } else {
             dispatchEvent(evt)
+        }
+    }
+
+    public func teardown() {
+        audioManager.stopAllSounds()
+        let timers = NFTimer.activeTimers
+        NFTimer.activeTimers.removeAll()
+        for t in timers {
+            t.stop()
+        }
+        let streams = NFNetStream.activeStreams
+        NFNetStream.activeStreams.removeAll()
+        for s in streams {
+            s.close()
         }
     }
 }

@@ -7,6 +7,7 @@
 
 mod app_shell;
 mod audio_swift;
+mod data_swift;
 mod pbxproj;
 mod preflight;
 mod renderer_swift;
@@ -53,6 +54,8 @@ pub struct XcodeSwiftProxyMethod {
 pub struct XcodeSymbolScriptBundle {
     pub symbol_id: String,
     pub swift_class_name: String,
+    #[serde(default)]
+    pub is_linked_source_class: bool,
     pub properties_swift: String,
     pub frame_methods_swift: BTreeMap<u32, String>,
     pub helper_methods_swift: String,
@@ -112,6 +115,8 @@ pub struct XcodeExportReport {
     pub app_swift_files: Vec<PathBuf>,
     pub preserved_app_files: Vec<PathBuf>,
     pub appended_host_methods: Vec<String>,
+    #[serde(default)]
+    pub host_method_count: usize,
     pub resource_files: Vec<PathBuf>,
     pub symbol_count: usize,
     pub preflight_items: Vec<XcodePreflightItem>,
@@ -124,6 +129,8 @@ pub fn export_xcode_project(
     options: &XcodeExportOptions,
     scripts: Option<&XcodeScriptBundle>,
 ) -> Result<XcodeExportReport, ExportError> {
+    let resolved_cow = project.with_resolved_script_language();
+    let project = resolved_cow.as_ref();
     if project.symbol(&project.root).is_none() {
         return Err(ExportError::MissingRootSymbol(project.root.clone()));
     }
@@ -195,6 +202,7 @@ pub fn export_xcode_project(
                 .map(|s| XcodeSymbolScriptBundle {
                     symbol_id: s.symbol_id,
                     swift_class_name: s.swift_class_name,
+                    is_linked_source_class: s.is_linked_source_class,
                     properties_swift: s.properties_swift,
                     frame_methods_swift: s.frame_methods_swift,
                     helper_methods_swift: s.helper_methods_swift,
@@ -219,13 +227,18 @@ pub fn export_xcode_project(
     let app_dir = out_dir.join("App");
 
     // `Generated/` is 100% owned by NeoFlash and cleanly regenerated on every export.
-    if generated_dir.is_dir() {
+    if fs::symlink_metadata(&generated_dir).is_ok() {
         fs::remove_dir_all(&generated_dir)?;
     }
     fs::create_dir_all(&kit_dir)?;
     fs::create_dir_all(&scenes_dir)?;
     fs::create_dir_all(&resources_dir)?;
     fs::create_dir_all(&app_dir)?;
+    let marker_path = generated_dir.join(".neoflash-xcode-export.json");
+    atomic_write(
+        &marker_path,
+        br#"{"generator":"neoflash-xcode","schema":1}"#,
+    )?;
 
     // 1. Extract resources & Info.plist into Generated/Resources/
     let extracted = extract_xcode_resources(
@@ -246,6 +259,7 @@ pub fn export_xcode_project(
             "NFDisplayList.swift",
             runtime_swift::render_nf_display_list_swift(),
         ),
+        ("NFData.swift", data_swift::render_nf_data_swift()),
         (
             "NFRenderer.swift",
             renderer_swift::render_nf_renderer_swift(),
@@ -359,6 +373,8 @@ pub fn export_xcode_project(
     let scheme_xml = pbxproj::generate_xcscheme(&target_name);
     atomic_write(&scheme_path, scheme_xml.as_bytes())?;
 
+    let host_method_count = host_methods.len();
+
     Ok(XcodeExportReport {
         project_dir: out_dir.to_path_buf(),
         xcodeproj_path,
@@ -370,6 +386,7 @@ pub fn export_xcode_project(
         app_swift_files,
         preserved_app_files,
         appended_host_methods,
+        host_method_count,
         resource_files: extracted.written_paths,
         symbol_count: scene_gen.exported_symbol_count,
         preflight_items,
@@ -422,11 +439,14 @@ fn extract_xcode_resources(
                 })
                 .collect();
             let trimmed_stem = clean_stem.trim_matches('_');
-            let base = if trimmed_stem.is_empty() {
-                "asset"
+            let base_cow = if trimmed_stem.is_empty() {
+                "asset".to_owned()
+            } else if is_windows_reserved_stem(trimmed_stem) {
+                format!("_{trimmed_stem}")
             } else {
-                trimmed_stem
+                trimmed_stem.to_owned()
             };
+            let base = base_cow.as_str();
             let raw_trimmed = ext_raw.trim_matches('.');
             let ext: &str = if raw_trimmed.is_empty() {
                 ""
@@ -785,31 +805,132 @@ fn parse_sfnt_postscript_name(sfnt: &[u8]) -> Option<String> {
     mac_fallback
 }
 
-fn ensure_safe_xcode_destination(out_dir: &Path) -> Result<(), ExportError> {
-    if !out_dir.exists() {
-        return Ok(());
+/// Read-only ownership and symlink preflight for `out_dir` before Xcode export or headless snapshot.
+pub fn preflight_xcode_output_dir(out_dir: &Path) -> Result<(), ExportError> {
+    ensure_safe_xcode_destination(out_dir)
+}
+
+fn is_windows_reserved_stem(stem: &str) -> bool {
+    let up = stem.trim().to_ascii_uppercase();
+    matches!(
+        up.as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
+}
+
+fn is_root_or_home_dir(path: &Path) -> bool {
+    if path.as_os_str().is_empty() || path.parent().is_none() {
+        return true;
     }
-    if !out_dir.is_dir() {
+    let check_canon = fs::canonicalize(path).ok();
+    if let Some(ref c) = check_canon
+        && c.parent().is_none()
+    {
+        return true;
+    }
+    for env_key in ["HOME", "USERPROFILE"] {
+        if let Some(raw_home) = std::env::var_os(env_key) {
+            let home_path = PathBuf::from(raw_home);
+            if path == home_path {
+                return true;
+            }
+            if let (Some(c_out), Ok(c_home)) = (&check_canon, fs::canonicalize(&home_path))
+                && *c_out == c_home
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn is_regular_nonsymlink_file(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_file() && !m.file_type().is_symlink())
+        .unwrap_or(false)
+}
+
+fn ensure_safe_xcode_destination(out_dir: &Path) -> Result<(), ExportError> {
+    if is_root_or_home_dir(out_dir) {
         return Err(ExportError::Destination(out_dir.display().to_string()));
     }
+    let smeta = match fs::symlink_metadata(out_dir) {
+        Ok(m) => m,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(ExportError::Io(err)),
+    };
+    if smeta.file_type().is_symlink() || !smeta.file_type().is_dir() {
+        return Err(ExportError::Destination(out_dir.display().to_string()));
+    }
+
     let mut has_user_entries = false;
-    let mut looks_like_xcode_export = false;
+    let mut has_legacy_pbxproj = false;
     for entry in fs::read_dir(out_dir)? {
         let entry = entry?;
+        let ftype = entry.file_type()?;
         let name = entry.file_name();
-        let Some(name_str) = name.to_str() else {
-            has_user_entries = true;
+        let name_str = name.to_str().unwrap_or("");
+        if matches!(name_str, ".DS_Store" | "Thumbs.db") && !ftype.is_symlink() {
             continue;
-        };
-        if matches!(name_str, ".DS_Store" | "Thumbs.db") {
-            continue;
+        }
+        if ftype.is_symlink() {
+            return Err(ExportError::Destination(out_dir.display().to_string()));
         }
         has_user_entries = true;
-        if name_str == "Generated" || name_str == "App" || name_str.ends_with(".xcodeproj") {
-            looks_like_xcode_export = true;
+        if name_str.ends_with(".xcodeproj") && ftype.is_dir() {
+            let pbx = entry.path().join("project.pbxproj");
+            if is_regular_nonsymlink_file(&pbx)
+                && fs::read_to_string(&pbx)
+                    .map(|s| s.contains("NeoFlashKit"))
+                    .unwrap_or(false)
+            {
+                has_legacy_pbxproj = true;
+            }
         }
     }
-    if has_user_entries && !looks_like_xcode_export {
+    if !has_user_entries {
+        return Ok(());
+    }
+
+    for sub in ["Generated", "App"] {
+        let sub_path = out_dir.join(sub);
+        if let Ok(m) = fs::symlink_metadata(&sub_path)
+            && (m.file_type().is_symlink() || !m.file_type().is_dir())
+        {
+            return Err(ExportError::Destination(out_dir.display().to_string()));
+        }
+    }
+
+    let marker_path = out_dir.join("Generated/.neoflash-xcode-export.json");
+    let has_marker = is_regular_nonsymlink_file(&marker_path)
+        && fs::read_to_string(&marker_path)
+            .map(|s| s.contains("neoflash-xcode"))
+            .unwrap_or(false);
+    let has_legacy_kit = has_legacy_pbxproj
+        && is_regular_nonsymlink_file(&out_dir.join("Generated/NeoFlashKit/NFValue.swift"));
+
+    if !has_marker && !has_legacy_kit {
         return Err(ExportError::Destination(out_dir.display().to_string()));
     }
     Ok(())
@@ -819,19 +940,21 @@ fn ensure_safe_xcode_destination(out_dir: &Path) -> Result<(), ExportError> {
 #[must_use]
 pub fn pascal_project_name(raw_name: &str) -> String {
     let base = pascal_case_identifier(raw_name, "NeoFlashApp");
-    if matches!(
-        base.as_str(),
-        "App"
-            | "MainScene"
-            | "ContentView"
-            | "AppSwiftHost"
-            | "SwiftUI"
-            | "Foundation"
-            | "CoreGraphics"
-            | "Type"
-            | "Protocol"
-            | "Actor"
-    ) {
+    if is_windows_reserved_stem(&base)
+        || matches!(
+            base.as_str(),
+            "App"
+                | "MainScene"
+                | "ContentView"
+                | "AppSwiftHost"
+                | "SwiftUI"
+                | "Foundation"
+                | "CoreGraphics"
+                | "Type"
+                | "Protocol"
+                | "Actor"
+        )
+    {
         format!("NF{base}")
     } else {
         base
@@ -867,9 +990,6 @@ pub(super) fn sanitize_swift_identifier(raw: &str, fallback: &str) -> String {
     let mut out = String::new();
     for ch in raw.trim().chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' {
-            if out.is_empty() && ch.is_ascii_digit() {
-                out.push('_');
-            }
             out.push(ch);
         } else if !out.is_empty() && !out.ends_with('_') {
             out.push('_');
@@ -881,7 +1001,9 @@ pub(super) fn sanitize_swift_identifier(raw: &str, fallback: &str) -> String {
     } else {
         trimmed
     };
-    if is_swift_keyword(candidate) {
+    if candidate.as_bytes()[0].is_ascii_digit() {
+        format!("_{candidate}")
+    } else if is_swift_keyword(candidate) {
         format!("{candidate}_")
     } else {
         candidate.to_owned()

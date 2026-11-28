@@ -134,8 +134,12 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NeoFlashStageView(scene: scene)
-            .ignoresSafeArea()
+        NeoFlashStageView(
+            scene: scene,
+            drawsBackground: true,
+            passesThroughEmptyRegions: false
+        )
+        .ignoresSafeArea()
     }
 }
 "#

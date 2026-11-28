@@ -661,6 +661,7 @@ self.host?.trackEvent(name: "scene_boot")"#
         symbols: vec![XcodeSymbolScriptBundle {
             symbol_id: "sym-root".into(),
             swift_class_name: "MainScene".into(),
+            is_linked_source_class: false,
             properties_swift:
                 "public var resizeCount: Int = 0\npublic var dynamicState: NFValue = [\"score\": 0]"
                     .into(),
@@ -1053,13 +1054,16 @@ import CoreGraphics
 struct RuntimeVerifyMain {
     static func main() {
         // 1. Verify NFValue dynamic member lookup, subscripts, truthiness & math
-        var bag: NFValue = ["count": 2, "tag": "hero"]
+        let bag: NFValue = ["count": 2, "tag": "hero"]
         bag.count += 3
         assert(bag.count == 5, "Expected bag.count == 5")
         assert((bag.tag + "_1") == "hero_1", "Expected string concat")
-        var arr: NFValue = [10, 20]
+        let arr: NFValue = [10, 20]
         arr[2] = 30
         assert(arr["length"] == 3 && arr[2] == 30, "Expected dynamic array growth")
+        var scalarVal: NFValue = 2
+        scalarVal += 3
+        assert(scalarVal == 5, "Expected scalar NFValue mutation")
 
         // 2. Mount MainScene + AppSwiftHost onto NFStage
         let host = AppSwiftHost()
@@ -1144,6 +1148,7 @@ struct RuntimeVerifyMain {
         .arg("-warnings-as-errors")
         .arg(out_dir.join("Generated/NeoFlashKit/NFValue.swift"))
         .arg(out_dir.join("Generated/NeoFlashKit/NFDisplayList.swift"))
+        .arg(out_dir.join("Generated/NeoFlashKit/NFData.swift"))
         .arg(out_dir.join("Generated/NeoFlashKit/NFRenderer.swift"))
         .arg(out_dir.join("Generated/NeoFlashKit/NFAudio.swift"))
         .arg(out_dir.join("Generated/Scenes/SwiftHostContract.swift"))
@@ -1192,6 +1197,7 @@ struct RuntimeVerifyMain {
                 .arg("-warnings-as-errors")
                 .arg(out_dir.join("Generated/NeoFlashKit/NFValue.swift"))
                 .arg(out_dir.join("Generated/NeoFlashKit/NFDisplayList.swift"))
+                .arg(out_dir.join("Generated/NeoFlashKit/NFData.swift"))
                 .arg(out_dir.join("Generated/NeoFlashKit/NFRenderer.swift"))
                 .arg(out_dir.join("Generated/NeoFlashKit/NFAudio.swift"))
                 .arg(out_dir.join("Generated/Scenes/SwiftHostContract.swift"))
@@ -1691,6 +1697,7 @@ struct VerifyAdhocMain {
         ])
         .arg(out_dir.join("Generated/NeoFlashKit/NFValue.swift"))
         .arg(out_dir.join("Generated/NeoFlashKit/NFDisplayList.swift"))
+        .arg(out_dir.join("Generated/NeoFlashKit/NFData.swift"))
         .arg(out_dir.join("Generated/NeoFlashKit/NFRenderer.swift"))
         .arg(out_dir.join("Generated/NeoFlashKit/NFAudio.swift"))
         .arg(out_dir.join("Generated/Scenes/SwiftHostContract.swift"))

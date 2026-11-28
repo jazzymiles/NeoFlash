@@ -8,7 +8,9 @@ pub(crate) mod emit_as2;
 pub(crate) mod emit_as3;
 pub(crate) mod emit_js;
 pub(crate) mod emit_swift;
+pub(crate) mod emit_swift_helpers;
 pub(crate) mod hir;
+pub(crate) mod js_ts_swift;
 pub(crate) mod swift_contract;
 
 #[cfg(test)]

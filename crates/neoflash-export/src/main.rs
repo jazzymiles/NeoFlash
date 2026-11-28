@@ -37,7 +37,7 @@ where
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--demo" => demo = true,
-            "--output" | "-o" => {
+            "--output" | "--out" | "-o" => {
                 output = PathBuf::from(args.next().ok_or("--output requires a directory")?);
             }
             "--bundle-id-prefix" => {
@@ -91,14 +91,49 @@ where
         Project::demo()
     } else {
         let path = source.ok_or("Supply a project or --demo")?;
-        if path
-            .extension()
-            .and_then(|s| s.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("fla"))
-        {
+        let is_interchange = path.is_dir()
+            || path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case("DOMDocument.xml"))
+            || path
+                .extension()
+                .and_then(|s| s.to_str())
+                .is_some_and(|ext| {
+                    ext.eq_ignore_ascii_case("fla")
+                        || ext.eq_ignore_ascii_case("xfl")
+                        || ext.eq_ignore_ascii_case("swf")
+                });
+        if is_interchange {
             neoflash_import::import_project(&path)?
+                .with_resolved_script_language()
+                .into_owned()
         } else {
-            serde_json::from_str(&fs::read_to_string(&path)?)?
+            use std::io::Read as _;
+            const MAX_NFLASH_CLI_BYTES: u64 = 512 * 1024 * 1024;
+            let meta = fs::metadata(&path)?;
+            if meta.len() > MAX_NFLASH_CLI_BYTES {
+                return Err(format!(
+                    "Project '{}' ({} bytes) exceeds 512 MiB limit",
+                    path.display(),
+                    meta.len()
+                )
+                .into());
+            }
+            let mut raw = Vec::with_capacity(meta.len() as usize);
+            fs::File::open(&path)?
+                .take(MAX_NFLASH_CLI_BYTES + 1)
+                .read_to_end(&mut raw)?;
+            if raw.len() as u64 > MAX_NFLASH_CLI_BYTES {
+                return Err(format!(
+                    "Project '{}' exceeded 512 MiB limit while reading",
+                    path.display()
+                )
+                .into());
+            }
+            Project::from_nflash_bytes(&raw)?
+                .with_resolved_script_language()
+                .into_owned()
         }
     };
     let scripts: Option<XcodeScriptBundle> = match scripts_json_path {

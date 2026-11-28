@@ -231,7 +231,7 @@ pub fn preflight_xcode_project(project: &Project) -> Vec<XcodePreflightItem> {
                     XcodePreflightSeverity::Info,
                     format!("{} / frame {}", symbol.name, script.frame + 1),
                     format!(
-                        "Timeline {} script at frame {} requires an XcodeScriptBundle entry to execute natively in Swift 6.",
+                        "Timeline {} script at frame {} is compiled into GeneratedScenes.swift (unless overridden by an explicit XcodeScriptBundle).",
                         script.script.language.display_label(),
                         script.frame + 1
                     ),
@@ -340,7 +340,7 @@ pub fn preflight_xcode_project(project: &Project) -> Vec<XcodePreflightItem> {
                                 XcodePreflightSeverity::Info,
                                 format!("{elem_loc} / {:?}", handler.event),
                                 format!(
-                                    "Instance {:?} {} script requires an XcodeScriptBundle handler entry to execute natively in Swift 6.",
+                                    "Instance {:?} {} script is compiled into GeneratedScenes.swift (unless overridden by an explicit XcodeScriptBundle).",
                                     handler.event,
                                     handler.script.language.display_label()
                                 ),

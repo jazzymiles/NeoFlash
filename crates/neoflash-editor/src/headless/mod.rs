@@ -1288,7 +1288,7 @@ fn subcommand_help_text(topic: &str) -> Option<&'static str> {
             "Usage: neoflash-editor --headless import --input <path...> [--into <project.nflash>] (--out <project.nflash> | --in-place) [--library-only] [--symbol ID|NAME] [--layer ID|NAME] [--frame N] [--folder STR] [--swc-conflict prefer-newer|prefer-existing|error] [--sequence-placement single-layer|separate-layers|graphic|movieclip] [--frame-step N]",
         ),
         "export" => Some(
-            "Usage: neoflash-editor --headless export --project <file.nflash> [--target html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop --out <path>] [--export-profile <file.json>] [--import-profile <file.json>] [--profile NAME|ID] [--render-mode canvas|dom] [--swf-target fp8|fp9|fp10|fp10-scriptless] [--image-format png|jpeg|webp|gif|bmp|psd|pdf|ai|svg] [--frame N (image: 1-based; sequence/svg/lottie: 0-based)] [--scale F] [--symbol ID|NAME] ...",
+            "Usage: neoflash-editor --headless export --project <file.nflash> [--target html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop|xcode --out <path>] [--bundle-id-prefix <prefix>] [--overwrite-app-shell] [--export-profile <file.json>] [--import-profile <file.json>] [--profile NAME|ID] [--render-mode canvas|dom] [--swf-target fp8|fp9|fp10|fp10-scriptless] [--image-format png|jpeg|webp|gif|bmp|psd|pdf|ai|svg] [--frame N (image: 1-based; sequence/svg/lottie: 0-based)] [--scale F] [--symbol ID|NAME] ...",
         ),
         "help" => Some("Usage: neoflash-editor --headless help [<subcommand>]"),
         "version" => {
@@ -1426,8 +1426,8 @@ fn subcommands_schema() -> Value {
         },
         {
             "name": "export",
-            "summary": "Publish or export HTML5, SWF, Image (PNG/JPEG/WebP/GIF/BMP/PSD/PDF/AI), PNG/Image Sequence, After Effects (AEP), FLA, XFL, SVG, Lottie/dotLottie, Atlas, Video, Audio, Banner, Desktop, or Publish Profile JSON targets",
-            "flags": ["--project <file.nflash>", "--target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop>", "--out <path>", "--export-profile <file.json>", "--import-profile <file.json>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--audio-policy <original|preserve|strip|disabled|wav16|mp3-64|mp3-96|mp3-128|mp3-160|mp3-192|mp3-256|mp3-320>", "--render-mode <canvas|dom>", "--clean", "--sprite-sheets", "--no-sprite-sheets", "--assets-folder", "--scale-mode <show-all|no-scale|exact-fit|no-border>", "--stage-align <str>", "--fullscreen", "--fla-profile <...>", "--swf-target <fp8|fp9|fp10|fp10-scriptless>", "--swf-profile <fp8|fp9|fp10>", "--scriptless", "--outline-text", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--scale <f32>", "--width <u32>", "--height <u32>", "--transparent", "--jpeg-quality <1..=100>", "--text-as-outlines", "--pretty", "--atlas-format <...>", "--atlas-extrude <u32>", "--audio-format <wav|mp3|ogg|flac|aac>", "--banner-max-gzip <usize>", "--banner-max-zip <bytes>", "--image-format <original|png|jpeg|webp|gif|bmp|psd|pdf|ai|svg>", "--html-preview", "--no-aepx", "--no-jsx", "--no-translate-scripts", "--shape-morph-step <u32>", "-h", "--help"]
+            "summary": "Publish or export HTML5, SWF, Image (PNG/JPEG/WebP/GIF/BMP/PSD/PDF/AI), PNG/Image Sequence, After Effects (AEP), FLA, XFL, SVG, Lottie/dotLottie, Atlas, Video, Audio, Banner, Desktop, Xcode (Swift, Experimental), or Publish Profile JSON targets",
+            "flags": ["--project <file.nflash>", "--target <html5|swf|image|png-sequence|sequence|aep|fla|xfl|svg|lottie|dotlottie|atlas|video|audio|banner|desktop|xcode>", "--out <path>", "--export-profile <file.json>", "--import-profile <file.json>", "--profile <name|id>", "--size-level <full|balanced|compact|shared>", "--runtime <dir>", "--runtime-url <url>", "--font-policy <device|embed|subset|outlines>", "--audio-policy <original|preserve|strip|disabled|wav16|mp3-64|mp3-96|mp3-128|mp3-160|mp3-192|mp3-256|mp3-320>", "--render-mode <canvas|dom>", "--clean", "--sprite-sheets", "--no-sprite-sheets", "--assets-folder", "--scale-mode <show-all|no-scale|exact-fit|no-border>", "--stage-align <str>", "--fullscreen", "--fla-profile <...>", "--swf-target <fp8|fp9|fp10|fp10-scriptless>", "--swf-profile <fp8|fp9|fp10>", "--scriptless", "--outline-text", "--symbol <id|name>", "--frame <u32>", "--end-frame <u32>", "--scale <f32>", "--width <u32>", "--height <u32>", "--transparent", "--jpeg-quality <1..=100>", "--text-as-outlines", "--pretty", "--atlas-format <...>", "--atlas-extrude <u32>", "--audio-format <wav|mp3|ogg|flac|aac>", "--banner-max-gzip <usize>", "--banner-max-zip <bytes>", "--image-format <original|png|jpeg|webp|gif|bmp|psd|pdf|ai|svg>", "--html-preview", "--no-aepx", "--no-jsx", "--no-translate-scripts", "--shape-morph-step <u32>", "--bundle-id-prefix <prefix>", "--overwrite-app-shell", "-h", "--help"]
         }
     ])
 }
@@ -1649,7 +1649,9 @@ fn batch_operations_schema() -> Value {
             "include_aepx?",
             "include_extendscript?",
             "translate_scripts?",
-            "shape_morph_step?"
+            "shape_morph_step?",
+            "bundle_id_prefix?",
+            "overwrite_app_shell?"
         ]),
     );
     ops.insert("save".into(), json!(["path?"]));
@@ -1758,7 +1760,8 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         "video",
         "audio",
         "banner",
-        "desktop"
+        "desktop",
+        "xcode"
     ]);
     let html5_profiles = json!([
         "Default",
@@ -1828,7 +1831,7 @@ fn cmd_capabilities<W1: Write, W2: Write>(
         OutputFormat::Text => {
             let _ = writeln!(
                 stdout,
-                "NeoFlash {} ({}) headless CLI: capabilities, new, convert, inspect, validate, compile, eval, jsfl, batch, import, export | import_formats=nflash,fla,xfl,swf,swc,fig,svg,psd,pdf,ai,eps,fxg,png,jpg,gif,webp,bmp,mp3,wav,ogg,flac,aac,m4a,mp4,webm,mov,avi,ttf,otf,ttc,otc,woff,woff2,act,clr,ase | export_targets=html5,swf,image,png-sequence,aep,fla,xfl,svg,lottie,dotlottie,atlas,video,audio,banner,desktop | exit_codes=0,1,2",
+                "NeoFlash {} ({}) headless CLI: capabilities, new, convert, inspect, validate, compile, eval, jsfl, batch, import, export | import_formats=nflash,fla,xfl,swf,swc,fig,svg,psd,pdf,ai,eps,fxg,png,jpg,gif,webp,bmp,mp3,wav,ogg,flac,aac,m4a,mp4,webm,mov,avi,ttf,otf,ttc,otc,woff,woff2,act,clr,ase | export_targets=html5,swf,image,png-sequence,aep,fla,xfl,svg,lottie,dotlottie,atlas,video,audio,banner,desktop,xcode | exit_codes=0,1,2",
                 id.version,
                 id.commit_short()
             );
