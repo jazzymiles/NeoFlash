@@ -514,10 +514,12 @@ test('Compact and Balanced packages boot directly over file:// using NeoFlashWas
     };
   }
 
+  const fileBootSurface = makeElement('stage-surface');
+  fileBootSurface.setAttribute('data-loading', 'true');
   const elements = new Map([
     ['stage', makeElement('stage')],
     ['stage-space', makeElement('stage-space')],
-    ['stage-surface', makeElement('stage-surface')],
+    ['stage-surface', fileBootSurface],
     ['semantic-layer', makeElement('semantic-layer')],
     ['viewport', makeElement('viewport')],
     ['status', makeElement('status')],
@@ -658,9 +660,19 @@ test('Compact and Balanced packages boot directly over file:// using NeoFlashWas
   for (const src of [pathJs, accessibilityJs, previewJs, eventsJs, stageJs, displayJs, runtimeJs]) {
     vm.runInContext(src, ctx);
   }
+  assert.equal(
+    elements.get('stage-surface').getAttribute('data-loading'),
+    'true',
+    'stage-surface remains hidden with data-loading="true" while async WASM initialization is pending'
+  );
   await new Promise(resolve => setTimeout(resolve, 10));
 
   assert.equal(elements.get('error').style.display, 'none', `unexpected boot error: ${elements.get('error').textContent}`);
+  assert.equal(
+    elements.get('stage-surface').getAttribute('data-loading'),
+    null,
+    'stage-surface removes data-loading after initial resize() completes'
+  );
   assert.ok(receivedWasmBytes instanceof Uint8Array && receivedWasmBytes.length === 8, 'file:// boot decoded NeoFlashWasmBase64 into Uint8Array');
   assert.equal(playingState, false, 'player_config.autoplay=false starts paused');
   assert.equal(body.getAttribute('data-clean'), 'true', 'clean publish sets data-clean=true on body');
@@ -751,10 +763,12 @@ test('runtime merges authored accessibility into one visible semantic target per
   }
 
   const overlayEl = makeElement('stage-a11y-overlay');
+  const stageSurfaceBootEl = makeElement('stage-surface');
+  stageSurfaceBootEl.setAttribute('data-loading', 'true');
   const elements = new Map([
     ['stage', makeElement('stage')],
     ['stage-space', makeElement('stage-space')],
-    ['stage-surface', makeElement('stage-surface')],
+    ['stage-surface', stageSurfaceBootEl],
     ['semantic-layer', makeElement('semantic-layer')],
     ['stage-a11y-overlay', overlayEl],
     ['viewport', makeElement('viewport')],
@@ -997,9 +1011,19 @@ test('runtime merges authored accessibility into one visible semantic target per
   for (const src of [pathJs, accessibilityJs, previewJs, eventsJs, stageJs, displayJs, runtimeJs]) {
     vm.runInContext(src, ctx);
   }
+  assert.equal(
+    elements.get('stage-surface').getAttribute('data-loading'),
+    'true',
+    'stage-surface remains hidden with data-loading="true" while async WASM initialization is pending'
+  );
   await new Promise(resolve => setTimeout(resolve, 10));
 
   assert.equal(elements.get('error').style.display, 'none', `unexpected boot error: ${elements.get('error').textContent}`);
+  assert.equal(
+    elements.get('stage-surface').getAttribute('data-loading'),
+    null,
+    'stage-surface removes data-loading after initial resize() completes'
+  );
   assert.equal(overlayEl.getAttribute('role'), 'region');
   const semanticEl=elements.get('semantic-layer');
   assert.equal(overlayEl.children.length, 0, 'runtime-covered targets have no second inert overlay node');
@@ -1450,4 +1474,9 @@ test('Preview.resize and layout prevent HiDPI classic-scrollbar ResizeObserver o
   const runtimeSrc = fs.readFileSync(path.resolve(__dirname, '../runtime.js'), 'utf8');
   assert.match(runtimeSrc, /\[data-neoflash-role="viewport"\][^}]*overflow:\s*hidden/);
   assert.match(runtimeSrc, /\[data-neoflash-role="trace"\][^}]*white-space:\s*nowrap/);
+  assert.match(
+    runtimeSrc,
+    /\[data-neoflash-role="stage-surface"\]\[data-loading="true"\][^}]*visibility:\s*hidden/
+  );
+  assert.match(runtimeSrc, /resize\(\);\s*stageSurface\?\.removeAttribute\?\.\('data-loading'\);/);
 });

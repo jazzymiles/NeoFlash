@@ -1147,6 +1147,7 @@
     '[data-neoflash-module] [data-neoflash-role="viewport"]:fullscreen, [data-neoflash-module] [data-neoflash-role="viewport"]:-webkit-full-screen { background: #000; width: 100vw; height: 100vh; overflow: hidden; }',
     '[data-neoflash-module] [data-neoflash-role="stage-space"] { position: relative; }',
     '[data-neoflash-module] [data-neoflash-role="stage-surface"] { position: absolute; }',
+    '[data-neoflash-module] [data-neoflash-role="stage-surface"][data-loading="true"] { visibility: hidden; pointer-events: none; box-shadow: none; }',
     '[data-neoflash-module] [data-neoflash-role="stage"] { display: block; width: 100%; height: 100%; outline: none; }',
     '[data-neoflash-module][data-render-mode="dom"] [data-neoflash-role="stage"] { position: absolute; inset: 0; pointer-events: none; opacity: 0; visibility: hidden; }',
     '[data-neoflash-module] neoflash-stage[data-render-mode="dom"] { position: absolute; inset: 0; display: block; width: 100%; height: 100%; overflow: hidden; transform-origin: 0 0; }',
@@ -1253,6 +1254,7 @@
 
     const stageSurface = doc.createElement('div');
     stageSurface.setAttribute?.('data-neoflash-role', 'stage-surface');
+    stageSurface.setAttribute?.('data-loading', 'true');
     stageSurface.setAttribute?.('role', 'group');
     stageSurface.setAttribute?.('aria-label', title);
 
@@ -5464,6 +5466,7 @@
       : [0, 0];
     syncInitialStageLayout();
     resize();
+    stageSurface?.removeAttribute?.('data-loading');
     const [preRenderW, preRenderH] = measureViewport();
     // Startup script failures use the same stopped-but-restartable policy as
     // later events. Keep installing the animation loop after reporting them.

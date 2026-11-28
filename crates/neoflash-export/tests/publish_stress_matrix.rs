@@ -209,6 +209,13 @@ fn pass1_size_levels_fonts_and_audio_policies_across_real_projects() {
                 let html = fs::read_to_string(out.join("index.html")).expect("index.html");
                 assert!(html.contains("<body data-clean=\"true\">"));
                 assert!(html.contains("<footer hidden>"));
+                assert!(html.contains("<div id=\"stage-surface\" data-loading=\"true\""));
+                assert!(html.contains(
+                    "#stage-surface[data-loading=\"true\"] { visibility: hidden; pointer-events: none; box-shadow: none; }"
+                ));
+                assert!(
+                    html.contains("body[data-clean=\"true\"] #stage-surface { box-shadow: none; }")
+                );
 
                 match &level {
                     SizeLevel::Full => {
@@ -335,7 +342,16 @@ fn pass2_templates_scale_modes_accelerations_and_hud_permutations() {
                         );
                     }
                     HtmlTemplate::Fullscreen => {
-                        assert!(html.contains("#stage-surface { box-shadow: none; }"));
+                        let base_pos = html
+                            .find("#stage-surface { position: absolute; box-shadow: 0 12px 48px #0005; }")
+                            .expect("base #stage-surface rule");
+                        let none_pos = html
+                            .find("#stage-surface { box-shadow: none; }")
+                            .expect("fullscreen #stage-surface rule");
+                        assert!(
+                            none_pos > base_pos,
+                            "Fullscreen box-shadow: none must follow base #stage-surface rule in CSS cascade"
+                        );
                     }
                 }
             }

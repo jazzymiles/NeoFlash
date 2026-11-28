@@ -3744,11 +3744,7 @@ fn html_document_with_config(
             "\n    body { background: #000; }\n    #stage-surface { box-shadow: none; }"
         }
     };
-    let clean_css = if config.is_some() {
-        "\n    body[data-clean=\"true\"] { grid-template-rows: minmax(0,1fr); }\n    body[data-clean=\"true\"] > footer { display: none !important; }"
-    } else {
-        ""
-    };
+    let clean_css = "\n    body[data-clean=\"true\"] { grid-template-rows: minmax(0,1fr); }\n    body[data-clean=\"true\"] > footer { display: none !important; }\n    body[data-clean=\"true\"] #stage-surface { box-shadow: none; }";
     let is_dom_mode = config.is_some_and(|c| c.render_mode == HtmlRenderMode::Dom);
     let body_render_attr = if is_dom_mode {
         " data-render-mode=\"dom\""
@@ -3783,12 +3779,13 @@ fn html_document_with_config(
   <style>
     :root {{ color-scheme: dark; font: 13px system-ui, sans-serif; }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}{clean_css}{template_css}
+    body {{ margin: 0; background: #25272b; color: #d2d6dd; height: 100vh; height: 100dvh; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; }}
     #viewport {{ position: relative; overflow: hidden; min-height: 0; min-width: 0; overscroll-behavior: contain; touch-action: pan-x pan-y; outline: none; }}
     #viewport:focus {{ outline: none; }}
     #viewport:fullscreen, #viewport:-webkit-full-screen {{ background: #000; width: 100vw; height: 100vh; overflow: hidden; }}
     #stage-space {{ position: relative; }}
-    #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}
+    #stage-surface {{ position: absolute; box-shadow: 0 12px 48px #0005; }}{clean_css}{template_css}
+    #stage-surface[data-loading="true"] {{ visibility: hidden; pointer-events: none; box-shadow: none; }}
     canvas {{ display: block; width: 100%; height: 100%; outline: none; }}
     [data-neoflash-text-input] {{ outline: none; scrollbar-width: none; -ms-overflow-style: none; }}
     [data-neoflash-text-input]::-webkit-scrollbar {{ display: none; width: 0; height: 0; }}
@@ -3817,7 +3814,7 @@ fn html_document_with_config(
   </style>
 {script_tags}</head>
 <body{body_render_attr}{body_attr}>
-  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" role="group" aria-label="{title}">{stage_markup}</div></div></main>
+  <main id="viewport" tabindex="-1" aria-label="Project preview"><div id="stage-space"><div id="stage-surface" data-loading="true" role="group" aria-label="{title}">{stage_markup}</div></div></main>
   <footer{footer_attr}><div class="transport" aria-label="Preview controls"{transport_attr}><button id="toggle" type="button">Pause</button><button id="restart" type="button">Restart</button><select id="zoom" aria-label="Preview zoom"><option value="fit">Fit</option><option value="0.25">25%</option><option value="0.5">50%</option><option value="0.75">75%</option><option value="1">100%</option><option value="1.5">150%</option><option value="2">200%</option><option value="4">400%</option></select><button id="pan" type="button" aria-pressed="false" title="Drag the stage to pan. Touch scrolling also works.">Pan</button><button id="fullscreen-toggle" type="button" aria-pressed="false" title="Toggle fullscreen stage"{fullscreen_attr}>Fullscreen</button><button id="audio-toggle" type="button" hidden>Enable audio</button><button id="report-toggle" type="button" aria-pressed="false" title="Show project weight and loaded assets breakdown" hidden>Size report</button></div><div class="preview-info"><span id="name">{display_name}</span><span id="status"{status_attr}></span><span id="load-info"{load_attr}></span><span id="audio-status" role="status" aria-live="polite" aria-atomic="true" hidden></span><span id="trace" role="status" aria-live="polite" aria-atomic="true"{trace_attr}></span></div></footer>
   <div id="loading" role="status"{loading_attr}>Loading project…</div><pre id="size-report" aria-label="Project size and load report"></pre><pre id="error" role="alert"></pre>
 </body>
