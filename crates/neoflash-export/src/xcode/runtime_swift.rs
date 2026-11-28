@@ -2397,14 +2397,14 @@ open class NFDisplayObject: NFEventDispatcher {
     internal var timelineElementId: String?
     internal var timelineLayerIndex: Int?
     internal var timelineMaskLayerIndex: Int?
-    internal var enterFrameCallbacks: [() -> Void] = []
-    internal var pressCallbacks: [() -> Void] = []
-    internal var clickCallbacks: [() -> Void] = []
-    internal var releaseOutsideCallbacks: [() -> Void] = []
-    internal var rollOverCallbacks: [() -> Void] = []
-    internal var rollOutCallbacks: [() -> Void] = []
-    internal var changeCallbacks: [() -> Void] = []
-    internal var loadCallbacks: [() -> Void] = []
+    public var enterFrameCallbacks: [() -> Void] = []
+    public var pressCallbacks: [() -> Void] = []
+    public var clickCallbacks: [() -> Void] = []
+    public var releaseOutsideCallbacks: [() -> Void] = []
+    public var rollOverCallbacks: [() -> Void] = []
+    public var rollOutCallbacks: [() -> Void] = []
+    public var changeCallbacks: [() -> Void] = []
+    public var loadCallbacks: [() -> Void] = []
     internal var didFireLoad: Bool = false
 
     public init(name: String = "") {
@@ -4149,14 +4149,14 @@ open class NFMovieClip: NFSprite {
     public var _currentframe: Int { currentFrame }
     public var _totalframes: Int { totalFrames }
 
-    private weak var pendingHost: (any SwiftHostProtocol)?
-    public var host: (any SwiftHostProtocol)? {
-        get { stage?.host ?? pendingHost }
+    private weak var pendingHost: (any NFHostObjectProtocol)?
+    public var hostObject: (any NFHostObjectProtocol)? {
+        get { stage?.hostObject ?? pendingHost }
         set {
             pendingHost = newValue
-            stage?.host = newValue
+            stage?.hostObject = newValue
             if let newValue {
-                NFRuntime.activeHost = newValue
+                NFRuntime.activeHostObject = newValue
             }
         }
     }
@@ -4948,10 +4948,10 @@ public final class NFStage: NFSprite {
         }
     }
 
-    public weak var host: (any SwiftHostProtocol)? {
+    public weak var hostObject: (any NFHostObjectProtocol)? {
         didSet {
-            if let host {
-                NFRuntime.activeHost = host
+            if let hostObject {
+                NFRuntime.activeHostObject = hostObject
             }
         }
     }
@@ -5045,8 +5045,8 @@ public final class NFStage: NFSprite {
 
     public func mountRootScene(_ scene: NFMovieClip) {
         removeChildren()
-        if let pending = scene.host {
-            self.host = pending
+        if let pending = scene.hostObject {
+            self.hostObject = pending
         }
         _ = addChild(scene)
         scene.evaluateTimelineFrame(

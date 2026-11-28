@@ -1644,11 +1644,14 @@ extension Bool {
 
 // MARK: - NFRuntime Global Intrinsics & Flash Coercion Helpers
 
+@MainActor
+public protocol NFHostObjectProtocol: AnyObject {}
+
 public enum NFRuntime {
     private static let bootUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
 
     @MainActor
-    public static weak var activeHost: (any SwiftHostProtocol)?
+    public static weak var activeHostObject: (any NFHostObjectProtocol)?
 
     @MainActor
     public static var globalObject: NFValue = .fromObject([])

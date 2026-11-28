@@ -11,6 +11,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+static HEAVY_SWIFT_LOCK: Mutex<()> = Mutex::new(());
+
 fn should_skip_xcodebuild() -> bool {
     if std::env::var("NEOFLASH_SKIP_XCODEBUILD")
         .ok()
@@ -196,6 +198,7 @@ fn t499_all_games_video_audio_and_animation_compile_swift6_strict_concurrency() 
     if should_skip_xcodebuild() {
         return;
     }
+    let _heavy_guard = HEAVY_SWIFT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let Some(macos_sdk) = sdk_path("macosx") else {
         return;
     };
@@ -212,7 +215,11 @@ fn t499_all_games_video_audio_and_animation_compile_swift6_strict_concurrency() 
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let mod_cache = tmp.path().join("ModuleCache");
+    let mac_mod_dir = tmp.path().join("NeoFlashKitMac");
+    let ios_mod_dir = tmp.path().join("NeoFlashKitSim");
     fs::create_dir_all(&mod_cache).expect("create ModuleCache");
+    fs::create_dir_all(&mac_mod_dir).expect("create NeoFlashKitMac");
+    fs::create_dir_all(&ios_mod_dir).expect("create NeoFlashKitSim");
     warmup_swift_module_cache(
         &mod_cache,
         Some(&macos_sdk),
@@ -220,11 +227,144 @@ fn t499_all_games_video_audio_and_animation_compile_swift6_strict_concurrency() 
         tmp.path(),
     );
 
+    // Precompile the shared `NeoFlashKit` runtime once per SDK (`macosx` + `iphonesimulator`) so
+    // the 25-project corpus sweep does not re-parse 15k lines of runtime 50 times on 3-vCPU CI VMs,
+    // while also verifying unedited single-module compilation on `targets[0]`.
+    let seed_dir = tmp.path().join("seed_kit");
+    let seed_bytes = fs::read(&targets[0]).expect("read seed .nflash");
+    let seed_proj = Project::from_nflash_bytes(&seed_bytes)
+        .expect("decode seed .nflash")
+        .with_resolved_script_language()
+        .into_owned();
+    let seed_opts = XcodeExportOptions {
+        base_dir: targets[0].parent().map(Path::to_path_buf),
+        ..XcodeExportOptions::default()
+    };
+    let seed_report =
+        export_xcode_project(&seed_proj, &seed_dir, &seed_opts, None).expect("export seed");
+    let kit_files: Vec<PathBuf> = seed_report
+        .generated_swift_files
+        .iter()
+        .filter(|p| {
+            p.parent()
+                .and_then(|d| d.file_name())
+                .is_some_and(|n| n == "NeoFlashKit")
+        })
+        .cloned()
+        .collect();
+    assert!(
+        !kit_files.is_empty(),
+        "expected NeoFlashKit Swift files in seed export"
+    );
+
+    let mut build_mac_kit = Command::new("/usr/bin/xcrun");
+    build_mac_kit
+        .args([
+            "--sdk",
+            "macosx",
+            "swiftc",
+            "-sdk",
+            &macos_sdk,
+            "-parse-as-library",
+            "-emit-module",
+            "-module-name",
+            "NeoFlashKit",
+            "-emit-module-path",
+        ])
+        .arg(mac_mod_dir.join("NeoFlashKit.swiftmodule"))
+        .args([
+            "-warnings-as-errors",
+            "-swift-version",
+            "6",
+            "-strict-concurrency=complete",
+            "-module-cache-path",
+        ])
+        .arg(&mod_cache);
+    for kf in &kit_files {
+        build_mac_kit.arg(kf);
+    }
+    let (mac_kit_ok, _, _, mac_kit_err) = run_with_timeout(build_mac_kit, Duration::from_secs(120));
+    assert!(
+        mac_kit_ok,
+        "NeoFlashKit macosx module build failed:\n{mac_kit_err}"
+    );
+
+    if let Some(ios_sdk) = &ios_sim_sdk {
+        let mut build_ios_kit = Command::new("/usr/bin/xcrun");
+        build_ios_kit
+            .args([
+                "--sdk",
+                "iphonesimulator",
+                "swiftc",
+                "-sdk",
+                ios_sdk,
+                "-target",
+                "arm64-apple-ios17.0-simulator",
+                "-parse-as-library",
+                "-emit-module",
+                "-module-name",
+                "NeoFlashKit",
+                "-emit-module-path",
+            ])
+            .arg(ios_mod_dir.join("NeoFlashKit.swiftmodule"))
+            .args([
+                "-warnings-as-errors",
+                "-swift-version",
+                "6",
+                "-strict-concurrency=complete",
+                "-module-cache-path",
+            ])
+            .arg(&mod_cache);
+        for kf in &kit_files {
+            build_ios_kit.arg(kf);
+        }
+        let (ios_kit_ok, _, _, ios_kit_err) =
+            run_with_timeout(build_ios_kit, Duration::from_secs(120));
+        assert!(
+            ios_kit_ok,
+            "NeoFlashKit iphonesimulator module build failed:\n{ios_kit_err}"
+        );
+    }
+
+    // Verify unedited single-module compilation on `seed_report` (`targets[0]`)
+    let mut seed_single_mod = Command::new("/usr/bin/xcrun");
+    seed_single_mod
+        .args([
+            "--sdk",
+            "macosx",
+            "swiftc",
+            "-sdk",
+            &macos_sdk,
+            "-typecheck",
+            "-warnings-as-errors",
+            "-swift-version",
+            "6",
+            "-strict-concurrency=complete",
+            "-module-cache-path",
+        ])
+        .arg(&mod_cache);
+    for f in &seed_report.generated_swift_files {
+        seed_single_mod.arg(f);
+    }
+    for f in &seed_report.app_swift_files {
+        seed_single_mod.arg(f);
+    }
+    let (seed_ok, _, _, seed_err) = run_with_timeout(seed_single_mod, Duration::from_secs(120));
+    assert!(
+        seed_ok,
+        "unedited single-module seed typecheck failed:\n{seed_err}"
+    );
+
+    let worker_count = (std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(2)
+        / 2)
+    .clamp(1, 4);
     let next_idx = AtomicUsize::new(0);
     let failures: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
     std::thread::scope(|s| {
-        for _ in 0..4 {
+        for _ in 0..worker_count {
             s.spawn(|| {
                 loop {
                     let idx = next_idx.fetch_add(1, Ordering::Relaxed);
@@ -258,6 +398,31 @@ fn t499_all_games_video_audio_and_animation_compile_swift6_strict_concurrency() 
                         }
                     };
 
+                    let stage_dir = tmp.path().join(format!("stage_{idx:02}"));
+                    fs::create_dir_all(&stage_dir).expect("create stage_dir");
+                    let mut staged_scene_files = Vec::new();
+                    for (f_idx, f) in report
+                        .generated_swift_files
+                        .iter()
+                        .filter(|p| {
+                            !p.parent()
+                                .and_then(|d| d.file_name())
+                                .is_some_and(|n| n == "NeoFlashKit")
+                        })
+                        .chain(report.app_swift_files.iter())
+                        .enumerate()
+                    {
+                        let raw = fs::read_to_string(f).expect("read generated/app swift");
+                        let fname = f
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| format!("file_{f_idx}.swift"));
+                        let dst = stage_dir.join(format!("{f_idx:02}_{fname}"));
+                        fs::write(&dst, format!("import NeoFlashKit\n{raw}"))
+                            .expect("write staged swift");
+                        staged_scene_files.push(dst);
+                    }
+
                     let mut mac_cmd = Command::new("/usr/bin/xcrun");
                     mac_cmd.args([
                         "--sdk",
@@ -270,17 +435,17 @@ fn t499_all_games_video_audio_and_animation_compile_swift6_strict_concurrency() 
                         "-swift-version",
                         "6",
                         "-strict-concurrency=complete",
-                        "-module-cache-path",
+                        "-I",
                     ]);
-                    mac_cmd.arg(&mod_cache);
-                    for f in &report.generated_swift_files {
-                        mac_cmd.arg(f);
-                    }
-                    for f in &report.app_swift_files {
+                    mac_cmd
+                        .arg(&mac_mod_dir)
+                        .arg("-module-cache-path")
+                        .arg(&mod_cache);
+                    for f in &staged_scene_files {
                         mac_cmd.arg(f);
                     }
                     let (mac_ok, _, _, mac_err) =
-                        run_with_timeout(mac_cmd, Duration::from_secs(45));
+                        run_with_timeout(mac_cmd, Duration::from_secs(90));
                     if !mac_ok {
                         failures
                             .lock()
@@ -303,17 +468,17 @@ fn t499_all_games_video_audio_and_animation_compile_swift6_strict_concurrency() 
                             "-swift-version",
                             "6",
                             "-strict-concurrency=complete",
-                            "-module-cache-path",
+                            "-I",
                         ]);
-                        ios_cmd.arg(&mod_cache);
-                        for f in &report.generated_swift_files {
-                            ios_cmd.arg(f);
-                        }
-                        for f in &report.app_swift_files {
+                        ios_cmd
+                            .arg(&ios_mod_dir)
+                            .arg("-module-cache-path")
+                            .arg(&mod_cache);
+                        for f in &staged_scene_files {
                             ios_cmd.arg(f);
                         }
                         let (ios_ok, _, _, ios_err) =
-                            run_with_timeout(ios_cmd, Duration::from_secs(45));
+                            run_with_timeout(ios_cmd, Duration::from_secs(90));
                         if !ios_ok {
                             failures
                                 .lock()
@@ -340,6 +505,7 @@ fn t499_flagship_xcodebuild_and_native_macos_pixel_and_runtime_execution() {
     if should_skip_xcodebuild() {
         return;
     }
+    let _heavy_guard = HEAVY_SWIFT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let Some(macos_sdk) = sdk_path("macosx") else {
         return;
     };
@@ -779,6 +945,7 @@ fn t499_round1_audit_remediations_destination_safety_loop_closures_and_math() {
     if should_skip_xcodebuild() {
         return;
     }
+    let _heavy_guard = HEAVY_SWIFT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let Some(macos_sdk) = sdk_path("macosx") else {
         return;
     };

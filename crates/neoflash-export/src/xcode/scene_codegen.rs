@@ -31,11 +31,48 @@ pub(super) fn render_swift_host_contract(host_methods: &[XcodeSwiftProxyMethod])
     let _ = writeln!(out, "import CoreGraphics");
     let _ = writeln!(out);
     let _ = writeln!(out, "@MainActor");
-    let _ = writeln!(out, "public protocol SwiftHostProtocol: AnyObject {{");
+    let _ = writeln!(
+        out,
+        "public protocol SwiftHostProtocol: NFHostObjectProtocol {{"
+    );
     for method in host_methods {
         let sig = format_swift_method_signature(method);
         let _ = writeln!(out, "    {sig}");
     }
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "extension NFRuntime {{");
+    let _ = writeln!(out, "    @MainActor");
+    let _ = writeln!(
+        out,
+        "    public static var activeHost: (any SwiftHostProtocol)? {{"
+    );
+    let _ = writeln!(
+        out,
+        "        get {{ activeHostObject as? any SwiftHostProtocol }}"
+    );
+    let _ = writeln!(out, "        set {{ activeHostObject = newValue }}");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "extension NFStage {{");
+    let _ = writeln!(out, "    public var host: (any SwiftHostProtocol)? {{");
+    let _ = writeln!(
+        out,
+        "        get {{ hostObject as? any SwiftHostProtocol }}"
+    );
+    let _ = writeln!(out, "        set {{ hostObject = newValue }}");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "extension NFMovieClip {{");
+    let _ = writeln!(out, "    public var host: (any SwiftHostProtocol)? {{");
+    let _ = writeln!(
+        out,
+        "        get {{ hostObject as? any SwiftHostProtocol }}"
+    );
+    let _ = writeln!(out, "        set {{ hostObject = newValue }}");
+    let _ = writeln!(out, "    }}");
     let _ = writeln!(out, "}}");
     out
 }

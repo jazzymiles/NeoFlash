@@ -1800,8 +1800,8 @@ private struct NeoFlashStageRepresentable: NSViewRepresentable {
         if let scene {
             if !nsView.stage.children.contains(where: { $0 === scene }) {
                 nsView.stage.mountRootScene(scene)
-            } else if let pendingHost = scene.host, nsView.stage.host !== pendingHost {
-                nsView.stage.host = pendingHost
+            } else if let pendingHost = scene.hostObject, nsView.stage.hostObject !== pendingHost {
+                nsView.stage.hostObject = pendingHost
             }
         }
         if let scaleMode {
@@ -1859,8 +1859,8 @@ private struct NeoFlashStageRepresentable: UIViewRepresentable {
         if let scene {
             if !uiView.stage.children.contains(where: { $0 === scene }) {
                 uiView.stage.mountRootScene(scene)
-            } else if let pendingHost = scene.host, uiView.stage.host !== pendingHost {
-                uiView.stage.host = pendingHost
+            } else if let pendingHost = scene.hostObject, uiView.stage.hostObject !== pendingHost {
+                uiView.stage.hostObject = pendingHost
             }
         }
         if let scaleMode {
